@@ -97,7 +97,7 @@ internal sealed class WaterEffects : MonoBehaviour
             _sound.time = index * 0.9f % EffectAssets.Stream.length;
             if (EffectAssets.Spray != null)
             {
-                _spray = Object.Instantiate(EffectAssets.Spray, _root.transform).GetComponent<ParticleSystem>();
+                _spray = Instantiate(EffectAssets.Spray, _root.transform).GetComponent<ParticleSystem>();
                 SetUp(_spray);
             }
         }
