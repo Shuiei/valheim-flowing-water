@@ -4,7 +4,7 @@ using UnityEngine;
 namespace FlowingWater.Client;
 
 /// <summary>A place where a tile's water runs fast: its surface point, where it runs, how much and how steeply.</summary>
-internal readonly struct WaterSpot
+internal sealed class WaterSpot
 {
     public WaterSpot(Vector3 position, Vector3 direction, float flow, float steep)
     {
