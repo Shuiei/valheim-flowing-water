@@ -27,6 +27,7 @@ internal static class WorldLoadedPatch
     private static void Postfix()
     {
         FlowingWaterPlugin.WorldLoaded = true;
+        FlowingWaterPlugin.Log.LogInfo("World loaded");
     }
 }
 

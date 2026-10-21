@@ -171,6 +171,18 @@ internal sealed class WaterServer
         return depth < 0.1f ? ':' : depth < 0.5f ? 'o' : depth < 2f ? 'O' : '#';
     }
 
+    // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without
+    // one is saved but can never be found again by prefab.
+    private static ZDO NewTileZdo(Vector2s zone)
+    {
+        ZDO zdo = ZDOMan.instance.CreateNewZDO(ZoneSystem.GetZonePos(zone), Prefabs.TileHash);
+        zdo.SetPrefab(Prefabs.TileHash);
+        zdo.Persistent = true;
+        zdo.SetType(ZDO.ObjectType.Default);
+        zdo.SetDistant(false);
+        return zdo;
+    }
+
     private static void DestroyZdo(ZDO zdo)
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
@@ -185,6 +197,7 @@ internal sealed class WaterServer
         {
         }
 
+        FlowingWaterPlugin.Log.LogInfo($"Water: {_zdos.Count} tile objects found among {ZDOMan.instance.NrOfObjects()}");
         int unreadable = 0;
         foreach (ZDO zdo in _zdos)
         {
@@ -538,11 +551,7 @@ internal sealed class WaterServer
             return null;
         }
 
-        ZDO zdo = ZDOMan.instance.CreateNewZDO(ZoneSystem.GetZonePos(zone), Prefabs.TileHash);
-        zdo.Persistent = true;
-        zdo.SetType(ZDO.ObjectType.Default);
-        zdo.SetDistant(false);
-        tile = new ServerTile(zone, zdo);
+        tile = new ServerTile(zone, NewTileZdo(zone));
         SyncTerrain(tile);
         _tiles[key] = tile;
         FlowingWaterPlugin.Log.LogInfo($"Water reached zone {zone} ({_tiles.Count} tiles)");
@@ -576,10 +585,7 @@ internal sealed class WaterServer
             if (ZDOMan.instance.GetZDO(tile.Zdo.m_uid) == null)
             {
                 FlowingWaterPlugin.Log.LogWarning($"Zone {tile.Data.Zone}: water tile object gone, making it again");
-                tile.Zdo = ZDOMan.instance.CreateNewZDO(ZoneSystem.GetZonePos(tile.Data.Zone), Prefabs.TileHash);
-                tile.Zdo.Persistent = true;
-                tile.Zdo.SetType(ZDO.ObjectType.Default);
-                tile.Zdo.SetDistant(false);
+                tile.Zdo = NewTileZdo(tile.Data.Zone);
             }
 
             if (!tile.Zdo.IsOwner())
