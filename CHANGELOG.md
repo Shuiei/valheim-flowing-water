@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.6.0 — 2026-10-21
+
+### Changed
+- The cream-coloured band along the water's edge is gone: the edge now fades out to nothing.
+- Water reads better: a little more colour in shallow water, a softer sky reflection, and larger ripples that
+  still show from afar.
+- White water now comes from how steep the water runs (rapids and falls foam, gentle streams do not), with only
+  a trace of foam at the shore.
+
 ## v0.5.0 — 2026-10-21
 
 ### Changed

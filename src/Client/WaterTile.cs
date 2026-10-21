@@ -45,6 +45,12 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float StillTextureScale = 0.125f;
 
+    // White water from the surface's slope: none below the first, all of it from the second (rise
+    // over run): rapids and falls foam, a stream down a gentle slope does not.
+    private const float SteepFoamFrom = 0.45f;
+
+    private const float SteepFoamFull = 1.2f;
+
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
@@ -760,6 +766,36 @@ internal sealed class WaterTile : MonoBehaviour
         }
     }
 
+    // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1), from
+    // the vertices beside it that are in the mesh.
+    private float SteepFoam(int x, int z)
+    {
+        int i = (z * Pitch) + x;
+        if (!_vertexWet[i])
+        {
+            return 0f;
+        }
+
+        float steepest = 0f;
+        for (int k = 0; k < 4; k++)
+        {
+            int nx = x + (k == 0 ? 1 : k == 1 ? -1 : 0);
+            int nz = z + (k == 2 ? 1 : k == 3 ? -1 : 0);
+            if (nx < 0 || nz < 0 || nx >= Pitch || nz >= Pitch)
+            {
+                continue;
+            }
+
+            int j = (nz * Pitch) + nx;
+            if (_vertexWet[j])
+            {
+                steepest = Mathf.Max(steepest, Mathf.Abs(_vertexY[j] - _vertexY[i]) / _cell);
+            }
+        }
+
+        return Mathf.Clamp01((steepest - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
+    }
+
     private void Rebuild()
     {
         SmoothForDrawing();
@@ -796,7 +832,7 @@ internal sealed class WaterTile : MonoBehaviour
                 if (_customShader)
                 {
                     _uvs.Add(new Vector2(wx, wz));
-                    _water.Add(new Vector4(VertexDepth(x, z), 0f, Shore(x, z), 0f));
+                    _water.Add(new Vector4(VertexDepth(x, z), SteepFoam(x, z), Shore(x, z), 0f));
                     _current.Add(new Vector2(vx, vz));
                 }
                 else if (speed >= streamSpeed)

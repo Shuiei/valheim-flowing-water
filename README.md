@@ -109,9 +109,11 @@ next start or at once with a config manager.
   dry cells nothing flows into. A changed tile is written to its ZDO every `SendSeconds`, and the
   game sends it to the players near that zone.
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
-  standard lighting): the mesh carries depth, shore and current per vertex; a ripple normal map is dragged
-  along the current in two offset phases (flow mapping), with a slow second layer for still water; colour and
-  opacity go from shallow to deep; foam rises with speed and at the shore; the edge fades out.
+  standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
+  dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,
+  seen from afar, a larger layer that still reads at a distance; colour and opacity go from shallow to deep;
+  foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge fades out
+  to nothing, its reflections included (the blending adds light even where the water is transparent).
 - **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh
   (at most 20 times a second, over the wet part of the zone only):
   wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
