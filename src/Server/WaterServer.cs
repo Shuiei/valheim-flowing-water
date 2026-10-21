@@ -986,6 +986,8 @@ internal sealed class WaterServer
     {
         int i = tile.Data.Index(x, z);
         bool there = Neighbour(tile, beyondX, beyondZ, out ServerTile other, out int index, out Vector2s zone);
+
+        // A west or south pair is the tile beyond's east or north one: slid from there, once a step.
         if (there && beyondX >= 0 && beyondZ >= 0)
         {
             Slide(tile, i, other, index, dt);
