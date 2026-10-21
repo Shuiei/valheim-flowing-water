@@ -9,7 +9,7 @@ internal sealed class Settings
     {
         Enabled = config.Bind("General", "Enabled", true, "Simulate (server) and show (client) flowing water.");
         StepsPerSecond = config.Bind("Server", "StepsPerSecond", 10, new ConfigDescription("Simulation steps per second.", new AcceptableValueRange<int>(2, 30)));
-        FlowRate = config.Bind("Server", "FlowRate", 0.3f, new ConfigDescription("Share of the level difference between two cells that moves to the lower one each step. Higher is faster water; above 0.5 the simulation is unstable.", new AcceptableValueRange<float>(0.05f, 0.5f)));
+        FlowRate = config.Bind("Server", "FlowRate", 0.25f, new ConfigDescription("Share of the level difference between two cells that moves to the lower one each step, in each of eight directions. Higher is faster water; above 0.3 the simulation can oscillate.", new AcceptableValueRange<float>(0.05f, 0.5f)));
         SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed water tile is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
         MaxTiles = config.Bind("Server", "MaxTiles", 256, new ConfigDescription("Most zones that may hold water at once (each is 64 by 64 metres). Water stops spreading beyond.", new AcceptableValueRange<int>(1, 4096)));
         MaxDepth = config.Bind("Server", "MaxDepth", 40f, new ConfigDescription("Deepest a cell may fill, in metres; a basin without an outlet stops rising there.", new AcceptableValueRange<float>(1f, 300f)));

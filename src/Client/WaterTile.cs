@@ -24,7 +24,15 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float HeightSampleSeconds = 1f;
 
-    private const float StreamTextureScale = 0.25f;
+    private const float MinDrawnDepth = 0.15f;
+
+    private const float ShoreDip = 0.02f;
+
+    private const float StreamTextureScale = 0.5f;
+
+    // The water speed at which the stream texture runs at its material's own speed; slower water
+    // gets a denser texture that moves slower, faster water a stretched one that moves faster.
+    private const float ReferenceSpeed = 1f;
 
     private const float StillTextureScale = 0.125f;
 
@@ -225,11 +233,40 @@ internal sealed class WaterTile : MonoBehaviour
         return ByZone.TryGetValue(TileData.Key(new Vector2s(zx, zy)), out WaterTile other) && other.Ready ? other : null;
     }
 
+    // A wet vertex sits on its water (never thinner than MinDrawnDepth, so a stream shows). A dry
+    // vertex beside a wet one carries that surface on, just under its own ground, so the surface
+    // runs into the ground and the shader fades it out there: the shore. Other dry vertices are
+    // sunk out of sight.
     private float VertexY(int x, int z)
     {
         float depth = VertexDepth(x, z);
         float ground = _height[(z * Pitch) + x];
-        return depth > WetDepth ? ground + depth : ground - DrySink;
+        if (depth > WetDepth)
+        {
+            return ground + Mathf.Max(depth, MinDrawnDepth);
+        }
+
+        float carried = float.MinValue;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int nx = x + dx;
+                int nz = z + dz;
+                if ((dx == 0 && dz == 0) || nx < 0 || nz < 0 || nx >= Pitch || nz >= Pitch)
+                {
+                    continue;
+                }
+
+                float neighbourDepth = VertexDepth(nx, nz);
+                if (neighbourDepth > WetDepth)
+                {
+                    carried = Mathf.Max(carried, _height[(nz * Pitch) + nx] + Mathf.Max(neighbourDepth, MinDrawnDepth));
+                }
+            }
+        }
+
+        return carried == float.MinValue ? ground - DrySink : Mathf.Min(carried, ground - ShoreDip);
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -433,7 +470,8 @@ internal sealed class WaterTile : MonoBehaviour
                     // Along the flow for the scrolling stream texture: v runs downstream.
                     vx /= speed;
                     vz /= speed;
-                    _uvs[i] = new Vector2(((wx * vz) - (wz * vx)) * StreamTextureScale, ((wx * vx) + (wz * vz)) * StreamTextureScale);
+                    float along = Mathf.Clamp(ReferenceSpeed / speed, 0.25f, 4f);
+                    _uvs[i] = new Vector2(((wx * vz) - (wz * vx)) * StreamTextureScale, ((wx * vx) + (wz * vz)) * StreamTextureScale * along);
                 }
                 else
                 {

@@ -20,6 +20,8 @@ internal sealed class WaterServer
 
     private const float MinDepth = 0.0005f;
 
+    private const float Diagonal = 0.70710678f;
+
     private const float TerrainRefreshSeconds = 2f;
 
     private const int MaxStepsPerFrame = 4;
@@ -366,21 +368,31 @@ internal sealed class WaterServer
                 }
 
                 float surface = data.Height[i] + depth;
+                // Eight neighbours; a diagonal one lies further, so the same level difference
+                // is a gentler slope and moves less (the slope's 1/√2).
                 float east = Want(surface, tile, x + 1, z);
                 float west = Want(surface, tile, x - 1, z);
                 float north = Want(surface, tile, x, z + 1);
                 float south = Want(surface, tile, x, z - 1);
-                float total = east + west + north + south;
+                float northEast = Want(surface, tile, x + 1, z + 1) * Diagonal;
+                float northWest = Want(surface, tile, x - 1, z + 1) * Diagonal;
+                float southEast = Want(surface, tile, x + 1, z - 1) * Diagonal;
+                float southWest = Want(surface, tile, x - 1, z - 1) * Diagonal;
+                float total = east + west + north + south + northEast + northWest + southEast + southWest;
                 if (total <= 0f)
                 {
                     continue;
                 }
 
                 float scale = rate * Mathf.Min(1f, depth / total);
-                Move(tile, i, x + 1, z, east * scale, 1, 0);
-                Move(tile, i, x - 1, z, west * scale, -1, 0);
-                Move(tile, i, x, z + 1, north * scale, 0, 1);
-                Move(tile, i, x, z - 1, south * scale, 0, -1);
+                Move(tile, i, x + 1, z, east * scale, 1f, 0f);
+                Move(tile, i, x - 1, z, west * scale, -1f, 0f);
+                Move(tile, i, x, z + 1, north * scale, 0f, 1f);
+                Move(tile, i, x, z - 1, south * scale, 0f, -1f);
+                Move(tile, i, x + 1, z + 1, northEast * scale, Diagonal, Diagonal);
+                Move(tile, i, x - 1, z + 1, northWest * scale, -Diagonal, Diagonal);
+                Move(tile, i, x + 1, z - 1, southEast * scale, Diagonal, -Diagonal);
+                Move(tile, i, x - 1, z - 1, southWest * scale, -Diagonal, -Diagonal);
             }
         }
     }
@@ -393,7 +405,8 @@ internal sealed class WaterServer
         return diff > 0f ? diff * 0.5f : 0f;
     }
 
-    private void Move(ServerTile from, int fromIndex, int x, int z, float amount, int dx, int dz)
+    // ux, uz: the unit direction to the neighbour, for the cell's flow vector.
+    private void Move(ServerTile from, int fromIndex, int x, int z, float amount, float ux, float uz)
     {
         if (amount <= 0f)
         {
@@ -407,8 +420,8 @@ internal sealed class WaterServer
 
         from.Delta[fromIndex] -= amount;
         to.Delta[toIndex] += amount;
-        from.FluxX[fromIndex] += amount * dx;
-        from.FluxZ[fromIndex] += amount * dz;
+        from.FluxX[fromIndex] += amount * ux;
+        from.FluxZ[fromIndex] += amount * uz;
     }
 
     private float NeighbourSurface(ServerTile tile, int x, int z)

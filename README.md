@@ -27,6 +27,9 @@ Console (F5) command `flowingwater`:
 | `flowingwater drain [m³/s]` | A drain under your feet; 0 or nothing takes all that reaches it |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
+| `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
+| `flowingwater flat` | Plain colours instead of water (blue still, green running), to see the shape |
+| `flowingwater lift [m]` | Draw the water that much higher, to find it |
 
 The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must
 be on). Hammer pieces for the spring and the drain come later.
@@ -62,7 +65,8 @@ A server can also have sources and drains with no marker placed, from its config
 - **Grid.** One tile per zone, 64 × 64 cells of one metre, each at a vertex of the zone's heightmap.
   A cell holds a depth of water over its ground. Water that reaches a cell under sea level is the sea's.
 - **Step.** Each step, every wet cell gives part of its level difference to each lower neighbour (half
-  the difference, times `FlowRate`, never more than it holds), across zone borders too. The water
+  the difference, times `FlowRate`, less to the four diagonal ones, never more than it holds), across zone
+  borders too. The water
   that left a cell, divided by its depth, is the cell's velocity: the current.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs
   on a dedicated server and in zones no player has loaded. Ground heights come from the world
@@ -70,8 +74,8 @@ A server can also have sources and drains with no marker placed, from its config
   each zone's terrain-changes object. A changed tile is written to its ZDO every `SendSeconds`, and the
   game sends it to the players near that zone.
 - **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh:
-  wet vertices at the water surface, dry ones sunk under the ground, so the surface meets the ground
-  along the shore. Cells faster than `FlowVisualMinSpeed` use the game's running-water material
+  wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
+  surface on into the ground so the shore is where the surface meets the ground, the rest sunk out of sight. Cells faster than `FlowVisualMinSpeed` use the game's running-water material
   (`waterflow`, a scrolling flow shader) with texture coordinates laid along the flow; the rest use the
   sea water material without wind waves. A trigger box on the game's water layer tells characters and
   floating things the surface over them; Harmony patches make the game's water-level checks and the

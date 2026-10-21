@@ -14,6 +14,8 @@ internal static class Materials
 
     private static readonly int ColourId = Shader.PropertyToID("_Color");
 
+    private static readonly int FoamColourId = Shader.PropertyToID("_FoamColor");
+
     private static Material _still;
 
     private static Material _flow;
@@ -44,7 +46,9 @@ internal static class Materials
 
         _still = new Material(source) { name = "FlowingWater still" };
         _still.SetFloat("_UseGlobalWind", 0f);
-        _still.SetFloatArray("_depth", new float[4]);
+        // The sea's depth tint, half way: a pool is not the open ocean, but all shallow it vanishes.
+        float[] depth = [0.5f, 0.5f, 0.5f, 0.5f];
+        _still.SetFloatArray("_depth", depth);
         return _still;
     }
 
@@ -67,6 +71,9 @@ internal static class Materials
         _flow = new Material(source) { name = "FlowingWater stream" };
         _flow.SetFloat("_SpeedX", 0f);
         _flow.SetFloat("_SpeedY", FlowingWaterPlugin.Settings.FlowTextureSpeed.Value);
+        // The crypts' trickle is a murky green; a river is blue-grey with white foam.
+        _flow.SetColor(ColourId, new Color(0.22f, 0.4f, 0.55f, 1f));
+        _flow.SetColor(FoamColourId, new Color(0.9f, 0.95f, 1f, 1f));
         return _flow;
     }
 
