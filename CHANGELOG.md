@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.0 — 2026-10-21
+
+### Added
+- **The mod's own water shader.** Ripples run downstream with the current, the water is clear where shallow
+  and dark where deep, fast water foams, and the edge fades out instead of ending in a hard line. Built for
+  the game's Windows build (also under Proton) and its Linux build; elsewhere, or with the new setting
+  `Client.CustomShader` off, the game's own materials are used as before. `flowingwater mat custom <property>`
+  tunes it in game.
+
 ## v0.2.0 — 2026-10-21
 
 ### Changed

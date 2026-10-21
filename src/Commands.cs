@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m] | mat still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m] | mat custom|still|stream <property> [values]";
 
     private static bool _registered;
 
@@ -95,7 +95,7 @@ internal static class Commands
     {
         if (args.Length < 4)
         {
-            return "mat still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+            return "mat custom|still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
         }
 
         string kind = args.Args[2].ToLowerInvariant();

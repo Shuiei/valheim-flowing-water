@@ -5,3 +5,6 @@ obj/
 .claude/*
 !.claude/skills/
 !.claude/docs/
+
+# Unity bundle build folders (the bundles themselves are kept: the plugin embeds them)
+assets/bundles/build-*/

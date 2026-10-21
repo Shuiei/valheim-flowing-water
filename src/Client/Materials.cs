@@ -26,9 +26,85 @@ internal static class Materials
 
     private static Material _drain;
 
+    private static Material _custom;
+
+    private static AssetBundle _bundle;
+
+    private static bool _customTried;
+
     private static bool _stillMissing;
 
     private static bool _flowMissing;
+
+    /// <summary>
+    /// The mod's own water material, from the asset bundle built for this platform and embedded in
+    /// the dll; null (logged once) on a platform without one or when it does not load.
+    /// </summary>
+    public static Material Custom()
+    {
+        if (_customTried)
+        {
+            return _custom;
+        }
+
+        _customTried = true;
+        string platform = Application.platform switch
+        {
+            RuntimePlatform.WindowsPlayer => "windows",
+            RuntimePlatform.LinuxPlayer => "linux",
+            _ => null,
+        };
+        if (platform == null)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"No water shader built for {Application.platform}: the game's materials are used");
+            return null;
+        }
+
+        string name = "FlowingWater.flowingwater." + platform;
+        // LoadFromMemory copies the bytes; a stream would have to stay open as long as the bundle.
+        byte[] bytes;
+        using (System.IO.Stream stream = typeof(Materials).Assembly.GetManifestResourceStream(name))
+        {
+            if (stream == null)
+            {
+                FlowingWaterPlugin.Log.LogError($"Resource {name} is missing from the dll: the game's materials are used");
+                return null;
+            }
+
+            bytes = new byte[stream.Length];
+            int read = 0;
+            while (read < bytes.Length)
+            {
+                int got = stream.Read(bytes, read, bytes.Length - read);
+                if (got <= 0)
+                {
+                    FlowingWaterPlugin.Log.LogError($"Resource {name} ended after {read} of {bytes.Length} bytes: the game's materials are used");
+                    return null;
+                }
+
+                read += got;
+            }
+        }
+
+        _bundle = AssetBundle.LoadFromMemory(bytes);
+
+        if (_bundle == null)
+        {
+            FlowingWaterPlugin.Log.LogError($"Water bundle {platform} did not load (built for another Unity version?): the game's materials are used");
+            return null;
+        }
+
+        Material material = _bundle.LoadAsset<Material>("FlowingWater");
+        if (material == null || material.shader == null || !material.shader.isSupported)
+        {
+            FlowingWaterPlugin.Log.LogError($"Water shader from the {platform} bundle is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}): the game's materials are used");
+            return null;
+        }
+
+        _custom = new Material(material) { name = "FlowingWater custom" };
+        FlowingWaterPlugin.Log.LogInfo($"Water shader {material.shader.name} loaded from the {platform} bundle");
+        return _custom;
+    }
 
     /// <summary>The game's sea water, without its wind waves; null (logged once) when it cannot be found.</summary>
     public static Material Still()
@@ -135,10 +211,16 @@ internal static class Materials
     /// <summary>Sets a float (one value) or colour (three or four) property on the still or stream material, for tuning in game.</summary>
     public static string Tune(string kind, string property, float[] values)
     {
-        Material material = kind == "still" ? _still : kind == "stream" ? _flow : null;
+        Material material = kind switch
+        {
+            "custom" => _custom,
+            "still" => _still,
+            "stream" => _flow,
+            _ => null,
+        };
         if (material == null)
         {
-            return $"no {kind} material (still or stream, and water must have been drawn once)";
+            return $"no {kind} material (custom, still or stream; water must have been drawn once with it)";
         }
 
         if (!material.HasProperty(property))

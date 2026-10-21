@@ -25,7 +25,19 @@
     <Reference Include="assembly_utils"><HintPath>$(ManagedDir)/assembly_utils.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(ManagedDir)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ManagedDir)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <!-- The Unity project (unity/) and its generated files are not part of the plugin. -->
+  <ItemGroup>
+    <Compile Remove="unity/**" />
+    <None Remove="unity/**" />
+    <EmbeddedResource Remove="unity/**" />
+  </ItemGroup>
+  <!-- The water shader, built by the Unity project in unity/ (see README), one bundle per game platform. -->
+  <ItemGroup>
+    <EmbeddedResource Include="assets/bundles/flowingwater.windows" LogicalName="FlowingWater.flowingwater.windows" />
+    <EmbeddedResource Include="assets/bundles/flowingwater.linux" LogicalName="FlowingWater.flowingwater.linux" />
   </ItemGroup>
   <Target Name="RequireValheimDir" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(ManagedDir)/assembly_valheim.dll')">
     <Error Text="Set ValheimDir to a Valheim dedicated server's folder (-p:ValheimDir=... or an environment variable): the plugin builds against its DLLs. Looked in $(ManagedDir)." />

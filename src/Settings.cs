@@ -21,6 +21,7 @@ internal sealed class Settings
         DefaultSourceRate = config.Bind("Markers", "DefaultSourceRate", 2f, "Cubic metres per second a source gives when placed without a rate.");
         DefaultDrainRate = config.Bind("Markers", "DefaultDrainRate", 0f, "Cubic metres per second a drain takes when placed without a rate; 0 takes everything that reaches it.");
         CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether the flowingwater console command works without cheats on.");
+        CustomShader = config.Bind("Client", "CustomShader", true, "Draw the water with the mod's own shader (ripples that run with the current, colour by depth, foam, a shore that fades out). Off: the game's own sea and stream materials.");
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Water faster than this, in metres per second, is drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("How fast the stream texture runs.", new AcceptableValueRange<float>(0f, 5f)));
@@ -53,6 +54,8 @@ internal sealed class Settings
     public ConfigEntry<float> DefaultDrainRate { get; }
 
     public ConfigEntry<bool> CommandsForEveryone { get; }
+
+    public ConfigEntry<bool> CustomShader { get; }
 
     public ConfigEntry<float> CurrentStrength { get; }
 

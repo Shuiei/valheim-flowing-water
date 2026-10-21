@@ -97,6 +97,13 @@ internal sealed class WaterTile : MonoBehaviour
 
     private bool _flatApplied;
 
+    // Drawn with the mod's shader, which reads depth, shore and current from the vertices.
+    private bool _customShader;
+
+    private readonly List<Vector4> _water = new(VertexCount);
+
+    private readonly List<Vector2> _current = new(VertexCount);
+
     private float _liftApplied;
 
     /// <summary>Metres the drawn water is raised by, for testing (console `flowingwater lift`).</summary>
@@ -355,6 +362,16 @@ internal sealed class WaterTile : MonoBehaviour
     private void ApplyMaterials()
     {
         _flatApplied = Flat;
+        Material custom = !Flat && FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        _customShader = custom != null;
+        if (_customShader)
+        {
+            _renderer.sharedMaterials = [custom, custom];
+            _properties = new MaterialPropertyBlock();
+            _dirty = true;
+            return;
+        }
+
         Material still = Flat ? Materials.Plain("FlowingWater flat still", new Color(0.1f, 0.3f, 0.9f)) : Materials.Still();
         Material stream = Flat ? Materials.Plain("FlowingWater flat stream", new Color(0.1f, 0.9f, 0.3f)) : Materials.Flow();
         if (still == null && stream == null)
@@ -474,6 +491,38 @@ internal sealed class WaterTile : MonoBehaviour
         }
     }
 
+    // How far inside the water a vertex is, 0 at its very edge to 1 among wet vertices only: the
+    // share of its eight neighbours that are wet. The shader fades the edge out by it. Neighbours
+    // beyond the tile count as wet, so tile borders do not fade.
+    private float Shore(int x, int z)
+    {
+        if (VertexDepth(x, z) <= WetDepth)
+        {
+            return 0f;
+        }
+
+        int wet = 0;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dz == 0)
+                {
+                    continue;
+                }
+
+                int nx = x + dx;
+                int nz = z + dz;
+                if (nx < 0 || nz < 0 || nx >= Pitch || nz >= Pitch || VertexDepth(nx, nz) > WetDepth)
+                {
+                    wet++;
+                }
+            }
+        }
+
+        return wet / 8f;
+    }
+
     private void SampleHeights()
     {
         bool complete = true;
@@ -571,6 +620,8 @@ internal sealed class WaterTile : MonoBehaviour
     {
         SmoothForDrawing();
         ComputeVertexHeights();
+        _water.Clear();
+        _current.Clear();
         float streamSpeed = FlowingWaterPlugin.Settings.FlowVisualMinSpeed.Value;
         Vector3 origin = transform.position;
         float minY = float.MaxValue;
@@ -588,7 +639,13 @@ internal sealed class WaterTile : MonoBehaviour
                 maxY = Mathf.Max(maxY, y);
                 VertexVelocity(x, z, out float vx, out float vz);
                 float speed = Mathf.Sqrt((vx * vx) + (vz * vz));
-                if (speed >= streamSpeed)
+                if (_customShader)
+                {
+                    _uvs[i] = new Vector2(wx, wz);
+                    _water.Add(new Vector4(VertexDepth(x, z), 0f, Shore(x, z), 0f));
+                    _current.Add(new Vector2(vx, vz));
+                }
+                else if (speed >= streamSpeed)
                 {
                     // Along the flow for the scrolling stream texture: v runs downstream.
                     vx /= speed;
@@ -634,9 +691,20 @@ internal sealed class WaterTile : MonoBehaviour
         _mesh.subMeshCount = 2;
         _mesh.SetVertices(_vertices);
         _mesh.SetUVs(0, _uvs);
+        if (_customShader)
+        {
+            _mesh.SetUVs(1, _water);
+            _mesh.SetUVs(2, _current);
+        }
+
         _mesh.SetTriangles(_stillTriangles, 0, false);
         _mesh.SetTriangles(_streamTriangles, 1, false);
         _mesh.RecalculateNormals();
+        if (_customShader)
+        {
+            _mesh.RecalculateTangents();
+        }
+
         _mesh.RecalculateBounds();
 
         if (_trigger != null)
