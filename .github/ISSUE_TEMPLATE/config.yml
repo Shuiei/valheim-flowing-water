@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Download the latest version
+    url: https://github.com/Shuiei/valheim-flowing-water/releases/latest
+    about: The plugin, for the server and every player.
+  - name: Read the guide
+    url: https://github.com/Shuiei/valheim-flowing-water#readme
+    about: Placing water, the settings, and how it works.

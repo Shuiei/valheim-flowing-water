@@ -28,13 +28,16 @@
     <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ManagedDir)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
-  <!-- The Unity project (unity/), the test tools (tools/) and their generated files are not part of the plugin. -->
+  <!-- The Unity project (unity/), the test and release tools (tools/), the package's files (thunderstore/) and
+       their generated files are not part of the plugin. -->
   <ItemGroup>
     <Compile Remove="unity/**" />
     <None Remove="unity/**" />
     <EmbeddedResource Remove="unity/**" />
     <Compile Remove="tools/**" />
     <None Remove="tools/**" />
+    <Compile Remove="thunderstore/**" />
+    <None Remove="thunderstore/**" />
   </ItemGroup>
   <!-- The water shader, built by the Unity project in unity/ (see README), one bundle per game platform. -->
   <ItemGroup>

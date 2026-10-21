@@ -175,6 +175,55 @@ FW_REC_OUT=/tmp/rec gamescope --backend headless -W 1920 -H 1080 -- <Steam runti
 `WINEDLLOVERRIDES` for BepInEx). A character new to the world rides in with the Valkyrie first; the recorder
 waits for it to land. Remove the dll from the client afterwards.
 
+## Checks
+
+On every push and pull request CircleCI (`.circleci/config.yml`, `.circleci/continue.yml`) builds the
+plugin and the recorder against the game's DLLs (Steam's free dedicated server) and BepInEx from
+Thunderstore, with every analyzer warning an error (**code-analysis**); checks the formatting
+(**formatting**, `tools/format-check.sh`); builds the Thunderstore package (**package**,
+`thunderstore/build.sh`); and runs it in a real dedicated server (**server-smoke**,
+`tools/server-smoke.sh`): it loads, a fixed source's water fills a zone with no error, and the saved
+water comes back after a restart. Main's ruleset requires those four checks, CodeRabbit's approval
+(`.coderabbit.yaml`), Codacy's analysis (`.codacy/codacy.yaml`) and CodeQL's code scanning. What CI
+cannot check is the water as players see it: try that in the game.
+
+GitHub Actions add Scorecard, a dependency review of each pull request, Sigstore signatures on each
+release's files (`SECURITY.md`) and, when main moves, main merged into every approved pull request with
+auto-merge on. Dependabot opens the dependency updates.
+
+## Releasing
+
+CircleCI makes the release once you approve it:
+
+1. Each pull request raises `VERSION` and adds its dated `CHANGELOG.md` heading (`## v0.6.0 — 2026-10-22`).
+   Merging one releases nothing.
+2. To release, open a pull request from main on a branch `release/v<VERSION>`, titled exactly
+   `Release v<VERSION>`, that changes only `CHANGELOG.md` and, for notes of your own,
+   `docs/releases/v<VERSION>.md` (else the notes are the changelog's sections since the last release).
+   Its checks report at once: its code is main's, checked already.
+3. Once it is merged, main's pipeline is a release one: open its `release` workflow in CircleCI and
+   approve **hold-release**. Then the package is built and smoke-tested again, and:
+   - **github-release** tags the commit `v<VERSION>` and makes the GitHub release with
+     `FlowingWater-<VERSION>.zip` and the notes (the Sign release workflow then signs the zip);
+   - **publish-thunderstore** and **publish-hexium** publish it side by side
+     (`tools/release/publish.cs`, the sites' settings in `tools/release/sites.json`, team `Tie`).
+
+A version already on a site fails its job: no site takes a version twice. A failed job can be rerun
+from CircleCI (Rerun from failed). Still by hand: **unhide** the new version on Hexium (uploads arrive
+hidden). Nexus Mods comes once the mod has a page there (made on the website: the API cannot): then a
+`nexus` entry in `sites.json` (its mod and file ids), Moder Warehouse Plus's Nexus publishing in
+`publish.cs`, and a `publish-nexus` job.
+
+The release jobs' secrets are in CircleCI's **mod-token** context, restricted to the maintainer and
+shared by the mods' projects: `GITHUB_TOKEN`, `THUNDERSTORE_TOKEN` and `HEXIUM_TOKEN`. The project needs
+CircleCI's dynamic configuration (Project Settings › Advanced › Enable dynamic config using setup
+workflows).
+
+To check the publishing without publishing:
+`dotnet run --file tools/release/publish.cs -- <thunderstore|hexium> <folder> --dry-run`, with the zip in
+the folder and the site's token in the environment. The package's icon is drawn by
+`dotnet run --file thunderstore/MakeIcon.cs`; its mod page is `thunderstore/README.md`.
+
 ## Rules
 
 - No decompiled game code in the repo.

@@ -1,0 +1,27 @@
+# Dependabot: weekly pull requests for outdated dependencies. Updates of the same kind are grouped
+# into one pull request; CircleCI checks each.
+version: 2
+updates:
+  # The plugin (.NET Framework reference assemblies) and the analyzers it builds with
+  # (Directory.Build.props: Roslynator), and the in-game recorder's.
+  - package-ecosystem: nuget
+    directories:
+      - /
+      - /tools/Recorder
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      plugin:
+        patterns: ["*"]
+
+  # The GitHub Actions workflows (Scorecard, dependency review, release signing). Actions are pinned
+  # to commits; Dependabot moves the pin and the version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]

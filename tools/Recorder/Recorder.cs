@@ -80,7 +80,7 @@ public sealed class Recorder : BaseUnityPlugin
     // or Hide method, or switched off.
     private void DismissPopups()
     {
-        foreach (MonoBehaviour behaviour in FindObjectsOfType<MonoBehaviour>())
+        foreach (MonoBehaviour behaviour in FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None))
         {
             if (behaviour == null || !behaviour.isActiveAndEnabled)
             {
