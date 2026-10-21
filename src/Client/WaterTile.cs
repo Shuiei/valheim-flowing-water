@@ -109,8 +109,8 @@ internal sealed class WaterTile : MonoBehaviour
 
     private readonly List<Vector4> _tangents = [];
 
-    // What the tiles around last read from this one's edge, to tell them only when it changed.
-    private double _edgeSeen = double.NaN;
+    // What the tiles around last read from this one's edge (a hash of it), to tell them only when it changed.
+    private int? _edgeSeen;
 
     private float _rebuildTimer;
 
@@ -982,7 +982,7 @@ internal sealed class WaterTile : MonoBehaviour
     // keep rebuilding each other.
     private void EdgeChanged()
     {
-        double edge = 0.0;
+        int edge = 17;
         for (int z = 0; z < Pitch; z++)
         {
             for (int x = 0; x < Pitch; x++)
@@ -993,7 +993,7 @@ internal sealed class WaterTile : MonoBehaviour
                 }
 
                 int i = (z * Pitch) + x;
-                edge += (i + 1) * (_meshIndex[i] >= 0 ? _vertexY[i] + 1000.0 : 1.0);
+                edge = unchecked((edge * 31) + (_meshIndex[i] >= 0 ? _vertexY[i].GetHashCode() : -1));
             }
         }
 
