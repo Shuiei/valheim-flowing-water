@@ -535,10 +535,11 @@ public sealed class Recorder : BaseUnityPlugin
     // same cameras: near, from the side and from far off (where ripples must still show).
     private IEnumerator Look(Site steep, Site gentle)
     {
+        string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "2";
         yield return Go(steep.At(0f));
-        Command("flowingwater source 2");
+        Command("flowingwater source " + rate);
         yield return Go(gentle.At(0f));
-        Command("flowingwater source 2");
+        Command("flowingwater source " + rate);
         yield return Go(steep.At(8f));
         yield return new WaitForSeconds(120f);
         // Unset or empty: the material as it is.
@@ -565,7 +566,26 @@ public sealed class Recorder : BaseUnityPlugin
                 yield return Shot(site.Side(), site.At(12f), $"{named[0]}-{where}-side");
                 yield return Shot(site.At(15f) + (site.Across * 50f) + new Vector3(0f, 35f, 0f), site.At(15f), $"{named[0]}-{where}-far");
             }
+
+            // A view of the caller's (FW_REC_VIEW: "fromX,fromY,fromZ,atX,atY,atZ"), to look at one place.
+            if (View() is { } view)
+            {
+                yield return Go(view.At);
+                yield return Shot(view.From, view.At, $"{named[0]}-view");
+            }
         }
+    }
+
+    private static (Vector3 From, Vector3 At)? View()
+    {
+        string text = Environment.GetEnvironmentVariable("FW_REC_VIEW");
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        float[] v = [.. text.Split(',').Select(t => float.Parse(t, CultureInfo.InvariantCulture))];
+        return (new Vector3(v[0], v[1], v[2]), new Vector3(v[3], v[4], v[5]));
     }
 
     // The point with the deepest water between these distances downhill, searching 12 m to each
