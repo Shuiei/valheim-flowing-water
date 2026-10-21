@@ -1,0 +1,51 @@
+# CodeRabbit's reviews of pull requests (free for public repositories). It approves a pull request
+# once its review of the latest commit is done, every thread it opened is resolved and no check fails
+# (request_changes_workflow): the approval main's branch rules ask for. Reference:
+# https://docs.coderabbit.ai/reference/configuration
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  # Not `@coderabbitai approve` by a pull request's own author: the approval stays CodeRabbit's.
+  allow_author_approval: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    # Every push reviewed, however many commits (else it pauses after 5, and the latest commit, so
+    # the approval, waits).
+    auto_pause_after_reviewed_commits: 0
+    # Every pull request, also those stacked on another branch than main.
+    base_branches:
+      - ".*"
+  pre_merge_checks:
+    # The build asks for doc comments (GenerateDocumentationFile) where the analyzers do; this check
+    # counts every member, private ones and Harmony patches too.
+    docstrings:
+      mode: "off"
+  path_filters:
+    # The shader bundles Unity builds, the Unity project's settings and the textures: data, not code.
+    - "!assets/bundles/**"
+    - "!unity/ProjectSettings/**"
+    - "!unity/Packages/packages-lock.json"
+    - "!**/*.png"
+  path_instructions:
+    - path: "src/**"
+      instructions: >-
+        A BepInEx plugin for Valheim (Unity, .NET Framework 4.7.2), loaded by the dedicated server and
+        by every player: Unity calls Awake, Update and OnDestroy by name, Unity's == null also catches
+        destroyed objects, and Harmony finds patch arguments by their names (__instance, __result).
+        The server side works on ZDOs only (no scene objects: a dedicated server loads none far from
+        players) and steps tiles in parallel on the thread pool: flag Unity API calls off the main
+        thread. The tile data format (TileData) is saved in worlds: a change needs a new format version
+        that still reads the old one.
+    - path: "unity/Assets/**/*.shader"
+      instructions: >-
+        Built-in render pipeline shader, built by Unity 6000.0.75f1 into the committed bundles
+        (assets/bundles): a change here needs those bundles built again.
+    - path: "tools/Recorder/**"
+      instructions: >-
+        A test plugin, never shipped, that drives a game client: not held to the plugin's style rules.
+chat:
+  auto_reply: true

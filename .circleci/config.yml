@@ -1,0 +1,57 @@
+# The pipeline's start (a setup workflow, CircleCI's dynamic configuration): says whether a release is
+# due, then runs .circleci/continue.yml, where the tests, the packages and the release are.
+# A release is due on main when the commit is a release pull request's ("Release v<VERSION>", as main's
+# squash merges title it), VERSION's CHANGELOG heading has its date (not "unreleased") and VERSION is
+# not tagged yet: the release workflow then waits for an approval (README.md, Releasing).
+# Other pull requests date their headings too: merging one is no release. The title only picks the
+# workflow: nothing is released until the maintainer approves hold-release (the restricted mod-token
+# context), and only pull requests main's ruleset accepted reach main.
+# A release pull request's branch (release/v<VERSION>, changing only CHANGELOG.md and docs/releases/) runs
+# no tests: its code is main's, tested when each pull request merged; the checks main's ruleset requires
+# report at once (release_pr).
+version: 2.1
+setup: true
+
+orbs:
+  # CircleCI's orb that hands the pipeline on to another configuration. Any 1.x.
+  continuation: circleci/continuation@1
+
+jobs:
+  setup:
+    executor: continuation/default
+    steps:
+      - checkout
+      - run:
+          name: Is a release due?
+          command: |
+            release=false
+            version=$(tr -d '[:space:]' < VERSION)
+            # The commit's title: a release pull request's is "Release v<VERSION>", squash merges add " (#<number>)".
+            subject=$(git log -1 --format=%s)
+            if [ "$CIRCLE_BRANCH" = main ] && printf '%s\n' "$subject" | grep -Eq "^Release v${version//./\\.}( \(#[0-9]+\))?$" \
+              && grep -q "^## v$version — [0-9]" CHANGELOG.md \
+              && [ -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+              release=true
+            fi
+            echo "Release of v$version due: $release (commit: $subject)"
+            # A release pull request's branch: release/v<VERSION>, changing only the CHANGELOG and the release notes
+            # since main. Anything else (code, another file) runs the tests as any branch does.
+            release_pr=false
+            if [ "$CIRCLE_BRANCH" = "release/v$version" ]; then
+              git fetch -q origin main
+              changed=$(git diff --name-only "$(git merge-base FETCH_HEAD HEAD)" HEAD)
+              if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -Ev '^(CHANGELOG\.md|docs/releases/[^/]+\.md)$' | grep -q .; then
+                release_pr=true
+              fi
+              printf 'Changed since main:\n%s\n' "$changed"
+            fi
+            echo "Release pull request with only its notes (tested on main already): $release_pr"
+            echo "{\"release\": $release, \"release_pr\": $release_pr}" > /tmp/parameters.json
+      - continuation/continue:
+          configuration_path: .circleci/continue.yml
+          parameters: /tmp/parameters.json
+
+workflows:
+  setup:
+    jobs:
+      - setup

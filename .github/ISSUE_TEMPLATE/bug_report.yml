@@ -1,0 +1,72 @@
+name: Bug report
+description: Something is wrong, crashes or does not work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please attach BepInEx's log, `BepInEx/LogOutput.log` (the server's,
+        the player's, or both). A new one is started at each run, so save it before starting again.
+
+  - type: input
+    id: version
+    attributes:
+      label: FlowingWater version
+      description: Shown in the log ("FlowingWater x.y.z loaded") and in your mod manager.
+      placeholder: "0.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options:
+        - On a dedicated server
+        - In my game, hosting or single player
+        - In my game, joined to a server
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system (of the game or the server it happens on)
+      options:
+        - Windows 10/11
+        - Linux
+        - Linux (the Windows game through Proton)
+        - Other (say below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. `flowingwater source 3` on a slope near the spawn
+        2. Waited a minute
+        3. Expected a stream down the slope, but …
+    validations:
+      required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings and other mods
+      description: Any setting you changed in `Tie.FlowingWater.cfg`, and the other mods installed.
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Drag `LogOutput.log` here, or paste the relevant part.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, anything else
+      description: Screenshots help a lot for drawing problems. For those, also say your graphics card and driver.

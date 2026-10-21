@@ -1,0 +1,9 @@
+{
+  "name": "FlowingWater",
+  "version_number": "@VERSION@",
+  "website_url": "https://github.com/Shuiei/valheim-flowing-water",
+  "description": "Water that flows: springs run downhill, pool in hollows and spill on until a drain or the sea takes them. The server runs whole rivers; players swim and drift in them. Server and clients. Prototype.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2351"
+  ]
+}

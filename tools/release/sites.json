@@ -1,0 +1,15 @@
+{
+  "thunderstore": {
+    "url": "https://thunderstore.io",
+    "team": "Tie",
+    "community": "valheim",
+    "categories": ["server-side", "client-side", "misc"]
+  },
+  "hexium": {
+    "url": "https://valheim.hexium.gg",
+    "team": "Tie",
+    "community": "valheim",
+    "categories": ["Open Source", "Client & Server", "Mechanics", "Visuals"],
+    "installLocation": "both"
+  }
+}
