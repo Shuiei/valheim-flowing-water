@@ -24,7 +24,10 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float HeightSampleSeconds = 1f;
 
-    private const float MinDrawnDepth = 0.15f;
+    private const float MinDrawnDepth = 0.1f;
+
+    // How far over its own ground a smoothed shore vertex may be drawn.
+    private const float ShoreCreep = 0.05f;
 
     private const float ShoreDip = 0.02f;
 
@@ -49,6 +52,12 @@ internal sealed class WaterTile : MonoBehaviour
     private readonly float[] _depth = new float[TileData.Cells];
 
     private readonly float[] _drawDepth = new float[TileData.Cells];
+
+    private readonly float[] _vertexY = new float[VertexCount];
+
+    private readonly float[] _vertexYRaw = new float[VertexCount];
+
+    private readonly bool[] _vertexSunk = new bool[VertexCount];
 
     private readonly float[] _velX = new float[TileData.Cells];
 
@@ -108,7 +117,7 @@ internal sealed class WaterTile : MonoBehaviour
             return NoWater;
         }
 
-        return Bilinear(tile.VertexY(x, z), tile.VertexY(x + 1, z), tile.VertexY(x, z + 1), tile.VertexY(x + 1, z + 1), fx, fz);
+        return Bilinear(tile._vertexY[(z * Pitch) + x], tile._vertexY[(z * Pitch) + x + 1], tile._vertexY[((z + 1) * Pitch) + x], tile._vertexY[((z + 1) * Pitch) + x + 1], fx, fz);
     }
 
     /// <summary>The water's velocity at a point; false where there is none or it is still.</summary>
@@ -210,6 +219,7 @@ internal sealed class WaterTile : MonoBehaviour
 
                 float surface = 0f;
                 int count = 0;
+                int wetAround = 0;
                 for (int dz = -1; dz <= 1; dz++)
                 {
                     for (int dx = -1; dx <= 1; dx++)
@@ -218,6 +228,8 @@ internal sealed class WaterTile : MonoBehaviour
                         int nz = z + dz;
                         if (nx < 0 || nz < 0 || nx >= TileData.Size || nz >= TileData.Size)
                         {
+                            // The next tile's cells are not at hand: count them wet, no thinning there.
+                            wetAround++;
                             continue;
                         }
 
@@ -226,11 +238,14 @@ internal sealed class WaterTile : MonoBehaviour
                         {
                             surface += _height[(nz * Pitch) + nx] + _depth[j];
                             count++;
+                            wetAround++;
                         }
                     }
                 }
 
-                _drawDepth[i] = Mathf.Max((surface / count) - _height[(z * Pitch) + x], MinDrawnDepth);
+                // Thinner towards the water's edge (fewer wet neighbours), so the shore fades out.
+                float least = MinDrawnDepth * (wetAround - 1) / 8f;
+                _drawDepth[i] = Mathf.Max((surface / count) - _height[(z * Pitch) + x], least);
             }
         }
     }
@@ -281,13 +296,14 @@ internal sealed class WaterTile : MonoBehaviour
     // vertex beside a wet one carries that surface on, just under its own ground, so the surface
     // runs into the ground and the shader fades it out there: the shore. Other dry vertices are
     // sunk out of sight.
-    private float VertexY(int x, int z)
+    private float VertexY(int x, int z, out bool sunk)
     {
+        sunk = false;
         float depth = VertexDepth(x, z);
         float ground = _height[(z * Pitch) + x];
         if (depth > WetDepth)
         {
-            return ground + Mathf.Max(depth, MinDrawnDepth);
+            return ground + depth;
         }
 
         float carried = float.MinValue;
@@ -305,12 +321,13 @@ internal sealed class WaterTile : MonoBehaviour
                 float neighbourDepth = VertexDepth(nx, nz);
                 if (neighbourDepth > WetDepth)
                 {
-                    carried = Mathf.Max(carried, _height[(nz * Pitch) + nx] + Mathf.Max(neighbourDepth, MinDrawnDepth));
+                    carried = Mathf.Max(carried, _height[(nz * Pitch) + nx] + neighbourDepth);
                 }
             }
         }
 
-        return carried == float.MinValue ? ground - DrySink : Mathf.Min(carried, ground - ShoreDip);
+        sunk = carried == float.MinValue;
+        return sunk ? ground - DrySink : Mathf.Min(carried, ground - ShoreDip);
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -490,9 +507,70 @@ internal sealed class WaterTile : MonoBehaviour
         _dirty |= changed;
     }
 
+    // The height of every vertex: the water's, carried on just under the ground beside it, sunk
+    // elsewhere; then the vertices that are not sunk are averaged with their neighbours, which
+    // rounds the one-metre steps of the shore. A dry vertex may rise at most ShoreCreep over its
+    // ground that way.
+    private void ComputeVertexHeights()
+    {
+        for (int z = 0; z < Pitch; z++)
+        {
+            for (int x = 0; x < Pitch; x++)
+            {
+                int i = (z * Pitch) + x;
+                _vertexYRaw[i] = VertexY(x, z, out bool sunk);
+                _vertexSunk[i] = sunk;
+            }
+        }
+
+        for (int z = 0; z < Pitch; z++)
+        {
+            for (int x = 0; x < Pitch; x++)
+            {
+                int i = (z * Pitch) + x;
+                if (_vertexSunk[i])
+                {
+                    _vertexY[i] = _vertexYRaw[i];
+                    continue;
+                }
+
+                float sum = 0f;
+                int count = 0;
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = x + dx;
+                        int nz = z + dz;
+                        if (nx < 0 || nz < 0 || nx >= Pitch || nz >= Pitch)
+                        {
+                            continue;
+                        }
+
+                        int j = (nz * Pitch) + nx;
+                        if (!_vertexSunk[j])
+                        {
+                            sum += _vertexYRaw[j];
+                            count++;
+                        }
+                    }
+                }
+
+                float y = sum / count;
+                if (VertexDepth(x, z) <= WetDepth)
+                {
+                    y = Mathf.Min(y, _height[i] + ShoreCreep);
+                }
+
+                _vertexY[i] = y;
+            }
+        }
+    }
+
     private void Rebuild()
     {
         SmoothForDrawing();
+        ComputeVertexHeights();
         float streamSpeed = FlowingWaterPlugin.Settings.FlowVisualMinSpeed.Value;
         Vector3 origin = transform.position;
         float minY = float.MaxValue;
@@ -504,7 +582,7 @@ internal sealed class WaterTile : MonoBehaviour
                 int i = (z * Pitch) + x;
                 float wx = TileData.WorldX(Zone, x);
                 float wz = TileData.WorldZ(Zone, z);
-                float y = VertexY(x, z) + Lift;
+                float y = _vertexY[i] + Lift;
                 _vertices[i] = new Vector3(wx - origin.x, y - origin.y, wz - origin.z);
                 minY = Mathf.Min(minY, y);
                 maxY = Mathf.Max(maxY, y);

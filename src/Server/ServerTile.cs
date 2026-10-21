@@ -1,25 +1,25 @@
 namespace FlowingWater.Server;
 
-/// <summary>A zone's water on the server: the data kept in its ZDO plus the step's working arrays.</summary>
+/// <summary>A zone's water on the server: the data kept in its ZDO plus the flow between its cells.</summary>
 internal sealed class ServerTile
 {
     public ServerTile(Vector2s zone, ZDO zdo)
     {
         Data = new TileData(zone);
         Zdo = zdo;
+        Flux = new float[Directions.Count][];
+        for (int i = 0; i < Flux.Length; i++)
+        {
+            Flux[i] = new float[TileData.Cells];
+        }
     }
 
     public TileData Data { get; }
 
     public ZDO Zdo { get; set; }
 
-    /// <summary>Depth change per cell gathered during a step, applied at its end.</summary>
-    public float[] Delta { get; } = new float[TileData.Cells];
-
-    /// <summary>Water that left each cell during the step, as a vector (cubic metres east and north).</summary>
-    public float[] FluxX { get; } = new float[TileData.Cells];
-
-    public float[] FluxZ { get; } = new float[TileData.Cells];
+    /// <summary>Water leaving each cell towards each of its eight neighbours, cubic metres per second (a "pipe" each, with inertia).</summary>
+    public float[][] Flux { get; }
 
     /// <summary>Depths changed since the last send.</summary>
     public bool Dirty { get; set; }

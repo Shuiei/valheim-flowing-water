@@ -8,8 +8,8 @@ internal sealed class Settings
     public Settings(ConfigFile config)
     {
         Enabled = config.Bind("General", "Enabled", true, "Simulate (server) and show (client) flowing water.");
-        StepsPerSecond = config.Bind("Server", "StepsPerSecond", 10, new ConfigDescription("Simulation steps per second.", new AcceptableValueRange<int>(2, 30)));
-        FlowRate = config.Bind("Server", "FlowRate", 0.25f, new ConfigDescription("Share of the level difference between two cells that moves to the lower one each step, in each of eight directions. Higher is faster water; above 0.3 the simulation can oscillate.", new AcceptableValueRange<float>(0.05f, 0.5f)));
+        StepsPerSecond = config.Bind("Server", "StepsPerSecond", 15, new ConfigDescription("Simulation steps per second.", new AcceptableValueRange<int>(2, 30)));
+        Friction = config.Bind("Server", "Friction", 0.5f, new ConfigDescription("How fast a flow loses its momentum, per second. Lower keeps streams rushing and pools sloshing longer; higher settles them sooner.", new AcceptableValueRange<float>(0f, 5f)));
         SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed water tile is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
         MaxTiles = config.Bind("Server", "MaxTiles", 256, new ConfigDescription("Most zones that may hold water at once (each is 64 by 64 metres). Water stops spreading beyond.", new AcceptableValueRange<int>(1, 4096)));
         MaxDepth = config.Bind("Server", "MaxDepth", 40f, new ConfigDescription("Deepest a cell may fill, in metres; a basin without an outlet stops rising there.", new AcceptableValueRange<float>(1f, 300f)));
@@ -23,14 +23,14 @@ internal sealed class Settings
         CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether the flowingwater console command works without cheats on.");
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Water faster than this, in metres per second, is drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
-        FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.3f, new ConfigDescription("How fast the stream texture runs.", new AcceptableValueRange<float>(0f, 5f)));
+        FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("How fast the stream texture runs.", new AcceptableValueRange<float>(0f, 5f)));
     }
 
     public ConfigEntry<bool> Enabled { get; }
 
     public ConfigEntry<int> StepsPerSecond { get; }
 
-    public ConfigEntry<float> FlowRate { get; }
+    public ConfigEntry<float> Friction { get; }
 
     public ConfigEntry<float> SendSeconds { get; }
 

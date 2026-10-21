@@ -30,6 +30,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
 | `flowingwater flat` | Plain colours instead of water (blue still, green running), to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
+| `flowingwater mat still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
 
 The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must
 be on). Hammer pieces for the spring and the drain come later.
@@ -44,8 +45,8 @@ A server can also have sources and drains with no marker placed, from its config
 | Setting | Default | What |
 |---|---|---|
 | `Enabled` | true | Simulate (server) and show (client) |
-| `Server.StepsPerSecond` | 10 | Simulation steps per second |
-| `Server.FlowRate` | 0.3 | Share of a level difference that moves each step (faster water above, unstable past 0.5) |
+| `Server.StepsPerSecond` | 15 | Simulation steps per second |
+| `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second |
 | `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
 | `Server.MaxTiles` | 256 | Most zones with water at once |
 | `Server.MaxDepth` | 40 | Deepest a cell fills, metres |
@@ -58,16 +59,17 @@ A server can also have sources and drains with no marker placed, from its config
 | `Commands.CommandsForEveryone` | true | The command without cheats |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Water faster than this (m/s) is drawn as a running stream |
-| `Client.FlowTextureSpeed` | 0.3 | How fast the stream texture runs |
+| `Client.FlowTextureSpeed` | 0.5 | How fast the stream texture runs |
 
 ## How it works
 
 - **Grid.** One tile per zone, 64 × 64 cells of one metre, each at a vertex of the zone's heightmap.
   A cell holds a depth of water over its ground. Water that reaches a cell under sea level is the sea's.
-- **Step.** Each step, every wet cell gives part of its level difference to each lower neighbour (half
-  the difference, times `FlowRate`, less to the four diagonal ones, never more than it holds), across zone
-  borders too. The water
-  that left a cell, divided by its depth, is the cell's velocity: the current.
+- **Step.** The pipe model: every cell has a pipe to each of its eight neighbours carrying a flow that keeps
+  its momentum. Each step the level difference accelerates it (gravity, over the pipe's length), `Friction`
+  slows it, it may move at most half the difference (so two cells level out without crossing over), a flow
+  pushed uphill dies fast, and a cell never gives more than it holds. The flows then move the water, across
+  zone borders too. A cell's net flow divided by its depth is its velocity: the current.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs
   on a dedicated server and in zones no player has loaded. Ground heights come from the world
   generator as the game's heightmap builder makes them, plus the players' terrain changes read from

@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m] | mat still|stream <property> [values]";
 
     private static bool _registered;
 
@@ -77,6 +77,9 @@ internal static class Commands
                 WaterTile.Flat = !WaterTile.Flat;
                 terminal.AddString("flowingwater: " + (WaterTile.Flat ? "plain colours (blue still, green stream)" : "water materials"));
                 break;
+            case "mat":
+                terminal.AddString("flowingwater: " + Tune(args));
+                break;
             case "lift":
                 WaterTile.Lift = Rate(args, 0f);
                 terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
@@ -85,6 +88,28 @@ internal static class Commands
                 terminal.AddString(Usage);
                 break;
         }
+    }
+
+    // flowingwater mat still|stream <property> [value | r g b [a]]
+    private static string Tune(Terminal.ConsoleEventArgs args)
+    {
+        if (args.Length < 4)
+        {
+            return "mat still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+        }
+
+        string kind = args.Args[2].ToLowerInvariant();
+        string property = args.Args[3];
+        float[] values = new float[args.Length - 4];
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!float.TryParse(args.Args[4 + i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+            {
+                return $"{args.Args[4 + i]} is not a number";
+            }
+        }
+
+        return Materials.Tune(kind, property, values);
     }
 
     private static float Rate(Terminal.ConsoleEventArgs args, float fallback)

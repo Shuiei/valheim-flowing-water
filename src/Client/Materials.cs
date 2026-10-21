@@ -77,8 +77,12 @@ internal static class Materials
         // tints it a murky green; a river is a full sheet, blue-grey with white foam. The scrolling
         // normal map stays: that is the flow.
         _flow.SetTexture(MainTextureId, Texture2D.whiteTexture);
-        _flow.SetColor(ColourId, new Color(0.22f, 0.4f, 0.55f, 1f));
+        _flow.SetColor(ColourId, new Color(0.45f, 0.62f, 0.72f, 0.6f));
         _flow.SetColor(FoamColourId, new Color(0.9f, 0.95f, 1f, 1f));
+        _flow.SetFloat("_DepthFade", 1f);
+        _flow.SetFloat("_ShoreFade", 0.3f);
+        _flow.SetFloat("_BumpScale", 0.5f);
+        _flow.SetFloat("_FoamDepth", 0.4f);
         return _flow;
     }
 
@@ -126,6 +130,55 @@ internal static class Materials
         var plain = new Material(source) { name = name };
         plain.SetColor(ColourId, colour);
         return plain;
+    }
+
+    /// <summary>Sets a float (one value) or colour (three or four) property on the still or stream material, for tuning in game.</summary>
+    public static string Tune(string kind, string property, float[] values)
+    {
+        Material material = kind == "still" ? _still : kind == "stream" ? _flow : null;
+        if (material == null)
+        {
+            return $"no {kind} material (still or stream, and water must have been drawn once)";
+        }
+
+        if (!material.HasProperty(property))
+        {
+            return $"{material.shader.name} has no property {property}; try: {Properties(material)}";
+        }
+
+        switch (values.Length)
+        {
+            case 1:
+                material.SetFloat(property, values[0]);
+                return $"{kind} {property} = {values[0]:0.###}";
+            case 3:
+            case 4:
+                var colour = new Color(values[0], values[1], values[2], values.Length == 4 ? values[3] : 1f);
+                material.SetColor(property, colour);
+                return $"{kind} {property} = {colour}";
+            case 0:
+                return $"{kind} {property} = {material.GetFloat(property):0.###} (float) / {material.GetColor(property)} (colour)";
+            default:
+                return "give one value for a float or three or four for a colour";
+        }
+    }
+
+    /// <summary>The names of a material's properties, for the console.</summary>
+    public static string Properties(Material material)
+    {
+        var names = new System.Text.StringBuilder();
+        Shader shader = material.shader;
+        for (int i = 0; i < shader.GetPropertyCount(); i++)
+        {
+            if (names.Length > 0)
+            {
+                names.Append(' ');
+            }
+
+            names.Append(shader.GetPropertyName(i));
+        }
+
+        return names.ToString();
     }
 
     private static Material ZoneWater()

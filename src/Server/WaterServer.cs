@@ -20,7 +20,16 @@ internal sealed class WaterServer
 
     private const float MinDepth = 0.0005f;
 
-    private const float Diagonal = 0.70710678f;
+    private const float Gravity = 9.81f;
+
+    // The most of a level difference a pipe may move in one step: half, so two cells level out
+    // without crossing over.
+    private const float Overshoot = 0.5f;
+
+    // What a flow keeps of itself each step while pushed uphill.
+    private const float UphillKeep = 0.5f;
+
+    private const float VelocitySmoothing = 0.25f;
 
     private const float TerrainRefreshSeconds = 2f;
 
@@ -335,65 +344,13 @@ internal sealed class WaterServer
         _stepTiles.AddRange(_tiles.Values);
         foreach (ServerTile tile in _stepTiles)
         {
-            Array.Clear(tile.Delta, 0, tile.Delta.Length);
-            Array.Clear(tile.FluxX, 0, tile.FluxX.Length);
-            Array.Clear(tile.FluxZ, 0, tile.FluxZ.Length);
-        }
-
-        foreach (ServerTile tile in _stepTiles)
-        {
-            Flow(tile);
+            UpdateFlux(tile, dt);
         }
 
         float sea = ZoneSystem.instance.m_waterLevel;
         foreach (ServerTile tile in _tiles.Values)
         {
             Apply(tile, dt, sea);
-        }
-    }
-
-    private void Flow(ServerTile tile)
-    {
-        float rate = FlowingWaterPlugin.Settings.FlowRate.Value;
-        TileData data = tile.Data;
-        for (int z = 0; z < TileData.Size; z++)
-        {
-            for (int x = 0; x < TileData.Size; x++)
-            {
-                int i = TileData.Index(x, z);
-                float depth = data.Depth[i];
-                if (depth <= MinDepth)
-                {
-                    continue;
-                }
-
-                float surface = data.Height[i] + depth;
-                // Eight neighbours; a diagonal one lies further, so the same level difference
-                // is a gentler slope and moves less (the slope's 1/√2).
-                float east = Want(surface, tile, x + 1, z);
-                float west = Want(surface, tile, x - 1, z);
-                float north = Want(surface, tile, x, z + 1);
-                float south = Want(surface, tile, x, z - 1);
-                float northEast = Want(surface, tile, x + 1, z + 1) * Diagonal;
-                float northWest = Want(surface, tile, x - 1, z + 1) * Diagonal;
-                float southEast = Want(surface, tile, x + 1, z - 1) * Diagonal;
-                float southWest = Want(surface, tile, x - 1, z - 1) * Diagonal;
-                float total = east + west + north + south + northEast + northWest + southEast + southWest;
-                if (total <= 0f)
-                {
-                    continue;
-                }
-
-                float scale = rate * Mathf.Min(1f, depth / total);
-                Move(tile, i, x + 1, z, east * scale, 1f, 0f);
-                Move(tile, i, x - 1, z, west * scale, -1f, 0f);
-                Move(tile, i, x, z + 1, north * scale, 0f, 1f);
-                Move(tile, i, x, z - 1, south * scale, 0f, -1f);
-                Move(tile, i, x + 1, z + 1, northEast * scale, Diagonal, Diagonal);
-                Move(tile, i, x - 1, z + 1, northWest * scale, -Diagonal, Diagonal);
-                Move(tile, i, x + 1, z - 1, southEast * scale, Diagonal, -Diagonal);
-                Move(tile, i, x - 1, z - 1, southWest * scale, -Diagonal, -Diagonal);
-            }
         }
     }
 
@@ -432,31 +389,65 @@ internal sealed class WaterServer
         }
     }
 
-    // Half the level difference down to a lower neighbour (0 to a higher one): the amount that
-    // would level the two, before the step's rate and the cell's own water limit it.
-    private float Want(float surface, ServerTile tile, int x, int z)
+    // The pipe model: each cell has a pipe to each neighbour whose flow keeps its momentum. The
+    // level difference accelerates it (gravity, over the pipe's length), friction slows it, it
+    // never exceeds half the difference in a step (no overshoot, so no endless sloshing), and a
+    // flow pushed uphill dies quickly. A cell never gives more than it holds.
+    private void UpdateFlux(ServerTile tile, float dt)
     {
-        float diff = surface - NeighbourSurface(tile, x, z);
-        return diff > 0f ? diff * 0.5f : 0f;
-    }
-
-    // ux, uz: the unit direction to the neighbour, for the cell's flow vector.
-    private void Move(ServerTile from, int fromIndex, int x, int z, float amount, float ux, float uz)
-    {
-        if (amount <= 0f)
+        float keep = Mathf.Max(0f, 1f - (FlowingWaterPlugin.Settings.Friction.Value * dt));
+        TileData data = tile.Data;
+        float[][] flux = tile.Flux;
+        for (int z = 0; z < TileData.Size; z++)
         {
-            return;
-        }
+            for (int x = 0; x < TileData.Size; x++)
+            {
+                int i = TileData.Index(x, z);
+                float depth = data.Depth[i];
+                if (depth <= MinDepth)
+                {
+                    for (int dir = 0; dir < Directions.Count; dir++)
+                    {
+                        flux[dir][i] = 0f;
+                    }
 
-        if (!Neighbour(from, x, z, true, out ServerTile to, out int toIndex))
-        {
-            return;
-        }
+                    continue;
+                }
 
-        from.Delta[fromIndex] -= amount;
-        to.Delta[toIndex] += amount;
-        from.FluxX[fromIndex] += amount * ux;
-        from.FluxZ[fromIndex] += amount * uz;
+                float surface = data.Height[i] + depth;
+                float total = 0f;
+                for (int dir = 0; dir < Directions.Count; dir++)
+                {
+                    float drop = surface - NeighbourSurface(tile, x + Directions.Dx[dir], z + Directions.Dz[dir]);
+                    float pull = dt * Gravity * drop / Directions.Length[dir];
+                    float f = (flux[dir][i] * keep) + pull;
+                    f = drop > 0f ? Mathf.Min(f, Overshoot * drop / dt) : Mathf.Max(0f, f) * UphillKeep;
+                    flux[dir][i] = f;
+                    total += f;
+                }
+
+                if (total * dt > depth)
+                {
+                    float scale = depth / (total * dt);
+                    for (int dir = 0; dir < Directions.Count; dir++)
+                    {
+                        flux[dir][i] *= scale;
+                    }
+                }
+
+                if (x == 0 || z == 0 || x == TileData.Size - 1 || z == TileData.Size - 1)
+                {
+                    for (int dir = 0; dir < Directions.Count; dir++)
+                    {
+                        if (flux[dir][i] > 0f && !Neighbour(tile, x + Directions.Dx[dir], z + Directions.Dz[dir], true, out _, out _))
+                        {
+                            // No tile may be made there (the limit): the water stays.
+                            flux[dir][i] = 0f;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private float NeighbourSurface(ServerTile tile, int x, int z)
@@ -526,36 +517,57 @@ internal sealed class WaterServer
         shifted = new Vector2s(zx, zy);
     }
 
+    // Moves the water the pipes carry: out of each cell by its own fluxes, into it by its
+    // neighbours' fluxes towards it; then the sinks. The cell's velocity is its net flow.
     private void Apply(ServerTile tile, float dt, float sea)
     {
         TileData data = tile.Data;
+        float[][] flux = tile.Flux;
         float maxDepth = FlowingWaterPlugin.Settings.MaxDepth.Value;
         float total = 0f;
-        for (int i = 0; i < TileData.Cells; i++)
+        for (int z = 0; z < TileData.Size; z++)
         {
-            float before = data.Depth[i];
-            float depth = before + tile.Delta[i];
-            if (data.Height[i] < sea || depth < MinDepth)
+            for (int x = 0; x < TileData.Size; x++)
             {
-                depth = 0f;
-            }
-            else if (depth > maxDepth)
-            {
-                depth = maxDepth;
-            }
+                int i = TileData.Index(x, z);
+                float before = data.Depth[i];
+                float change = 0f;
+                float netX = 0f;
+                float netZ = 0f;
+                for (int dir = 0; dir < Directions.Count; dir++)
+                {
+                    float outflow = flux[dir][i];
+                    float inflow = Neighbour(tile, x + Directions.Dx[dir], z + Directions.Dz[dir], false, out ServerTile other, out int index)
+                        ? other.Flux[Directions.Opposite[dir]][index]
+                        : 0f;
+                    change += inflow - outflow;
+                    netX += (outflow - inflow) * Directions.UnitX[dir];
+                    netZ += (outflow - inflow) * Directions.UnitZ[dir];
+                }
 
-            if (Mathf.Abs(depth - before) > MinDepth)
-            {
-                tile.Dirty = true;
-            }
+                float depth = before + (change * dt);
+                if (data.Height[i] < sea || depth < MinDepth)
+                {
+                    depth = 0f;
+                }
+                else if (depth > maxDepth)
+                {
+                    depth = maxDepth;
+                }
 
-            data.Depth[i] = depth;
-            total += depth;
-            float column = dt * Mathf.Max(before, 0.05f);
-            float vx = before > 0f ? tile.FluxX[i] / column : 0f;
-            float vz = before > 0f ? tile.FluxZ[i] / column : 0f;
-            data.VelX[i] = Mathf.Lerp(data.VelX[i], vx, 0.25f);
-            data.VelZ[i] = Mathf.Lerp(data.VelZ[i], vz, 0.25f);
+                if (Mathf.Abs(depth - before) > MinDepth)
+                {
+                    tile.Dirty = true;
+                }
+
+                data.Depth[i] = depth;
+                total += depth;
+                float column = Mathf.Max(depth, 0.05f);
+                float vx = depth > 0f ? netX * 0.5f / column : 0f;
+                float vz = depth > 0f ? netZ * 0.5f / column : 0f;
+                data.VelX[i] = Mathf.Lerp(data.VelX[i], vx, VelocitySmoothing);
+                data.VelZ[i] = Mathf.Lerp(data.VelZ[i], vz, VelocitySmoothing);
+            }
         }
 
         foreach (Marker marker in _markers)

@@ -2,6 +2,20 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.2.0 — 2026-10-21
+
+### Changed
+- **Water with momentum.** The flow model is now the "pipe" one: the water between two cells keeps its speed,
+  gravity pushes it down a slope and friction slows it (setting `Friction`, replacing `FlowRate`). Streams rush
+  and gather instead of oozing evenly, pools overflow in a surge and settle, and the current is the real one.
+  Fifteen steps a second by default.
+- **Softer look.** Running water is drawn clearer and lighter, thinning out towards its edges, and the drawn
+  surface is smoothed around the shore so the one-metre steps show less.
+
+### Added
+- Console `flowingwater mat still|stream <property> [values]` changes the water materials in game, to tune their
+  look without a rebuild (`list` names the properties).
+
 ## v0.1.1 — 2026-10-21
 
 ### Fixed
