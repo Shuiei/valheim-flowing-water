@@ -133,8 +133,8 @@ jobs:
                 paths:
                   - ~/.nuget/packages
 
-  # The mod's rules that need no game (white water's places, sound and spray; the sound loops; the
-  # recorder's WAV files), on .NET: what needs the game is checked in game with the recorder.
+  # The mod's rules that need no game, on .NET (tests/FlowingWater.Tests): what needs the game is checked in
+  # game with the recorder.
   unit-tests:
     executor: dotnet
     steps:
