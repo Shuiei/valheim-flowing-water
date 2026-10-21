@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
@@ -217,6 +218,18 @@ public sealed class Recorder : BaseUnityPlugin
         Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
         Note($"steep site {steep}");
         Note($"gentle site {gentle}");
+        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "cascade")
+        {
+            IEnumerator cascade = Cascade(spawn);
+            while (cascade.MoveNext())
+            {
+                yield return cascade.Current;
+            }
+
+            Note("all steps run");
+            yield break;
+        }
+
         if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "look")
         {
             IEnumerator look = Look(steep, gentle);
@@ -507,6 +520,75 @@ public sealed class Recorder : BaseUnityPlugin
         {
             writer.Write((short)(Mathf.Clamp(sample, -1f, 1f) * short.MaxValue));
         }
+    }
+
+    // A strong spring at the top of the steepest open slope near the spawn, and once it has run, its
+    // busiest spray filmed with sound: close, then from further off.
+    private IEnumerator Cascade(Vector3 spawn)
+    {
+        Site steep = FindSite(spawn, 0.8f, 1.6f, true) ?? FindSite(spawn, 0.7f, 2f, false);
+        Note($"cascade site {steep}");
+        yield return Go(steep.At(0f));
+        Command("flowingwater source " + (Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4"));
+        yield return Go(steep.At(10f));
+        yield return new WaitForSeconds(90f);
+        yield return Views(steep, "cascade-site");
+        Vector3? busiest = EffectStats();
+        Vector3 at = busiest ?? steep.At(10f);
+        Vector3 side = Vector3.Cross(Vector3.up, (at - steep.At(0f)).normalized);
+        yield return Film(at + (side * 6f) + new Vector3(0f, 2.5f, 0f), at, "cascade-close", 10f, 24);
+        yield return Film(at + (side * 14f) + (steep.Down * 8f) + new Vector3(0f, 6f, 0f), at, "cascade-wide", 8f, 24);
+    }
+
+    // Like Burst, with the sound the camera hears (AudioTap on the audio listener) and each frame's
+    // real time, so that a video can be made of them in step: name-NNN.png, name.wav, name.txt (an ffmpeg
+    // concat list with each frame's duration and the sound's offset).
+    private IEnumerator Film(Vector3 from, Vector3 at, string name, float seconds, int fps)
+    {
+        AudioListener listener = FindObjectsByType<AudioListener>(FindObjectsSortMode.None).FirstOrDefault(l => l.isActiveAndEnabled);
+        if (listener == null)
+        {
+            Note($"film {name}: no audio listener, frames only");
+        }
+        else if (listener.GetComponent<AudioTap>() == null)
+        {
+            listener.gameObject.AddComponent<AudioTap>();
+        }
+
+        from = Clear(from, at);
+        _cameraAt = from;
+        _cameraLook = at;
+        yield return new WaitForSeconds(1f);
+        int frames = Mathf.RoundToInt(seconds * fps);
+        float step = 1f / fps;
+        var times = new List<float>(frames);
+        AudioTap.On = true;
+        float soundFrom = Time.realtimeSinceStartup;
+        for (int i = 0; i < frames; i++)
+        {
+            float next = Time.time + step;
+            yield return new WaitForEndOfFrame();
+            times.Add(Time.realtimeSinceStartup);
+            ScreenCapture.CaptureScreenshot(Path.Combine(_out, $"{name}-{i:000}.png"));
+            while (Time.time < next)
+            {
+                yield return null;
+            }
+        }
+
+        AudioTap.On = false;
+        float[] sound = AudioTap.Samples();
+        WriteWav(Path.Combine(_out, name + ".wav"), sound, AudioTap.Channels, AudioSettings.outputSampleRate);
+        var list = new System.Text.StringBuilder();
+        list.Append(FormattableString.Invariant($"# sound starts {times[0] - soundFrom:0.000} s before the first frame\n"));
+        for (int i = 0; i < times.Count; i++)
+        {
+            float duration = i + 1 < times.Count ? times[i + 1] - times[i] : step;
+            list.Append(FormattableString.Invariant($"file '{name}-{i:000}.png'\nduration {duration:0.0000}\n"));
+        }
+
+        File.WriteAllText(Path.Combine(_out, name + ".txt"), list.ToString());
+        Note(FormattableString.Invariant($"film {name}: {frames} frames over {times[times.Count - 1] - times[0]:0.00} s, sound {sound.Length / (float)Math.Max(1, AudioTap.Channels) / AudioSettings.outputSampleRate:0.00} s at {AudioSettings.outputSampleRate} Hz x{AudioTap.Channels}, starting {times[0] - soundFrom:0.000} s before the first frame"));
     }
 
     // The custom material's look, one set of properties after the other, on both streams from the
