@@ -15,7 +15,9 @@ namespace FlowingWater.Client;
 /// </summary>
 internal sealed class GroundChanges : MonoBehaviour
 {
-    private static readonly Dictionary<long, short[]> ByZone = [];
+    // Each zone's change, with the object it came from: an older object for the zone, destroyed after a newer
+    // one arrived, must not take the newer one's change away.
+    private static readonly Dictionary<long, (GroundChanges From, short[] Points)> ByZone = [];
 
     private static readonly AccessTools.FieldRef<Heightmap, List<float>> Heights = AccessTools.FieldRefAccess<Heightmap, List<float>>("m_heights");
 
@@ -52,7 +54,7 @@ internal sealed class GroundChanges : MonoBehaviour
     private static float At(Vector3 point)
     {
         Vector2s zone = TileData.CellOf(point, ErosionGround.Size, out int x, out int z);
-        return ByZone.TryGetValue(TileData.Key(zone), out short[] points) ? ErosionGround.At(points, x, z) : 0f;
+        return ByZone.TryGetValue(TileData.Key(zone), out (GroundChanges _, short[] Points) change) ? ErosionGround.At(change.Points, x, z) : 0f;
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -86,7 +88,7 @@ internal sealed class GroundChanges : MonoBehaviour
 
         try
         {
-            ByZone[TileData.Key(_zone)] = ErosionGround.Decode(data);
+            ByZone[TileData.Key(_zone)] = (this, ErosionGround.Decode(data));
         }
         catch (InvalidDataException e)
         {
@@ -100,8 +102,10 @@ internal sealed class GroundChanges : MonoBehaviour
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
     {
-        if (ByZone.Remove(TileData.Key(_zone)))
+        long key = TileData.Key(_zone);
+        if (ByZone.TryGetValue(key, out (GroundChanges From, short[] _) change) && ReferenceEquals(change.From, this))
         {
+            ByZone.Remove(key);
             RebuildGround();
         }
     }
