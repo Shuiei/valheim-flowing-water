@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m] | mat custom|still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | flat | lift [m] | mat custom|still|stream <property> [values]";
 
     private static bool _registered;
 
@@ -59,10 +59,19 @@ internal static class Commands
         switch (what)
         {
             case "source":
-                Place(terminal, player, Prefabs.SourceName, Rate(args, FlowingWaterPlugin.Settings.DefaultSourceRate.Value), "source");
+                if (Number(terminal, args, 2, FlowingWaterPlugin.Settings.DefaultSourceRate.Value, false, "a source's rate (m³/s)", out float give))
+                {
+                    Place(terminal, player, Prefabs.SourceName, give, 0f);
+                }
+
                 break;
             case "drain":
-                Place(terminal, player, Prefabs.DrainName, Rate(args, FlowingWaterPlugin.Settings.DefaultDrainRate.Value), "drain");
+                if (Number(terminal, args, 2, FlowingWaterPlugin.Settings.DefaultDrainRate.Value, true, "a drain's rate (m³/s, 0 = all)", out float take)
+                    && Number(terminal, args, 3, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value, false, "a drain's radius (m)", out float radius))
+                {
+                    Place(terminal, player, Prefabs.DrainName, take, radius);
+                }
+
                 break;
             case "remove":
                 Remove(terminal, player);
@@ -81,8 +90,12 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + Tune(args));
                 break;
             case "lift":
-                WaterTile.Lift = Rate(args, 0f);
-                terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                if (Number(terminal, args, 2, 0f, true, "the lift (m)", out float lift))
+                {
+                    WaterTile.Lift = lift;
+                    terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                }
+
                 break;
             default:
                 terminal.AddString(Usage);
@@ -112,13 +125,32 @@ internal static class Commands
         return Materials.Tune(kind, property, values);
     }
 
-    private static float Rate(Terminal.ConsoleEventArgs args, float fallback)
+    // The number at that place after the command, or the fallback when there is none. A word that
+    // is not a number, or a number out of range (below 0, or 0 when zero is not allowed), is refused
+    // with the reason on the console, and the command does nothing.
+    private static bool Number(Terminal terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
     {
-        return args.Length > 2 && float.TryParse(args.Args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate) && rate >= 0f ? rate : fallback;
+        value = fallback;
+        if (args.Length <= place)
+        {
+            return true;
+        }
+
+        string text = args.Args[place];
+        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && !float.IsInfinity(value) && (zeroAllowed ? value >= 0f : value > 0f))
+        {
+            return true;
+        }
+
+        terminal.AddString($"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}, not \"{text}\"; nothing done");
+        return false;
     }
 
-    private static void Place(Terminal terminal, Player player, string prefabName, float rate, string kind)
+    // A source (radius 0) or a drain, under the player.
+    private static void Place(Terminal terminal, Player player, string prefabName, float rate, float radius)
     {
+        bool drain = radius > 0f;
+        string kind = drain ? "drain" : "source";
         GameObject prefab = ZNetScene.instance.GetPrefab(prefabName);
         if (prefab == null)
         {
@@ -133,8 +165,15 @@ internal static class Commands
         }
 
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
-        placed.GetComponent<ZNetView>().GetZDO().Set(WaterServer.RateHash, rate);
-        terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s" + (rate <= 0f && kind == "drain" ? " (takes everything)" : string.Empty));
+        ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
+        zdo.Set(WaterServer.RateHash, rate);
+        if (drain)
+        {
+            zdo.Set(WaterServer.RadiusHash, radius);
+        }
+
+        terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
+            + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
     }
 
     private static void Remove(Terminal terminal, Player player)

@@ -203,8 +203,14 @@ internal static class Materials
             return null;
         }
 
+        // The copy keeps the piece's own textures, which tint the colour (a marker came out black).
         var plain = new Material(source) { name = name };
         plain.SetColor(ColourId, colour);
+        foreach (string texture in plain.GetTexturePropertyNames())
+        {
+            plain.SetTexture(texture, texture.Contains("Bump") || texture.Contains("Normal") ? null : Texture2D.whiteTexture);
+        }
+
         return plain;
     }
 
@@ -221,6 +227,11 @@ internal static class Materials
         if (material == null)
         {
             return $"no {kind} material (custom, still or stream; water must have been drawn once with it)";
+        }
+
+        if (property == "list")
+        {
+            return $"{kind} ({material.shader.name}) properties: {Properties(material)}";
         }
 
         if (!material.HasProperty(property))

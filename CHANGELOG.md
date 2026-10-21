@@ -2,6 +2,63 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.5.0 — 2026-10-21
+
+### Changed
+- Water runs more like water: shallow water is no longer pushed as if it were a metre deep, and the ground
+  holds it back the shallower it is (new server setting `BedRoughness`). Streams run deeper and slower
+  instead of as a thin film racing down slopes.
+
+### Added
+- Drains take water from every spot within 1 m of them by default (setting
+  `DefaultDrainRadius`), or as given: `flowingwater drain [m³/s] [radius]`. They reach into the next zone too.
+
+## v0.4.0 — 2026-10-21
+
+### Added
+- Server setting `CellSize`: the water can be simulated on cells of 1, 0.5 or 0.25 metres, for narrower
+  streams and finer shores at a higher cost. Water already there moves to the new size.
+- The current can now be up to 16 m/s instead of 6.35, with finer steps for slow water.
+
+### Changed
+- The water costs much less: the server steps the zones in parallel and skips dry ground, and players
+  draw only the wet part of each zone, rebuilt at most 20 times a second.
+
+## v0.3.6 — 2026-10-21
+
+### Fixed
+- `flowingwater mat custom list` answered as if "list" were an unknown property; it now just lists them.
+
+## v0.3.5 — 2026-10-21
+
+### Fixed
+- Turning `Client.CustomShader` off or on (with a config manager, in game) changed nothing until the water
+  was redrawn for another reason; it now applies at once.
+
+## v0.3.4 — 2026-10-21
+
+### Fixed
+- `flowingwater source`, `drain` and `lift` with a rate that is not a number, or is negative, silently used the
+  default; they now refuse it and say why.
+
+## v0.3.3 — 2026-10-21
+
+### Fixed
+- `flowingwater remove` run twice in a row failed with an error instead of saying nothing was left nearby.
+
+## v0.3.2 — 2026-10-21
+
+### Fixed
+- The water was drawn pale and milky: the shader's material still carried its first, much lighter colours and
+  heavier foam instead of the tuned ones. It now always takes the shader's own values.
+
+## v0.3.1 — 2026-10-21
+
+### Fixed
+- On a world created in the same session (a new local world or a new server world), the water never flowed:
+  the simulation waited for a save to be read and none was. It now starts on every world.
+- Source and drain markers came out black instead of blue and dark purple.
+
 ## v0.3.0 — 2026-10-21
 
 ### Added

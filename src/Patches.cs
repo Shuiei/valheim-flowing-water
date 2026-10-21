@@ -19,8 +19,12 @@ internal static class PrefabPatch
     }
 }
 
-/// <summary>Tells the plugin the server's world objects are in, so the simulation finds the saved tiles.</summary>
-[HarmonyPatch(typeof(ZNet), "LoadWorld")]
+/// <summary>
+/// Tells the plugin the server's world objects are in, so the simulation finds the saved tiles.
+/// ServerLoadWorld runs for every world a server or host opens: it reads a chunked save, or an old
+/// save or none at all (a world just created), which LoadWorld alone would miss.
+/// </summary>
+[HarmonyPatch(typeof(ZNet), "ServerLoadWorld")]
 internal static class WorldLoadedPatch
 {
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]

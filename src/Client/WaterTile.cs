@@ -24,6 +24,12 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float HeightSampleSeconds = 1f;
 
+    // While the water only eases towards the last data, the mesh is rebuilt at most this often.
+    private const float RebuildSeconds = 0.05f;
+
+    // The game's heightmap: a vertex every metre.
+    private const int GroundPitch = TileData.ZoneMetres + 1;
+
     private const float MinDrawnDepth = 0.1f;
 
     // How far over its own ground a smoothed shore vertex may be drawn.
@@ -39,41 +45,51 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float StillTextureScale = 0.125f;
 
-    private const int Pitch = TileData.VertexPitch;
-
-    private const int VertexCount = Pitch * Pitch;
-
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
 
     private static readonly int VisibleMaxDistanceId = Shader.PropertyToID("_VisibleMaxDistance");
 
-    private readonly float[] _depth = new float[TileData.Cells];
-
-    private readonly float[] _drawDepth = new float[TileData.Cells];
-
-    private readonly float[] _vertexY = new float[VertexCount];
-
-    private readonly float[] _vertexYRaw = new float[VertexCount];
-
-    private readonly bool[] _vertexSunk = new bool[VertexCount];
-
-    private readonly float[] _velX = new float[TileData.Cells];
-
-    private readonly float[] _velZ = new float[TileData.Cells];
-
-    private readonly float[] _height = new float[VertexCount];
-
-    private readonly Vector3[] _vertices = new Vector3[VertexCount];
-
-    private readonly Vector2[] _uvs = new Vector2[VertexCount];
-
     private readonly List<int> _stillTriangles = [];
 
     private readonly List<int> _streamTriangles = [];
 
     private ZNetView _nview;
+
+    // Cells per side, as the server last sent them; every array below is sized for it.
+    private int _size;
+
+    private float _cell;
+
+    private float[] _depth;
+
+    private float[] _drawDepth;
+
+    private float[] _vertexY;
+
+    private float[] _vertexYRaw;
+
+    private bool[] _vertexSunk;
+
+    private float[] _velX;
+
+    private float[] _velZ;
+
+    private float[] _height;
+
+    private bool[] _vertexWet;
+
+    // Each grid vertex's place in the mesh, which holds only the vertices of quads with water.
+    private int[] _meshIndex;
+
+    private readonly float[] _ground = new float[GroundPitch * GroundPitch];
+
+    private readonly List<Vector3> _vertices = [];
+
+    private readonly List<Vector2> _uvs = [];
+
+    private float _rebuildTimer;
 
     private TileData _target;
 
@@ -100,9 +116,12 @@ internal sealed class WaterTile : MonoBehaviour
     // Drawn with the mod's shader, which reads depth, shore and current from the vertices.
     private bool _customShader;
 
-    private readonly List<Vector4> _water = new(VertexCount);
+    // The CustomShader setting the materials were last chosen with; a change in the config applies at once.
+    private bool _customApplied;
 
-    private readonly List<Vector2> _current = new(VertexCount);
+    private readonly List<Vector4> _water = [];
+
+    private readonly List<Vector2> _current = [];
 
     private float _liftApplied;
 
@@ -116,6 +135,8 @@ internal sealed class WaterTile : MonoBehaviour
 
     public bool Ready => _haveData && _haveHeights;
 
+    private int Pitch => _size + 1;
+
     /// <summary>The water surface over a point, as drawn; well under the ground where there is none, or -10000 with no tile.</summary>
     public static float SurfaceAt(Vector3 point)
     {
@@ -124,7 +145,8 @@ internal sealed class WaterTile : MonoBehaviour
             return NoWater;
         }
 
-        return Bilinear(tile._vertexY[(z * Pitch) + x], tile._vertexY[(z * Pitch) + x + 1], tile._vertexY[((z + 1) * Pitch) + x], tile._vertexY[((z + 1) * Pitch) + x + 1], fx, fz);
+        int pitch = tile.Pitch;
+        return Bilinear(tile._vertexY[(z * pitch) + x], tile._vertexY[(z * pitch) + x + 1], tile._vertexY[((z + 1) * pitch) + x], tile._vertexY[((z + 1) * pitch) + x + 1], fx, fz);
     }
 
     /// <summary>The water's velocity at a point; false where there is none or it is still.</summary>
@@ -147,7 +169,7 @@ internal sealed class WaterTile : MonoBehaviour
     /// <summary>What is under a point, for the console.</summary>
     public static string Describe(Vector3 point)
     {
-        Vector2s zone = TileData.CellOf(point, out int x, out int z);
+        Vector2s zone = ZoneSystem.GetZone(point);
         if (!ByZone.TryGetValue(TileData.Key(zone), out WaterTile tile))
         {
             return $"zone {zone}: no water tile";
@@ -158,10 +180,11 @@ internal sealed class WaterTile : MonoBehaviour
             return $"zone {zone}: water tile not ready (data {tile._haveData}, ground {tile._haveHeights})";
         }
 
-        int i = TileData.Index(x, z);
+        TileData.CellOf(point, tile._size, out int x, out int z);
+        int i = tile.Index(x, z);
         float total = 0f;
         int wet = 0;
-        for (int c = 0; c < TileData.Cells; c++)
+        for (int c = 0; c < tile._depth.Length; c++)
         {
             total += tile._depth[c];
             if (tile._depth[c] > WetDepth)
@@ -170,15 +193,26 @@ internal sealed class WaterTile : MonoBehaviour
             }
         }
 
-        return $"zone {zone} cell {x},{z}: ground {tile._height[(z * Pitch) + x]:0.00} depth {tile._depth[i]:0.00} m, current {tile._velX[i]:0.00},{tile._velZ[i]:0.00} m/s; tile {total:0} m³ over {wet} cells";
+        total *= tile._cell * tile._cell;
+        return FormattableString.Invariant($"zone {zone} cell {x},{z} of {tile._cell} m: ground {tile._height[(z * tile.Pitch) + x]:0.00} depth {tile._depth[i]:0.00} m, current {tile._velX[i]:0.00},{tile._velZ[i]:0.00} m/s; tile {total:0} m³ over {wet} cells");
     }
 
     private static bool Find(Vector3 point, out WaterTile tile, out int x, out int z, out float fx, out float fz)
     {
-        Vector2s zone = TileData.CellOf(point, out x, out z);
-        fx = Mathf.Clamp01(point.x - TileData.WorldX(zone, x));
-        fz = Mathf.Clamp01(point.z - TileData.WorldZ(zone, z));
-        return ByZone.TryGetValue(TileData.Key(zone), out tile) && tile.Ready;
+        x = 0;
+        z = 0;
+        fx = 0f;
+        fz = 0f;
+        Vector2s zone = ZoneSystem.GetZone(point);
+        if (!ByZone.TryGetValue(TileData.Key(zone), out tile) || !tile.Ready)
+        {
+            return false;
+        }
+
+        TileData.CellOf(point, tile._size, out x, out z);
+        fx = Mathf.Clamp01((point.x - TileData.OriginX(zone) - (x * tile._cell)) / tile._cell);
+        fz = Mathf.Clamp01((point.z - TileData.OriginZ(zone) - (z * tile._cell)) / tile._cell);
+        return true;
     }
 
     private static float Bilinear(float a, float b, float c, float d, float fx, float fz)
@@ -197,27 +231,32 @@ internal sealed class WaterTile : MonoBehaviour
         return shown + ((target - shown) * k);
     }
 
+    private int Index(int x, int z)
+    {
+        return (z * _size) + x;
+    }
+
     // The depth shown at a vertex; the last row and column belong to the next zone's tile.
     private float VertexDepth(int x, int z)
     {
-        if (x < TileData.Size && z < TileData.Size)
+        if (x < _size && z < _size)
         {
-            return _drawDepth[TileData.Index(x, z)];
+            return _drawDepth[Index(x, z)];
         }
 
         WaterTile other = Beside(ref x, ref z);
-        return other == null ? 0f : other._drawDepth[TileData.Index(x, z)];
+        return other == null ? 0f : other._drawDepth[other.Index(x, z)];
     }
 
     // The depth drawn at each cell: the water surface averaged with the wet cells around it, so
     // the step-by-step spreading's one-cell ripples do not show as terraces. Dry cells stay dry.
     private void SmoothForDrawing()
     {
-        for (int z = 0; z < TileData.Size; z++)
+        for (int z = 0; z < _size; z++)
         {
-            for (int x = 0; x < TileData.Size; x++)
+            for (int x = 0; x < _size; x++)
             {
-                int i = TileData.Index(x, z);
+                int i = Index(x, z);
                 if (_depth[i] <= WetDepth)
                 {
                     _drawDepth[i] = 0f;
@@ -233,14 +272,14 @@ internal sealed class WaterTile : MonoBehaviour
                     {
                         int nx = x + dx;
                         int nz = z + dz;
-                        if (nx < 0 || nz < 0 || nx >= TileData.Size || nz >= TileData.Size)
+                        if (nx < 0 || nz < 0 || nx >= _size || nz >= _size)
                         {
                             // The next tile's cells are not at hand: count them wet, no thinning there.
                             wetAround++;
                             continue;
                         }
 
-                        int j = TileData.Index(nx, nz);
+                        int j = Index(nx, nz);
                         if (_depth[j] > WetDepth)
                         {
                             surface += _height[(nz * Pitch) + nx] + _depth[j];
@@ -259,9 +298,9 @@ internal sealed class WaterTile : MonoBehaviour
 
     private void VertexVelocity(int x, int z, out float vx, out float vz)
     {
-        if (x < TileData.Size && z < TileData.Size)
+        if (x < _size && z < _size)
         {
-            int i = TileData.Index(x, z);
+            int i = Index(x, z);
             vx = _velX[i];
             vz = _velZ[i];
             return;
@@ -275,7 +314,7 @@ internal sealed class WaterTile : MonoBehaviour
             return;
         }
 
-        int j = TileData.Index(x, z);
+        int j = other.Index(x, z);
         vx = other._velX[j];
         vz = other._velZ[j];
     }
@@ -284,19 +323,20 @@ internal sealed class WaterTile : MonoBehaviour
     {
         int zx = Zone.x;
         int zy = Zone.y;
-        if (x >= TileData.Size)
+        if (x >= _size)
         {
             zx++;
-            x -= TileData.Size;
+            x -= _size;
         }
 
-        if (z >= TileData.Size)
+        if (z >= _size)
         {
             zy++;
-            z -= TileData.Size;
+            z -= _size;
         }
 
-        return ByZone.TryGetValue(TileData.Key(new Vector2s(zx, zy)), out WaterTile other) && other.Ready ? other : null;
+        // A neighbour still on another grid (the server's changed a moment ago) joins up once it is sent again.
+        return ByZone.TryGetValue(TileData.Key(new Vector2s(zx, zy)), out WaterTile other) && other.Ready && other._size == _size ? other : null;
     }
 
     // A wet vertex sits on its water (never thinner than MinDrawnDepth, so a stream shows). A dry
@@ -349,26 +389,55 @@ internal sealed class WaterTile : MonoBehaviour
 
         Zone = ZoneSystem.GetZone(transform.position);
         _target = new TileData(Zone);
+        Allocate(_target.Size);
         _renderer = GetComponent<MeshRenderer>();
         _trigger = GetComponentInChildren<BoxCollider>();
-        _mesh = new Mesh { name = "FlowingWater tile", indexFormat = IndexFormat.UInt16 };
+        _mesh = new Mesh { name = "FlowingWater tile" };
         _mesh.MarkDynamic();
         GetComponent<MeshFilter>().sharedMesh = _mesh;
         ApplyMaterials();
         ByZone[TileData.Key(Zone)] = this;
     }
 
+    // Arrays for a grid of this many cells per side; what was shown is dropped (the new data is shown
+    // at once, the ground sampled again).
+    private void Allocate(int size)
+    {
+        _size = size;
+        _cell = (float)TileData.ZoneMetres / size;
+        int cells = size * size;
+        int vertices = Pitch * Pitch;
+        _depth = new float[cells];
+        _drawDepth = new float[cells];
+        _velX = new float[cells];
+        _velZ = new float[cells];
+        _vertexY = new float[vertices];
+        _vertexYRaw = new float[vertices];
+        _vertexSunk = new bool[vertices];
+        _height = new float[vertices];
+        _vertexWet = new bool[vertices];
+        _meshIndex = new int[vertices];
+        _haveHeights = false;
+        _heightTimer = 0f;
+        _dirty = true;
+        // Not made yet when called from Awake.
+        _mesh?.Clear(false);
+    }
+
     // The water materials, or in flat mode (for testing) plain opaque colours: blue still, green stream.
     private void ApplyMaterials()
     {
         _flatApplied = Flat;
+        _customApplied = FlowingWaterPlugin.Settings.CustomShader.Value;
+
+        // The two kinds of material read different vertex data: the mesh is rebuilt either way.
+        _dirty = true;
         Material custom = !Flat && FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
         _customShader = custom != null;
         if (_customShader)
         {
             _renderer.sharedMaterials = [custom, custom];
             _properties = new MaterialPropertyBlock();
-            _dirty = true;
             return;
         }
 
@@ -418,13 +487,6 @@ internal sealed class WaterTile : MonoBehaviour
         }
 
         float dt = Time.deltaTime;
-        _heightTimer -= dt;
-        if (_heightTimer <= 0f)
-        {
-            _heightTimer = HeightSampleSeconds;
-            SampleHeights();
-        }
-
         ZDO zdo = _nview.GetZDO();
         if (zdo.DataRevision != _revision)
         {
@@ -432,9 +494,24 @@ internal sealed class WaterTile : MonoBehaviour
             byte[] data = zdo.GetByteArray(WaterServer.DataHash);
             if (data != null && _target.Decode(data))
             {
+                if (_target.Size != _size)
+                {
+                    Allocate(_target.Size);
+                    Array.Copy(_target.Depth, _depth, _depth.Length);
+                    Array.Copy(_target.VelX, _velX, _velX.Length);
+                    Array.Copy(_target.VelZ, _velZ, _velZ.Length);
+                }
+
                 _haveData = true;
                 _dirty = true;
             }
+        }
+
+        _heightTimer -= dt;
+        if (_heightTimer <= 0f)
+        {
+            _heightTimer = HeightSampleSeconds;
+            SampleHeights();
         }
 
         if (!Ready)
@@ -443,7 +520,7 @@ internal sealed class WaterTile : MonoBehaviour
             return;
         }
 
-        if (_flatApplied != Flat)
+        if (_flatApplied != Flat || _customApplied != FlowingWaterPlugin.Settings.CustomShader.Value)
         {
             ApplyMaterials();
         }
@@ -456,16 +533,18 @@ internal sealed class WaterTile : MonoBehaviour
 
         float k = 1f - Mathf.Exp(-EaseRate * dt);
         bool moving = false;
-        for (int i = 0; i < TileData.Cells; i++)
+        for (int i = 0; i < _depth.Length; i++)
         {
             _depth[i] = Ease(_depth[i], _target.Depth[i], k, ref moving);
             _velX[i] = Ease(_velX[i], _target.VelX[i], k, ref moving);
             _velZ[i] = Ease(_velZ[i], _target.VelZ[i], k, ref moving);
         }
 
-        if (moving || _dirty)
+        _rebuildTimer -= dt;
+        if (_dirty || (moving && _rebuildTimer <= 0f))
         {
             _dirty = false;
+            _rebuildTimer = RebuildSeconds;
             Rebuild();
         }
 
@@ -523,31 +602,46 @@ internal sealed class WaterTile : MonoBehaviour
         return wet / 8f;
     }
 
+    // The ground under every vertex: the game's heightmap read at its own one-metre vertices, and
+    // between them as the game does (bilinear), so a finer grid costs no more lookups.
     private void SampleHeights()
     {
         bool complete = true;
         bool changed = false;
         var point = new Vector3(0f, 0f, 0f);
-        for (int z = 0; z < Pitch; z++)
+        float originX = TileData.OriginX(Zone);
+        float originZ = TileData.OriginZ(Zone);
+        for (int z = 0; z < GroundPitch; z++)
         {
-            point.z = TileData.WorldZ(Zone, z);
-            for (int x = 0; x < Pitch; x++)
+            point.z = originZ + z;
+            for (int x = 0; x < GroundPitch; x++)
             {
-                point.x = TileData.WorldX(Zone, x);
-                int i = (z * Pitch) + x;
+                point.x = originX + x;
+                int i = (z * GroundPitch) + x;
                 if (Heightmap.GetHeight(point, out float height))
                 {
-                    changed |= height != _height[i];
-                    _height[i] = height;
+                    changed |= height != _ground[i];
+                    _ground[i] = height;
                 }
-                else if (x < TileData.Size && z < TileData.Size)
+                else if (x < TileData.ZoneMetres && z < TileData.ZoneMetres)
                 {
                     complete = false;
                 }
                 else
                 {
                     // The next zone's ground is not loaded: carry on the edge.
-                    _height[i] = _height[x == TileData.Size ? i - 1 : i - Pitch];
+                    _ground[i] = _ground[x == TileData.ZoneMetres ? i - 1 : i - GroundPitch];
+                }
+            }
+        }
+
+        if (changed || !_haveHeights)
+        {
+            for (int z = 0; z < Pitch; z++)
+            {
+                for (int x = 0; x < Pitch; x++)
+                {
+                    _height[(z * Pitch) + x] = GroundAt(x * _cell, z * _cell);
                 }
             }
         }
@@ -556,10 +650,59 @@ internal sealed class WaterTile : MonoBehaviour
         _dirty |= changed;
     }
 
+    private float GroundAt(float x, float z)
+    {
+        int x0 = Mathf.Min(Mathf.FloorToInt(x), GroundPitch - 2);
+        int z0 = Mathf.Min(Mathf.FloorToInt(z), GroundPitch - 2);
+        float fx = x - x0;
+        float fz = z - z0;
+        int i = (z0 * GroundPitch) + x0;
+        return Bilinear(_ground[i], _ground[i + 1], _ground[i + GroundPitch], _ground[i + GroundPitch + 1], fx, fz);
+    }
+
+    // Which vertices have water, and which are in the mesh: the corners of every quad with a wet
+    // corner. The rest are sunk and not drawn.
+    private void MarkVertices()
+    {
+        for (int z = 0; z < Pitch; z++)
+        {
+            for (int x = 0; x < Pitch; x++)
+            {
+                int i = (z * Pitch) + x;
+                _vertexWet[i] = VertexDepth(x, z) > WetDepth;
+                _meshIndex[i] = -1;
+            }
+        }
+
+        for (int z = 0; z < _size; z++)
+        {
+            for (int x = 0; x < _size; x++)
+            {
+                int a = (z * Pitch) + x;
+                if (_vertexWet[a] || _vertexWet[a + 1] || _vertexWet[a + Pitch] || _vertexWet[a + Pitch + 1])
+                {
+                    _meshIndex[a] = 0;
+                    _meshIndex[a + 1] = 0;
+                    _meshIndex[a + Pitch] = 0;
+                    _meshIndex[a + Pitch + 1] = 0;
+                }
+            }
+        }
+
+        // Numbered in grid order, the order the mesh is filled in.
+        int count = 0;
+        for (int i = 0; i < _meshIndex.Length; i++)
+        {
+            if (_meshIndex[i] == 0)
+            {
+                _meshIndex[i] = count++;
+            }
+        }
+    }
+
     // The height of every vertex: the water's, carried on just under the ground beside it, sunk
-    // elsewhere; then the vertices that are not sunk are averaged with their neighbours, which
-    // rounds the one-metre steps of the shore. A dry vertex may rise at most ShoreCreep over its
-    // ground that way.
+    // elsewhere; then the vertices in the mesh are averaged with their neighbours in it, which
+    // rounds the steps of the shore. A dry vertex may rise at most ShoreCreep over its ground that way.
     private void ComputeVertexHeights()
     {
         for (int z = 0; z < Pitch; z++)
@@ -567,8 +710,9 @@ internal sealed class WaterTile : MonoBehaviour
             for (int x = 0; x < Pitch; x++)
             {
                 int i = (z * Pitch) + x;
-                _vertexYRaw[i] = VertexY(x, z, out bool sunk);
-                _vertexSunk[i] = sunk;
+                bool drawn = _meshIndex[i] >= 0;
+                _vertexYRaw[i] = drawn ? VertexY(x, z, out _) : _height[i] - DrySink;
+                _vertexSunk[i] = !drawn;
             }
         }
 
@@ -606,7 +750,7 @@ internal sealed class WaterTile : MonoBehaviour
                 }
 
                 float y = sum / count;
-                if (VertexDepth(x, z) <= WetDepth)
+                if (!_vertexWet[i])
                 {
                     y = Mathf.Min(y, _height[i] + ShoreCreep);
                 }
@@ -619,11 +763,16 @@ internal sealed class WaterTile : MonoBehaviour
     private void Rebuild()
     {
         SmoothForDrawing();
+        MarkVertices();
         ComputeVertexHeights();
+        _vertices.Clear();
+        _uvs.Clear();
         _water.Clear();
         _current.Clear();
         float streamSpeed = FlowingWaterPlugin.Settings.FlowVisualMinSpeed.Value;
         Vector3 origin = transform.position;
+        float originX = TileData.OriginX(Zone);
+        float originZ = TileData.OriginZ(Zone);
         float minY = float.MaxValue;
         float maxY = float.MinValue;
         for (int z = 0; z < Pitch; z++)
@@ -631,17 +780,22 @@ internal sealed class WaterTile : MonoBehaviour
             for (int x = 0; x < Pitch; x++)
             {
                 int i = (z * Pitch) + x;
-                float wx = TileData.WorldX(Zone, x);
-                float wz = TileData.WorldZ(Zone, z);
+                if (_meshIndex[i] < 0)
+                {
+                    continue;
+                }
+
+                float wx = originX + (x * _cell);
+                float wz = originZ + (z * _cell);
                 float y = _vertexY[i] + Lift;
-                _vertices[i] = new Vector3(wx - origin.x, y - origin.y, wz - origin.z);
+                _vertices.Add(new Vector3(wx - origin.x, y - origin.y, wz - origin.z));
                 minY = Mathf.Min(minY, y);
                 maxY = Mathf.Max(maxY, y);
                 VertexVelocity(x, z, out float vx, out float vz);
                 float speed = Mathf.Sqrt((vx * vx) + (vz * vz));
                 if (_customShader)
                 {
-                    _uvs[i] = new Vector2(wx, wz);
+                    _uvs.Add(new Vector2(wx, wz));
                     _water.Add(new Vector4(VertexDepth(x, z), 0f, Shore(x, z), 0f));
                     _current.Add(new Vector2(vx, vz));
                 }
@@ -651,33 +805,34 @@ internal sealed class WaterTile : MonoBehaviour
                     vx /= speed;
                     vz /= speed;
                     float along = Mathf.Clamp(ReferenceSpeed / speed, 0.25f, 4f);
-                    _uvs[i] = new Vector2(((wx * vz) - (wz * vx)) * StreamTextureScale, ((wx * vx) + (wz * vz)) * StreamTextureScale * along);
+                    _uvs.Add(new Vector2(((wx * vz) - (wz * vx)) * StreamTextureScale, ((wx * vx) + (wz * vz)) * StreamTextureScale * along));
                 }
                 else
                 {
-                    _uvs[i] = new Vector2(wx * StillTextureScale, wz * StillTextureScale);
+                    _uvs.Add(new Vector2(wx * StillTextureScale, wz * StillTextureScale));
                 }
             }
         }
 
         _stillTriangles.Clear();
         _streamTriangles.Clear();
-        for (int z = 0; z < TileData.Size; z++)
+        for (int z = 0; z < _size; z++)
         {
-            for (int x = 0; x < TileData.Size; x++)
+            for (int x = 0; x < _size; x++)
             {
-                if (VertexDepth(x, z) <= WetDepth && VertexDepth(x + 1, z) <= WetDepth && VertexDepth(x, z + 1) <= WetDepth && VertexDepth(x + 1, z + 1) <= WetDepth)
+                int a = (z * Pitch) + x;
+                if (!_vertexWet[a] && !_vertexWet[a + 1] && !_vertexWet[a + Pitch] && !_vertexWet[a + Pitch + 1])
                 {
                     continue;
                 }
 
-                int i = TileData.Index(x, z);
+                int i = Index(x, z);
                 float speed = Mathf.Sqrt((_velX[i] * _velX[i]) + (_velZ[i] * _velZ[i]));
                 List<int> triangles = speed >= streamSpeed ? _streamTriangles : _stillTriangles;
-                int a = (z * Pitch) + x;
-                int b = a + 1;
-                int c = a + Pitch;
-                int d = c + 1;
+                int b = _meshIndex[a + 1];
+                int c = _meshIndex[a + Pitch];
+                int d = _meshIndex[a + Pitch + 1];
+                a = _meshIndex[a];
                 triangles.Add(a);
                 triangles.Add(c);
                 triangles.Add(b);
@@ -688,6 +843,7 @@ internal sealed class WaterTile : MonoBehaviour
         }
 
         _mesh.Clear(false);
+        _mesh.indexFormat = _vertices.Count > ushort.MaxValue ? IndexFormat.UInt32 : IndexFormat.UInt16;
         _mesh.subMeshCount = 2;
         _mesh.SetVertices(_vertices);
         _mesh.SetUVs(0, _uvs);
@@ -707,12 +863,12 @@ internal sealed class WaterTile : MonoBehaviour
 
         _mesh.RecalculateBounds();
 
-        if (_trigger != null)
+        if (_trigger != null && _vertices.Count > 0)
         {
             float bottom = minY - origin.y - 1f;
             float top = maxY - origin.y + 1f;
             _trigger.center = new Vector3(0f, (bottom + top) * 0.5f, 0f);
-            _trigger.size = new Vector3(TileData.Size, top - bottom, TileData.Size);
+            _trigger.size = new Vector3(TileData.ZoneMetres, top - bottom, TileData.ZoneMetres);
         }
     }
 }

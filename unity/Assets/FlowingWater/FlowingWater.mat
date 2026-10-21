@@ -33,22 +33,22 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _DeepDepth: 2.5
+    - _DeepDepth: 3
     - _EdgeFade: 0.6
     - _FlowCycle: 1.5
     - _FlowSpeed: 1
     - _FoamScale: 0.6
-    - _FoamSpeed: 3
-    - _NormalStrength: 0.7
+    - _FoamSpeed: 4
+    - _NormalStrength: 0.45
     - _Reflection: 0.6
-    - _RippleScale: 0.45
+    - _RippleScale: 0.3
     - _ShoreFoam: 0.35
-    - _Smoothness: 0.93
+    - _Smoothness: 0.9
     - _StillScale: 0.12
     - _StillSpeed: 0.05
     m_Colors:
-    - _DeepColor: {r: 0.04, g: 0.16, b: 0.22, a: 0.88}
+    - _DeepColor: {r: 0.03, g: 0.11, b: 0.14, a: 0.9}
     - _FoamColor: {r: 0.92, g: 0.95, b: 0.97, a: 1}
-    - _ShallowColor: {r: 0.42, g: 0.62, b: 0.62, a: 0.18}
+    - _ShallowColor: {r: 0.2, g: 0.32, b: 0.3, a: 0.06}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
