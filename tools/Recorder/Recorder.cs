@@ -388,6 +388,13 @@ public sealed class Recorder : BaseUnityPlugin
             yield return Shot(gentle.Close(), gentle.At(7f), $"gentle-close-t{t}");
         }
 
+        Vector3? busiest = EffectStats();
+        if (busiest is { } spray)
+        {
+            yield return Shot(spray + new Vector3(5f, 3f, 3f), spray, "spray-close");
+            yield return Burst(spray + new Vector3(5f, 3f, 3f), spray, "spray-motion", 3f, 12);
+        }
+
         // The frame rate looking at the water (the players' cost of the grid: the mesh rebuilds).
         _cameraAt = Clear(steep.Behind(), steep.At(14f));
         _cameraLook = steep.At(14f);
@@ -429,6 +436,77 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater remove");
         yield return Go(gentleDrain);
         Command("flowingwater remove");
+    }
+
+    // The white water the plugin made (its sounds and spray, by their names), and its running-water
+    // sound saved once as a WAV to listen to.
+    private Vector3? EffectStats()
+    {
+        int sources = 0;
+        int playing = 0;
+        float loudest = 0f;
+        AudioClip clip = null;
+        foreach (AudioSource source in FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
+        {
+            if (source.name.StartsWith("FlowingWater white water", StringComparison.Ordinal))
+            {
+                sources++;
+                playing += source.isPlaying ? 1 : 0;
+                loudest = Mathf.Max(loudest, source.volume);
+                clip = source.clip;
+            }
+        }
+
+        int sprays = 0;
+        int drops = 0;
+        ParticleSystem busiest = null;
+        foreach (ParticleSystem spray in FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None))
+        {
+            if (spray.name.StartsWith("FlowingWater spray", StringComparison.Ordinal))
+            {
+                sprays++;
+                drops += spray.particleCount;
+                if (busiest == null || spray.particleCount > busiest.particleCount)
+                {
+                    busiest = spray;
+                }
+            }
+        }
+
+        Note($"white water: {sources} sounds ({playing} playing, loudest {loudest:0.00}), {sprays} sprays with {drops} drops in the air");
+        string wav = Path.Combine(_out, "stream.wav");
+        if (clip != null && !File.Exists(wav))
+        {
+            float[] samples = new float[clip.samples * clip.channels];
+            // The array overload by reflection: the compiler cannot tell it from the span one on .NET Framework.
+            typeof(AudioClip).GetMethod("GetData", [typeof(float[]), typeof(int)]).Invoke(clip, [samples, 0]);
+            WriteWav(wav, samples, clip.channels, clip.frequency);
+            Note($"running-water sound saved: {clip.length:0.0} s at {clip.frequency} Hz");
+        }
+
+        return busiest != null && busiest.particleCount > 0 ? busiest.transform.position : null;
+    }
+
+    private static void WriteWav(string path, float[] samples, int channels, int rate)
+    {
+        using var writer = new BinaryWriter(File.Create(path));
+        int bytes = samples.Length * 2;
+        writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
+        writer.Write(36 + bytes);
+        writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt "));
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write((short)channels);
+        writer.Write(rate);
+        writer.Write(rate * channels * 2);
+        writer.Write((short)(channels * 2));
+        writer.Write((short)16);
+        writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
+        writer.Write(bytes);
+        foreach (float sample in samples)
+        {
+            writer.Write((short)(Mathf.Clamp(sample, -1f, 1f) * short.MaxValue));
+        }
     }
 
     // The custom material's look, one set of properties after the other, on both streams from the

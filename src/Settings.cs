@@ -27,6 +27,8 @@ internal sealed class Settings
         CustomShader = config.Bind("Client", "CustomShader", true, "Draw the water with the mod's own shader (ripples that run with the current, colour by depth, foam, a shore that fades out). Off: the game's own sea and stream materials.");
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Water faster than this, in metres per second, is drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
+        Spray = config.Bind("Client", "Spray", true, "Spray where the water falls or runs steeply (rapids, falls).");
+        WaterVolume = config.Bind("Client", "WaterVolume", 0.7f, new ConfigDescription("How loud running water is (0 = silent), within the game's sound-effects volume.", new AcceptableValueRange<float>(0f, 1f)));
         FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("How fast the stream texture runs.", new AcceptableValueRange<float>(0f, 5f)));
     }
 
@@ -71,4 +73,8 @@ internal sealed class Settings
     public ConfigEntry<float> FlowVisualMinSpeed { get; }
 
     public ConfigEntry<float> FlowTextureSpeed { get; }
+
+    public ConfigEntry<bool> Spray { get; }
+
+    public ConfigEntry<float> WaterVolume { get; }
 }

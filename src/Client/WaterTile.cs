@@ -51,6 +51,14 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float SteepFoamFull = 1.2f;
 
+    // White water (sound, and spray where steep) where the water is this deep and runs this fast, at
+    // most this many places a tile, this far apart, looked for this often.
+    private const float SpotDepth = 0.03f, SpotSpeed = 1.2f;
+
+    private const int MaxSpots = 6;
+
+    private const float SpotSpacing = 6f, SpotSeconds = 0.5f;
+
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
@@ -96,6 +104,14 @@ internal sealed class WaterTile : MonoBehaviour
     private readonly List<Vector2> _uvs = [];
 
     private float _rebuildTimer;
+
+    private WaterEffects _effects;
+
+    private float _spotTimer;
+
+    private readonly List<WaterSpot> _spots = [];
+
+    private readonly List<(float Score, WaterSpot Spot)> _candidates = [];
 
     private TileData _target;
 
@@ -402,6 +418,7 @@ internal sealed class WaterTile : MonoBehaviour
         _mesh.MarkDynamic();
         GetComponent<MeshFilter>().sharedMesh = _mesh;
         ApplyMaterials();
+        _effects = gameObject.AddComponent<WaterEffects>();
         ByZone[TileData.Key(Zone)] = this;
     }
 
@@ -552,6 +569,13 @@ internal sealed class WaterTile : MonoBehaviour
             _dirty = false;
             _rebuildTimer = RebuildSeconds;
             Rebuild();
+        }
+
+        _spotTimer -= dt;
+        if (_spotTimer <= 0f)
+        {
+            _spotTimer = SpotSeconds;
+            ShowWhiteWater();
         }
 
         if (_properties != null)
@@ -766,9 +790,11 @@ internal sealed class WaterTile : MonoBehaviour
         }
     }
 
-    // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1), from
-    // the vertices beside it that are in the mesh.
-    private float SteepFoam(int x, int z)
+    // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1).
+    private float SteepFoam(int x, int z) => Mathf.Clamp01((Slope(x, z) - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
+
+    // The drawn water surface's slope at a vertex (rise over run), from the wet vertices beside it; 0 where dry.
+    private float Slope(int x, int z)
     {
         int i = (z * Pitch) + x;
         if (!_vertexWet[i])
@@ -793,7 +819,67 @@ internal sealed class WaterTile : MonoBehaviour
             }
         }
 
-        return Mathf.Clamp01((steepest - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
+        return steepest;
+    }
+
+    // White water at the tile's spots; with spray off and no sound, none (and the spots are not looked for).
+    private void ShowWhiteWater()
+    {
+        if (FlowingWaterPlugin.Settings.Spray.Value || FlowingWaterPlugin.Settings.WaterVolume.Value > 0f)
+        {
+            FindSpots();
+        }
+        else if (_spots.Count == 0)
+        {
+            return;
+        }
+        else
+        {
+            _spots.Clear();
+        }
+
+        _effects.Show(_spots);
+    }
+
+    // The places where most water runs fastest and steepest, the strongest first and never two close
+    // together: where the tile sounds and sprays.
+    private void FindSpots()
+    {
+        _spots.Clear();
+        _candidates.Clear();
+        float originX = TileData.OriginX(Zone);
+        float originZ = TileData.OriginZ(Zone);
+        for (int z = 0; z < _size; z++)
+        {
+            for (int x = 0; x < _size; x++)
+            {
+                int i = Index(x, z);
+                float speed = Mathf.Sqrt((_velX[i] * _velX[i]) + (_velZ[i] * _velZ[i]));
+                if (_depth[i] < SpotDepth || speed < SpotSpeed)
+                {
+                    continue;
+                }
+
+                float slope = Slope(x, z);
+                float flow = speed * _depth[i];
+                var at = new Vector3(originX + (x * _cell), _vertexY[(z * Pitch) + x] + Lift, originZ + (z * _cell));
+                _candidates.Add((flow * (1f + (2f * slope)), new WaterSpot(at, new Vector3(_velX[i], 0f, _velZ[i]) / speed, flow, slope)));
+            }
+        }
+
+        _candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+        foreach ((float _, WaterSpot spot) in _candidates)
+        {
+            if (_spots.Count >= MaxSpots)
+            {
+                break;
+            }
+
+            if (_spots.TrueForAll(s => (s.Position - spot.Position).sqrMagnitude >= SpotSpacing * SpotSpacing))
+            {
+                _spots.Add(spot);
+            }
+        }
     }
 
     private void Rebuild()

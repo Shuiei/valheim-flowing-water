@@ -65,6 +65,8 @@ add its radius in metres, `x,z,rate,radius`.
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Water faster than this (m/s) is drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | How fast the stream texture runs |
+| `Client.Spray` | true | Spray where the water falls or runs steeply |
+| `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
 
 ### Grid size
 
@@ -114,6 +116,11 @@ next start or at once with a config manager.
   seen from afar, a larger layer that still reads at a distance; colour and opacity go from shallow to deep;
   foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge fades out
   to nothing, its reflections included (the blending adds light even where the water is transparent).
+- **White water.** Twice a second each tile picks where most water runs fastest (at least 1.2 m/s and 3 cm
+  deep), up to six places 6 m apart, the steepest first. Each gets a sound of running water, louder the more
+  water passes (a loop made in code: filtered noise with bubbles, played through the game's sound-effects
+  mixer, only within 35 m), and spray where the surface slopes more than 0.25 (a copy of the game's own bow
+  splash made to run steadily, thicker with the flow and the slope).
 - **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh
   (at most 20 times a second, over the wet part of the zone only):
   wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
