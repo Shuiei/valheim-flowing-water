@@ -441,7 +441,9 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater source 2");
         yield return Go(steep.At(8f));
         yield return new WaitForSeconds(120f);
-        string sets = Environment.GetEnvironmentVariable("FW_REC_LOOKS") ?? "default=";
+        // Unset or empty: the material as it is.
+        string configured = Environment.GetEnvironmentVariable("FW_REC_LOOKS");
+        string sets = string.IsNullOrWhiteSpace(configured) ? "default=" : configured;
         foreach (string set in sets.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
         {
             // "name=property value;property value"; a name alone changes nothing.
