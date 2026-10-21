@@ -2,6 +2,11 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.3 — 2026-10-21
+
+### Fixed
+- `flowingwater remove` run twice in a row failed with an error instead of saying nothing was left nearby.
+
 ## v0.3.2 — 2026-10-21
 
 ### Fixed

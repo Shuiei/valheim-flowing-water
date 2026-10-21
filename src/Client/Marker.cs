@@ -24,7 +24,7 @@ internal sealed class Marker : MonoBehaviour
         float bestDistance = within;
         foreach (Marker marker in All)
         {
-            if (marker == null)
+            if (marker == null || !marker._nview.IsValid())
             {
                 continue;
             }
@@ -40,8 +40,11 @@ internal sealed class Marker : MonoBehaviour
         return best;
     }
 
+    // The game destroys the object at the end of the frame: until then it must not be found again
+    // (a second remove in the same frame destroyed it twice and failed).
     public void Remove()
     {
+        All.Remove(this);
         _nview.ClaimOwnership();
         ZNetScene.instance.Destroy(gameObject);
     }
