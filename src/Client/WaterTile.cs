@@ -53,6 +53,9 @@ internal sealed class WaterTile : MonoBehaviour
 
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
+    // The four vertices beside a vertex, as grid steps.
+    private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
 
     private static readonly int VisibleMaxDistanceId = Shader.PropertyToID("_VisibleMaxDistance");
@@ -325,24 +328,32 @@ internal sealed class WaterTile : MonoBehaviour
         vz = other._velZ[j];
     }
 
+    // The tile holding a point of this tile's grid that lies in the next zone or the one before,
+    // and the point's place on that tile's grid.
     private WaterTile Beside(ref int x, ref int z)
     {
-        int zx = Zone.x;
-        int zy = Zone.y;
-        if (x >= _size)
-        {
-            zx++;
-            x -= _size;
-        }
-
-        if (z >= _size)
-        {
-            zy++;
-            z -= _size;
-        }
+        int zx = Zone.x + Shift(ref x);
+        int zy = Zone.y + Shift(ref z);
 
         // A neighbour still on another grid (the server's changed a moment ago) joins up once it is sent again.
         return ByZone.TryGetValue(TileData.Key(new Vector2s(zx, zy)), out WaterTile other) && other.Ready && other._size == _size ? other : null;
+    }
+
+    private int Shift(ref int v)
+    {
+        if (v >= _size)
+        {
+            v -= _size;
+            return 1;
+        }
+
+        if (v < 0)
+        {
+            v += _size;
+            return -1;
+        }
+
+        return 0;
     }
 
     // A wet vertex sits on its water (never thinner than MinDrawnDepth, so a stream shows). A dry
@@ -767,33 +778,44 @@ internal sealed class WaterTile : MonoBehaviour
     }
 
     // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1), from
-    // the vertices beside it that are in the mesh.
+    // the wet vertices beside it, on this tile or the next. A vertex of the last row or column is the
+    // next tile's, so the two draw it with the same foam.
     private float SteepFoam(int x, int z)
     {
-        int i = (z * Pitch) + x;
-        if (!_vertexWet[i])
+        int ox = x;
+        int oz = z;
+        WaterTile owner = Beside(ref ox, ref oz);
+        return owner != null ? owner.OwnSteepFoam(ox, oz) : OwnSteepFoam(x, z);
+    }
+
+    private float OwnSteepFoam(int x, int z)
+    {
+        if (!WetSurface(x, z, out float y))
         {
             return 0f;
         }
 
         float steepest = 0f;
-        for (int k = 0; k < 4; k++)
+        foreach ((int dx, int dz) in Sides)
         {
-            int nx = x + (k == 0 ? 1 : k == 1 ? -1 : 0);
-            int nz = z + (k == 2 ? 1 : k == 3 ? -1 : 0);
-            if (nx < 0 || nz < 0 || nx >= Pitch || nz >= Pitch)
+            if (WetSurface(x + dx, z + dz, out float ny))
             {
-                continue;
-            }
-
-            int j = (nz * Pitch) + nx;
-            if (_vertexWet[j])
-            {
-                steepest = Mathf.Max(steepest, Mathf.Abs(_vertexY[j] - _vertexY[i]) / _cell);
+                steepest = Mathf.Max(steepest, Mathf.Abs(ny - y) / _cell);
             }
         }
 
         return Mathf.Clamp01((steepest - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
+    }
+
+    // The drawn surface's height at a vertex of this tile's grid, read from the tile beside when it
+    // lies beyond this one; false when the vertex is dry or its tile not shown.
+    private bool WetSurface(int x, int z, out float y)
+    {
+        WaterTile tile = x < 0 || z < 0 || x >= Pitch || z >= Pitch ? Beside(ref x, ref z) : this;
+        int i = (z * Pitch) + x;
+        bool wet = tile != null && tile._vertexWet[i];
+        y = wet ? tile._vertexY[i] : 0f;
+        return wet;
     }
 
     private void Rebuild()
