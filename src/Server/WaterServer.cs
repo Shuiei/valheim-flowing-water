@@ -60,6 +60,10 @@ internal sealed class WaterServer
     // Long enough, in erosion's time, for any water that dried to set down all it carried.
     private const float AllDown = 1000f;
 
+    // A cell's ground moving less than this in a step (metres: a micrometre) is no reason to write the zone
+    // again; it still counts in its change, written with the next larger one.
+    private const float GroundStep = 0.000001f;
+
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
@@ -926,7 +930,7 @@ internal sealed class WaterServer
                 sediment[i] += taken;
                 data.Height[i] -= taken;
                 tile.GroundChange[i] -= taken;
-                tile.GroundDirty |= taken != 0f;
+                tile.GroundDirty |= Math.Abs(taken) > GroundStep;
             }
         }
     }
