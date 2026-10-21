@@ -122,6 +122,24 @@ every 20 s the log draws each zone's water (`.` dry, `:` `o` `O` `#` deeper, arr
 the rest, the game with the dll in its own `BepInEx/plugins/`, joined to that server: `flowingwater
 source` under your feet on a slope, then watch, swim, and `flowingwater info`.
 
+### In-game recorder
+
+`tools/Recorder` is a test plugin (never shipped) that drives a real game client: once the player is in a
+world it picks a steep and a gentle open slope near the spawn, runs every `flowingwater` command with several
+values there (good and bad), and captures screenshots from fixed cameras plus short frame bursts for motion.
+Every command and console answer goes to `log.txt`; the game quits at the end. It does nothing unless
+`FW_REC_OUT` is set. Build it with `dotnet build -c Release` in `tools/Recorder`, put the dll in the client's
+`BepInEx/plugins/`, and run the game hidden in a headless gamescope, joined to a local server, for example:
+
+```
+FW_REC_OUT=/tmp/rec gamescope --backend headless -W 1920 -H 1080 -- <Steam runtime entry point> --verb=waitforexitandrun -- \
+  <Proton>/proton waitforexitandrun valheim.exe -console -joinserverwithcharacter 127.0.0.1:2612 <character> local -password <password>
+```
+
+(with `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `SteamAppId=892970` and the usual
+`WINEDLLOVERRIDES` for BepInEx). A character new to the world rides in with the Valkyrie first; the recorder
+waits for it to land. Remove the dll from the client afterwards.
+
 ## Rules
 
 - No decompiled game code in the repo.
