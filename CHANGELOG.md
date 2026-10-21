@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.1 — 2026-10-21
+
+### Fixed
+- On a world created in the same session (a new local world or a new server world), the water never flowed:
+  the simulation waited for a save to be read and none was. It now starts on every world.
+- Source and drain markers came out black instead of blue and dark purple.
+
 ## v0.3.0 — 2026-10-21
 
 ### Added
