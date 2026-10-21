@@ -59,10 +59,18 @@ internal static class Commands
         switch (what)
         {
             case "source":
-                Place(terminal, player, Prefabs.SourceName, Rate(args, FlowingWaterPlugin.Settings.DefaultSourceRate.Value), "source");
+                if (Number(terminal, args, FlowingWaterPlugin.Settings.DefaultSourceRate.Value, false, "a source's rate (m³/s)", out float give))
+                {
+                    Place(terminal, player, Prefabs.SourceName, give, "source");
+                }
+
                 break;
             case "drain":
-                Place(terminal, player, Prefabs.DrainName, Rate(args, FlowingWaterPlugin.Settings.DefaultDrainRate.Value), "drain");
+                if (Number(terminal, args, FlowingWaterPlugin.Settings.DefaultDrainRate.Value, true, "a drain's rate (m³/s, 0 = all)", out float take))
+                {
+                    Place(terminal, player, Prefabs.DrainName, take, "drain");
+                }
+
                 break;
             case "remove":
                 Remove(terminal, player);
@@ -81,8 +89,12 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + Tune(args));
                 break;
             case "lift":
-                WaterTile.Lift = Rate(args, 0f);
-                terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                if (Number(terminal, args, 0f, true, "the lift (m)", out float lift))
+                {
+                    WaterTile.Lift = lift;
+                    terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                }
+
                 break;
             default:
                 terminal.AddString(Usage);
@@ -112,9 +124,25 @@ internal static class Commands
         return Materials.Tune(kind, property, values);
     }
 
-    private static float Rate(Terminal.ConsoleEventArgs args, float fallback)
+    // The number after the word, or the fallback when there is none. A word that is not a number,
+    // or a number out of range (below 0, or 0 when zero is not allowed), is refused with the
+    // reason on the console, and the command does nothing.
+    private static bool Number(Terminal terminal, Terminal.ConsoleEventArgs args, float fallback, bool zeroAllowed, string what, out float value)
     {
-        return args.Length > 2 && float.TryParse(args.Args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate) && rate >= 0f ? rate : fallback;
+        value = fallback;
+        if (args.Length <= 2)
+        {
+            return true;
+        }
+
+        string text = args.Args[2];
+        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && !float.IsInfinity(value) && (zeroAllowed ? value >= 0f : value > 0f))
+        {
+            return true;
+        }
+
+        terminal.AddString($"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}, not \"{text}\"; nothing done");
+        return false;
     }
 
     private static void Place(Terminal terminal, Player player, string prefabName, float rate, string kind)

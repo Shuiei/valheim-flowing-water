@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.4 — 2026-10-21
+
+### Fixed
+- `flowingwater source`, `drain` and `lift` with a rate that is not a number, or is negative, silently used the
+  default; they now refuse it and say why.
+
 ## v0.3.3 — 2026-10-21
 
 ### Fixed
