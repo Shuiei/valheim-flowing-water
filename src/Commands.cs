@@ -107,7 +107,7 @@ internal static class Commands
             position.y = ground;
         }
 
-        var placed = Object.Instantiate(prefab, position, Quaternion.identity);
+        var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
         placed.GetComponent<ZNetView>().GetZDO().Set(WaterServer.RateHash, rate);
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s" + (rate <= 0f && kind == "drain" ? " (takes everything)" : string.Empty));
     }
