@@ -31,6 +31,9 @@ Console (F5) command `flowingwater`:
 The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must
 be on). Hammer pieces for the spring and the drain come later.
 
+A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
+`FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second).
+
 ## Settings
 
 `BepInEx/config/Tie.FlowingWater.cfg`:
@@ -44,6 +47,9 @@ be on). Hammer pieces for the spring and the drain come later.
 | `Server.MaxTiles` | 256 | Most zones with water at once |
 | `Server.MaxDepth` | 40 | Deepest a cell fills, metres |
 | `Server.EmptyTileSeconds` | 30 | A dry zone without a source forgets its tile after this |
+| `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
+| `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
+| `Server.DebugSeconds` | 0 | Log each tile as a map of depths this often (0 = off) |
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
 | `Commands.CommandsForEveryone` | true | The command without cheats |
@@ -81,6 +87,14 @@ Targets net472 against a Valheim dedicated server's DLLs: `ValheimDir` (default:
 up, the workspace this repo lives in) and `BepInExDir` (default `ValheimDir/BepInEx`). A Release build
 copies the dll to `BepInExDir/plugins/FlowingWater/`. Analyzers run as in the Valheim world editor
 (warnings are errors). The version is `VERSION`.
+
+## Testing
+
+Never on a live server. A local dedicated server with the dll in its `BepInEx/plugins/` and
+`FixedSources = 40,40,3` plus `DebugSeconds = 20` in `Tie.FlowingWater.cfg` shows the simulation alone:
+every 20 s the log draws each zone's water (`.` dry, `:` `o` `O` `#` deeper, arrows where it runs). For
+the rest, the game with the dll in its own `BepInEx/plugins/`, joined to that server: `flowingwater
+source` under your feet on a slope, then watch, swim, and `flowingwater info`.
 
 ## Rules
 
