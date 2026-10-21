@@ -56,6 +56,10 @@ internal sealed class WaterTile : MonoBehaviour
     // The four vertices beside a vertex, as grid steps.
     private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
+    // The eight tiles around: each reads this one's edge (its border heights, and the heights next to
+    // the border for its normals).
+    private static readonly (int X, int Z)[] Around = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
 
     private static readonly int VisibleMaxDistanceId = Shader.PropertyToID("_VisibleMaxDistance");
@@ -97,6 +101,13 @@ internal sealed class WaterTile : MonoBehaviour
     private readonly List<Vector3> _vertices = [];
 
     private readonly List<Vector2> _uvs = [];
+
+    private readonly List<Vector3> _normals = [];
+
+    private readonly List<Vector4> _tangents = [];
+
+    // What the tiles around last read from this one's edge, to tell them only when it changed.
+    private double _edgeSeen = double.NaN;
 
     private float _rebuildTimer;
 
@@ -434,6 +445,12 @@ internal sealed class WaterTile : MonoBehaviour
         _height = new float[vertices];
         _vertexWet = new bool[vertices];
         _meshIndex = new int[vertices];
+
+        // Nothing drawn until the first rebuild (a neighbour may read it before).
+        for (int i = 0; i < vertices; i++)
+        {
+            _meshIndex[i] = -1;
+        }
         _haveHeights = false;
         _heightTimer = 0f;
         _dirty = true;
@@ -818,12 +835,111 @@ internal sealed class WaterTile : MonoBehaviour
         return wet;
     }
 
+    // The vertices of the last row and column are the next tiles' (their x or z is 0 there): where that
+    // tile draws one, its height is taken from it, so the two meshes meet without a step.
+    private void TakeBorderHeights()
+    {
+        for (int z = 0; z < Pitch; z++)
+        {
+            for (int x = 0; x < Pitch; x++)
+            {
+                if (x < _size && z < _size)
+                {
+                    continue;
+                }
+
+                int ox = x;
+                int oz = z;
+                WaterTile owner = Beside(ref ox, ref oz);
+                int j = (oz * Pitch) + ox;
+                if (owner != null && owner._meshIndex[j] >= 0)
+                {
+                    _vertexY[(z * Pitch) + x] = owner._vertexY[j];
+                }
+            }
+        }
+    }
+
+    // The drawn surface's height at a vertex of this tile's grid or just beyond it (read from the tile
+    // there); false where nothing is drawn.
+    private bool DrawnY(int x, int z, out float y)
+    {
+        WaterTile tile = x < 0 || z < 0 || x >= Pitch || z >= Pitch ? Beside(ref x, ref z) : this;
+        int i = (z * Pitch) + x;
+        bool drawn = tile != null && tile._meshIndex[i] >= 0;
+        y = drawn ? tile._vertexY[i] : 0f;
+        return drawn;
+    }
+
+    // The surface's slope along x and z at a vertex, from the drawn vertices either side (across tiles,
+    // so two tiles light their shared border alike): the normal and the tangent come from it.
+    private void SurfaceFrame(int x, int z, out Vector3 normal, out Vector4 tangent)
+    {
+        float y = _vertexY[(z * Pitch) + x];
+        float slopeX = Gradient(x, z, 1, 0, y);
+        float slopeZ = Gradient(x, z, 0, 1, y);
+        normal = new Vector3(-slopeX, 1f, -slopeZ).normalized;
+
+        // u runs along x and v along z (world coordinates): the bitangent cross(normal, tangent) * w along +z.
+        Vector3 along = new Vector3(1f, slopeX, 0f).normalized;
+        tangent = new Vector4(along.x, along.y, along.z, -1f);
+    }
+
+    // Rise over run through a vertex in one direction: from both sides where both are drawn, else the one that is.
+    private float Gradient(int x, int z, int dx, int dz, float y)
+    {
+        bool ahead = DrawnY(x + dx, z + dz, out float yAhead);
+        bool behind = DrawnY(x - dx, z - dz, out float yBehind);
+        return ahead && behind ? (yAhead - yBehind) / (2f * _cell)
+            : ahead ? (yAhead - y) / _cell
+            : behind ? (y - yBehind) / _cell
+            : 0f;
+    }
+
+    // When this tile's edge changed (the two outer rows and columns: what the tiles around read for
+    // their border heights and normals), they are rebuilt with it; only then, so that two tiles never
+    // keep rebuilding each other.
+    private void EdgeChanged()
+    {
+        double edge = 0.0;
+        for (int z = 0; z < Pitch; z++)
+        {
+            for (int x = 0; x < Pitch; x++)
+            {
+                if (x > 1 && z > 1 && x < _size - 1 && z < _size - 1)
+                {
+                    continue;
+                }
+
+                int i = (z * Pitch) + x;
+                edge += (i + 1) * (_meshIndex[i] >= 0 ? _vertexY[i] + 1000.0 : 1.0);
+            }
+        }
+
+        if (edge == _edgeSeen)
+        {
+            return;
+        }
+
+        _edgeSeen = edge;
+        foreach ((int dx, int dz) in Around)
+        {
+            if (ByZone.TryGetValue(TileData.Key(new Vector2s(Zone.x + dx, Zone.y + dz)), out WaterTile tile) && tile.Ready)
+            {
+                tile._dirty = true;
+            }
+        }
+    }
+
     private void Rebuild()
     {
         SmoothForDrawing();
         MarkVertices();
         ComputeVertexHeights();
+        TakeBorderHeights();
         _vertices.Clear();
+        _normals.Clear();
+        _tangents.Clear();
         _uvs.Clear();
         _water.Clear();
         _current.Clear();
@@ -847,6 +963,9 @@ internal sealed class WaterTile : MonoBehaviour
                 float wz = originZ + (z * _cell);
                 float y = _vertexY[i] + Lift;
                 _vertices.Add(new Vector3(wx - origin.x, y - origin.y, wz - origin.z));
+                SurfaceFrame(x, z, out Vector3 normal, out Vector4 tangent);
+                _normals.Add(normal);
+                _tangents.Add(tangent);
                 minY = Mathf.Min(minY, y);
                 maxY = Mathf.Max(maxY, y);
                 VertexVelocity(x, z, out float vx, out float vz);
@@ -913,13 +1032,13 @@ internal sealed class WaterTile : MonoBehaviour
 
         _mesh.SetTriangles(_stillTriangles, 0, false);
         _mesh.SetTriangles(_streamTriangles, 1, false);
-        _mesh.RecalculateNormals();
-        if (_customShader)
-        {
-            _mesh.RecalculateTangents();
-        }
 
+        // Normals and tangents from the height grid, not from this mesh's triangles alone, which would
+        // light each side of a tile border differently (a seam along it).
+        _mesh.SetNormals(_normals);
+        _mesh.SetTangents(_tangents);
         _mesh.RecalculateBounds();
+        EdgeChanged();
 
         if (_trigger != null && _vertices.Count > 0)
         {
