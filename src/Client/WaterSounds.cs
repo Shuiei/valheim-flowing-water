@@ -37,7 +37,8 @@ internal static class WaterSounds
     public static float[] Rapids() => Loop(FillRapids);
 
     // A loop made a little longer than it plays, its end cross-faded into its start so that it never
-    // clicks (what a bubble writes past the end wraps round instead), brought to the peak.
+    // clicks (a bubble near the end runs on into the overlap, carried into the start by the cross-fade:
+    // the overlap is longer than any bubble), brought to the peak.
     private static float[] Loop(Action<float[], int, Random> fill)
     {
         int length = (int)(SampleRate * LoopSeconds);
@@ -84,7 +85,7 @@ internal static class WaterSounds
         {
             double size = Math.Pow(random.NextDouble(), 2.0);
             double radius = SmallestBubble + ((LargestBubble - SmallestBubble) * size);
-            Ring(samples, length, random.Next(length), 3.0 / radius, 0.1 + (random.NextDouble() * 0.2), 0.15 * Math.Pow(radius / LargestBubble, 0.8));
+            Ring(samples, random.Next(length), 3.0 / radius, 0.1 + (random.NextDouble() * 0.2), 0.15 * Math.Pow(radius / LargestBubble, 0.8));
         }
     }
 
@@ -108,8 +109,8 @@ internal static class WaterSounds
     }
 
     // One bubble ringing (van den Doel): a sine at its pitch, rising by rise times its damping each
-    // second, dying away at a damping of 0.13 f + 0.0072 f^1.5 per second; it wraps round the loop's end.
-    private static void Ring(float[] samples, int length, int start, double pitch, double rise, double loudness)
+    // second, dying away at a damping of 0.13 f + 0.0072 f^1.5 per second.
+    internal static void Ring(float[] samples, int start, double pitch, double rise, double loudness)
     {
         double damping = (0.13 * pitch) + (0.0072 * Math.Pow(pitch, 1.5));
         int span = (int)(SampleRate * 7.0 / damping);
@@ -118,12 +119,11 @@ internal static class WaterSounds
         {
             double t = (double)j / SampleRate;
             phase += 2.0 * Math.PI * pitch * (1.0 + (rise * damping * t)) / SampleRate;
-            samples[(start + j) % length] += (float)(loudness * Math.Exp(-damping * t) * Math.Sin(phase));
+            samples[start + j] += (float)(loudness * Math.Exp(-damping * t) * Math.Sin(phase));
         }
     }
 
-    // One chirp: a sine rising by half its pitch over 15 to 45 ms, quick in and dying away; it wraps
-    // round the loop's end.
+    // One chirp: a sine rising by half its pitch over 15 to 45 ms, quick in and dying away.
     private static void Chirp(float[] samples, int length, Random random)
     {
         int start = random.Next(length);
@@ -135,7 +135,7 @@ internal static class WaterSounds
         {
             double envelope = Math.Exp(-j / (span * 0.3)) * (1.0 - Math.Exp(-j / 50.0));
             phase += 2.0 * Math.PI * pitch * (1.0 + (0.5 * j / span)) / SampleRate;
-            samples[(start + j) % length] += (float)(loudness * envelope * Math.Sin(phase));
+            samples[start + j] += (float)(loudness * envelope * Math.Sin(phase));
         }
     }
 }

@@ -43,6 +43,19 @@ public class WaterSoundsTests
     }
 
     [Fact]
+    public void ABubbleNearTheEndRunsIntoTheOverlapNotRoundToTheStart()
+    {
+        // Wrapped round, its tail would sit where the cross-fade starts from silence: a click each loop.
+        const int Length = 1000;
+        float[] samples = new float[Length + 4000];
+
+        WaterSounds.Ring(samples, Length - 10, 375.0, 0.2, 0.15);
+
+        Assert.All(samples[..(Length - 10)], s => Assert.Equal(0f, s));
+        Assert.Contains(samples[Length..], s => s != 0f);
+    }
+
+    [Fact]
     public void TheStreamHasNoRumbleUnlikeTheRapids()
     {
         // The share of the sound below about 300 Hz: a stream's bubbles ring higher, rapids roar low.
