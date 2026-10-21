@@ -229,6 +229,11 @@ internal static class Materials
             return $"no {kind} material (custom, still or stream; water must have been drawn once with it)";
         }
 
+        if (property == "list")
+        {
+            return $"{kind} ({material.shader.name}) properties: {Properties(material)}";
+        }
+
         if (!material.HasProperty(property))
         {
             return $"{material.shader.name} has no property {property}; try: {Properties(material)}";

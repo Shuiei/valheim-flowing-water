@@ -2,6 +2,11 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.6 — 2026-10-21
+
+### Fixed
+- `flowingwater mat custom list` answered as if "list" were an unknown property; it now just lists them.
+
 ## v0.3.5 — 2026-10-21
 
 ### Fixed
