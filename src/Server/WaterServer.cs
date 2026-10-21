@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -21,6 +22,9 @@ internal sealed class WaterServer
     public static readonly int RateHash = "FW_Rate".GetStableHashCode();
 
     public static readonly int RadiusHash = "FW_Radius".GetStableHashCode();
+
+    /// <summary>A zone's ground change from erosion, in its FlowingWater_Ground object (ErosionGround).</summary>
+    public static readonly int GroundHash = "FW_Ground".GetStableHashCode();
 
     private const float MinDepth = 0.0005f;
 
@@ -49,6 +53,10 @@ internal sealed class WaterServer
     // Shallower than this, the bed's drag is taken at this depth (no division by nothing).
     private const float MinDragDepth = 0.005f;
 
+    // A zone's ground change is written to the world at most this often (it is resent to the players near
+    // it each time), and its protected cells looked for again this often.
+    private const float GroundWriteSeconds = 60f, KeptSeconds = 30f;
+
     // Long enough, in erosion's time, for any water that dried to set down all it carried.
     private const float AllDown = 1000f;
 
@@ -68,6 +76,16 @@ internal sealed class WaterServer
     // Zones water tried to flow into during a step while they had no tile: made after the step
     // (the tiles are stepped in parallel, and only the main thread may make objects).
     private readonly HashSet<Vector2s> _wanted = [];
+
+    // Each zone's FlowingWater_Ground object, where erosion's change to its ground is kept.
+    private readonly Dictionary<long, ZDO> _grounds = [];
+
+    private readonly List<ZDO> _near = [];
+
+    // Seconds since the simulation started, for the ground's write pacing.
+    private float _clock;
+
+    private float _keptTimer;
 
     // Time spent stepping since the last debug map, for the cost of a grid.
     private readonly Stopwatch _stepWatch = new();
@@ -116,6 +134,17 @@ internal sealed class WaterServer
         {
             _scanTimer = 0f;
             ScanMarkers();
+        }
+
+        _clock += dt;
+        _keptTimer += dt;
+        if (_keptTimer >= KeptSeconds && FlowingWaterPlugin.Settings.Erosion.Value)
+        {
+            _keptTimer = 0f;
+            foreach (ServerTile tile in _tiles.Values)
+            {
+                RefreshKept(tile);
+            }
         }
 
         _terrainTimer += dt;
@@ -185,7 +214,11 @@ internal sealed class WaterServer
         float kept = 0f;
         foreach (ServerTile tile in _tiles.Values)
         {
+            // What erosion did is kept in the world at the game's one-metre points: the new grid starts from it.
+            WriteGround(tile);
+
             tile.Resize(size);
+            LoadGround(tile);
             SyncTerrain(tile);
             tile.Water = Sum(tile.Data.Depth) * CellArea;
             kept += tile.Water;
@@ -297,10 +330,10 @@ internal sealed class WaterServer
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without
     // one is saved but can never be found again by prefab.
-    private static ZDO NewTileZdo(Vector2s zone)
+    private static ZDO NewZdo(Vector2s zone, int prefab)
     {
-        ZDO zdo = ZDOMan.instance.CreateNewZDO(ZoneSystem.GetZonePos(zone), Prefabs.TileHash);
-        zdo.SetPrefab(Prefabs.TileHash);
+        ZDO zdo = ZDOMan.instance.CreateNewZDO(ZoneSystem.GetZonePos(zone), prefab);
+        zdo.SetPrefab(prefab);
         zdo.Persistent = true;
         zdo.SetType(ZDO.ObjectType.Default);
         zdo.SetDistant(false);
@@ -315,6 +348,7 @@ internal sealed class WaterServer
 
     private void Load()
     {
+        LoadGrounds();
         int index = 0;
         _zdos.Clear();
         while (!ZDOMan.instance.GetAllZDOsWithPrefabIterative(Prefabs.TileName, _zdos, ref index))
@@ -346,6 +380,7 @@ internal sealed class WaterServer
             // Saved on another grid (the setting changed since): moved over to this one.
             saved += Sum(tile.Data.Depth) * tile.Data.CellSize * tile.Data.CellSize;
             tile.Resize(_size);
+            LoadGround(tile);
             SyncTerrain(tile);
             tile.Water = Sum(tile.Data.Depth) * CellArea;
             kept += tile.Water;
@@ -881,13 +916,122 @@ internal sealed class WaterServer
                     continue;
                 }
 
+                if (tile.Kept[i])
+                {
+                    continue;
+                }
+
                 float speed = Mathf.Sqrt((data.VelX[i] * data.VelX[i]) + (data.VelZ[i] * data.VelZ[i]));
                 float taken = ErosionRules.Exchange(sediment[i], ErosionRules.Capacity(speed, depth), tile.GroundChange[i], depth > 0f ? dt * wear : AllDown);
                 sediment[i] += taken;
                 data.Height[i] -= taken;
                 tile.GroundChange[i] -= taken;
+                tile.GroundDirty |= taken != 0f;
             }
         }
+    }
+
+    // Every zone's FlowingWater_Ground object, where erosion's change to its ground is kept.
+    private void LoadGrounds()
+    {
+        int index = 0;
+        _zdos.Clear();
+        while (!ZDOMan.instance.GetAllZDOsWithPrefabIterative(Prefabs.GroundName, _zdos, ref index))
+        {
+        }
+
+        foreach (ZDO zdo in _zdos)
+        {
+            _grounds[TileData.Key(ZoneSystem.GetZone(zdo.GetPosition()))] = zdo;
+        }
+
+        FlowingWaterPlugin.Log.LogInfo($"Water: {_grounds.Count} zones with ground worn by erosion");
+    }
+
+    // A tile's ground as erosion left it in the world (none yet: as the terrain is), and the cells it must
+    // leave alone. The heights are read again with it.
+    private void LoadGround(ServerTile tile)
+    {
+        if (FlowingWaterPlugin.Settings.Erosion.Value)
+        {
+            RefreshKept(tile);
+        }
+
+        if (!_grounds.TryGetValue(TileData.Key(tile.Data.Zone), out ZDO zdo) || zdo.GetByteArray(GroundHash) is not { } data)
+        {
+            return;
+        }
+
+        try
+        {
+            float[] change = ErosionGround.ToCells(ErosionGround.Decode(data), tile.Data.Size);
+            Array.Copy(change, tile.GroundChange, change.Length);
+            tile.TerrainVersion = -1;
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Zone {tile.Data.Zone}: erosion's ground change unreadable, erosion starts afresh there ({e.Message})");
+        }
+    }
+
+    // Erosion's change to a tile's ground, if it changed, into the world: its FlowingWater_Ground object (made
+    // the first time), which the game sends to the players near it and keeps with the world.
+    private void WriteGround(ServerTile tile)
+    {
+        if (!tile.GroundDirty)
+        {
+            return;
+        }
+
+        long key = TileData.Key(tile.Data.Zone);
+        if (!_grounds.TryGetValue(key, out ZDO zdo) || ZDOMan.instance.GetZDO(zdo.m_uid) == null)
+        {
+            zdo = NewZdo(tile.Data.Zone, Prefabs.GroundHash);
+            _grounds[key] = zdo;
+        }
+
+        if (!zdo.IsOwner())
+        {
+            zdo.SetOwner(ZDOMan.GetSessionID());
+        }
+
+        zdo.Set(GroundHash, ErosionGround.Encode(ErosionGround.ToPoints(tile.GroundChange, tile.Data.Size)));
+        tile.GroundDirty = false;
+        tile.GroundWrittenAt = _clock;
+    }
+
+    // The cells erosion leaves alone: within 5 m of anything a player built (what the game records a creator
+    // for), and within the game's own places (dungeon entrances, ruins...) and 5 m around them, in this zone
+    // or the ones around it.
+    private void RefreshKept(ServerTile tile)
+    {
+        Vector2s zone = tile.Data.Zone;
+        var keep = new List<(float X, float Z, float Radius)>();
+        _near.Clear();
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                var around = new Vector2s(zone.x + dx, zone.y + dz);
+                ZDOMan.instance.FindSectorObjects(around, new SimulationDistance(0, 0), _near);
+                if (ZoneSystem.instance.m_locationInstances.TryGetValue(around, out ZoneSystem.LocationInstance place) && place.m_location != null)
+                {
+                    float radius = Mathf.Max(place.m_location.m_exteriorRadius, place.m_location.m_interiorRadius) + ErosionGround.ProtectedRadius;
+                    keep.Add((place.m_position.x, place.m_position.z, radius));
+                }
+            }
+        }
+
+        foreach (ZDO zdo in _near)
+        {
+            if (zdo.GetLong(ZDOVars.s_creator) != 0L)
+            {
+                Vector3 at = zdo.GetPosition();
+                keep.Add((at.x, at.z, ErosionGround.ProtectedRadius));
+            }
+        }
+
+        tile.Kept = ErosionGround.Kept(tile.Data.Size, TileData.OriginX(zone), TileData.OriginZ(zone), keep);
     }
 
     // A drain takes water from every cell within its radius, in this zone or the next: all of it
@@ -955,11 +1099,21 @@ internal sealed class WaterServer
             return null;
         }
 
-        tile = new ServerTile(zone, NewTileZdo(zone), _size);
+        tile = new ServerTile(zone, NewZdo(zone, Prefabs.TileHash), _size);
+        LoadGround(tile);
         SyncTerrain(tile);
         _tiles[key] = tile;
         FlowingWaterPlugin.Log.LogInfo($"Water reached zone {zone} ({_tiles.Count} tiles)");
         return tile;
+    }
+
+    /// <summary>Writes erosion's change to every zone's ground that changed since it was last written.</summary>
+    public void WriteGrounds()
+    {
+        foreach (ServerTile tile in _tiles.Values)
+        {
+            WriteGround(tile);
+        }
     }
 
     private void Publish()
@@ -971,6 +1125,8 @@ internal sealed class WaterServer
             if (tile.EmptyFor > FlowingWaterPlugin.Settings.EmptyTileSeconds.Value)
             {
                 FlowingWaterPlugin.Log.LogInfo($"Zone {tile.Data.Zone} dry: water tile removed");
+                WriteGround(tile);
+
                 _tiles.Remove(TileData.Key(tile.Data.Zone));
                 if (ZDOMan.instance.GetZDO(tile.Zdo.m_uid) != null)
                 {
@@ -978,6 +1134,11 @@ internal sealed class WaterServer
                 }
 
                 continue;
+            }
+
+            if (_clock - tile.GroundWrittenAt >= GroundWriteSeconds)
+            {
+                WriteGround(tile);
             }
 
             if (!tile.Dirty)
@@ -989,7 +1150,7 @@ internal sealed class WaterServer
             if (ZDOMan.instance.GetZDO(tile.Zdo.m_uid) == null)
             {
                 FlowingWaterPlugin.Log.LogWarning($"Zone {tile.Data.Zone}: water tile object gone, making it again");
-                tile.Zdo = NewTileZdo(tile.Data.Zone);
+                tile.Zdo = NewZdo(tile.Data.Zone, Prefabs.TileHash);
             }
 
             if (!tile.Zdo.IsOwner())

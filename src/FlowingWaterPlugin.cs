@@ -40,6 +40,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         Settings = new Settings(Config);
         _harmony = new Harmony(PluginId);
         _harmony.PatchAll(typeof(FlowingWaterPlugin).Assembly);
+        ZNet.WorldSaveStarted += OnWorldSave;
         Logger.LogInfo($"{Name} {BuildInfo.Version} loaded");
     }
 
@@ -81,6 +82,10 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
     {
+        ZNet.WorldSaveStarted -= OnWorldSave;
         _harmony?.UnpatchSelf();
     }
+
+    // Erosion's latest change goes into the world before it is saved (it is otherwise written once a minute).
+    private void OnWorldSave() => _server?.WriteGrounds();
 }

@@ -49,7 +49,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
 | `Server.StepsPerSecond` | 15 | Simulation steps per second with 1 m cells (twice that at 0.5, four times at 0.25) |
 | `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second, besides the bed's drag |
-| `Server.Erosion` | false | Running water wears the ground away and lays it down (in progress: the simulation only) |
+| `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built |
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
 | `Server.BedRoughness` | 0.04 | The ground's drag on running water (Manning's n): 0.03 smooth channel, 0.04 natural stream, 0.08 grass; 0 = none |
 | `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
@@ -123,8 +123,14 @@ next start or at once with a config manager.
   Carrying less, it picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets
   everything down, and what reaches the sea is gone. The sediment moves with the water, at what each cell's
   water carried before the step. The ground never moves more than 8 m from where it was (the game's own limit
-  on terrain changes). For now the change stays in the simulation: players' ground does not change yet, and
-  it is forgotten on restart; the server's debug map reports what each zone cut and laid down.
+  on terrain changes). The ground within 5 m of anything a player built (refreshed every 30 s), and of the
+  game's own places (villages, dungeons, boss altars), is left alone. The change is the mod's own: one
+  `FlowingWater_Ground` object per zone, millimetres at each of the zone's heightmap points, written by the
+  server at most once a minute (and when the zone dries or the grid changes), kept with the world. Players'
+  games add it to the zone's ground after the game's own terrain changes, so the look, collisions and building
+  follow; the game's terrain changes are left as they are (they belong to whoever is near, and are theirs to
+  write). Removing the mod takes the change away with it. The server's debug map reports what each zone cut
+  and laid down.
 - **White water.** Twice a second each tile picks where most water runs fastest (at least 1.2 m/s and 3 cm
   deep), up to six places 6 m apart, the steepest first. Each gets a sound of running water, louder the more
   water passes: a stream's babble (a loop made in code from a bubble model: each air bubble rings at a pitch

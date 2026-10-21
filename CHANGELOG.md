@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.9.0 — 2026-10-21
+
+### Added
+- Erosion now changes the ground players walk and build on, and is kept with the world. The ground within 5 m
+  of anything players built, and of villages, dungeons and other places of the game, is left alone.
+
 ## v0.8.0 — 2026-10-21
 
 ### Added

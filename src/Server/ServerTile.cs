@@ -33,6 +33,15 @@ internal sealed class ServerTile
     /// <summary>How far erosion has cut (negative) or raised each cell's ground, metres; kept over the terrain's own.</summary>
     public float[] GroundChange { get; private set; }
 
+    /// <summary>Cells erosion leaves alone (near what players built, and the game's own places).</summary>
+    public bool[] Kept { get; set; }
+
+    /// <summary>Erosion changed the ground since it was last written to the world.</summary>
+    public bool GroundDirty { get; set; }
+
+    /// <summary>When the ground was last written to the world, seconds of the server's clock.</summary>
+    public float GroundWrittenAt { get; set; }
+
     /// <summary>Depths changed since the last send.</summary>
     public bool Dirty { get; set; }
 
@@ -77,5 +86,6 @@ internal sealed class ServerTile
         Sediment = new float[Data.Cells];
         Carry = new float[Data.Cells];
         GroundChange = new float[Data.Cells];
+        Kept = new bool[Data.Cells];
     }
 }
