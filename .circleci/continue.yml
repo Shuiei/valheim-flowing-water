@@ -1,0 +1,329 @@
+# FlowingWater: build checks on every push and pull request, and the release on main.
+# The pipeline starts in .circleci/config.yml, which says whether a release is due (the release parameter), and
+# whether the branch is a release pull request's (release_pr: its required checks report at once, no build).
+#   game-dlls      the game's DLLs (its Managed folder) the plugin builds against, from the free Valheim
+#                  dedicated server (Steam app 896660, anonymous login), and BepInEx's core from
+#                  Thunderstore (tools/ci-deps.sh, the BepInExPack version thunderstore/manifest.json
+#                  depends on)
+#   code-analysis  the plugin and the in-game recorder (tools/Recorder, never shipped) build with no .NET
+#                  analyzer warning (warnings are errors); every XML file of the repository is well formed
+#   formatting     the plugin's whitespace and code style, and the recorder's whitespace, as .editorconfig
+#                  says (dotnet format, tools/format-check.sh)
+#   package        the Thunderstore package (thunderstore/build.sh); kept as an artifact on main only
+#   server-smoke   the package in a real dedicated server with BepInExPack (tools/server-smoke.sh): it
+#                  loads, simulates a fixed source's water with no error, and loads the saved water again
+#                  after a restart
+# When a release is due (main, a release pull request's commit "Release v<VERSION>", VERSION's CHANGELOG
+# heading dated, no tag for it yet), the release workflow runs instead, and nothing in it runs before the
+# approval (the checks ran on the pull request, which main's ruleset keeps up to date with main):
+#   hold-release   waits for someone to approve it in CircleCI (the mod-token context is restricted)
+#   game-dlls, package, server-smoke   as above: the package to release, smoke-tested
+#   github-release tags the commit v<VERSION> and makes the GitHub release with that zip and the release
+#                  notes (tools/release/publish.cs; the Sign release workflow on GitHub adds Sigstore
+#                  signatures)
+#   publish-*      the zip on Thunderstore and Hexium (tools/release/publish.cs, tools/release/sites.json),
+#                  side by side. Nexus Mods once the mod has a page there (made by hand: README.md, Releasing)
+# How to release: README.md, Releasing.
+# Security and bug patterns (CodeQL) are checked by GitHub's code scanning, set up on GitHub itself.
+# What CI cannot cover: the water as players see it (the shader, swimming, the current), which needs a
+# game client; check those in the game before releasing. The shader bundles are built by Unity by hand
+# (README.md, Building) and committed.
+version: 2.1
+
+parameters:
+  # Set by .circleci/config.yml: true on main when VERSION is ready to be released and not tagged yet.
+  release:
+    type: boolean
+    default: false
+  # Set by .circleci/config.yml: true on a release pull request's branch (release/v<VERSION>) that changes only
+  # CHANGELOG.md and docs/releases/: no build (main's code, checked as each pull request merged).
+  release_pr:
+    type: boolean
+    default: false
+
+executors:
+  dotnet:
+    docker:
+      - image: mcr.microsoft.com/dotnet/sdk:10.0
+    resource_class: medium
+    environment:
+      # Where game-dlls leaves the game's DLLs and BepInEx's core (FlowingWater.csproj reads both).
+      ValheimDir: /tmp/libs
+      BepInExDir: /tmp/libs/BepInEx
+
+commands:
+  # The Valheim dedicated server in /tmp/valheim, with SteamCMD (32-bit: it needs the i386 C++ runtime).
+  valheim-server:
+    steps:
+      - run:
+          name: SteamCMD
+          command: |
+            sudo dpkg --add-architecture i386
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq lib32gcc-s1 lib32stdc++6 > /dev/null
+            mkdir -p ~/steamcmd
+            curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C ~/steamcmd
+      - run:
+          name: The Valheim dedicated server (anonymous)
+          no_output_timeout: 20m
+          command: |
+            # SteamCMD updates itself on its first run and sometimes exits non-zero then: retry.
+            for attempt in 1 2 3; do
+              ~/steamcmd/steamcmd.sh +force_install_dir /tmp/valheim +login anonymous +app_update 896660 validate +quit \
+                && [ -f /tmp/valheim/valheim_server_Data/Managed/assembly_valheim.dll ] && break
+              echo "SteamCMD attempt $attempt failed"; sleep 10
+            done
+            [ -x /tmp/valheim/valheim_server.x86_64 ]
+
+  # The game's DLLs and BepInEx's core in /tmp/libs (game-dlls), and the NuGet cache.
+  build-dependencies:
+    steps:
+      - attach_workspace:
+          at: /tmp
+      - restore_cache:
+          keys:
+            - nuget-v1-{{ checksum "Directory.Build.props" }}-{{ checksum "FlowingWater.csproj" }}-{{ checksum "tools/Recorder/Recorder.csproj" }}
+            # Else main's latest (a branch whose packages changed restores only what it adds).
+            - nuget-v1-
+
+jobs:
+  game-dlls:
+    docker:
+      - image: cimg/base:current
+    resource_class: medium
+    steps:
+      - checkout
+      - valheim-server
+      - run:
+          name: Keep the game's DLLs, and BepInEx's core from Thunderstore
+          command: |
+            mkdir -p /tmp/libs/valheim_server_Data
+            cp -r /tmp/valheim/valheim_server_Data/Managed /tmp/libs/valheim_server_Data/Managed
+            tools/ci-deps.sh /tmp/libs
+            du -sh /tmp/libs/*
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - libs
+
+  code-analysis:
+    executor: dotnet
+    steps:
+      - checkout
+      - build-dependencies
+      # Every XML file of the repository is well formed: the build reads only the projects it builds.
+      - run:
+          name: XML files are well formed (projects, build properties)
+          command: |
+            apt-get update -qq && apt-get install -y -qq libxml2-utils > /dev/null
+            git ls-files -z '*.csproj' '*.props' '*.targets' '*.xml' | xargs -0 xmllint --noout
+      - run:
+          name: Analyzers (every warning is an error)
+          command: |
+            dotnet build FlowingWater.csproj -c Release -warnaserror
+            dotnet build tools/Recorder/Recorder.csproj -c Release -warnaserror
+      # Saved from main only: branches reuse main's (each cache is kept 15 days and billed).
+      - when:
+          condition:
+            equal: [main, << pipeline.git.branch >>]
+          steps:
+            - save_cache:
+                key: nuget-v1-{{ checksum "Directory.Build.props" }}-{{ checksum "FlowingWater.csproj" }}-{{ checksum "tools/Recorder/Recorder.csproj" }}
+                paths:
+                  - ~/.nuget/packages
+
+  formatting:
+    executor: dotnet
+    steps:
+      - checkout
+      - build-dependencies
+      - run:
+          name: Formatting (dotnet format, as .editorconfig says)
+          command: tools/format-check.sh
+
+  package:
+    executor: dotnet
+    steps:
+      - checkout
+      - build-dependencies
+      - run:
+          name: Tools (zip, unzip)
+          command: apt-get update -qq && apt-get install -y -qq zip unzip > /dev/null
+      - run:
+          name: Build the package (every warning is an error)
+          command: thunderstore/build.sh /tmp/dist
+      # The package kept as an artifact only for main; other branches only test it.
+      - when:
+          condition:
+            equal: [main, << pipeline.git.branch >>]
+          steps:
+            - store_artifacts:
+                path: /tmp/dist
+      # For server-smoke and the release, in the same workflow.
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - dist
+
+  server-smoke:
+    docker:
+      - image: cimg/base:current
+    # The server generates a new world on its first start: four cores and 8 GB keep that to a minute or two.
+    resource_class: large
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - valheim-server
+      - run:
+          name: The package in the dedicated server
+          no_output_timeout: 30m
+          command: tools/server-smoke.sh /tmp/valheim "/tmp/dist/FlowingWater-$(tr -d '[:space:]' < VERSION).zip"
+      - store_artifacts:
+          path: /tmp/valheim/smoke-logs
+
+  # Tags the commit and makes the GitHub release with the zip the package job built and server-smoke
+  # tested. The release notes: docs/releases/v<version>.md, else the CHANGELOG's sections since the last
+  # tag.
+  github-release:
+    executor: dotnet
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Tools (GitHub's CLI, SSH for git fetch)
+          command: |
+            apt-get update -qq && apt-get install -y -qq openssh-client > /dev/null
+            gh=2.63.2
+            curl -fsSLO "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_linux_amd64.tar.gz"
+            curl -fsSL "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_checksums.txt" | grep "gh_${gh}_linux_amd64.tar.gz" | sha256sum -c -
+            tar -xzf "gh_${gh}_linux_amd64.tar.gz" -C /usr/local --strip-components=1
+      - run:
+          name: Still to be released
+          command: |
+            git fetch -q --tags origin
+            version=$(tr -d '[:space:]' < VERSION)
+            if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+              echo "v$version is tagged already (released from another pipeline?)."; exit 1
+            fi
+            ls /tmp/dist/FlowingWater-$version.zip
+      - run:
+          name: The release notes
+          command: |
+            version=$(tr -d '[:space:]' < VERSION)
+            last=$(git tag -l 'v*' --sort=-v:refname | head -1)
+            dotnet run --file tools/release/publish.cs -- notes CHANGELOG.md "$version" "${last:--}" /tmp/dist/notes.md "docs/releases/v$version.md"
+      - run:
+          name: Tag and GitHub release
+          command: |
+            version=$(tr -d '[:space:]' < VERSION)
+            # A release made with this token (not GitHub Actions' own) starts the Sign release workflow.
+            GH_TOKEN=$GITHUB_TOKEN gh release create "v$version" --repo "$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" \
+              --target "$CIRCLE_SHA1" --title "v$version" --notes-file /tmp/dist/notes.md \
+              /tmp/dist/FlowingWater-$version.zip
+      - store_artifacts:
+          path: /tmp/dist/notes.md
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - dist/notes.md
+
+  # A required check of a release pull request, reported at once: its code is main's, checked already.
+  tested-on-main:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - run:
+          name: Tested on main
+          command: echo "A release pull request changes only CHANGELOG.md and docs/releases/; its code was checked on main."
+
+  # The plugin on one mod site (tools/release/publish.cs, tools/release/sites.json).
+  publish:
+    executor: dotnet
+    parameters:
+      site:
+        type: string
+      options:
+        type: string
+        default: ""
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Publish on << parameters.site >>
+          command: dotnet run --file tools/release/publish.cs -- << parameters.site >> /tmp/dist << parameters.options >>
+
+workflows:
+  # Side by side once the game's DLLs are there; the smoke test waits for the package. Main's ruleset
+  # requires code-analysis, formatting, package and server-smoke of a pull request: it must stay in step
+  # with this list (and with release-pr's below).
+  test:
+    when:
+      and:
+        - not: << pipeline.parameters.release >>
+        - not: << pipeline.parameters.release_pr >>
+    jobs:
+      - game-dlls
+      - code-analysis:
+          requires:
+            - game-dlls
+      - formatting:
+          requires:
+            - game-dlls
+      - package:
+          requires:
+            - game-dlls
+      - server-smoke:
+          requires:
+            - package
+
+  # A release pull request: the four checks main's ruleset requires, reported at once (no build: main's code).
+  release-pr:
+    when: << pipeline.parameters.release_pr >>
+    jobs:
+      - tested-on-main:
+          name: code-analysis
+      - tested-on-main:
+          name: formatting
+      - tested-on-main:
+          name: package
+      - tested-on-main:
+          name: server-smoke
+
+  # The approval first, so nothing runs for a release nobody approves; then only what the release needs:
+  # the package (the checks ran on the pull request, on the same tree) and its smoke test, then the
+  # release. The mod-token context's secrets (GITHUB_TOKEN, THUNDERSTORE_TOKEN, HEXIUM_TOKEN) reach only
+  # the release jobs.
+  release:
+    when: << pipeline.parameters.release >>
+    jobs:
+      - hold-release:
+          type: approval
+      - game-dlls:
+          requires:
+            - hold-release
+      - package:
+          requires:
+            - game-dlls
+      - server-smoke:
+          requires:
+            - package
+      - github-release:
+          context: mod-token
+          requires:
+            - server-smoke
+      - publish:
+          name: publish-thunderstore
+          site: thunderstore
+          context: mod-token
+          requires:
+            - github-release
+      - publish:
+          name: publish-hexium
+          site: hexium
+          context: mod-token
+          requires:
+            - github-release

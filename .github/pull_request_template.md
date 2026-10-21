@@ -12,11 +12,11 @@
 
 <!-- What was checked by hand, on a local server and game, never a live server. -->
 
-- [ ] `dotnet build -c Release` passes (analyzers on)
+- [ ] `dotnet build -c Release` passes (analyzers on) and `tools/format-check.sh` too
 - [ ] Tried in the game
 
 ## Checklist
 
-- [ ] `CHANGELOG.md` updated (and `VERSION` if this is a release)
-- [ ] `README.md` updated if behaviour or settings changed
+- [ ] `VERSION` raised and its dated `CHANGELOG.md` heading added
+- [ ] `README.md` (and the mod page, `thunderstore/README.md`) updated if behaviour or settings changed
 - [ ] No decompiled game code
