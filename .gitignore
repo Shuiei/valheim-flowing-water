@@ -1,0 +1,7 @@
+bin/
+obj/
+*.user
+# Claude Code: keep only the shared skills and docs
+.claude/*
+!.claude/skills/
+!.claude/docs/
