@@ -508,27 +508,7 @@ public sealed class Recorder : BaseUnityPlugin
         return busiest != null && busiest.particleCount > 0 ? busiest.transform.position : null;
     }
 
-    private static void WriteWav(string path, float[] samples, int channels, int rate)
-    {
-        using var writer = new BinaryWriter(File.Create(path));
-        int bytes = samples.Length * 2;
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(36 + bytes);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt "));
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write((short)channels);
-        writer.Write(rate);
-        writer.Write(rate * channels * 2);
-        writer.Write((short)(channels * 2));
-        writer.Write((short)16);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
-        writer.Write(bytes);
-        foreach (float sample in samples)
-        {
-            writer.Write((short)(Mathf.Clamp(sample, -1f, 1f) * short.MaxValue));
-        }
-    }
+    private static void WriteWav(string path, float[] samples, int channels, int rate) => File.WriteAllBytes(path, Wav.Encode(samples, channels, rate));
 
     // A strong spring at the top of the steepest open slope near the spawn, and once it has run, its
     // busiest spray filmed with sound: close, then from further off.

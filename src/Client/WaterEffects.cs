@@ -35,16 +35,7 @@ internal sealed class WaterSpot
 /// </summary>
 internal sealed class WaterEffects : MonoBehaviour
 {
-    // Spray from this slope up (water rushing down a slope of 14 degrees); all of it from the second (39).
-    private const float SprayFrom = 0.25f, SprayFull = 0.8f;
-
-    private const float MaxSprayRate = 80f;
-
-    // A stream's babble turns into the roar of rapids from this slope (45 degrees: water sliding down a
-    // slope still sounds like a stream) to the second (63: it falls).
-    private const float RoarFrom = 1f, RoarFull = 2f;
-
-    private const float SoundNear = 3f, SoundFar = 35f;
+    private const float SoundNear = 3f;
 
     private readonly List<Emitter> _emitters = [];
 
@@ -63,9 +54,7 @@ internal sealed class WaterEffects : MonoBehaviour
         {
             if (i < spots.Count)
             {
-                // Out of earshot a sound would still take one of the few voices the game plays at once.
-                float heard = (spots[i].Position - ear).sqrMagnitude <= SoundFar * SoundFar ? volume : 0f;
-                _emitters[i].Set(spots[i], spray, heard);
+                _emitters[i].Set(spots[i], spray, volume, (spots[i].Position - ear).sqrMagnitude);
             }
             else
             {
@@ -86,15 +75,23 @@ internal sealed class WaterEffects : MonoBehaviour
 
         private readonly ParticleSystem _spray;
 
+        // Where in the loop this spot's sounds start, seconds: its own, so that several never sound as one
+        // (a sound stopped and played again would start at 0 like all the others).
+        private readonly float _start;
+
         public Emitter(Transform parent, int index)
         {
             _root = new GameObject("FlowingWater white water " + index);
             _root.transform.SetParent(parent, false);
+            _start = index * 0.9f % WaterSounds.LoopSeconds;
             _stream = Sound(EffectAssets.Stream, index);
             _rapids = Sound(EffectAssets.Rapids, index);
             if (EffectAssets.Spray != null)
             {
-                _spray = Instantiate(EffectAssets.Spray, _root.transform).GetComponent<ParticleSystem>();
+                // The template is kept under an inactive parent: the copy is switched on, whatever it was.
+                GameObject copy = Instantiate(EffectAssets.Spray, _root.transform);
+                copy.SetActive(true);
+                _spray = copy.GetComponent<ParticleSystem>();
                 SetUp(_spray);
             }
         }
@@ -110,18 +107,17 @@ internal sealed class WaterEffects : MonoBehaviour
             sound.spatialBlend = 1f;
             sound.rolloffMode = AudioRolloffMode.Linear;
             sound.minDistance = SoundNear;
-            sound.maxDistance = SoundFar;
+            sound.maxDistance = WhiteWaterMix.SoundFar;
             sound.dopplerLevel = 0f;
             sound.pitch = 0.85f + (0.06f * (index % 5));
-            sound.time = index * 0.9f % clip.length;
             return sound;
         }
 
-        public void Set(WaterSpot spot, bool spray, float volume)
+        public void Set(WaterSpot spot, bool spray, float volume, float distanceSquared)
         {
             _root.transform.position = spot.Position;
-            float loud = Mathf.Clamp01((spot.Flow * 0.8f) + (spot.Steep * 0.3f)) * volume;
-            float roar = Mathf.Clamp01((spot.Steep - RoarFrom) / (RoarFull - RoarFrom));
+            float loud = WhiteWaterMix.Loudness(spot.Flow, spot.Steep, volume, distanceSquared);
+            float roar = WhiteWaterMix.Roar(spot.Steep);
             Play(_stream, loud * (1f - roar));
             Play(_rapids, loud * roar);
             if (_spray == null)
@@ -129,9 +125,9 @@ internal sealed class WaterEffects : MonoBehaviour
                 return;
             }
 
-            float white = spray ? Mathf.Clamp01((spot.Steep - SprayFrom) / (SprayFull - SprayFrom)) : 0f;
+            float white = WhiteWaterMix.Spray(spot.Steep, spray);
             ParticleSystem.EmissionModule emission = _spray.emission;
-            emission.rateOverTime = white * Mathf.Clamp(spot.Flow * 120f, 8f, MaxSprayRate);
+            emission.rateOverTime = WhiteWaterMix.SprayRate(spot.Flow, white);
 
             // Thrown up and a little downstream.
             _spray.transform.rotation = Quaternion.LookRotation(Vector3.up + (spot.Direction * 0.5f));
@@ -152,11 +148,14 @@ internal sealed class WaterEffects : MonoBehaviour
             }
         }
 
-        private static void Play(AudioSource sound, float volume)
+        // Out of earshot (or silent) a sound is stopped: it would still take one of the few voices the game
+        // plays at once.
+        private void Play(AudioSource sound, float volume)
         {
             sound.volume = volume;
             if (volume > 0f && !sound.isPlaying)
             {
+                sound.time = _start;
                 sound.Play();
             }
             else if (volume <= 0f && sound.isPlaying)

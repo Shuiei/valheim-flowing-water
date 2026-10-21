@@ -51,13 +51,8 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float SteepFoamFull = 1.2f;
 
-    // White water (sound, and spray where steep) where the water is this deep and runs this fast, at
-    // most this many places a tile, this far apart, looked for this often.
-    private const float SpotDepth = 0.03f, SpotSpeed = 1.2f;
-
-    private const int MaxSpots = 6;
-
-    private const float SpotSpacing = 6f, SpotSeconds = 0.5f;
+    // White water (sound, and spray where steep) is looked for this often (where: SpotRules).
+    private const float SpotSeconds = 0.5f;
 
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
@@ -125,7 +120,11 @@ internal sealed class WaterTile : MonoBehaviour
 
     private readonly List<WaterSpot> _spots = [];
 
-    private readonly List<(float Score, WaterSpot Spot)> _candidates = [];
+    private readonly List<WaterSpot> _found = [];
+
+    private readonly List<(float Score, float X, float Z, int Index)> _candidates = [];
+
+    private readonly List<int> _chosen = [];
 
     private TileData _target;
 
@@ -876,6 +875,7 @@ internal sealed class WaterTile : MonoBehaviour
     private void FindSpots()
     {
         _spots.Clear();
+        _found.Clear();
         _candidates.Clear();
         float originX = TileData.OriginX(Zone);
         float originZ = TileData.OriginZ(Zone);
@@ -885,7 +885,7 @@ internal sealed class WaterTile : MonoBehaviour
             {
                 int i = Index(x, z);
                 float speed = Mathf.Sqrt((_velX[i] * _velX[i]) + (_velZ[i] * _velZ[i]));
-                if (_depth[i] < SpotDepth || speed < SpotSpeed)
+                if (!SpotRules.Qualifies(_depth[i], speed))
                 {
                     continue;
                 }
@@ -893,22 +893,15 @@ internal sealed class WaterTile : MonoBehaviour
                 float slope = Slope(x, z);
                 float flow = speed * _depth[i];
                 var at = new Vector3(originX + (x * _cell), _vertexY[(z * Pitch) + x] + Lift, originZ + (z * _cell));
-                _candidates.Add((flow * (1f + (2f * slope)), new WaterSpot(at, new Vector3(_velX[i], 0f, _velZ[i]) / speed, flow, slope)));
+                _candidates.Add((SpotRules.Score(flow, slope), at.x, at.z, _found.Count));
+                _found.Add(new WaterSpot(at, new Vector3(_velX[i], 0f, _velZ[i]) / speed, flow, slope));
             }
         }
 
-        _candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
-        foreach ((float _, WaterSpot spot) in _candidates)
+        SpotRules.Pick(_candidates, _chosen);
+        foreach (int chosen in _chosen)
         {
-            if (_spots.Count >= MaxSpots)
-            {
-                break;
-            }
-
-            if (_spots.TrueForAll(s => (s.Position - spot.Position).sqrMagnitude >= SpotSpacing * SpotSpacing))
-            {
-                _spots.Add(spot);
-            }
+            _spots.Add(_found[chosen]);
         }
     }
 
