@@ -19,6 +19,17 @@ internal static class PrefabPatch
     }
 }
 
+/// <summary>Tells the plugin the server's world objects are in, so the simulation finds the saved tiles.</summary>
+[HarmonyPatch(typeof(ZNet), "LoadWorld")]
+internal static class WorldLoadedPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Postfix()
+    {
+        FlowingWaterPlugin.WorldLoaded = true;
+    }
+}
+
 /// <summary>Registers the console command once the game's own are in.</summary>
 [HarmonyPatch(typeof(Terminal), "InitTerminal")]
 internal static class CommandPatch

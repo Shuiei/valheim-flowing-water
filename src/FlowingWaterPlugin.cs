@@ -30,6 +30,9 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     internal static Settings Settings { get; private set; }
 
+    /// <summary>Set once the server has read its world's objects (ZNet.LoadWorld), cleared when the world closes.</summary>
+    internal static bool WorldLoaded { get; set; }
+
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Awake()
     {
@@ -45,6 +48,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     {
         if (ZNet.instance == null || ZDOMan.instance == null)
         {
+            WorldLoaded = false;
             if (_server != null)
             {
                 Logger.LogInfo("World closed: water simulation stopped");
@@ -61,7 +65,8 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
         if (_server == null)
         {
-            if (WorldGenerator.instance == null || ZoneSystem.instance == null)
+            // The server reads its world's objects in ZNet.Start, after the first frames: wait for it.
+            if (!WorldLoaded || WorldGenerator.instance == null || ZoneSystem.instance == null)
             {
                 return;
             }
