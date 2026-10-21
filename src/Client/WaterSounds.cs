@@ -50,12 +50,17 @@ internal static class WaterSounds
         fill(made, length, new Random(Seed));
 #pragma warning restore S2245
         float[] loop = new float[length];
-        float peak = 0f;
-        for (int i = 0; i < length; i++)
+        Array.Copy(made, loop, length);
+        for (int i = 0; i < seam; i++)
         {
-            float into = i < seam ? (float)i / seam : 1f;
-            loop[i] = i < seam ? (made[i] * into) + (made[length + i] * (1f - into)) : made[i];
-            peak = Math.Max(peak, Math.Abs(loop[i]));
+            float into = (float)i / seam;
+            loop[i] = (made[i] * into) + (made[length + i] * (1f - into));
+        }
+
+        float peak = 0f;
+        foreach (float sample in loop)
+        {
+            peak = Math.Max(peak, Math.Abs(sample));
         }
 
         for (int i = 0; i < length; i++)

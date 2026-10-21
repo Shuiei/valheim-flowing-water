@@ -42,11 +42,9 @@ internal static class WhiteWaterMix
     /// <summary>Drops thrown a second: more as more water passes, scaled by the spray's share.</summary>
     /// <param name="flow">Speed times depth there, square metres per second.</param>
     /// <param name="share">The spray's share (<see cref="Spray"/>).</param>
-    public static float SprayRate(float flow, float share)
-    {
-        float rate = flow * 120f;
-        return share * (rate < 8f ? 8f : rate > MaxSprayRate ? MaxSprayRate : rate);
-    }
+    public static float SprayRate(float flow, float share) => share * Clamp(flow * 120f, 8f, MaxSprayRate);
 
-    private static float Clamp01(float value) => value < 0f ? 0f : value > 1f ? 1f : value;
+    private static float Clamp01(float value) => Clamp(value, 0f, 1f);
+
+    private static float Clamp(float value, float low, float high) => System.Math.Min(high, System.Math.Max(low, value));
 }

@@ -218,36 +218,19 @@ public sealed class Recorder : BaseUnityPlugin
         Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
         Note($"steep site {steep}");
         Note($"gentle site {gentle}");
-        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "cascade")
+        // A scenario of its own (FW_REC_SCENARIO), else every command below.
+        IEnumerator scenario = Environment.GetEnvironmentVariable("FW_REC_SCENARIO") switch
         {
-            IEnumerator cascade = Cascade(spawn);
-            while (cascade.MoveNext())
-            {
-                yield return cascade.Current;
-            }
-
-            Note("all steps run");
-            yield break;
-        }
-
-        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "look")
+            "cascade" => Cascade(spawn),
+            "look" => Look(steep, gentle),
+            "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
+            _ => null,
+        };
+        if (scenario != null)
         {
-            IEnumerator look = Look(steep, gentle);
-            while (look.MoveNext())
+            while (scenario.MoveNext())
             {
-                yield return look.Current;
-            }
-
-            Note("all steps run");
-            yield break;
-        }
-
-        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "grid")
-        {
-            IEnumerator grid = Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0");
-            while (grid.MoveNext())
-            {
-                yield return grid.Current;
+                yield return scenario.Current;
             }
 
             Note("all steps run");
@@ -455,42 +438,11 @@ public sealed class Recorder : BaseUnityPlugin
     // sound saved once as a WAV to listen to.
     private Vector3? EffectStats()
     {
-        int sources = 0;
-        int playing = 0;
-        float loudest = 0f;
-        var clips = new Dictionary<string, AudioClip>();
-        foreach (AudioSource source in FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
-        {
-            if (source.name.StartsWith("FlowingWater white water", StringComparison.Ordinal))
-            {
-                sources++;
-                playing += source.isPlaying ? 1 : 0;
-                loudest = Mathf.Max(loudest, source.volume);
-                if (source.clip != null)
-                {
-                    clips[source.clip.name] = source.clip;
-                }
-            }
-        }
-
-        int sprays = 0;
-        int drops = 0;
-        ParticleSystem busiest = null;
-        foreach (ParticleSystem spray in FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None))
-        {
-            if (spray.name.StartsWith("FlowingWater spray", StringComparison.Ordinal))
-            {
-                sprays++;
-                drops += spray.particleCount;
-                if (busiest == null || spray.particleCount > busiest.particleCount)
-                {
-                    busiest = spray;
-                }
-            }
-        }
-
-        Note($"white water: {sources} sounds ({playing} playing, loudest {loudest:0.00}), {sprays} sprays with {drops} drops in the air");
-        foreach (AudioClip clip in clips.Values)
+        List<AudioSource> sounds = [.. FindObjectsByType<AudioSource>(FindObjectsSortMode.None).Where(s => s.name.StartsWith("FlowingWater white water", StringComparison.Ordinal))];
+        List<ParticleSystem> sprays = [.. FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Where(p => p.name.StartsWith("FlowingWater spray", StringComparison.Ordinal))];
+        ParticleSystem busiest = sprays.OrderByDescending(p => p.particleCount).FirstOrDefault();
+        Note($"white water: {sounds.Count} sounds ({sounds.Count(s => s.isPlaying)} playing, loudest {sounds.Select(s => s.volume).DefaultIfEmpty().Max():0.00}), {sprays.Count} sprays with {sprays.Sum(p => p.particleCount)} drops in the air");
+        foreach (AudioClip clip in sounds.Select(s => s.clip).Where(c => c != null).Distinct())
         {
             string wav = Path.Combine(_out, clip.name.Replace(' ', '-') + ".wav");
             if (File.Exists(wav))

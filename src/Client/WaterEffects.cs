@@ -153,14 +153,14 @@ internal sealed class WaterEffects : MonoBehaviour
         private void Play(AudioSource sound, float volume)
         {
             sound.volume = volume;
-            if (volume > 0f && !sound.isPlaying)
+            if (volume <= 0f)
+            {
+                sound.Stop();
+            }
+            else if (!sound.isPlaying)
             {
                 sound.time = _start;
                 sound.Play();
-            }
-            else if (volume <= 0f && sound.isPlaying)
-            {
-                sound.Stop();
             }
         }
 
