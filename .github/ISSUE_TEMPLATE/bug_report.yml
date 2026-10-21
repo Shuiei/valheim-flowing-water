@@ -63,7 +63,6 @@ body:
     attributes:
       label: Log
       description: Drag `LogOutput.log` here, or paste the relevant part.
-      render: text
 
   - type: textarea
     id: extra

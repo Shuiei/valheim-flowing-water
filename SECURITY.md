@@ -18,9 +18,11 @@ a vulnerability.
 
 ## Checking a download
 
-Each file on the [releases page](https://github.com/Shuiei/valheim-flowing-water/releases) has a
-`<file>.sigstore.json` beside it: its [Sigstore](https://www.sigstore.dev/) signature, made by this
-repository's release workflow (`.github/workflows/sign-release.yml`). With
+Each file uploaded to a release on the [releases page](https://github.com/Shuiei/valheim-flowing-water/releases)
+(the plugin's `FlowingWater-<version>.zip`) has a `<file>.sigstore.json` beside it: its
+[Sigstore](https://www.sigstore.dev/) signature, made by this repository's release workflow
+(`.github/workflows/sign-release.yml`). The source code archives GitHub adds to every release are not
+signed. With
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), download both and run:
 
 ```sh
