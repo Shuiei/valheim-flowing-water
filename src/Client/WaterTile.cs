@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using FlowingWater.Server;
@@ -74,6 +75,16 @@ internal sealed class WaterTile : MonoBehaviour
     private bool _dirty;
 
     private float _heightTimer;
+
+    private bool _flatApplied;
+
+    private float _liftApplied;
+
+    /// <summary>Metres the drawn water is raised by, for testing (console `flowingwater lift`).</summary>
+    internal static float Lift { get; set; }
+
+    /// <summary>Draw with plain opaque colours instead of the water materials, for testing.</summary>
+    internal static bool Flat { get; set; }
 
     public Vector2s Zone { get; private set; }
 
@@ -238,21 +249,49 @@ internal sealed class WaterTile : MonoBehaviour
         _mesh = new Mesh { name = "FlowingWater tile", indexFormat = IndexFormat.UInt16 };
         _mesh.MarkDynamic();
         GetComponent<MeshFilter>().sharedMesh = _mesh;
-        Material still = Materials.Still();
-        Material stream = Materials.Flow();
+        ApplyMaterials();
+        ByZone[TileData.Key(Zone)] = this;
+    }
+
+    // The water materials, or in flat mode (for testing) plain opaque colours: blue still, green stream.
+    private void ApplyMaterials()
+    {
+        _flatApplied = Flat;
+        Material still = Flat ? Materials.Plain("FlowingWater flat still", new Color(0.1f, 0.3f, 0.9f)) : Materials.Still();
+        Material stream = Flat ? Materials.Plain("FlowingWater flat stream", new Color(0.1f, 0.9f, 0.3f)) : Materials.Flow();
         if (still == null && stream == null)
         {
             FlowingWaterPlugin.Log.LogError("No water material: flowing water is simulated but invisible");
             _renderer.enabled = false;
-        }
-        else
-        {
-            _renderer.sharedMaterials = [still ?? stream, stream ?? still];
-            _properties = new MaterialPropertyBlock();
-            _properties.SetFloat(VisibleMaxDistanceId, ZNet.instance.GetSyncedSimulationDistance().NearSimulationDistance * ZoneSystem.c_ZoneSize);
+            _properties = null;
+            return;
         }
 
-        ByZone[TileData.Key(Zone)] = this;
+        _renderer.sharedMaterials = [still ?? stream, stream ?? still];
+        _properties = new MaterialPropertyBlock();
+        _properties.SetFloat(VisibleMaxDistanceId, ZNet.instance.GetSyncedSimulationDistance().NearSimulationDistance * ZoneSystem.c_ZoneSize);
+    }
+
+    /// <summary>What the tile under a point draws, for the console.</summary>
+    public static string DebugInfo(Vector3 point)
+    {
+        Vector2s zone = ZoneSystem.GetZone(point);
+        if (!ByZone.TryGetValue(TileData.Key(zone), out WaterTile tile))
+        {
+            return $"zone {zone}: no water tile";
+        }
+
+        var text = new System.Text.StringBuilder();
+        text.Append(FormattableString.Invariant($"zone {zone}: at {tile.transform.position}, ready {tile.Ready}, renderer {tile._renderer.enabled}, lift {Lift}, flat {Flat}"));
+        text.Append(FormattableString.Invariant($"; mesh {tile._mesh.vertexCount} vertices, still {tile._stillTriangles.Count / 3} stream {tile._streamTriangles.Count / 3} triangles, bounds {tile._mesh.bounds.min} to {tile._mesh.bounds.max}"));
+        foreach (Material material in tile._renderer.sharedMaterials)
+        {
+            text.Append(material == null
+                ? "; material none"
+                : FormattableString.Invariant($"; material {material.name} shader {material.shader.name} supported {material.shader.isSupported} queue {material.renderQueue} keywords {string.Join(" ", material.shaderKeywords)}"));
+        }
+
+        return text.ToString();
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -287,6 +326,17 @@ internal sealed class WaterTile : MonoBehaviour
         {
             _renderer.enabled = false;
             return;
+        }
+
+        if (_flatApplied != Flat)
+        {
+            ApplyMaterials();
+        }
+
+        if (_liftApplied != Lift)
+        {
+            _liftApplied = Lift;
+            _dirty = true;
         }
 
         float k = 1f - Mathf.Exp(-EaseRate * dt);
@@ -372,7 +422,7 @@ internal sealed class WaterTile : MonoBehaviour
                 int i = (z * Pitch) + x;
                 float wx = TileData.WorldX(Zone, x);
                 float wz = TileData.WorldZ(Zone, z);
-                float y = VertexY(x, z);
+                float y = VertexY(x, z) + Lift;
                 _vertices[i] = new Vector3(wx - origin.x, y - origin.y, wz - origin.z);
                 minY = Mathf.Min(minY, y);
                 maxY = Mathf.Max(maxY, y);

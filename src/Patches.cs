@@ -105,7 +105,8 @@ internal static class SetLiquidLevelPatch
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Prefix(Component __instance, ref float level, LiquidType type)
     {
-        if (type == LiquidType.Water)
+        // Water volumes also report to objects already destroyed, when a world closes.
+        if (type == LiquidType.Water && __instance != null)
         {
             level = Mathf.Max(level, WaterTile.SurfaceAt(__instance.transform.position));
         }

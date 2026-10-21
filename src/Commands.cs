@@ -8,7 +8,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] | remove | info | debug | flat | lift [m]";
 
     private static bool _registered;
 
@@ -53,6 +53,17 @@ internal static class Commands
                 break;
             case "info":
                 terminal.AddString("flowingwater: " + WaterTile.Describe(player.transform.position));
+                break;
+            case "debug":
+                terminal.AddString("flowingwater: " + WaterTile.DebugInfo(player.transform.position));
+                break;
+            case "flat":
+                WaterTile.Flat = !WaterTile.Flat;
+                terminal.AddString("flowingwater: " + (WaterTile.Flat ? "plain colours (blue still, green stream)" : "water materials"));
+                break;
+            case "lift":
+                WaterTile.Lift = Rate(args, 0f);
+                terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
                 break;
             default:
                 terminal.AddString(Usage);

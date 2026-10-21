@@ -10,6 +10,10 @@ internal static class Materials
 
     private const string CryptRoomPrefix = "sunkencrypt_new_";
 
+    private const string PlainShaderName = "Custom/Piece";
+
+    private static readonly int ColourId = Shader.PropertyToID("_Color");
+
     private static Material _still;
 
     private static Material _flow;
@@ -66,7 +70,7 @@ internal static class Materials
         return _flow;
     }
 
-    /// <summary>A plain coloured material for a source or drain marker; null when no plain shader exists.</summary>
+    /// <summary>A plain coloured material for a source or drain marker; null when no plain material can be found.</summary>
     public static Material Marker(bool drain)
     {
         Material material = drain ? _drain : _source;
@@ -75,17 +79,7 @@ internal static class Materials
             return material;
         }
 
-        var shader = Shader.Find("Standard");
-        if (shader == null)
-        {
-            return null;
-        }
-
-        material = new Material(shader)
-        {
-            name = drain ? "FlowingWater drain" : "FlowingWater source",
-            color = drain ? new Color(0.15f, 0.1f, 0.25f) : new Color(0.2f, 0.55f, 1f),
-        };
+        material = Plain(drain ? "FlowingWater drain" : "FlowingWater source", drain ? new Color(0.15f, 0.1f, 0.25f) : new Color(0.2f, 0.55f, 1f));
         if (drain)
         {
             _drain = material;
@@ -96,6 +90,30 @@ internal static class Materials
         }
 
         return material;
+    }
+
+    /// <summary>An opaque coloured copy of the game's piece material (its own shaders draw; a Standard one shows pink). Null when none is loaded.</summary>
+    public static Material Plain(string name, Color colour)
+    {
+        Material source = null;
+        foreach (Material material in Resources.FindObjectsOfTypeAll<Material>())
+        {
+            if (material.shader != null && material.shader.name == PlainShaderName && material.HasProperty(ColourId))
+            {
+                source = material;
+                break;
+            }
+        }
+
+        if (source == null)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"No {PlainShaderName} material is loaded: {name} cannot be drawn");
+            return null;
+        }
+
+        var plain = new Material(source) { name = name };
+        plain.SetColor(ColourId, colour);
+        return plain;
     }
 
     private static Material ZoneWater()
