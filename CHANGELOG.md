@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.1.1 — 2026-10-21
+
+### Fixed
+- Running water drew as thin blue stripes: the game's stream material masks its water into trickles, and the
+  mask is now replaced by a full sheet. The drawn surface is averaged over neighbouring cells, so the
+  step-by-step spreading no longer shows as rings and terraces, and a source feeds a 3 by 3 metre patch instead
+  of one spiking cell.
+
 ## v0.1.0 — 2026-10-21
 
 ### Changed

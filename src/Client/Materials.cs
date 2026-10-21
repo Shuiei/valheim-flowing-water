@@ -16,6 +16,8 @@ internal static class Materials
 
     private static readonly int FoamColourId = Shader.PropertyToID("_FoamColor");
 
+    private static readonly int MainTextureId = Shader.PropertyToID("_MainTex");
+
     private static Material _still;
 
     private static Material _flow;
@@ -71,7 +73,10 @@ internal static class Materials
         _flow = new Material(source) { name = "FlowingWater stream" };
         _flow.SetFloat("_SpeedX", 0f);
         _flow.SetFloat("_SpeedY", FlowingWaterPlugin.Settings.FlowTextureSpeed.Value);
-        // The crypts' trickle is a murky green; a river is blue-grey with white foam.
+        // The crypts' material masks its water into thin stripes (a trickle along a channel) and
+        // tints it a murky green; a river is a full sheet, blue-grey with white foam. The scrolling
+        // normal map stays: that is the flow.
+        _flow.SetTexture(MainTextureId, Texture2D.whiteTexture);
         _flow.SetColor(ColourId, new Color(0.22f, 0.4f, 0.55f, 1f));
         _flow.SetColor(FoamColourId, new Color(0.9f, 0.95f, 1f, 1f));
         return _flow;

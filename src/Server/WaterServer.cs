@@ -326,7 +326,7 @@ internal sealed class WaterServer
                 continue;
             }
 
-            tile.Data.Depth[marker.Cell] += marker.Rate * dt;
+            Emit(tile, marker.Cell, marker.Rate * dt);
             tile.HasSource = true;
             tile.Dirty = true;
         }
@@ -393,6 +393,41 @@ internal sealed class WaterServer
                 Move(tile, i, x - 1, z + 1, northWest * scale, -Diagonal, Diagonal);
                 Move(tile, i, x + 1, z - 1, southEast * scale, Diagonal, -Diagonal);
                 Move(tile, i, x - 1, z - 1, southWest * scale, -Diagonal, -Diagonal);
+            }
+        }
+    }
+
+    // A source's water over the cell and its neighbours in the tile: one cell alone rises in a
+    // spike each step and sends rings out.
+    private static void Emit(ServerTile tile, int cell, float volume)
+    {
+        int cx = cell % TileData.Size;
+        int cz = cell / TileData.Size;
+        int count = 0;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int x = cx + dx;
+                int z = cz + dz;
+                if (x >= 0 && z >= 0 && x < TileData.Size && z < TileData.Size)
+                {
+                    count++;
+                }
+            }
+        }
+
+        float each = volume / count;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int x = cx + dx;
+                int z = cz + dz;
+                if (x >= 0 && z >= 0 && x < TileData.Size && z < TileData.Size)
+                {
+                    tile.Data.Depth[TileData.Index(x, z)] += each;
+                }
             }
         }
     }

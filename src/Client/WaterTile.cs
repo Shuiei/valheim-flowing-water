@@ -48,6 +48,8 @@ internal sealed class WaterTile : MonoBehaviour
 
     private readonly float[] _depth = new float[TileData.Cells];
 
+    private readonly float[] _drawDepth = new float[TileData.Cells];
+
     private readonly float[] _velX = new float[TileData.Cells];
 
     private readonly float[] _velZ = new float[TileData.Cells];
@@ -184,11 +186,53 @@ internal sealed class WaterTile : MonoBehaviour
     {
         if (x < TileData.Size && z < TileData.Size)
         {
-            return _depth[TileData.Index(x, z)];
+            return _drawDepth[TileData.Index(x, z)];
         }
 
         WaterTile other = Beside(ref x, ref z);
-        return other == null ? 0f : other._depth[TileData.Index(x, z)];
+        return other == null ? 0f : other._drawDepth[TileData.Index(x, z)];
+    }
+
+    // The depth drawn at each cell: the water surface averaged with the wet cells around it, so
+    // the step-by-step spreading's one-cell ripples do not show as terraces. Dry cells stay dry.
+    private void SmoothForDrawing()
+    {
+        for (int z = 0; z < TileData.Size; z++)
+        {
+            for (int x = 0; x < TileData.Size; x++)
+            {
+                int i = TileData.Index(x, z);
+                if (_depth[i] <= WetDepth)
+                {
+                    _drawDepth[i] = 0f;
+                    continue;
+                }
+
+                float surface = 0f;
+                int count = 0;
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = x + dx;
+                        int nz = z + dz;
+                        if (nx < 0 || nz < 0 || nx >= TileData.Size || nz >= TileData.Size)
+                        {
+                            continue;
+                        }
+
+                        int j = TileData.Index(nx, nz);
+                        if (_depth[j] > WetDepth)
+                        {
+                            surface += _height[(nz * Pitch) + nx] + _depth[j];
+                            count++;
+                        }
+                    }
+                }
+
+                _drawDepth[i] = Mathf.Max((surface / count) - _height[(z * Pitch) + x], MinDrawnDepth);
+            }
+        }
     }
 
     private void VertexVelocity(int x, int z, out float vx, out float vz)
@@ -448,6 +492,7 @@ internal sealed class WaterTile : MonoBehaviour
 
     private void Rebuild()
     {
+        SmoothForDrawing();
         float streamSpeed = FlowingWaterPlugin.Settings.FlowVisualMinSpeed.Value;
         Vector3 origin = transform.position;
         float minY = float.MaxValue;
