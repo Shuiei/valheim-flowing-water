@@ -479,19 +479,15 @@ public sealed class Recorder : BaseUnityPlugin
         using var file = new StreamWriter(Path.Combine(_out, $"heights-{when}.csv"));
         file.WriteLine("along,side,x,z,height");
         int missing = 0;
-        for (float along = -2f; along <= 45f; along += 1f)
+        foreach ((float along, float side, Vector3? ground) in Ground(site, -2f, 45f))
         {
-            for (float side = -12f; side <= 12f; side += 1f)
+            if (ground is not { } p)
             {
-                Vector3 p = site.At(along) + (site.Across * side);
-                if (!ZoneSystem.instance.GetGroundHeight(p, out float ground))
-                {
-                    missing++;
-                    continue;
-                }
-
-                file.WriteLine(FormattableString.Invariant($"{along},{side},{p.x:0.00},{p.z:0.00},{ground:0.0000}"));
+                missing++;
+                continue;
             }
+
+            file.WriteLine(FormattableString.Invariant($"{along},{side},{p.x:0.00},{p.z:0.00},{p.y:0.0000}"));
         }
 
         Note($"heights {when} saved ({missing} points not loaded)");
@@ -670,28 +666,39 @@ public sealed class Recorder : BaseUnityPlugin
     {
         Vector3 best = site.At((from + to) * 0.5f);
         float bestDepth = 0f;
-        for (float along = from; along <= to; along += 1f)
+        foreach ((_, _, Vector3? ground) in Ground(site, from, to))
         {
-            for (float side = -12f; side <= 12f; side += 1f)
+            if (ground is not { } p)
             {
-                Vector3 p = site.At(along) + (site.Across * side);
-                if (!ZoneSystem.instance.GetGroundHeight(p, out float ground))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                p.y = ground;
-                float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - ground;
-                if (depth > bestDepth)
-                {
-                    bestDepth = depth;
-                    best = p;
-                }
+            float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y;
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = p;
             }
         }
 
         Note($"wettest point {from}..{to} m downhill: {best.ToString("F1")}, {bestDepth:0.00} m deep");
         return best;
+    }
+
+    // The site's points a metre apart, between these distances downhill and 12 m to each side, each on the
+    // ground players stand on (none where its zone is not loaded).
+    private static IEnumerable<(float Along, float Side, Vector3? Ground)> Ground(Site site, float from, float to)
+    {
+        for (float along = from; along <= to; along += 1f)
+        {
+            for (float side = -12f; side <= 12f; side += 1f)
+            {
+                Vector3 p = site.At(along) + (site.Across * side);
+                bool loaded = ZoneSystem.instance.GetGroundHeight(p, out float ground);
+                p.y = ground;
+                yield return (along, side, loaded ? p : null);
+            }
+        }
     }
 
     private static ConfigEntry<bool> Setting(string section, string key)
