@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.10.0 — 2026-10-21
+
+### Changed
+- Banks cut by erosion fall in until they hold, so streams carve sloping valleys instead of sheer-walled
+  trenches. Natural cliffs are left as they are.
+
 ## v0.9.0 — 2026-10-21
 
 ### Added

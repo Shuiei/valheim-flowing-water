@@ -55,7 +55,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
 | `Server.MaxTiles` | 256 | Most zones with water at once |
 | `Server.MaxDepth` | 40 | Deepest a cell fills, metres |
-| `Server.EmptyTileSeconds` | 30 | A dry zone without a source forgets its tile after this |
+| `Server.EmptyTileSeconds` | 30 | A dry zone without a source forgets its tile after this (with erosion on, not while a zone beside it has water) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
 | `Server.DebugSeconds` | 0 | Log each tile as a map of depths this often (0 = off) |
@@ -118,19 +118,23 @@ next start or at once with a config manager.
   seen from afar, a larger layer that still reads at a distance; colour and opacity go from shallow to deep;
   foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge fades out
   to nothing, its reflections included (the blending adds light even where the water is transparent).
-- **Erosion** (off by default; in progress). Water carries ground (sediment, counted as a height over the
-  cell): fast water can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s.
-  Carrying less, it picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets
-  everything down, and what reaches the sea is gone. The sediment moves with the water, at what each cell's
-  water carried before the step. The ground never moves more than 8 m from where it was (the game's own limit
-  on terrain changes). The ground within 5 m of anything a player built (refreshed every 30 s), and of the
+- **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
+  can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s. Carrying less, it
+  picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets everything down,
+  and what reaches the sea is gone. The sediment moves with the water, at what each cell's water carried before
+  the step. The ground never moves more than 8 m from where it was (the game's own limit on terrain changes).
+  Banks fall in: where erosion leaves the ground between two cells steeper than loose ground holds (40 degrees,
+  or the slope it had before when that was steeper, so natural cliffs and beds cut evenly down a steep slope
+  stay), the higher one slides into the lower until it holds, so channels get sloping sides instead of walls,
+  across zone edges too. The ground within 5 m of anything a player built (refreshed every 30 s), and of the
   game's own places (villages, dungeons, boss altars), is left alone. The change is the mod's own: one
   `FlowingWater_Ground` object per zone, millimetres at each of the zone's heightmap points, written by the
   server at most once a minute (and when the zone dries or the grid changes), kept with the world. Players'
   games add it to the zone's ground after the game's own terrain changes, so the look, collisions and building
   follow; the game's terrain changes are left as they are (they belong to whoever is near, and are theirs to
-  write). Removing the mod takes the change away with it. The server's debug map reports what each zone cut
-  and laid down.
+  write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
+  m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
+  where it slows. The server's debug map reports what each zone cut and laid down.
 - **White water.** Twice a second each tile picks where most water runs fastest (at least 1.2 m/s and 3 cm
   deep), up to six places 6 m apart, the steepest first. Each gets a sound of running water, louder the more
   water passes: a stream's babble (a loop made in code from a bubble model: each air bubble rings at a pitch
