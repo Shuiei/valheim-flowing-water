@@ -12,6 +12,8 @@ public class SurfaceMathTests
 {
     private const int Size = 64;
 
+    private const float Cell = 0.5f;
+
     [Theory]
     [InlineData(10, 20, 0, 0, 10, 20)]
     [InlineData(64, 20, 1, 0, 0, 20)] // the last column: the east tile's first
@@ -70,14 +72,43 @@ public class SurfaceMathTests
         Assert.Equal(0f, Dot(n, (t.X, t.Y, t.Z)), 5);
     }
 
-    [Fact]
-    public void TheSameSlopesGiveTheSameFrameOnEitherSideOfABorder()
+    [Theory]
+    [InlineData(Size, 30, 0, 30, 1, 0)] // a straight border: the west tile's last column, the east tile's first
+    [InlineData(30, Size, 30, 0, 0, 1)] // the south tile's last row, the north tile's first
+    [InlineData(Size, Size, 0, 0, 1, 1)] // the corner where four tiles meet: the south-west tile and the north-east one
+    public void BothTilesGetTheSameFrameAndSlopeOnTheirBorder(int x, int z, int ox, int oz, int ownerX, int ownerZ)
     {
-        // Two tiles reading the same heights across their border compute the same slopes: the same frame.
-        float slopeX = SurfaceMath.Gradient(10f, true, 10.3f, true, 9.9f, 0.5f);
-        float slopeZ = SurfaceMath.Gradient(10f, false, 0f, true, 10.2f, 0.5f);
+        // The asking tile is zone (0, 0); the vertex is also (ox, oz) of the tile that owns it.
+        SurfaceMath.VertexReader asking = World.Tile(0, 0);
+        SurfaceMath.VertexReader owner = World.Tile(ownerX, ownerZ);
+        float y = World.Height((0 * Size) + x, (0 * Size) + z);
 
-        Assert.Equal(SurfaceMath.Frame(slopeX, slopeZ), SurfaceMath.Frame(slopeX, slopeZ));
+        Assert.Equal(
+            SurfaceMath.FrameAt(Size, ox, oz, y, Cell, owner),
+            SurfaceMath.FrameAt(Size, x, z, y, Cell, asking));
+        Assert.Equal(
+            SurfaceMath.Steepest(Size, ox, oz, Cell, owner),
+            SurfaceMath.Steepest(Size, x, z, Cell, asking));
+        Assert.NotEqual(0f, SurfaceMath.Steepest(Size, x, z, Cell, asking));
+    }
+
+    [Fact]
+    public void ANeighbourNotShownLeavesTheSlopeToTheSideThatIs()
+    {
+        // The east tile is not loaded: its first column (the west tile's last) reads as nothing drawn.
+        static bool WestOnly(int zoneX, int zoneZ, int x, int z, out float y)
+        {
+            y = zoneX == 0 && zoneZ == 0 ? World.Height(x, z) : 0f;
+            return zoneX == 0 && zoneZ == 0;
+        }
+
+        float here = World.Height(Size, 30);
+
+        ((float X, float Y, float Z) n, _) = SurfaceMath.FrameAt(Size, Size, 30, here, Cell, WestOnly);
+
+        // Along x only the west side is drawn; along z both sides lie in the missing column too: flat.
+        float behindOnly = (here - World.Height(Size - 1, 30)) / Cell;
+        Assert.Equal(SurfaceMath.Frame(behindOnly, 0f).Normal, n);
     }
 
     [Theory]
@@ -135,4 +166,24 @@ public class SurfaceMathTests
     private static float Dot((float X, float Y, float Z) a, (float X, float Y, float Z) b) => (a.X * b.X) + (a.Y * b.Y) + (a.Z * b.Z);
 
     private static float Length((float X, float Y, float Z) v) => (float)Math.Sqrt(Dot(v, v));
+
+    /// <summary>
+    /// A made-up world of water: one height grid over many zones (world vertex = zone times size plus the
+    /// tile's own), dry in a band, read by each tile the way <c>WaterTile</c> reads it, through its zone offset.
+    /// </summary>
+    private static class World
+    {
+        public static float Height(int x, int z) => 40f + (0.05f * x) + (0.03f * z) + (0.4f * (float)Math.Sin(x * 0.7) * (float)Math.Cos(z * 0.5));
+
+        public static bool Drawn(int x, int z) => (x + (2 * z)) % 23 != 0;
+
+        public static SurfaceMath.VertexReader Tile(int tileX, int tileZ) => (int zoneX, int zoneZ, int x, int z, out float y) =>
+        {
+            int wx = ((tileX + zoneX) * Size) + x;
+            int wz = ((tileZ + zoneZ) * Size) + z;
+            bool drawn = Drawn(wx, wz);
+            y = drawn ? Height(wx, wz) : 0f;
+            return drawn;
+        };
+    }
 }

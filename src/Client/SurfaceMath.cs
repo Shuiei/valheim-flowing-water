@@ -7,6 +7,18 @@ namespace FlowingWater.Client;
 /// </summary>
 internal static class SurfaceMath
 {
+    private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+    /// <summary>
+    /// Reads a vertex from the tile that has it: whether it is there (wet, or drawn, as the reader is for),
+    /// and its height.
+    /// </summary>
+    /// <param name="zoneX">The tile's offset in zones from the one asking (0, 0: itself).</param>
+    /// <param name="zoneZ">Along z.</param>
+    /// <param name="x">The vertex in that tile's grid (0 to size - 1).</param>
+    /// <param name="z">Along z.</param>
+    /// <param name="y">Its height.</param>
+    public delegate bool VertexReader(int zoneX, int zoneZ, int x, int z, out float y);
     /// <summary>
     /// Which tile a vertex of a tile's grid belongs to, and where it lies in it: a tile owns its vertices 0 to
     /// size - 1 each way, so its last row and column (size) are the next tile's first (0), and -1 the last cell
@@ -21,6 +33,59 @@ internal static class SurfaceMath
         (int zoneX, int ox) = Shift(size, x);
         (int zoneZ, int oz) = Shift(size, z);
         return (zoneX, zoneZ, ox, oz);
+    }
+
+    /// <summary>A vertex of a tile's grid (-1 to size each way), read from the tile that owns it.</summary>
+    /// <param name="size">Cells along a tile's side.</param>
+    /// <param name="x">The vertex along x, in the asking tile's grid.</param>
+    /// <param name="z">Along z.</param>
+    /// <param name="read">Reads a vertex from a tile.</param>
+    /// <param name="y">Its height.</param>
+    public static bool Read(int size, int x, int z, VertexReader read, out float y)
+    {
+        (int zoneX, int zoneZ, int ox, int oz) = Owner(size, x, z);
+        return read(zoneX, zoneZ, ox, oz, out y);
+    }
+
+    /// <summary>
+    /// The normal and tangent at a vertex (<see cref="Frame"/>), from the drawn vertices either side, each
+    /// read from the tile that owns it: whichever tile asks about a vertex on a border, it gets the same.
+    /// </summary>
+    /// <param name="size">Cells along a tile's side.</param>
+    /// <param name="x">The vertex along x, in the asking tile's grid.</param>
+    /// <param name="z">Along z.</param>
+    /// <param name="y">The vertex's height.</param>
+    /// <param name="cell">The distance between vertices, metres.</param>
+    /// <param name="drawn">Reads a drawn vertex from a tile.</param>
+    public static ((float X, float Y, float Z) Normal, (float X, float Y, float Z, float W) Tangent) FrameAt(int size, int x, int z, float y, float cell, VertexReader drawn) =>
+        Frame(GradientAt(size, x, z, 1, 0, y, cell, drawn), GradientAt(size, x, z, 0, 1, y, cell, drawn));
+
+    /// <summary>
+    /// The steepest rise over run from a vertex to the four beside it that are there, each read from the tile
+    /// that owns it (the same whichever tile asks); 0 where the vertex itself is not.
+    /// </summary>
+    /// <param name="size">Cells along a tile's side.</param>
+    /// <param name="x">The vertex along x, in the asking tile's grid.</param>
+    /// <param name="z">Along z.</param>
+    /// <param name="cell">The distance between vertices, metres.</param>
+    /// <param name="read">Reads a vertex from a tile.</param>
+    public static float Steepest(int size, int x, int z, float cell, VertexReader read)
+    {
+        if (!Read(size, x, z, read, out float y))
+        {
+            return 0f;
+        }
+
+        float steepest = 0f;
+        foreach ((int dx, int dz) in Sides)
+        {
+            if (Read(size, x + dx, z + dz, read, out float beside))
+            {
+                steepest = System.Math.Max(steepest, System.Math.Abs(beside - y) / cell);
+            }
+        }
+
+        return steepest;
     }
 
     /// <summary>
@@ -107,6 +172,13 @@ internal static class SurfaceMath
         }
 
         return drawn;
+    }
+
+    private static float GradientAt(int size, int x, int z, int dx, int dz, float y, float cell, VertexReader drawn)
+    {
+        bool ahead = Read(size, x + dx, z + dz, drawn, out float yAhead);
+        bool behind = Read(size, x - dx, z - dz, drawn, out float yBehind);
+        return Gradient(y, ahead, yAhead, behind, yBehind, cell);
     }
 
     private static (int Zone, int Index) Shift(int size, int v) => v >= size ? (1, v - size) : v < 0 ? (-1, v + size) : (0, v);
