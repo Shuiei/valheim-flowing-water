@@ -5,8 +5,8 @@ All notable changes to FlowingWater. Newest first.
 ## v0.7.0 — 2026-10-21
 
 ### Added
-- Running water now sounds: where streams run fast you hear them, louder the more water passes. Setting
-  `WaterVolume` (0 turns it off); it follows the game's sound-effects volume.
+- Running water now sounds: where streams run fast you hear them babble, louder the more water passes, and
+  roar where the water falls. Setting `WaterVolume` (0 turns it off); it follows the game's sound-effects volume.
 - Spray where water rushes down steep ground. Setting `Spray`.
 
 ## v0.6.1 — 2026-10-21

@@ -118,9 +118,11 @@ next start or at once with a config manager.
   to nothing, its reflections included (the blending adds light even where the water is transparent).
 - **White water.** Twice a second each tile picks where most water runs fastest (at least 1.2 m/s and 3 cm
   deep), up to six places 6 m apart, the steepest first. Each gets a sound of running water, louder the more
-  water passes (a loop made in code: filtered noise with bubbles, played through the game's sound-effects
-  mixer, only within 35 m), and spray where the surface slopes more than 0.25 (a copy of the game's own bow
-  splash made to run steadily, thicker with the flow and the slope).
+  water passes: a stream's babble (a loop made in code from a bubble model: each air bubble rings at a pitch
+  set by its size and dies away, a couple of hundred a second over a soft wash) turning into the roar of
+  rapids from a slope of 1 (45°) to 2, both played through the game's sound-effects mixer, only within 35 m.
+  Where the surface slopes more than 0.25 there is spray too (a copy of the game's own bow splash made to run
+  steadily, thicker with the flow and the slope).
 - **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh
   (at most 20 times a second, over the wet part of the zone only):
   wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
