@@ -502,7 +502,9 @@ public sealed class Recorder : BaseUnityPlugin
         int frames = Mathf.RoundToInt(seconds * fps);
         float step = 1f / fps;
         var times = new List<float>(frames);
-        AudioTap.On = true;
+        // Without a listener nothing is heard: no sound file.
+        bool heard = listener != null;
+        AudioTap.On = heard;
         float soundFrom = Time.realtimeSinceStartup;
         for (int i = 0; i < frames; i++)
         {
@@ -517,8 +519,12 @@ public sealed class Recorder : BaseUnityPlugin
         }
 
         AudioTap.On = false;
-        float[] sound = AudioTap.Samples();
-        WriteWav(Path.Combine(_out, name + ".wav"), sound, AudioTap.Channels, AudioSettings.outputSampleRate);
+        float[] sound = heard ? AudioTap.Samples() : [];
+        if (heard)
+        {
+            WriteWav(Path.Combine(_out, name + ".wav"), sound, AudioTap.Channels, AudioSettings.outputSampleRate);
+        }
+
         var list = new System.Text.StringBuilder();
         list.Append(FormattableString.Invariant($"# sound starts {times[0] - soundFrom:0.000} s before the first frame\n"));
         for (int i = 0; i < times.Count; i++)
@@ -584,7 +590,14 @@ public sealed class Recorder : BaseUnityPlugin
             return null;
         }
 
-        float[] v = [.. text.Split(',').Select(t => float.Parse(t, CultureInfo.InvariantCulture))];
+        string[] parts = text.Split(',');
+        if (parts.Length != 6)
+        {
+            _instance?.Note($"FW_REC_VIEW \"{text}\" is not six numbers (from x,y,z then at x,y,z): left out");
+            return null;
+        }
+
+        float[] v = [.. parts.Select(t => float.Parse(t, CultureInfo.InvariantCulture))];
         return (new Vector3(v[0], v[1], v[2]), new Vector3(v[3], v[4], v[5]));
     }
 
