@@ -24,6 +24,11 @@ internal sealed class Marker : MonoBehaviour
         float bestDistance = within;
         foreach (Marker marker in All)
         {
+            if (marker == null)
+            {
+                continue;
+            }
+
             float distance = Vector3.Distance(marker.transform.position, point);
             if (distance <= bestDistance)
             {

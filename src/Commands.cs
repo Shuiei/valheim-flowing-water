@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using FlowingWater.Client;
 using FlowingWater.Server;
@@ -23,7 +24,22 @@ internal static class Commands
         _ = new Terminal.ConsoleCommand("flowingwater", Usage, Run);
     }
 
+    // An exception out of a console command reaches Unity's event system, whose logging of it has
+    // crashed the game outright; it is logged here instead, with its message on the console.
     private static void Run(Terminal.ConsoleEventArgs args)
+    {
+        try
+        {
+            RunUnguarded(args);
+        }
+        catch (Exception e)
+        {
+            FlowingWaterPlugin.Log.LogError($"flowingwater {args.ArgsAll}: {e}");
+            args.Context.AddString($"flowingwater: failed, {e.GetType().Name}: {e.Message} (see BepInEx/LogOutput.log)");
+        }
+    }
+
+    private static void RunUnguarded(Terminal.ConsoleEventArgs args)
     {
         Terminal terminal = args.Context;
         if (!FlowingWaterPlugin.Settings.CommandsForEveryone.Value && !terminal.IsCheatsEnabled())
