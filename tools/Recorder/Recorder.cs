@@ -217,6 +217,18 @@ public sealed class Recorder : BaseUnityPlugin
         Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
         Note($"steep site {steep}");
         Note($"gentle site {gentle}");
+        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "look")
+        {
+            IEnumerator look = Look(steep, gentle);
+            while (look.MoveNext())
+            {
+                yield return look.Current;
+            }
+
+            Note("all steps run");
+            yield break;
+        }
+
         if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "grid")
         {
             IEnumerator grid = Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0");
@@ -417,6 +429,43 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater remove");
         yield return Go(gentleDrain);
         Command("flowingwater remove");
+    }
+
+    // The custom material's look, one set of properties after the other, on both streams from the
+    // same cameras: near, from the side and from far off (where ripples must still show).
+    private IEnumerator Look(Site steep, Site gentle)
+    {
+        yield return Go(steep.At(0f));
+        Command("flowingwater source 2");
+        yield return Go(gentle.At(0f));
+        Command("flowingwater source 2");
+        yield return Go(steep.At(8f));
+        yield return new WaitForSeconds(120f);
+        // Unset or empty: the material as it is.
+        string configured = Environment.GetEnvironmentVariable("FW_REC_LOOKS");
+        string sets = string.IsNullOrWhiteSpace(configured) ? "default=" : configured;
+        foreach (string set in sets.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            // "name=property value;property value"; a name alone changes nothing.
+            string[] named = set.Split(new[] { '=' }, 2);
+            string properties = named.Length > 1 ? named[1] : string.Empty;
+            foreach (string property in properties.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                Command("flowingwater mat custom " + property.Trim());
+            }
+
+            yield return new WaitForSeconds(1f);
+            foreach (Site site in new[] { steep, gentle })
+            {
+                string where = site == steep ? "steep" : "gentle";
+
+                // The server sends a zone's water to the players near it.
+                yield return Go(site.At(8f));
+                yield return Shot(site.At(10f) + (site.Across * 6f) + new Vector3(0f, 7f, 0f), site.At(12f), $"{named[0]}-{where}-near");
+                yield return Shot(site.Side(), site.At(12f), $"{named[0]}-{where}-side");
+                yield return Shot(site.At(15f) + (site.Across * 50f) + new Vector3(0f, 35f, 0f), site.At(15f), $"{named[0]}-{where}-far");
+            }
+        }
     }
 
     // The point with the deepest water between these distances downhill, searching 12 m to each
