@@ -8,7 +8,8 @@ internal sealed class Settings
     public Settings(ConfigFile config)
     {
         Enabled = config.Bind("General", "Enabled", true, "Simulate (server) and show (client) flowing water.");
-        StepsPerSecond = config.Bind("Server", "StepsPerSecond", 15, new ConfigDescription("Simulation steps per second.", new AcceptableValueRange<int>(2, 30)));
+        CellSize = config.Bind("Server", "CellSize", 1f, new ConfigDescription("Size of the simulation's square cells, in metres. Smaller cells give narrower streams and finer shores, at a cost: 0.5 is about 6 times the server work and 4 times the data sent to players of 1, 0.25 about 32 and 16 times (for a few small streams only). Changing it moves the water already there to the new grid.", new AcceptableValueList<float>(TileData.CellSizes)));
+        StepsPerSecond = config.Bind("Server", "StepsPerSecond", 15, new ConfigDescription("Simulation steps per second with one-metre cells; smaller cells step proportionally more often (30 for 0.5, 60 for 0.25).", new AcceptableValueRange<int>(2, 30)));
         Friction = config.Bind("Server", "Friction", 0.5f, new ConfigDescription("How fast a flow loses its momentum, per second. Lower keeps streams rushing and pools sloshing longer; higher settles them sooner.", new AcceptableValueRange<float>(0f, 5f)));
         SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed water tile is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
         MaxTiles = config.Bind("Server", "MaxTiles", 256, new ConfigDescription("Most zones that may hold water at once (each is 64 by 64 metres). Water stops spreading beyond.", new AcceptableValueRange<int>(1, 4096)));
@@ -28,6 +29,8 @@ internal sealed class Settings
     }
 
     public ConfigEntry<bool> Enabled { get; }
+
+    public ConfigEntry<float> CellSize { get; }
 
     public ConfigEntry<int> StepsPerSecond { get; }
 

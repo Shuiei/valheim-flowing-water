@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.4.0 — 2026-10-21
+
+### Added
+- Server setting `CellSize`: the water can be simulated on cells of 1, 0.5 or 0.25 metres, for narrower
+  streams and finer shores at a higher cost. Water already there moves to the new size.
+- The current can now be up to 16 m/s instead of 6.35, with finer steps for slow water.
+
+### Changed
+- The water costs much less: the server steps the zones in parallel and skips dry ground, and players
+  draw only the wet part of each zone, rebuilt at most 20 times a second.
+
 ## v0.3.6 — 2026-10-21
 
 ### Fixed

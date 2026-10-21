@@ -203,11 +203,31 @@ public sealed class Recorder : BaseUnityPlugin
         EnvMan.instance.m_debugEnv = "Clear";
         Hud.instance.m_userHidden = true;
 
+        // Where the sites are looked for: the landing point (the Valkyrie's varies), or a fixed point so
+        // that runs on the same world use the same sites.
         Vector3 spawn = player.transform.position;
+        string around = Environment.GetEnvironmentVariable("FW_REC_AROUND");
+        if (!string.IsNullOrEmpty(around))
+        {
+            string[] parts = around.Split(',');
+            spawn = new Vector3(float.Parse(parts[0], CultureInfo.InvariantCulture), 0f, float.Parse(parts[1], CultureInfo.InvariantCulture));
+            Note($"sites looked for around {spawn}");
+        }
         Site steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
         Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
         Note($"steep site {steep}");
         Note($"gentle site {gentle}");
+        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "grid")
+        {
+            IEnumerator grid = Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0");
+            while (grid.MoveNext())
+            {
+                yield return grid.Current;
+            }
+
+            Note("all steps run");
+            yield break;
+        }
 
         // Steep slope: a source and how the water runs over time.
         yield return Go(steep.At(0f));
@@ -326,6 +346,63 @@ public sealed class Recorder : BaseUnityPlugin
         yield return Shot(gentle.Behind(), gentle.At(14f), "gentle-custom-again");
         Command("flowingwater debug");
         Note("all steps run");
+    }
+
+    // The look of the server's grid (run once per CellSize): a source on each slope, both seen as the
+    // water spreads, in motion and close up; then a drain where the steep stream runs. With place off
+    // the sources are already there (the world of an earlier run, the server now on another grid).
+    private IEnumerator Grid(Site steep, Site gentle, bool place)
+    {
+        if (place)
+        {
+            yield return Go(steep.At(0f));
+            Command("flowingwater source 3");
+            yield return Go(gentle.At(0f));
+            Command("flowingwater source 3");
+        }
+
+        yield return Go(steep.At(8f));
+        Command("flowingwater info");
+        yield return Views(steep, "steep-start");
+        yield return Views(gentle, "gentle-start");
+        foreach (float wait in new[] { 30f, 60f })
+        {
+            yield return new WaitForSeconds(wait);
+            int t = Mathf.RoundToInt(Time.timeSinceLevelLoad);
+            yield return Views(steep, $"steep-t{t}");
+            yield return Shot(steep.Close(), steep.At(7f), $"steep-close-t{t}");
+            yield return Views(gentle, $"gentle-t{t}");
+            yield return Shot(gentle.Close(), gentle.At(7f), $"gentle-close-t{t}");
+        }
+
+        // The frame rate looking at the water (the players' cost of the grid: the mesh rebuilds).
+        _cameraAt = Clear(steep.Behind(), steep.At(14f));
+        _cameraLook = steep.At(14f);
+        yield return new WaitForSeconds(1f);
+        int frames = Time.frameCount;
+        float since = Time.realtimeSinceStartup;
+        yield return new WaitForSeconds(5f);
+        Note($"frame rate over the steep stream: {(Time.frameCount - frames) / (Time.realtimeSinceStartup - since):0.0} fps");
+        yield return Burst(steep.Behind(), steep.At(14f), "steep-motion", 4f, 12);
+        yield return Burst(gentle.Behind(), gentle.At(14f), "gentle-motion", 4f, 12);
+        foreach (float metres in new[] { 6f, 15f, 25f })
+        {
+            yield return Go(steep.At(metres));
+            Command("flowingwater info");
+        }
+
+        yield return Go(gentle.At(10f));
+        Command("flowingwater info");
+        Command("flowingwater debug");
+
+        Vector3 drain = Wet(steep, 14f, 26f);
+        yield return Go(drain);
+        Command("flowingwater info");
+        Command("flowingwater drain");
+        yield return new WaitForSeconds(40f);
+        Command("flowingwater info");
+        yield return Views(steep, "steep-drain");
+        Command("flowingwater remove");
     }
 
     // The point with the deepest water between these distances downhill, searching 12 m to each

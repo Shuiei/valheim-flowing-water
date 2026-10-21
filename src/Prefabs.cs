@@ -70,7 +70,7 @@ internal static class Prefabs
 
         BoxCollider box = trigger.AddComponent<BoxCollider>();
         box.isTrigger = true;
-        box.size = new Vector3(TileData.Size, 1f, TileData.Size);
+        box.size = new Vector3(TileData.ZoneMetres, 1f, TileData.ZoneMetres);
         trigger.AddComponent<WaterTrigger>();
 
         Networked(SourceName).AddComponent<Marker>().IsDrain = false;

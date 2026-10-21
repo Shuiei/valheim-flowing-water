@@ -13,8 +13,8 @@ or the sea takes it. Dig a channel with the pickaxe and the river follows it.
 - Both sides need the mod. A player without it sees nothing and walks through the water (the server
   keeps the objects for the others).
 
-Status: **0.0.1, a prototype.** The flow model is a simple cellular one (water levels out between
-neighbouring cells of one metre, ten times a second); it is tuned for rivers and ponds, not for
+Status: **a prototype.** The flow model is a shallow-water one on a grid of cells (one metre by default,
+fifteen steps a second); it is tuned for rivers and ponds, not for
 waves or splashes. Buildings do not hold water yet: only the terrain does.
 
 ## Placing water
@@ -45,7 +45,8 @@ A server can also have sources and drains with no marker placed, from its config
 | Setting | Default | What |
 |---|---|---|
 | `Enabled` | true | Simulate (server) and show (client) |
-| `Server.StepsPerSecond` | 15 | Simulation steps per second |
+| `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
+| `Server.StepsPerSecond` | 15 | Simulation steps per second with 1 m cells (twice that at 0.5, four times at 0.25) |
 | `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second |
 | `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
 | `Server.MaxTiles` | 256 | Most zones with water at once |
@@ -62,25 +63,50 @@ A server can also have sources and drains with no marker placed, from its config
 | `Client.FlowVisualMinSpeed` | 0.15 | Water faster than this (m/s) is drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | How fast the stream texture runs |
 
+### Grid size
+
+`Server.CellSize` sets how fine the water is. Smaller cells give narrower streams and finer shores, and
+cost more: four times the cells per halving, each stepped twice as often. Measured on one test world (the
+same two springs, seven zones with water, a 24-thread PC):
+
+| `CellSize` | Cells per zone | Server time per second | Frame rate looking at the stream |
+|---|---|---|---|
+| 1 | 64 × 64 | 9 ms | 90 fps |
+| 0.5 | 128 × 128 | 53 ms (5.5×) | 78 fps |
+| 0.25 | 256 × 256 | 300 ms (32×) | 32 fps |
+
+The data sent to players grows with the cells (4× and 16× before compression). 0.5 suits most servers;
+0.25 is for a few small streams. The zones are stepped in parallel, so the server's cost spreads over its cores.
+
+Only the server's setting counts: each zone's saved water carries its own grid and players draw whatever
+they receive. Changing the setting moves the water already there to the new grid (same volume), at the
+next start or at once with a config manager.
+
 ## How it works
 
-- **Grid.** One tile per zone, 64 × 64 cells of one metre, each at a vertex of the zone's heightmap.
-  A cell holds a depth of water over its ground. Water that reaches a cell under sea level is the sea's.
+- **Grid.** One tile per zone, a square of cells of `CellSize` metres (64 × 64 at one metre), the first at
+  the zone's south-west corner. A cell holds a depth of water over its ground, which is the game's
+  heightmap read between its one-metre vertices as the game reads it. Water that reaches a cell under sea
+  level is the sea's.
 - **Step.** The pipe model: every cell has a pipe to each of its eight neighbours carrying a flow that keeps
   its momentum. Each step the level difference accelerates it (gravity, over the pipe's length), `Friction`
   slows it, it may move at most half the difference (so two cells level out without crossing over), a flow
   pushed uphill dies fast, and a cell never gives more than it holds. The flows then move the water, across
-  zone borders too. A cell's net flow divided by its depth is its velocity: the current.
+  zone borders too. A cell's net flow over its width and depth is its velocity: the current. Smaller cells
+  step more often, so water crosses at most about a cell a step and keeps the same speed on any grid.
+  A source spreads its water over the cells about a metre around it, a drain takes from about half a metre.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs
   on a dedicated server and in zones no player has loaded. Ground heights come from the world
   generator as the game's heightmap builder makes them, plus the players' terrain changes read from
-  each zone's terrain-changes object. A changed tile is written to its ZDO every `SendSeconds`, and the
+  each zone's terrain-changes object. Each step moves all tiles at once on the thread pool and skips the
+  dry cells nothing flows into. A changed tile is written to its ZDO every `SendSeconds`, and the
   game sends it to the players near that zone.
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, shore and current per vertex; a ripple normal map is dragged
   along the current in two offset phases (flow mapping), with a slow second layer for still water; colour and
   opacity go from shallow to deep; foam rises with speed and at the shore; the edge fades out.
-- **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh:
+- **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh
+  (at most 20 times a second, over the wet part of the zone only):
   wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
   surface on into the ground so the shore is where the surface meets the ground, the rest sunk out of sight. Cells faster than `FlowVisualMinSpeed` use the game's running-water material
   (`waterflow`, a scrolling flow shader) with texture coordinates laid along the flow; the rest use the

@@ -15,7 +15,10 @@ internal sealed class ZoneTerrain
     // The game clamps a vertex to this far from its generated height, whatever the tools did.
     private const float MaxChange = 8f;
 
-    private const int Vertices = TileData.VertexPitch * TileData.VertexPitch;
+    // The game's heightmap: a vertex every metre, one more than the metres along a side.
+    private const int Pitch = TileData.ZoneMetres + 1;
+
+    private const int Vertices = Pitch * Pitch;
 
     private static readonly int TerrainCompilerHash = "_TerrainCompiler".GetStableHashCode();
 
@@ -40,9 +43,26 @@ internal sealed class ZoneTerrain
         return entry.Heights;
     }
 
-    public float CellHeight(Vector2s zone, int x, int z)
+    /// <summary>
+    /// The ground at a point of the zone, metres east and north of its south-west corner (0 to 64),
+    /// between vertices as the game itself reads its heightmap: bilinear.
+    /// </summary>
+    public float HeightAt(Vector2s zone, float x, float z)
     {
-        return Heights(zone, out _)[(z * TileData.VertexPitch) + x];
+        return Sample(Heights(zone, out _), x, z);
+    }
+
+    /// <summary>Like <see cref="HeightAt"/> on heights already fetched with <see cref="Heights"/>.</summary>
+    public static float Sample(float[] heights, float x, float z)
+    {
+        int x0 = Mathf.Clamp(Mathf.FloorToInt(x), 0, Pitch - 2);
+        int z0 = Mathf.Clamp(Mathf.FloorToInt(z), 0, Pitch - 2);
+        float fx = Mathf.Clamp01(x - x0);
+        float fz = Mathf.Clamp01(z - z0);
+        int i = (z0 * Pitch) + x0;
+        float south = Mathf.Lerp(heights[i], heights[i + 1], fx);
+        float north = Mathf.Lerp(heights[i + Pitch], heights[i + Pitch + 1], fx);
+        return Mathf.Lerp(south, north, fz);
     }
 
     /// <summary>Rebuilds the zones whose terrain changes moved on since they were read.</summary>
@@ -109,7 +129,7 @@ internal sealed class ZoneTerrain
     {
         entry.Zone = zone;
         Vector3 center = ZoneSystem.GetZonePos(zone);
-        HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.Size, 1f, false, WorldGenerator.instance);
+        HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
         List<float> baseHeights = data.m_baseHeights;
         if (baseHeights.Count != Vertices)
         {
