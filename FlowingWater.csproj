@@ -35,6 +35,7 @@
     <None Remove="unity/**" />
     <EmbeddedResource Remove="unity/**" />
     <Compile Remove="tools/**" />
+    <Compile Remove="tests/**" />
     <None Remove="tools/**" />
     <Compile Remove="thunderstore/**" />
     <None Remove="thunderstore/**" />

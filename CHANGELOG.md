@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.6.1 — 2026-10-21
+
+### Fixed
+- Straight lines showed across the water where one zone meets the next: the two sides were lit (and sometimes
+  set) a little differently. They now meet seamlessly.
+
 ## v0.6.0 — 2026-10-21
 
 ### Changed

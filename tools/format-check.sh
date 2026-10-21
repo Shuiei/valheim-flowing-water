@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the formatting as .editorconfig says (dotnet format, verifying only), as the Valheim world
-# editor's tools/format-check.sh does: the plugin's whitespace and code style, and the in-game recorder's
-# whitespace (a test tool, not held to the plugin's style rules: tools/Recorder/Directory.Build.props).
+# editor's tools/format-check.sh does: the plugin's and its unit tests' whitespace and code style, and the
+# in-game recorder's whitespace (a test tool, not held to the plugin's style rules: tools/Recorder/Directory.Build.props).
 # dotnet format checks nothing, and still exits 0, for a project that is not restored ("Required
 # references did not load"): each project is restored first, and that message fails the check.
 # Usage: tools/format-check.sh   (the game's DLLs as the build finds them: ValheimDir, BepInExDir)
@@ -22,4 +22,5 @@ check() {   # $1 project, then the dotnet format checks
 }
 check FlowingWater.csproj whitespace style
 check tools/Recorder/Recorder.csproj whitespace
+check tests/FlowingWater.Tests/FlowingWater.Tests.csproj whitespace style
 echo "Formatting as .editorconfig says."
