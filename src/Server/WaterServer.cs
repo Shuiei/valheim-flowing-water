@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using UnityEngine;
 
 namespace FlowingWater.Server;
@@ -39,6 +41,8 @@ internal sealed class WaterServer
     private float _sendTimer;
 
     private float _terrainTimer;
+
+    private float _debugTimer;
 
     private bool _loaded;
 
@@ -95,6 +99,76 @@ internal sealed class WaterServer
             _sendTimer = 0f;
             Publish();
         }
+
+        float debug = FlowingWaterPlugin.Settings.DebugSeconds.Value;
+        if (debug > 0f)
+        {
+            _debugTimer += dt;
+            if (_debugTimer >= debug)
+            {
+                _debugTimer = 0f;
+                LogMaps();
+            }
+        }
+    }
+
+    // One character per 2 x 2 cells: '.' dry, then deeper and deeper; '>' '<' '^' 'v' where it runs.
+    private void LogMaps()
+    {
+        var text = new StringBuilder();
+        text.Append(FormattableString.Invariant($"Water: {_tiles.Count} tiles, {_markers.Count} markers"));
+        foreach (ServerTile tile in _tiles.Values)
+        {
+            TileData data = tile.Data;
+            float minGround = float.MaxValue;
+            float maxGround = float.MinValue;
+            foreach (float height in data.Height)
+            {
+                minGround = Mathf.Min(minGround, height);
+                maxGround = Mathf.Max(maxGround, height);
+            }
+
+            text.Append(FormattableString.Invariant($"\nzone {data.Zone}: {tile.Water:0.0} m³, ground {minGround:0.0}..{maxGround:0.0} m"));
+            for (int z = TileData.Size - 2; z >= 0; z -= 2)
+            {
+                text.Append('\n');
+                for (int x = 0; x < TileData.Size; x += 2)
+                {
+                    text.Append(Glyph(data, x, z));
+                }
+            }
+        }
+
+        FlowingWaterPlugin.Log.LogInfo(text.ToString());
+    }
+
+    private static char Glyph(TileData data, int x, int z)
+    {
+        float depth = 0f;
+        float vx = 0f;
+        float vz = 0f;
+        for (int dz = 0; dz < 2; dz++)
+        {
+            for (int dx = 0; dx < 2; dx++)
+            {
+                int i = TileData.Index(x + dx, z + dz);
+                depth = Mathf.Max(depth, data.Depth[i]);
+                vx += data.VelX[i];
+                vz += data.VelZ[i];
+            }
+        }
+
+        if (depth <= 0.01f)
+        {
+            return '.';
+        }
+
+        if (Mathf.Abs(vx) + Mathf.Abs(vz) > 0.6f)
+        {
+            return Mathf.Abs(vx) > Mathf.Abs(vz) ? (vx > 0f ? '>' : '<') : (vz > 0f ? '^' : 'v');
+        }
+
+        return depth < 0.1f ? ':' : depth < 0.5f ? 'o' : depth < 2f ? 'O' : '#';
     }
 
     private static void DestroyZdo(ZDO zdo)
@@ -155,6 +229,8 @@ internal sealed class WaterServer
         _markers.Clear();
         Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
+        CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
+        CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
         if (_markers.Count != before)
         {
             FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
@@ -173,6 +249,32 @@ internal sealed class WaterServer
         {
             Vector2s zone = TileData.CellOf(zdo.GetPosition(), out int x, out int z);
             _markers.Add(new Marker(zone, TileData.Index(x, z), zdo.GetFloat(RateHash, defaultRate), drain));
+        }
+    }
+
+    // "x,z,rate; x,z,rate" from the config.
+    private void CollectFixed(string list, bool drain)
+    {
+        foreach (string item in list.Split(';'))
+        {
+            string trimmed = item.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+
+            string[] parts = trimmed.Split(',');
+            if (parts.Length != 3
+                || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
+                || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate))
+            {
+                FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not x,z,rate; ignored");
+                continue;
+            }
+
+            Vector2s zone = TileData.CellOf(new Vector3(x, 0f, z), out int cx, out int cz);
+            _markers.Add(new Marker(zone, TileData.Index(cx, cz), rate, drain));
         }
     }
 

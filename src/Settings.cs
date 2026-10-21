@@ -15,6 +15,9 @@ internal sealed class Settings
         MaxDepth = config.Bind("Server", "MaxDepth", 40f, new ConfigDescription("Deepest a cell may fill, in metres; a basin without an outlet stops rising there.", new AcceptableValueRange<float>(1f, 300f)));
         EmptyTileSeconds = config.Bind("Server", "EmptyTileSeconds", 30f, new ConfigDescription("A zone dry for this long, with no source in it, forgets its water tile.", new AcceptableValueRange<float>(5f, 3600f)));
         MarkerScanSeconds = config.Bind("Server", "MarkerScanSeconds", 3f, new ConfigDescription("How often the server looks for new or removed sources and drains, in seconds.", new AcceptableValueRange<float>(1f, 60f)));
+        FixedSources = config.Bind("Server", "FixedSources", string.Empty, "Sources that exist without a placed marker, for servers and tests: world x,z and cubic metres per second, like \"120,-340,2; 125,-338,1.5\".");
+        FixedDrains = config.Bind("Server", "FixedDrains", string.Empty, "Drains that exist without a placed marker: world x,z and cubic metres per second (0 takes all), like \"180,-400,0\".");
+        DebugSeconds = config.Bind("Server", "DebugSeconds", 0f, new ConfigDescription("Every this many seconds the server logs each water tile as a map of depths (0 = off). For testing.", new AcceptableValueRange<float>(0f, 600f)));
         DefaultSourceRate = config.Bind("Markers", "DefaultSourceRate", 2f, "Cubic metres per second a source gives when placed without a rate.");
         DefaultDrainRate = config.Bind("Markers", "DefaultDrainRate", 0f, "Cubic metres per second a drain takes when placed without a rate; 0 takes everything that reaches it.");
         CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether the flowingwater console command works without cheats on.");
@@ -38,6 +41,12 @@ internal sealed class Settings
     public ConfigEntry<float> EmptyTileSeconds { get; }
 
     public ConfigEntry<float> MarkerScanSeconds { get; }
+
+    public ConfigEntry<string> FixedSources { get; }
+
+    public ConfigEntry<string> FixedDrains { get; }
+
+    public ConfigEntry<float> DebugSeconds { get; }
 
     public ConfigEntry<float> DefaultSourceRate { get; }
 
