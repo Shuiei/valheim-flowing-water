@@ -24,7 +24,7 @@ Console (F5) command `flowingwater`:
 | Command | Does |
 |---|---|
 | `flowingwater source [m³/s]` | A spring under your feet (default 2 m³/s) |
-| `flowingwater drain [m³/s]` | A drain under your feet; 0 or nothing takes all that reaches it |
+| `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
@@ -36,7 +36,8 @@ The command works for everyone unless `CommandsForEveryone` is off in the config
 be on). Hammer pieces for the spring and the drain come later.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
-`FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second).
+`FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
+add its radius in metres, `x,z,rate,radius`.
 
 ## Settings
 
@@ -47,7 +48,8 @@ A server can also have sources and drains with no marker placed, from its config
 | `Enabled` | true | Simulate (server) and show (client) |
 | `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
 | `Server.StepsPerSecond` | 15 | Simulation steps per second with 1 m cells (twice that at 0.5, four times at 0.25) |
-| `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second |
+| `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second, besides the bed's drag |
+| `Server.BedRoughness` | 0.04 | The ground's drag on running water (Manning's n): 0.03 smooth channel, 0.04 natural stream, 0.08 grass; 0 = none |
 | `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
 | `Server.MaxTiles` | 256 | Most zones with water at once |
 | `Server.MaxDepth` | 40 | Deepest a cell fills, metres |
@@ -57,6 +59,7 @@ A server can also have sources and drains with no marker placed, from its config
 | `Server.DebugSeconds` | 0 | Log each tile as a map of depths this often (0 = off) |
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
+| `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
 | `Commands.CommandsForEveryone` | true | The command without cheats |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
@@ -89,12 +92,16 @@ next start or at once with a config manager.
   heightmap read between its one-metre vertices as the game reads it. Water that reaches a cell under sea
   level is the sea's.
 - **Step.** The pipe model: every cell has a pipe to each of its eight neighbours carrying a flow that keeps
-  its momentum. Each step the level difference accelerates it (gravity, over the pipe's length), `Friction`
-  slows it, it may move at most half the difference (so two cells level out without crossing over), a flow
-  pushed uphill dies fast, and a cell never gives more than it holds. The flows then move the water, across
+  its momentum. Each step the level difference accelerates it (gravity, over the pipe's length, on the water
+  standing above the higher of the two beds: a film is pushed like a film, a weir by what spills over it, up to
+  4 m deep), `Friction` slows it, and the bed's drag (Manning, `BedRoughness`) slows the cell's whole outflow
+  by its speed over its depth to the 4/3, so shallow water is held back far more than deep: a stream runs
+  deeper and slower instead of as a fast film. A flow may move at most half the difference (so two cells
+  level out without crossing over), a flow pushed uphill dies fast, and a cell never gives more than it holds. The flows then move the water, across
   zone borders too. A cell's net flow over its width and depth is its velocity: the current. Smaller cells
   step more often, so water crosses at most about a cell a step and keeps the same speed on any grid.
-  A source spreads its water over the cells about a metre around it, a drain takes from about half a metre.
+  A source spreads its water over the cells about a metre around it; a drain takes from every cell within
+  its radius, in its zone or the next.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs
   on a dedicated server and in zones no player has loaded. Ground heights come from the world
   generator as the game's heightmap builder makes them, plus the players' terrain changes read from

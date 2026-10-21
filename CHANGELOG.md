@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.5.0 — 2026-10-21
+
+### Changed
+- Water runs more like water: shallow water is no longer pushed as if it were a metre deep, and the ground
+  holds it back the shallower it is (new server setting `BedRoughness`). Streams run deeper and slower
+  instead of as a thin film racing down slopes.
+
+### Added
+- Drains take water from every spot within 1 m of them by default (setting
+  `DefaultDrainRadius`), or as given: `flowingwater drain [m³/s] [radius]`. They reach into the next zone too.
+
 ## v0.4.0 — 2026-10-21
 
 ### Added

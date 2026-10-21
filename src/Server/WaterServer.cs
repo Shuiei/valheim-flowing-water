@@ -20,6 +20,8 @@ internal sealed class WaterServer
 
     public static readonly int RateHash = "FW_Rate".GetStableHashCode();
 
+    public static readonly int RadiusHash = "FW_Radius".GetStableHashCode();
+
     private const float MinDepth = 0.0005f;
 
     private const float Gravity = 9.81f;
@@ -40,7 +42,12 @@ internal sealed class WaterServer
     // A source spreads its water over about this many metres around it; a drain takes from about this far.
     private const float SourceReach = 1f;
 
-    private const float DrainReach = 0.5f;
+    // The depth a pipe's push counts at most: deeper water would carry waves across more than half a
+    // cell a step and the step would go unstable. Lakes still level out, just no faster than this.
+    private const float MaxPushDepth = 4f;
+
+    // Shallower than this, the bed's drag is taken at this depth (no division by nothing).
+    private const float MinDragDepth = 0.005f;
 
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
@@ -353,14 +360,15 @@ internal sealed class WaterServer
         {
         }
 
+        float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
         foreach (ZDO zdo in _zdos)
         {
             Vector2s zone = TileData.CellOf(zdo.GetPosition(), _size, out int x, out int z);
-            _markers.Add(new Marker(zone, x, z, zdo.GetFloat(RateHash, defaultRate), drain));
+            _markers.Add(new Marker(zone, x, z, zdo.GetFloat(RateHash, defaultRate), drain, drain ? zdo.GetFloat(RadiusHash, defaultRadius) : 0f));
         }
     }
 
-    // "x,z,rate; x,z,rate" from the config.
+    // "x,z,rate; x,z,rate" from the config, drains with an optional radius: "x,z,rate,radius".
     private void CollectFixed(string list, bool drain)
     {
         foreach (string item in list.Split(';'))
@@ -372,17 +380,19 @@ internal sealed class WaterServer
             }
 
             string[] parts = trimmed.Split(',');
-            if (parts.Length != 3
+            float radius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
+            if (parts.Length < 3 || parts.Length > (drain ? 4 : 3)
                 || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
                 || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
-                || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate))
+                || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate)
+                || (parts.Length == 4 && (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out radius) || radius <= 0f)))
             {
-                FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not x,z,rate; ignored");
+                FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
                 continue;
             }
 
             Vector2s zone = TileData.CellOf(new Vector3(x, 0f, z), _size, out int cx, out int cz);
-            _markers.Add(new Marker(zone, cx, cz, rate, drain));
+            _markers.Add(new Marker(zone, cx, cz, rate, drain, drain ? radius : 0f));
         }
     }
 
@@ -432,8 +442,8 @@ internal sealed class WaterServer
         _stepTiles.Clear();
         _stepTiles.AddRange(_tiles.Values);
         LoadNeighbourGround();
-        float keep = Mathf.Max(0f, 1f - (FlowingWaterPlugin.Settings.Friction.Value * dt));
-        Parallel.For(0, _stepTiles.Count, k => UpdateFlux(_stepTiles[k], dt, keep));
+        var flow = new FlowStep(dt);
+        Parallel.For(0, _stepTiles.Count, k => UpdateFlux(_stepTiles[k], flow));
 
         float sea = ZoneSystem.instance.m_waterLevel;
         float maxDepth = FlowingWaterPlugin.Settings.MaxDepth.Value;
@@ -443,7 +453,7 @@ internal sealed class WaterServer
         {
             if (marker.Drain && _tiles.TryGetValue(TileData.Key(marker.Zone), out ServerTile tile))
             {
-                tile.Water -= Drain(tile, marker, dt) * CellArea;
+                Drain(tile, marker, dt);
             }
         }
 
@@ -509,9 +519,11 @@ internal sealed class WaterServer
     // flow pushed uphill dies quickly. A cell never gives more than it holds. A pipe is as wide as
     // a cell and as long as the way to the neighbour, so its pull does not depend on the cell
     // size; what a flow does to the depth does (the cell's area).
-    private void UpdateFlux(ServerTile tile, float dt, float keep)
+    private void UpdateFlux(ServerTile tile, FlowStep flow)
     {
+        float dt = flow.Dt;
         float area = CellArea;
+        float cell = CellSize;
         TileData data = tile.Data;
         int size = data.Size;
         float[] height = data.Height;
@@ -519,6 +531,7 @@ internal sealed class WaterServer
         float[][] flux = tile.Flux;
         bool[] flowing = tile.Flowing;
         bool[] active = tile.Active;
+        float[] drops = new float[Directions.Count];
         for (int z = 0; z < size; z++)
         {
             for (int x = 0; x < size; x++)
@@ -544,14 +557,48 @@ internal sealed class WaterServer
                 // may be in the next zone.
                 bool inner = x > 0 && z > 0 && x < size - 1 && z < size - 1;
                 float surface = height[i] + depth;
+
                 float total = 0f;
                 for (int dir = 0; dir < Directions.Count; dir++)
                 {
                     int j = i + _offsets[dir];
-                    float drop = surface - (inner ? height[j] + depths[j] : NeighbourSurface(tile, x + Directions.Dx[dir], z + Directions.Dz[dir]));
-                    float pull = dt * Gravity * drop / Directions.Length[dir];
-                    float f = (flux[dir][i] * keep) + pull;
-                    f = drop > 0f ? Mathf.Min(f, Overshoot * drop * area / dt) : Mathf.Max(0f, f) * UphillKeep;
+                    float ground;
+                    float level;
+                    if (inner)
+                    {
+                        ground = height[j];
+                        level = ground + depths[j];
+                    }
+                    else
+                    {
+                        level = NeighbourLevel(tile, x + Directions.Dx[dir], z + Directions.Dz[dir], out ground);
+                    }
+
+                    // Gravity pushes the water that stands above the higher of the two beds, as
+                    // deep as it is: a film moves like a film, not like a metre of water.
+                    float drop = surface - level;
+                    float over = Mathf.Clamp(surface - Mathf.Max(height[i], ground), 0f, MaxPushDepth);
+                    float f = (flux[dir][i] * flow.Keep) + (dt * Gravity * over * drop / Directions.Length[dir]);
+                    drops[dir] = drop;
+                    f = drop > 0f ? f : Mathf.Max(0f, f) * UphillKeep;
+                    flux[dir][i] = f;
+                    total += f;
+                }
+
+                // The bed's drag (Manning): g n² / h^4/3 per metre per second of the cell's speed, so
+                // a thin film is held back far more than a deep stream. Taken at the end of the step,
+                // which keeps it stable however strong, and on all the cell's outflow together.
+                float dragDepth = Mathf.Max(depth, MinDragDepth);
+                float slow = 1f / (1f + (dt * flow.Drag / Mathf.Pow(dragDepth, 4f / 3f) * total / (cell * dragDepth)));
+                total = 0f;
+                for (int dir = 0; dir < Directions.Count; dir++)
+                {
+                    float f = flux[dir][i] * slow;
+                    if (drops[dir] > 0f)
+                    {
+                        f = Mathf.Min(f, Overshoot * drops[dir] * area / dt);
+                    }
+
                     flux[dir][i] = f;
                     total += f;
                 }
@@ -597,14 +644,17 @@ internal sealed class WaterServer
         }
     }
 
-    private float NeighbourSurface(ServerTile tile, int x, int z)
+    // A neighbour cell's water surface and ground; the ground alone where its zone has no tile.
+    private float NeighbourLevel(ServerTile tile, int x, int z, out float ground)
     {
         if (Neighbour(tile, x, z, out ServerTile other, out int index, out Vector2s zone))
         {
-            return other.Data.Height[index] + other.Data.Depth[index];
+            ground = other.Data.Height[index];
+            return ground + other.Data.Depth[index];
         }
 
-        return _terrain.HeightAt(zone, (index % tile.Data.Size) * CellSize, (index / tile.Data.Size) * CellSize);
+        ground = _terrain.HeightAt(zone, (index % tile.Data.Size) * CellSize, (index / tile.Data.Size) * CellSize);
+        return ground;
     }
 
     // The tile, zone and cell index of a neighbour cell, which may lie in the next zone; false when
@@ -655,8 +705,8 @@ internal sealed class WaterServer
     }
 
     // Moves the water the pipes carry: out of each cell by its own fluxes, into it by its
-    // neighbours' fluxes towards it; then the sinks. The cell's velocity is its net flow. A dry
-    // cell nothing flows into is left alone.
+    // neighbours' fluxes towards it; then the sea takes what reaches it.
+    // The cell's velocity is its net flow. A dry cell nothing flows into is left alone.
     private void Apply(ServerTile tile, float dt, float sea, float maxDepth)
     {
         TileData data = tile.Data;
@@ -738,41 +788,50 @@ internal sealed class WaterServer
         tile.Water = total * area;
     }
 
-    // What a drain takes this step from the cells about half a metre around it (all of it with no
-    // rate, else at most its rate, from each cell in proportion), in metres of depth summed.
-    private float Drain(ServerTile tile, Marker marker, float dt)
+    // A drain takes water from every cell within its radius, in this zone or the next: all of it
+    // with no rate, else at most its rate, from each cell in proportion to its depth.
+    private void Drain(ServerTile tile, Marker marker, float dt)
     {
-        TileData data = tile.Data;
-        int reach = Mathf.FloorToInt(DrainReach / CellSize);
-        int x0 = Mathf.Max(0, marker.X - reach);
-        int x1 = Mathf.Min(data.Size - 1, marker.X + reach);
-        int z0 = Mathf.Max(0, marker.Z - reach);
-        int z1 = Mathf.Min(data.Size - 1, marker.Z + reach);
+        float cell = CellSize;
+        int reach = Mathf.FloorToInt(marker.Radius / cell);
+        float reachSquared = (marker.Radius / cell) * (marker.Radius / cell);
         float there = 0f;
-        for (int z = z0; z <= z1; z++)
+        for (int pass = 0; pass < 2; pass++)
         {
-            for (int x = x0; x <= x1; x++)
+            float share = pass == 0 || there <= 0f ? 0f : marker.Rate <= 0f ? 1f : Mathf.Min(1f, marker.Rate * dt / (there * CellArea));
+            if (pass == 1 && share <= 0f)
             {
-                there += data.Depth[data.Index(x, z)];
+                return;
+            }
+
+            for (int dz = -reach; dz <= reach; dz++)
+            {
+                for (int dx = -reach; dx <= reach; dx++)
+                {
+                    if ((dx * dx) + (dz * dz) > reachSquared && (dx != 0 || dz != 0))
+                    {
+                        continue;
+                    }
+
+                    if (!Neighbour(tile, marker.X + dx, marker.Z + dz, out ServerTile other, out int index, out _))
+                    {
+                        continue;
+                    }
+
+                    float depth = other.Data.Depth[index];
+                    if (pass == 0)
+                    {
+                        there += depth;
+                        continue;
+                    }
+
+                    float taken = depth * share;
+                    other.Data.Depth[index] = depth - taken;
+                    other.Water -= taken * CellArea;
+                    other.Dirty = true;
+                }
             }
         }
-
-        if (there <= 0f)
-        {
-            return 0f;
-        }
-
-        float share = marker.Rate <= 0f ? 1f : Mathf.Min(1f, marker.Rate * dt / (there * CellArea));
-        for (int z = z0; z <= z1; z++)
-        {
-            for (int x = x0; x <= x1; x++)
-            {
-                data.Depth[data.Index(x, z)] *= 1f - share;
-            }
-        }
-
-        tile.Dirty = true;
-        return there * share;
     }
 
     private ServerTile GetOrCreate(Vector2s zone)
@@ -840,16 +899,40 @@ internal sealed class WaterServer
         }
     }
 
+    /// <summary>What every pipe of one step uses.</summary>
+    private readonly struct FlowStep
+    {
+        public FlowStep(float dt)
+        {
+            Dt = dt;
+            Keep = Mathf.Max(0f, 1f - (FlowingWaterPlugin.Settings.Friction.Value * dt));
+            float n = FlowingWaterPlugin.Settings.BedRoughness.Value;
+            Drag = Gravity * n * n;
+        }
+
+        public float Dt { get; }
+
+        /// <summary>What a flow keeps of its momentum over the step, besides the bed's drag.</summary>
+        public float Keep { get; }
+
+        /// <summary>g n²: the bed's drag before dividing by the depth to the 4/3.</summary>
+        public float Drag { get; }
+    }
+
     private sealed class Marker
     {
-        public Marker(Vector2s zone, int x, int z, float rate, bool drain)
+        public Marker(Vector2s zone, int x, int z, float rate, bool drain, float radius)
         {
             Zone = zone;
             X = x;
             Z = z;
             Rate = rate;
             Drain = drain;
+            Radius = radius;
         }
+
+        /// <summary>A drain's reach, metres.</summary>
+        public float Radius { get; }
 
         public Vector2s Zone { get; }
 

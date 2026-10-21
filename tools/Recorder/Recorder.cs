@@ -355,10 +355,11 @@ public sealed class Recorder : BaseUnityPlugin
     {
         if (place)
         {
+            string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "3";
             yield return Go(steep.At(0f));
-            Command("flowingwater source 3");
+            Command("flowingwater source " + rate);
             yield return Go(gentle.At(0f));
-            Command("flowingwater source 3");
+            Command("flowingwater source " + rate);
         }
 
         yield return Go(steep.At(8f));
@@ -395,13 +396,26 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater info");
         Command("flowingwater debug");
 
+        // Drains: bad radii refused; one of 3 m across the steep stream, one of the default radius
+        // on the gentle one.
         Vector3 drain = Wet(steep, 14f, 26f);
         yield return Go(drain);
+        Command("flowingwater info");
+        Command("flowingwater drain 0 -1");
+        Command("flowingwater drain 0 abc");
+        Command("flowingwater drain 0 3");
+        Vector3 gentleDrain = Wet(gentle, 14f, 26f);
+        yield return Go(gentleDrain);
         Command("flowingwater info");
         Command("flowingwater drain");
         yield return new WaitForSeconds(40f);
         Command("flowingwater info");
+        yield return Views(gentle, "gentle-drain");
+        yield return Go(drain);
+        Command("flowingwater info");
         yield return Views(steep, "steep-drain");
+        Command("flowingwater remove");
+        yield return Go(gentleDrain);
         Command("flowingwater remove");
     }
 
@@ -566,7 +580,7 @@ public sealed class Recorder : BaseUnityPlugin
                 float x = spawn.x + dx;
                 float z = spawn.z + dz;
                 float h = generator.GetHeight(x, z);
-                if (h < sea + 8f || (open && (generator.GetBiome(x, z) != Heightmap.Biome.Meadows || WorldGenerator.InForest(new Vector3(x, h, z)) || WorldGenerator.InForest(new Vector3(x - 10f, h, z)) || WorldGenerator.InForest(new Vector3(x + 10f, h, z)) || WorldGenerator.InForest(new Vector3(x, h, z - 10f)) || WorldGenerator.InForest(new Vector3(x, h, z + 10f)))))
+                if (h < sea + 15f || (open && (generator.GetBiome(x, z) != Heightmap.Biome.Meadows || WorldGenerator.InForest(new Vector3(x, h, z)) || WorldGenerator.InForest(new Vector3(x - 10f, h, z)) || WorldGenerator.InForest(new Vector3(x + 10f, h, z)) || WorldGenerator.InForest(new Vector3(x, h, z - 10f)) || WorldGenerator.InForest(new Vector3(x, h, z + 10f)))))
                 {
                     continue;
                 }
@@ -579,8 +593,10 @@ public sealed class Recorder : BaseUnityPlugin
                 }
 
                 Vector2 down = -gradient.normalized;
+                // Downhill it keeps falling, and stays well above the sea for 60 m (not a slope that
+                // runs straight into it).
                 float far = generator.GetHeight(x + (down.x * 30f), z + (down.y * 30f));
-                if (far > h - (minSlope * 20f) || far < sea + 2f)
+                if (far > h - (minSlope * 20f) || far < sea + 8f || generator.GetHeight(x + (down.x * 60f), z + (down.y * 60f)) < sea + 5f)
                 {
                     continue;
                 }
