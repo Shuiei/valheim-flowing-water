@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.5 — 2026-10-21
+
+### Fixed
+- Turning `Client.CustomShader` off or on (with a config manager, in game) changed nothing until the water
+  was redrawn for another reason; it now applies at once.
+
 ## v0.3.4 — 2026-10-21
 
 ### Fixed

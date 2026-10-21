@@ -100,6 +100,9 @@ internal sealed class WaterTile : MonoBehaviour
     // Drawn with the mod's shader, which reads depth, shore and current from the vertices.
     private bool _customShader;
 
+    // The CustomShader setting the materials were last chosen with; a change in the config applies at once.
+    private bool _customApplied;
+
     private readonly List<Vector4> _water = new(VertexCount);
 
     private readonly List<Vector2> _current = new(VertexCount);
@@ -362,13 +365,16 @@ internal sealed class WaterTile : MonoBehaviour
     private void ApplyMaterials()
     {
         _flatApplied = Flat;
+        _customApplied = FlowingWaterPlugin.Settings.CustomShader.Value;
+
+        // The two kinds of material read different vertex data: the mesh is rebuilt either way.
+        _dirty = true;
         Material custom = !Flat && FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
         _customShader = custom != null;
         if (_customShader)
         {
             _renderer.sharedMaterials = [custom, custom];
             _properties = new MaterialPropertyBlock();
-            _dirty = true;
             return;
         }
 
@@ -443,7 +449,7 @@ internal sealed class WaterTile : MonoBehaviour
             return;
         }
 
-        if (_flatApplied != Flat)
+        if (_flatApplied != Flat || _customApplied != FlowingWaterPlugin.Settings.CustomShader.Value)
         {
             ApplyMaterials();
         }
