@@ -71,6 +71,7 @@ public static class BuildBundles
 
         material.shader = shader;
         material.name = "FlowingWater";
+        ResetToShaderDefaults(material, shader);
         material.SetTexture("_NormalMap", AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath));
         material.SetTexture("_FoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
         EditorUtility.SetDirty(material);
@@ -84,6 +85,30 @@ public static class BuildBundles
 
         AssetDatabase.SaveAssets();
         return material;
+    }
+
+    // A material asset keeps the values it was first made with; when the shader's defaults change
+    // later, the built material would still carry the old ones. Every value is set back to the
+    // shader's own default, so the shader file is the one place the look is defined.
+    private static void ResetToShaderDefaults(Material material, Shader shader)
+    {
+        for (int i = 0; i < shader.GetPropertyCount(); i++)
+        {
+            string name = shader.GetPropertyName(i);
+            switch (shader.GetPropertyType(i))
+            {
+                case ShaderPropertyType.Color:
+                    material.SetColor(name, (Color)shader.GetPropertyDefaultVectorValue(i));
+                    break;
+                case ShaderPropertyType.Vector:
+                    material.SetVector(name, shader.GetPropertyDefaultVectorValue(i));
+                    break;
+                case ShaderPropertyType.Float:
+                case ShaderPropertyType.Range:
+                    material.SetFloat(name, shader.GetPropertyDefaultFloatValue(i));
+                    break;
+            }
+        }
     }
 
     private static void Import(string path, TextureImporterType type, bool colour)

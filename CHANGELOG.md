@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.3.2 — 2026-10-21
+
+### Fixed
+- The water was drawn pale and milky: the shader's material still carried its first, much lighter colours and
+  heavier foam instead of the tuned ones. It now always takes the shader's own values.
+
 ## v0.3.1 — 2026-10-21
 
 ### Fixed
