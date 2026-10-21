@@ -29,7 +29,8 @@ internal readonly struct WaterSpot
 
 /// <summary>
 /// A tile's white water: at each of its spots (<see cref="WaterTile"/> finds them) a sound of running water,
-/// louder the more water passes, and spray where it falls steeply. The emitters are kept and moved, never
+/// louder the more water passes, a stream's babble turning into the roar of rapids as it runs steeper, and
+/// spray where it does. The emitters are kept and moved, never
 /// made again while the tile lives.
 /// </summary>
 internal sealed class WaterEffects : MonoBehaviour
@@ -38,6 +39,10 @@ internal sealed class WaterEffects : MonoBehaviour
     private const float SprayFrom = 0.25f, SprayFull = 0.8f;
 
     private const float MaxSprayRate = 80f;
+
+    // A stream's babble turns into the roar of rapids from this slope (45 degrees: water sliding down a
+    // slope still sounds like a stream) to the second (63: it falls).
+    private const float RoarFrom = 1f, RoarFull = 2f;
 
     private const float SoundNear = 3f, SoundFar = 35f;
 
@@ -74,7 +79,10 @@ internal sealed class WaterEffects : MonoBehaviour
     {
         private readonly GameObject _root;
 
-        private readonly AudioSource _sound;
+        // A stream's babble, and the roar of rapids where it runs steep.
+        private readonly AudioSource _stream;
+
+        private readonly AudioSource _rapids;
 
         private readonly ParticleSystem _spray;
 
@@ -82,19 +90,8 @@ internal sealed class WaterEffects : MonoBehaviour
         {
             _root = new GameObject("FlowingWater white water " + index);
             _root.transform.SetParent(parent, false);
-            _sound = _root.AddComponent<AudioSource>();
-            _sound.clip = EffectAssets.Stream;
-            _sound.outputAudioMixerGroup = EffectAssets.Mixer;
-            _sound.loop = true;
-            _sound.spatialBlend = 1f;
-            _sound.rolloffMode = AudioRolloffMode.Linear;
-            _sound.minDistance = SoundNear;
-            _sound.maxDistance = SoundFar;
-            _sound.dopplerLevel = 0f;
-
-            // Each spot at its own pitch and place in the loop, so that several never sound as one.
-            _sound.pitch = 0.85f + (0.06f * (index % 5));
-            _sound.time = index * 0.9f % EffectAssets.Stream.length;
+            _stream = Sound(EffectAssets.Stream, index);
+            _rapids = Sound(EffectAssets.Rapids, index);
             if (EffectAssets.Spray != null)
             {
                 _spray = Instantiate(EffectAssets.Spray, _root.transform).GetComponent<ParticleSystem>();
@@ -102,19 +99,31 @@ internal sealed class WaterEffects : MonoBehaviour
             }
         }
 
+        // A looping 3D sound on the spot; each spot at its own pitch and place in the loop, so that
+        // several never sound as one.
+        private AudioSource Sound(AudioClip clip, int index)
+        {
+            AudioSource sound = _root.AddComponent<AudioSource>();
+            sound.clip = clip;
+            sound.outputAudioMixerGroup = EffectAssets.Mixer;
+            sound.loop = true;
+            sound.spatialBlend = 1f;
+            sound.rolloffMode = AudioRolloffMode.Linear;
+            sound.minDistance = SoundNear;
+            sound.maxDistance = SoundFar;
+            sound.dopplerLevel = 0f;
+            sound.pitch = 0.85f + (0.06f * (index % 5));
+            sound.time = index * 0.9f % clip.length;
+            return sound;
+        }
+
         public void Set(WaterSpot spot, bool spray, float volume)
         {
             _root.transform.position = spot.Position;
-            _sound.volume = Mathf.Clamp01((spot.Flow * 0.8f) + (spot.Steep * 0.3f)) * volume;
-            if (_sound.volume > 0f && !_sound.isPlaying)
-            {
-                _sound.Play();
-            }
-            else if (_sound.volume <= 0f && _sound.isPlaying)
-            {
-                _sound.Stop();
-            }
-
+            float loud = Mathf.Clamp01((spot.Flow * 0.8f) + (spot.Steep * 0.3f)) * volume;
+            float roar = Mathf.Clamp01((spot.Steep - RoarFrom) / (RoarFull - RoarFrom));
+            Play(_stream, loud * (1f - roar));
+            Play(_rapids, loud * roar);
             if (_spray == null)
             {
                 return;
@@ -134,11 +143,25 @@ internal sealed class WaterEffects : MonoBehaviour
 
         public void Off()
         {
-            _sound.Stop();
+            _stream.Stop();
+            _rapids.Stop();
             if (_spray != null)
             {
                 ParticleSystem.EmissionModule emission = _spray.emission;
                 emission.rateOverTime = 0f;
+            }
+        }
+
+        private static void Play(AudioSource sound, float volume)
+        {
+            sound.volume = volume;
+            if (volume > 0f && !sound.isPlaying)
+            {
+                sound.Play();
+            }
+            else if (volume <= 0f && sound.isPlaying)
+            {
+                sound.Stop();
             }
         }
 

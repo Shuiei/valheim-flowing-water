@@ -458,7 +458,7 @@ public sealed class Recorder : BaseUnityPlugin
         int sources = 0;
         int playing = 0;
         float loudest = 0f;
-        AudioClip clip = null;
+        var clips = new Dictionary<string, AudioClip>();
         foreach (AudioSource source in FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
         {
             if (source.name.StartsWith("FlowingWater white water", StringComparison.Ordinal))
@@ -466,7 +466,10 @@ public sealed class Recorder : BaseUnityPlugin
                 sources++;
                 playing += source.isPlaying ? 1 : 0;
                 loudest = Mathf.Max(loudest, source.volume);
-                clip = source.clip;
+                if (source.clip != null)
+                {
+                    clips[source.clip.name] = source.clip;
+                }
             }
         }
 
@@ -487,14 +490,19 @@ public sealed class Recorder : BaseUnityPlugin
         }
 
         Note($"white water: {sources} sounds ({playing} playing, loudest {loudest:0.00}), {sprays} sprays with {drops} drops in the air");
-        string wav = Path.Combine(_out, "stream.wav");
-        if (clip != null && !File.Exists(wav))
+        foreach (AudioClip clip in clips.Values)
         {
+            string wav = Path.Combine(_out, clip.name.Replace(' ', '-') + ".wav");
+            if (File.Exists(wav))
+            {
+                continue;
+            }
+
             float[] samples = new float[clip.samples * clip.channels];
             // The array overload by reflection: the compiler cannot tell it from the span one on .NET Framework.
             typeof(AudioClip).GetMethod("GetData", [typeof(float[]), typeof(int)]).Invoke(clip, [samples, 0]);
             WriteWav(wav, samples, clip.channels, clip.frequency);
-            Note($"running-water sound saved: {clip.length:0.0} s at {clip.frequency} Hz");
+            Note($"sound {clip.name} saved: {clip.length:0.0} s at {clip.frequency} Hz");
         }
 
         return busiest != null && busiest.particleCount > 0 ? busiest.transform.position : null;
