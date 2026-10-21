@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The mod's rules that need no game, tested on .NET: the files are compiled here from the mod (and its
+       recorder), since the mod itself only loads in the game. What needs the game (its prefabs, sounds,
+       particles) is checked in game with the recorder (tools/Recorder). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <!-- Test methods need no doc comment: their names say what they check. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- As the Valheim world editor's tests: xUnit on Microsoft.Testing.Platform. -->
+    <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Client/SpotRules.cs" Link="Mod/SpotRules.cs" />
+    <Compile Include="../../src/Client/WhiteWaterMix.cs" Link="Mod/WhiteWaterMix.cs" />
+    <Compile Include="../../src/Client/WaterSounds.cs" Link="Mod/WaterSounds.cs" />
+    <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
+  </ItemGroup>
+</Project>

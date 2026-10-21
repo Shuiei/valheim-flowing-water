@@ -122,6 +122,7 @@ jobs:
           command: |
             dotnet build FlowingWater.csproj -c Release -warnaserror
             dotnet build tools/Recorder/Recorder.csproj -c Release -warnaserror
+            dotnet build tests/FlowingWater.Tests/FlowingWater.Tests.csproj -c Release -warnaserror
       # Saved from main only: branches reuse main's (each cache is kept 15 days and billed).
       - when:
           condition:
@@ -131,6 +132,16 @@ jobs:
                 key: nuget-v1-{{ checksum "Directory.Build.props" }}-{{ checksum "FlowingWater.csproj" }}-{{ checksum "tools/Recorder/Recorder.csproj" }}
                 paths:
                   - ~/.nuget/packages
+
+  # The mod's rules that need no game (white water's places, sound and spray; the sound loops; the
+  # recorder's WAV files), on .NET: what needs the game is checked in game with the recorder.
+  unit-tests:
+    executor: dotnet
+    steps:
+      - checkout
+      - run:
+          name: Unit tests
+          command: dotnet test --project tests/FlowingWater.Tests -c Release
 
   formatting:
     executor: dotnet
@@ -270,6 +281,7 @@ workflows:
       - code-analysis:
           requires:
             - game-dlls
+      - unit-tests
       - formatting:
           requires:
             - game-dlls
