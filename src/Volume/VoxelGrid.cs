@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace FlowingWater.Volume;
 
@@ -137,7 +138,14 @@ internal sealed class VoxelGrid
         Array.Clear(brick.Solid, 0, Brick.Count);
         Array.Clear(brick.Closed, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
+
+        // Its faces may have opened onto a sleeping brick beside it: they wake together.
         brick.Quiet = 0;
+        foreach (Brick next in brick.Beside.Where(b => b != null))
+        {
+            next.Quiet = 0;
+        }
+
         for (int i = 0; i < Brick.Count; i++)
         {
             if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)

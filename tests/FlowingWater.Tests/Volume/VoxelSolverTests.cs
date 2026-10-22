@@ -148,6 +148,27 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AFloorOpeningInADryBrickWakesTheSleepingPoolOnIt()
+    {
+        // A pool in the brick over a floor whose faces are those of the dry brick's top row.
+        bool open = false;
+        var grid = new VoxelGrid(Volume, new TestSolids(0, (x, y, z) =>
+            (byte)(TestSolids.Box(0, 7, 0, 7)(x, y, z) | (!open && y == 15 && x is >= 0 and <= 7 && z is >= 0 and <= 7 ? Brick.ClosedY : 0))));
+        Fill(grid, 0, 7, 0, 7, 1.5f, bottom: 16);
+        Still(grid);
+        Brick pool = grid.Find(0, 1, 0);
+        Assert.True(pool.Asleep, $"quiet for {pool.Quiet} steps");
+
+        // The floor goes: only the brick under it reads its solids again.
+        open = true;
+        grid.Refill(grid.Get(0, 0, 0));
+        Run(grid, 10f);
+
+        Assert.True(Below(grid, 16) > 10f, $"fallen {Below(grid, 16)}");
+        Assert.Equal(64f * 1.5f, grid.TotalWater(), 0);
+    }
+
+    [Fact]
     public void SleepingBricksBesideAwakeOnesKeepTheVolume()
     {
         // A pool three bricks long; once it is still, its east end is fed a little every step (awake), the rest sleeps.
@@ -228,13 +249,20 @@ public class VoxelSolverTests
     {
         var grid = new VoxelGrid(Volume, new TestSolids(ground, TestSolids.Box(0, 7, 0, 7)));
         Fill(grid, 0, 7, 0, 7, depth, bottom: ground);
-        solver = new VoxelSolver(grid);
+        solver = Still(grid);
+        return grid;
+    }
+
+    // The grid stepped for three seconds (long enough for still water to fall asleep), and the solver that did it.
+    private static VoxelSolver Still(VoxelGrid grid)
+    {
+        var solver = new VoxelSolver(grid);
         for (int k = 0; k < 30; k++)
         {
             solver.Step(0.1f);
         }
 
-        return grid;
+        return solver;
     }
 
     private static float Below(VoxelGrid grid, int y) =>
