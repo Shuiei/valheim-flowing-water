@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.0 — 2026-10-22
+
+### Added
+- Setting `StepBudget` (8 ms by default): the most of each server frame the water may take, on average. A big flood
+  that needs more slows down, sources and drains with it, instead of lagging the server for every player, and the
+  server log says so once.
+
 ## v0.14.5 — 2026-10-22
 
 ### Fixed

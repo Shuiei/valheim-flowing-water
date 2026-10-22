@@ -14,6 +14,7 @@ internal sealed class Settings
         Erosion = config.Bind("Server", "Erosion", false, "Running water wears the ground away where it runs fast and lays it down where it slows, so streams slowly cut their own beds. The ground within 5 m of anything players built, and of the game's own places, is left alone. Turning it off stops it; what it did stays. Paused while the water moves to 3D voxels: it comes back in a later version.");
         ErosionSpeed = config.Bind("Server", "ErosionSpeed", 1f, new ConfigDescription("How fast erosion goes (1 = millimetres a minute in a fast stream); higher to watch it happen, for testing.", new AcceptableValueRange<float>(0.1f, 1000f)));
         SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed block of water is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
+        StepBudget = config.Bind("Server", "StepBudget", 8f, new ConfigDescription("Most milliseconds of each server frame the water may take, on average (one step of the water is never split, so a frame may take more now and then). Water needing more slows down, sources and drains with it, instead of slowing the server (and the game for its players).", new AcceptableValueRange<float>(1f, 50f)));
         MaxBricks = config.Bind("Server", "MaxBricks", 1024, new ConfigDescription("Most blocks of 16 by 16 by 16 voxels that may hold water at once (each about 120 KB of server memory). Water stops spreading beyond.", new AcceptableValueRange<int>(16, 16384)));
         EmptyTileSeconds = config.Bind("Server", "EmptyTileSeconds", 30f, new ConfigDescription("A block of voxels dry for this long is forgotten (made again when water comes back).", new AcceptableValueRange<float>(5f, 3600f)));
         MarkerScanSeconds = config.Bind("Server", "MarkerScanSeconds", 3f, new ConfigDescription("How often the server looks for new or removed sources and drains, in seconds.", new AcceptableValueRange<float>(1f, 60f)));
@@ -43,6 +44,8 @@ internal sealed class Settings
     public ConfigEntry<float> ErosionSpeed { get; }
 
     public ConfigEntry<float> SendSeconds { get; }
+
+    public ConfigEntry<float> StepBudget { get; }
 
     public ConfigEntry<int> MaxBricks { get; }
 
