@@ -969,14 +969,14 @@ public sealed class Recorder : BaseUnityPlugin
         }
     }
 
-    // Numbers given as "a,b,c": false when one is not a number.
+    // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)
     {
         string[] parts = text.Split(',');
         values = new float[parts.Length];
         for (int i = 0; i < parts.Length; i++)
         {
-            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || float.IsNaN(values[i]) || float.IsInfinity(values[i]))
             {
                 return false;
             }
