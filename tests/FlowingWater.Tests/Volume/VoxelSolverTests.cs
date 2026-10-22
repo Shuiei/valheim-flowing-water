@@ -380,10 +380,13 @@ public class VoxelSolverTests
         var solver = new VoxelSolver(grid);
         float before = solver.MaxStep;
 
-        Run(grid, 2f);
+        for (int k = 0; k < 20; k++)
+        {
+            solver.Step(0.1f);
+        }
 
         Assert.Equal(0.5f / (float)Math.Sqrt(VoxelSolver.Gravity * 13f), before, 4);
-        Assert.Equal(before, new VoxelSolver(grid).MaxStep, 4);
+        Assert.Equal(before, solver.MaxStep, 4);
     }
 
     [Fact]
