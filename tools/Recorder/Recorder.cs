@@ -936,20 +936,24 @@ public sealed class Recorder : BaseUnityPlugin
             else if (command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal))
             {
                 // "!shot fx,fy,fz,ax,ay,az,name" or "!film fx,fy,fz,ax,ay,az,name,seconds,fps": from a point, at a point.
+                bool film = command[1] == 'f';
                 string[] v = command.Substring(6).Split(',');
-                Vector3 from = new(Number(v[0]), Number(v[1]), Number(v[2]));
-                Vector3 at = new(Number(v[3]), Number(v[4]), Number(v[5]));
-                if (command[1] == 's')
+                if (v.Length != (film ? 9 : 7) || !Numbers(string.Join(",", v, 0, 6), out float[] p))
                 {
-                    yield return Shot(from, at, v[6]);
+                    Note("recorder command with missing or bad numbers: " + command);
                 }
-                else if (int.Parse(v[8], CultureInfo.InvariantCulture) is int fps && fps >= 1 && Number(v[7]) * fps >= 1f)
+                else if (!film)
                 {
-                    yield return Film(from, at, v[6], Number(v[7]), fps);
+                    yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
+                }
+                else if (Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
+                    && fps >= 1 && seconds[0] * fps >= 1f)
+                {
+                    yield return Film(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6], seconds[0], fps);
                 }
                 else
                 {
-                    Note("film needs at least one frame: " + command);
+                    Note("film with bad numbers or no frame: " + command);
                 }
             }
             else if (command.StartsWith("!", StringComparison.Ordinal))
@@ -964,8 +968,6 @@ public sealed class Recorder : BaseUnityPlugin
             yield return new WaitForSeconds(2f);
         }
     }
-
-    private static float Number(string text) => float.Parse(text, CultureInfo.InvariantCulture);
 
     // Numbers given as "a,b,c": false when one is not a number.
     private static bool Numbers(string text, out float[] values)
