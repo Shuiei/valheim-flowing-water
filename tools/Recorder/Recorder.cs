@@ -21,6 +21,11 @@ namespace FlowingWater.Recorder;
 [BepInDependency("Tie.FlowingWater")]
 public sealed class Recorder : BaseUnityPlugin
 {
+    // The most a "!film" takes: frames a second, and frames in all (five minutes at 60).
+    private const int MaxFps = 60;
+
+    private const int MaxFrames = 18000;
+
     // How far from the given point "!remove" looks for the source, metres.
     private const float RemoveReach = 2f;
 
@@ -947,13 +952,13 @@ public sealed class Recorder : BaseUnityPlugin
                     yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
                 }
                 else if (Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
-                    && fps >= 1 && seconds[0] * fps >= 1f)
+                    && fps is >= 1 and <= MaxFps && seconds[0] * fps is >= 1f and <= MaxFrames)
                 {
                     yield return Film(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6], seconds[0], fps);
                 }
                 else
                 {
-                    Note("film with bad numbers or no frame: " + command);
+                    Note(FormattableString.Invariant($"film with bad numbers, no frame or too many (fps up to {MaxFps}, frames up to {MaxFrames}): {command}"));
                 }
             }
             else if (command.StartsWith("!", StringComparison.Ordinal))
@@ -969,14 +974,14 @@ public sealed class Recorder : BaseUnityPlugin
         }
     }
 
-    // Numbers given as "a,b,c": false when one is not a number.
+    // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)
     {
         string[] parts = text.Split(',');
         values = new float[parts.Length];
         for (int i = 0; i < parts.Length; i++)
         {
-            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || float.IsNaN(values[i]) || float.IsInfinity(values[i]))
             {
                 return false;
             }
