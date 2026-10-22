@@ -898,8 +898,6 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"burst {name}: {frames} frames at {fps} fps");
     }
 
-    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
-    // well above the sea, that keeps falling for 30 m the same way.
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
@@ -1042,6 +1040,8 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
     }
 
+    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
+    // well above the sea, that keeps falling for 30 m the same way.
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
     {
         WorldGenerator generator = WorldGenerator.instance;
