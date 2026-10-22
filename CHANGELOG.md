@@ -5,8 +5,8 @@ All notable changes to FlowingWater. Newest first.
 ## v0.15.1 — 2026-10-22
 
 ### Fixed
-- Water deeper than about 12 m (a flooded pit or a tall tank) never settled once stirred: it sloshed for ever and
-  kept the server busy. It now settles level at any depth.
+- Water deeper than about 12 voxels (12 m at the default `CellSize`, 3 m at 0.25 m; a flooded pit or a tall tank)
+  never settled once stirred: it sloshed for ever and kept the server busy. It now settles level at any depth.
 
 ## v0.15.0 — 2026-10-22
 

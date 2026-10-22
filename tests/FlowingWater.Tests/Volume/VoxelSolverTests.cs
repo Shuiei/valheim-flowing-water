@@ -266,6 +266,9 @@ public class VoxelSolverTests
             Assert.Equal(grid.WaterAt(0, y, 0), grid.WaterAt(7, y, 7), 2);
         }
 
+        // The poured water spread over the pool: its top row a quarter voxel higher, far from where it fell too.
+        Assert.Equal(0.75f, grid.WaterAt(0, 24, 0), 2);
+        Assert.Equal(0.75f, grid.WaterAt(7, 24, 0), 2);
         Assert.Equal(64f * 24.75f, grid.TotalWater(), 0);
     }
 

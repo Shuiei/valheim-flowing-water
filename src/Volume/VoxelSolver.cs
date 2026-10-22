@@ -81,18 +81,23 @@ internal sealed class VoxelSolver
     /// <summary>Moves the water over this much time (in as many short steps as it takes to stay stable).</summary>
     public void Step(float dt)
     {
-        // The longest stable step is asked again before each: deep water found on the way shortens it.
-        for (float left = dt; left > 0f;)
+        // The longest stable step is asked again before each: deep water found on the way shortens it, and a step
+        // that finds it too long for that water is not taken but split again.
+        float left = dt;
+        while (left > 0f)
         {
             int steps = Math.Max(1, (int)Math.Ceiling(left / MaxStep));
             float step = left / steps;
-            StepOnce(step);
-            left = steps == 1 ? 0f : left - step;
+            if (StepOnce(step))
+            {
+                left = steps == 1 ? 0f : left - step;
+            }
         }
     }
 
     // One step, on each brick's wet part only (with the voxels round it): a still pool's air costs nothing.
-    private void StepOnce(float dt)
+    // False when the step was not taken: the water is deeper than its length was chosen for.
+    private bool StepOnce(float dt)
     {
         if (_columnsVersion != _grid.Version)
         {
@@ -108,7 +113,7 @@ internal sealed class VoxelSolver
         {
             // Everything sleeps (or is dry): nothing to step.
             _grid.MakeWanted();
-            return;
+            return true;
         }
 
         // Water deeper than the stiffness was for (just loaded, or filled up) has its heads worked out again at once.
@@ -116,6 +121,11 @@ internal sealed class VoxelSolver
         HeadsAll(s, was);
         if (_stiffness > was)
         {
+            if (dt > MaxStep)
+            {
+                return false;
+            }
+
             HeadsAll(s, _stiffness);
         }
 
@@ -124,6 +134,7 @@ internal sealed class VoxelSolver
         Parallel.For(0, _bricks.Length, k => Scale(_bricks[k]));
         Parallel.For(0, _bricks.Length, k => Apply(_bricks[k], dt, s));
         _grid.MakeWanted();
+        return true;
     }
 
     // The part a step works on: the wet voxels and those round them, the border layers facing a brick wet at that
