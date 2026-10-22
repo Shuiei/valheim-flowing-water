@@ -198,7 +198,7 @@ internal static class VoxelSurface
     private static float Depth(VoxelField field, int x, int top, int z)
     {
         int bottom = top;
-        while (field.GoesUp(x, bottom - 1, z) && top - bottom < 64)
+        while (field.IsWet(x, bottom - 1, z) && field.GoesUp(x, bottom - 1, z) && top - bottom < 64)
         {
             bottom--;
         }
