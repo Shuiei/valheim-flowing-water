@@ -1,3 +1,4 @@
+using System;
 using FlowingWater.Client;
 using Xunit;
 
@@ -15,6 +16,19 @@ public class WaterLookTests
         (float r, float g, float b) = WaterLook.Absorption(clarity);
 
         Assert.Equal(1f / clarity, (r + g + b) / 3f, 4);
+    }
+
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(WaterLook.DefaultClarity)]
+    [InlineData(20f)]
+    public void ThroughAsMuchWaterAsItsClarityMostRedIsGoneAndMostBlueComesThrough(float clarity)
+    {
+        (float r, float g, float b) = WaterLook.Absorption(clarity);
+
+        Assert.Equal(0.129f, MathF.Exp(-r * clarity), 3);
+        Assert.Equal(0.580f, MathF.Exp(-g * clarity), 3);
+        Assert.Equal(0.664f, MathF.Exp(-b * clarity), 3);
     }
 
     [Fact]

@@ -17,8 +17,9 @@ internal static class WaterLook
     private const float Red = 0.45f / 0.22f, Green = 0.12f / 0.22f, Blue = 0.09f / 0.22f;
 
     /// <summary>
-    /// The light absorbed per metre of water, colour by colour, for water this clear: through that many metres,
-    /// on average, about a third of what lies behind is still seen.
+    /// The light absorbed per metre of water, colour by colour, for water this clear: through that many metres
+    /// most of the red is gone (seven parts in eight) while a little over half the green and two thirds of the blue
+    /// still come through, so what lies behind is still seen, tinted blue-green.
     /// </summary>
     /// <param name="clarity">How far one sees into the water, metres (more than 0).</param>
     public static (float R, float G, float B) Absorption(float clarity)
