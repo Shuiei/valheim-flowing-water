@@ -156,7 +156,7 @@ internal sealed class SolidsWatch
 
         foreach (KeyValuePair<ZDOID, (Vector3 At, float Reach, int Look)> piece in was)
         {
-            if (!now.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) then) || then.At != piece.Value.At || then.Reach != piece.Value.Reach)
+            if (!now.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) then) || then.At != piece.Value.At || !Mathf.Approximately(then.Reach, piece.Value.Reach))
             {
                 PieceChanged(zone, piece.Value.At, piece.Value.Reach);
             }
