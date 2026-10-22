@@ -7,16 +7,24 @@ namespace FlowingWater.Volume;
 /// A brick's water as the world keeps it and players' games receive it, without the game: gzip of a version, the
 /// brick's coordinates and voxel size, then per voxel its water (a byte, 200 a full voxel, a little more for water
 /// pressed in) and, for voxels with water, its solid share (a byte, 255 all solid: where the water's floor is, which
-/// the players' games cannot know) and its velocity (a byte per axis, square-root steps to 16 m/s).
+/// the players' games cannot know) and its velocity (a byte per axis, square-root steps to 16 m/s). From version 2, a
+/// water byte of 255 means more than the byte holds (water pressed in hard, or poured into smaller voxels): its exact
+/// share follows the velocity, as a float, so none is lost.
 /// </summary>
 internal static class BrickData
 {
     /// <summary>The fastest speed kept, metres a second; faster is kept as this.</summary>
     public const float MaxSpeed = 16f;
 
-    private const byte FormatVersion = 1;
+    private const byte FormatVersion = 2;
+
+    // The first version, read still: no exact share follows a water byte of 255 (it is 1.275 of a voxel).
+    private const byte FirstVersion = 1;
 
     private const float Full = 200f;
+
+    // The water byte that means "more: the exact share follows".
+    private const byte More = 255;
 
     /// <summary>The brick as bytes.</summary>
     /// <param name="brick">The brick.</param>
@@ -33,7 +41,7 @@ internal static class BrickData
         byte[] water = new byte[Brick.Count];
         for (int i = 0; i < Brick.Count; i++)
         {
-            water[i] = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(brick.Water[i] * Full)));
+            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(brick.Water[i] * Full)));
         }
 
         writer.Write(water);
@@ -47,6 +55,10 @@ internal static class BrickData
                 writer.Write(SpeedByte(x));
                 writer.Write(SpeedByte(y));
                 writer.Write(SpeedByte(z));
+                if (water[i] == More)
+                {
+                    writer.Write(brick.Water[i]);
+                }
             }
         }
     });
@@ -56,9 +68,9 @@ internal static class BrickData
     public static BrickView Decode(byte[] data) => Packed.Read(data, "brick data", reader =>
     {
         byte version = reader.ReadByte();
-        if (version != FormatVersion)
+        if (version is not (FormatVersion or FirstVersion))
         {
-            throw new InvalidDataException($"brick data version {version}, expected {FormatVersion}");
+            throw new InvalidDataException($"brick data version {version}, expected {FirstVersion} or {FormatVersion}");
         }
 
         var view = new BrickView(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadSingle());
@@ -77,6 +89,10 @@ internal static class BrickData
                 view.VelocityX[i] = Speed(reader.ReadSByte());
                 view.VelocityY[i] = Speed(reader.ReadSByte());
                 view.VelocityZ[i] = Speed(reader.ReadSByte());
+                if (water[i] == More && version >= FormatVersion)
+                {
+                    view.Water[i] = reader.ReadSingle();
+                }
             }
         }
 

@@ -71,16 +71,50 @@ public class BrickDataTests
     }
 
     [Fact]
-    public void WaterPressedInIsKeptUpToTheBytesReachAndSpeedsUpTo16()
+    public void WaterPressedPastTheBytesReachIsKeptExactlyAndSpeedsUpTo16()
     {
+        // Eight times a voxel (a full voxel poured into one of half its side) and just past the byte's reach.
         var brick = new Brick(0, 0, 0);
-        brick.Water[0] = 3f;
+        brick.Water[0] = 8f;
+        brick.Water[1] = 1.3f;
+        brick.Water[2] = 1.2f;
         brick.FlowX[0] = 100f;
 
         BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
 
-        Assert.Equal(255f / 200f, view.Water[0], 3);
+        Assert.Equal(8f, view.Water[0]);
+        Assert.Equal(1.3f, view.Water[1]);
+        Assert.Equal(1.2f, view.Water[2], 3);
         Assert.Equal(BrickData.MaxSpeed, view.VelocityX[0], 1);
+    }
+
+    [Fact]
+    public void AFirstVersionBrickIsStillRead()
+    {
+        // Version 1: no exact share after a water byte of 255 (it is 1.275 of a voxel).
+        byte[] stored = Packed.Write(writer =>
+        {
+            writer.Write((byte)1);
+            writer.Write(2);
+            writer.Write(-3);
+            writer.Write(4);
+            writer.Write(0.5f);
+            byte[] water = new byte[Brick.Count];
+            water[0] = 255;
+            water[1] = 100;
+            writer.Write(water);
+
+            // Each wet voxel's solid share and speeds: the first none, the second a fifth solid.
+            byte[] wet = [0, 0, 0, 0, 51, 0, 0, 0];
+            writer.Write(wet);
+        });
+
+        BrickView view = BrickData.Decode(stored);
+
+        Assert.Equal((2, -3, 4, 0.5f), (view.X, view.Y, view.Z, view.VoxelSize));
+        Assert.Equal(1.275f, view.Water[0], 3);
+        Assert.Equal(0.5f, view.Water[1], 3);
+        Assert.Equal(0.2f, view.Solid[1], 3);
     }
 
     [Fact]
