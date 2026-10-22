@@ -139,8 +139,9 @@ internal sealed class VoxelServer
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        // Work that waited for a step under way, or a send due now, gets this frame's end: no new step is begun.
-        Step(dt, _waited > 0f || _sendTimer + dt >= FlowingWaterPlugin.Settings.SendSeconds.Value);
+        // Work that waited for a step under way, or a send due within this frame, gets its end: no new step is begun.
+        // A send due exactly at its end does not count, or frames as long as SendSeconds would never step.
+        Step(dt, _waited > 0f || _sendTimer + dt > FlowingWaterPlugin.Settings.SendSeconds.Value);
         WarnCapped();
 
         _sendTimer += dt;
