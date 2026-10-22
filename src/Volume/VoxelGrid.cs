@@ -206,10 +206,14 @@ internal sealed class VoxelGrid
         }
     }
 
+    /// <summary>Whether a brick at these brick coordinates is within the grid's reach (<see cref="MaxBrick"/>).</summary>
+    public static bool Within(int x, int y, int z) =>
+        x >= -MaxBrick && x <= MaxBrick && y >= -MaxBrick && y <= MaxBrick && z >= -MaxBrick && z <= MaxBrick;
+
     // A brick farther than the key can tell apart would share another's: refused before any lookup.
     private static void InReach(int x, int y, int z)
     {
-        if (x < -MaxBrick || x > MaxBrick || y < -MaxBrick || y > MaxBrick || z < -MaxBrick || z > MaxBrick)
+        if (!Within(x, y, z))
         {
             throw new ArgumentOutOfRangeException(nameof(x), $"brick {x}, {y}, {z} is beyond the grid's reach ({MaxBrick} bricks from the world's zero)");
         }
