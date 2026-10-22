@@ -321,6 +321,216 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStepFindsTheBoxOfTheWetVoxels()
+    {
+        // Water poured in two corners of a closed box falls to its floor: the wet box spans both, one row high.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(1, 4, 2, 0.5f);
+        grid.Pour(6, 3, 5, 0.5f);
+
+        Run(grid, 1f);
+
+        Brick brick = grid.Find(0, 0, 0);
+        Assert.Equal(0, brick.WetLow.Y);
+        Assert.Equal(0, brick.WetHigh.Y);
+        Assert.True(brick.WetLow.X <= 1 && brick.WetHigh.X >= 6, $"x {brick.WetLow.X}..{brick.WetHigh.X}");
+        Assert.True(brick.WetLow.Z <= 2 && brick.WetHigh.Z >= 5, $"z {brick.WetLow.Z}..{brick.WetHigh.Z}");
+        Assert.All(Enumerable.Range(0, Brick.Count).Where(i => brick.Water[i] > Brick.Dry), i =>
+        {
+            (int x, int y, int z) = Brick.Place(i);
+            Assert.InRange(x, brick.WetLow.X, brick.WetHigh.X);
+            Assert.InRange(y, brick.WetLow.Y, brick.WetHigh.Y);
+            Assert.InRange(z, brick.WetLow.Z, brick.WetHigh.Z);
+        });
+    }
+
+    [Fact]
+    public void AShallowPoolKeepsTheStepItAlwaysHad()
+    {
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 3f);
+        var solver = new VoxelSolver(grid);
+        float before = solver.MaxStep;
+
+        Run(grid, 2f);
+
+        Assert.Equal(0.5f / (float)Math.Sqrt(VoxelSolver.Gravity * 13f), before, 4);
+        Assert.Equal(before, new VoxelSolver(grid).MaxStep, 4);
+    }
+
+    [Fact]
+    public void DeepWaterShortensTheStepOnceFoundAndEasesBackAfter()
+    {
+        // A pool 24.5 voxels deep: the step shortens at once. Then all but its bottom three voxels go (as if drained)
+        // and what is left is stirred: as it moves, the step lengthens again.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 24.5f);
+        var solver = new VoxelSolver(grid);
+        float shallow = solver.MaxStep;
+
+        solver.Step(0.01f);
+        float deep = solver.MaxStep;
+        foreach (Brick brick in grid.Bricks)
+        {
+            for (int i = 0; i < Brick.Count; i++)
+            {
+                if ((brick.Y * Brick.Size) + Brick.Place(i).Y >= 3)
+                {
+                    brick.Water[i] = 0f;
+                }
+            }
+        }
+
+        grid.Pour(3, 5, 3, 8f);
+        for (int k = 0; k < 100; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.True(deep < shallow * 0.6f, $"deep {deep}, shallow {shallow}");
+        Assert.True(solver.MaxStep > deep * 1.5f, $"after {solver.MaxStep}, deep {deep}");
+    }
+
+    [Fact]
+    public void ADeepPoolFedSlowlySettlesAndSleeps()
+    {
+        // 15.5 voxels deep, sixteen voxels of water poured over four seconds.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 15.5f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 40; k++)
+        {
+            grid.Pour(3, 17, 3, 0.4f);
+            solver.Step(0.1f);
+        }
+
+        for (int k = 0; k < 900; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.All(grid.Bricks.Where(b => b.WetHigh.X >= 0), b => Assert.True(b.Asleep, $"brick {b.Y} awake"));
+        Assert.Equal(0.75f, grid.WaterAt(0, 15, 0), 2);
+        Assert.Equal(64f * 15.75f, grid.TotalWater(), 0);
+    }
+
+    [Theory]
+    [InlineData(12.5f)]
+    [InlineData(40.5f)]
+    public void PoolsOfManyDepthsSettleStillAfterASplash(float depth)
+    {
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, depth);
+        grid.Pour(3, (int)Math.Ceiling(depth) + 1, 3, 16f);
+
+        Run(grid, 90f);
+
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.02f)));
+        Assert.Equal(64f * (depth + 0.25f), grid.TotalWater(), 0);
+    }
+
+    [Fact]
+    public void WaterCrossesEveryFaceOfABrickAlike()
+    {
+        // Poured high over the corner four bricks share, in a box spanning them: it falls through the bricks under it
+        // and spreads into all four alike.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(8, 23, 8, 23)));
+        grid.Pour(16, 20, 16, 64f);
+
+        Run(grid, 60f);
+
+        float level = grid.WaterAt(8, 0, 8);
+        Assert.Equal(64f / 256f, level, 2);
+        Assert.Equal(level, grid.WaterAt(23, 0, 23), 2);
+        Assert.Equal(level, grid.WaterAt(8, 0, 23), 2);
+        Assert.Equal(level, grid.WaterAt(23, 0, 8), 2);
+        Assert.Equal(64f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
+    public void AVoxelTheWaterLeftHoldsNoFlow()
+    {
+        // Water poured high falls into the sea, which takes it: once dry, no face keeps a flow from its fall.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(3, 6, 3, 20f);
+        var solver = new VoxelSolver(grid) { SeaLevel = 1f };
+
+        for (int k = 0; k < 200; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.Equal(0f, grid.TotalWater(), 3);
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 1e-4f)));
+    }
+
+    [Fact]
+    public void ABrickMadeAfterStepsBeganIsSteppedToo()
+    {
+        // The solver's columns of bricks are made again when bricks come: water poured where there was none falls.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 1f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 10; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        grid.Pour(3, 40, 3, 4f);
+        for (int k = 0; k < 100; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.Equal(0f, grid.WaterAt(3, 40, 3), 3);
+        Assert.Equal(1f + (4f / 64f), grid.WaterAt(0, 0, 0) + grid.WaterAt(0, 1, 0), 2);
+    }
+
+    [Fact]
+    public void WaterReachingABricksEdgeMakesTheBrickBesideAndRunsIntoIt()
+    {
+        // A channel two bricks long, the water poured at its west end only.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 31, 0, 3)));
+        Fill(grid, 0, 3, 0, 3, 2f);
+        Assert.Null(grid.Find(1, 0, 0));
+
+        Run(grid, 30f);
+
+        Assert.NotNull(grid.Find(1, 0, 0));
+        Assert.Equal(grid.WaterAt(2, 0, 1), grid.WaterAt(29, 0, 1), 2);
+        Assert.Equal(16f * 2f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
+    public void OneLongStepIsTakenInStableShortOnes()
+    {
+        // Forty seconds asked for at once: the water settles level and still as it does a tenth at a time.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(3, 6, 3, 20f);
+
+        new VoxelSolver(grid).Step(40f);
+
+        Assert.Equal(20f, grid.TotalWater(), 1);
+        Assert.Equal(20f / 64f, grid.WaterAt(0, 0, 0), 2);
+        Assert.Equal(20f / 64f, grid.WaterAt(7, 0, 7), 2);
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.01f)));
+    }
+
+    [Fact]
+    public void WaterAtTheGridsReachIsHeldThereNotLost()
+    {
+        // A brick at the farthest place the grid reaches, water poured at its east edge: no brick past it is asked for.
+        int edge = (VoxelGrid.MaxBrick * Brick.Size) + Brick.Size - 1;
+        var grid = new VoxelGrid(Volume, new TestSolids(int.MinValue));
+        grid.Pour(edge, 0, 0, 4f);
+
+        Run(grid, 2f);
+
+        Assert.DoesNotContain(grid.Bricks, b => !VoxelGrid.Within(b.X, b.Y, b.Z));
+        Assert.Equal(4f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
