@@ -23,8 +23,8 @@ Console (F5) command `flowingwater`:
 
 | Command | Does |
 |---|---|
-| `flowingwater source [m³/s]` | A spring under your feet (default 2 m³/s) |
-| `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
+| `flowingwater source [m³/s]` | A spring under your feet, on whatever you stand on: the ground or a floor you built (default 2 m³/s) |
+| `flowingwater drain [m³/s] [radius m]` | A drain under your feet, on the ground or a floor like a source; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |

@@ -11,6 +11,11 @@ internal static class Commands
 {
     private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | flat | lift [m] | mat custom|still|stream <property> [values]";
 
+    // How far above the feet the ray under them starts, and how far below them it still finds a floor.
+    private const float FeetLift = 0.5f;
+
+    private const float FloorReach = 5f;
+
     private static bool _registered;
 
     public static void Register()
@@ -146,7 +151,7 @@ internal static class Commands
         return false;
     }
 
-    // A source (radius 0) or a drain, under the player.
+    // A source (radius 0) or a drain, on what the player stands on.
     private static void Place(Terminal terminal, Player player, string prefabName, float rate, float radius)
     {
         bool drain = radius > 0f;
@@ -158,12 +163,7 @@ internal static class Commands
             return;
         }
 
-        Vector3 position = player.transform.position;
-        if (ZoneSystem.instance.GetGroundHeight(position, out float ground))
-        {
-            position.y = ground;
-        }
-
+        Vector3 position = UnderFeet(player.transform.position);
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
         ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
         zdo.Set(WaterServer.RateHash, rate);
@@ -174,6 +174,26 @@ internal static class Commands
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
+    }
+
+    // The surface right under the feet: a floor or anything built counts, not only the terrain, as the
+    // water is to rest on what players build. The ray starts a little above the feet, so that a floor
+    // level with them is not missed, and reaches a few metres down, so that a jump still finds it. A
+    // player higher than that (flying in debug mode) gets the terrain below, as before.
+    private static Vector3 UnderFeet(Vector3 feet)
+    {
+        int solid = LayerMask.GetMask("Default", "static_solid", "Default_small", "piece", "terrain", "vehicle");
+        if (Physics.Raycast(feet + (Vector3.up * FeetLift), Vector3.down, out RaycastHit hit, FeetLift + FloorReach, solid, QueryTriggerInteraction.Ignore))
+        {
+            return hit.point;
+        }
+
+        if (ZoneSystem.instance.GetGroundHeight(feet, out float ground))
+        {
+            feet.y = ground;
+        }
+
+        return feet;
     }
 
     private static void Remove(Terminal terminal, Player player)

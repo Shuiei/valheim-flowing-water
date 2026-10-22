@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.11.1 — 2026-10-21
+
+### Fixed
+- A source or drain placed with the console command now goes on what you stand on, a floor you built or the
+  ground, instead of always on the ground below.
+
 ## v0.11.0 — 2026-10-21
 
 ### Changed
