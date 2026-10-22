@@ -16,6 +16,8 @@ internal static class Prefabs
 
     public const string DrainName = "FlowingWater_Drain";
 
+    public const string GroundName = "FlowingWater_Ground";
+
     public const string WaterLayer = "WaterVolume";
 
     public static readonly int TileHash = TileName.GetStableHashCode();
@@ -23,6 +25,8 @@ internal static class Prefabs
     public static readonly int SourceHash = SourceName.GetStableHashCode();
 
     public static readonly int DrainHash = DrainName.GetStableHashCode();
+
+    public static readonly int GroundHash = GroundName.GetStableHashCode();
 
     private static GameObject _root;
 
@@ -75,6 +79,7 @@ internal static class Prefabs
 
         Networked(SourceName).AddComponent<Marker>().IsDrain = false;
         Networked(DrainName).AddComponent<Marker>().IsDrain = true;
+        Networked(GroundName).AddComponent<GroundChanges>();
     }
 
     private static GameObject Networked(string name)

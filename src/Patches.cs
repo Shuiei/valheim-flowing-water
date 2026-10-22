@@ -35,6 +35,17 @@ internal static class WorldLoadedPatch
     }
 }
 
+/// <summary>A zone's ground, once the game has applied its own terrain changes to it, takes erosion's change too.</summary>
+[HarmonyPatch(typeof(Heightmap), "ApplyModifiers")]
+internal static class GroundChangePatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Postfix(Heightmap __instance)
+    {
+        GroundChanges.ApplyTo(__instance);
+    }
+}
+
 /// <summary>Registers the console command once the game's own are in.</summary>
 [HarmonyPatch(typeof(Terminal), "InitTerminal")]
 internal static class CommandPatch

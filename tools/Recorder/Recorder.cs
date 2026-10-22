@@ -224,6 +224,7 @@ public sealed class Recorder : BaseUnityPlugin
             "cascade" => Cascade(spawn),
             "look" => Look(steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
+            "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
         };
         if (scenario != null)
@@ -434,6 +435,64 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater remove");
     }
 
+    // Erosion as players see it (run with the server's erosion on and fast): the ground over the steep site
+    // before a source runs, and as the running water wears it, with a floor laid on the stream once it runs,
+    // whose ground must stay as it was from then on. The heights go to heights-<when>.csv. With place off,
+    // the ground of an earlier run is only read again (after a restart: it must have been kept).
+    private IEnumerator Erosion(Site steep, bool place)
+    {
+        yield return Go(steep.At(8f));
+        Heights(steep, place ? "before" : "restart");
+        yield return Views(steep, place ? "erosion-before" : "erosion-restart");
+        if (!place)
+        {
+            yield break;
+        }
+
+        yield return Go(steep.At(0f));
+        Command("flowingwater source " + (Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4"));
+        yield return Go(steep.At(8f));
+        yield return new WaitForSeconds(60f);
+        Vector3 floor = Wet(steep, 12f, 22f);
+        GameObject piece = Instantiate(ZNetScene.instance.GetPrefab("wood_floor"), floor + (Vector3.up * 0.3f), Quaternion.identity);
+        // What the server looks for: the creator the game records for a piece a player built.
+        piece.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
+        Note($"floor laid at {floor.ToString("F1")}");
+        // The server looks for what players built every 30 s, and writes the ground at most once a minute.
+        yield return new WaitForSeconds(100f);
+        Heights(steep, "floor");
+        foreach (float wait in new[] { 120f, 120f })
+        {
+            yield return new WaitForSeconds(wait);
+            int t = Mathf.RoundToInt(Time.timeSinceLevelLoad);
+            Heights(steep, $"t{t}");
+            yield return Views(steep, $"erosion-t{t}");
+        }
+
+        Command("flowingwater remove");
+        Command("flowingwater info");
+    }
+
+    // The ground players stand on over the site, a metre apart.
+    private void Heights(Site site, string when)
+    {
+        using var file = new StreamWriter(Path.Combine(_out, $"heights-{when}.csv"));
+        file.WriteLine("along,side,x,z,height");
+        int missing = 0;
+        foreach ((float along, float side, Vector3? ground) in Ground(site, -2f, 45f))
+        {
+            if (ground is not { } p)
+            {
+                missing++;
+                continue;
+            }
+
+            file.WriteLine(FormattableString.Invariant($"{along},{side},{p.x:0.00},{p.z:0.00},{p.y:0.0000}"));
+        }
+
+        Note($"heights {when} saved ({missing} points not loaded)");
+    }
+
     // The white water the plugin made (its sounds and spray, by their names), and its running-water
     // sound saved once as a WAV to listen to.
     private Vector3? EffectStats()
@@ -607,28 +666,39 @@ public sealed class Recorder : BaseUnityPlugin
     {
         Vector3 best = site.At((from + to) * 0.5f);
         float bestDepth = 0f;
-        for (float along = from; along <= to; along += 1f)
+        foreach ((_, _, Vector3? ground) in Ground(site, from, to))
         {
-            for (float side = -12f; side <= 12f; side += 1f)
+            if (ground is not { } p)
             {
-                Vector3 p = site.At(along) + (site.Across * side);
-                if (!ZoneSystem.instance.GetGroundHeight(p, out float ground))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                p.y = ground;
-                float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - ground;
-                if (depth > bestDepth)
-                {
-                    bestDepth = depth;
-                    best = p;
-                }
+            float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y;
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = p;
             }
         }
 
         Note($"wettest point {from}..{to} m downhill: {best.ToString("F1")}, {bestDepth:0.00} m deep");
         return best;
+    }
+
+    // The site's points a metre apart, between these distances downhill and 12 m to each side, each on the
+    // ground players stand on (none where its zone is not loaded).
+    private static IEnumerable<(float Along, float Side, Vector3? Ground)> Ground(Site site, float from, float to)
+    {
+        for (float along = from; along <= to; along += 1f)
+        {
+            for (float side = -12f; side <= 12f; side += 1f)
+            {
+                Vector3 p = site.At(along) + (site.Across * side);
+                bool loaded = ZoneSystem.instance.GetGroundHeight(p, out float ground);
+                p.y = ground;
+                yield return (along, side, loaded ? p : null);
+            }
+        }
     }
 
     private static ConfigEntry<bool> Setting(string section, string key)
