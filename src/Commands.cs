@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | flat | lift [m] | mat custom|still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still|stream <property> [values]";
 
     private static bool _registered;
 
@@ -81,6 +81,14 @@ internal static class Commands
                 break;
             case "debug":
                 terminal.AddString("flowingwater: " + WaterTile.DebugInfo(player.transform.position));
+                break;
+            case "solids":
+                foreach (string line in SolidsView.Around(player.transform.position, (float)TileData.ZoneMetres / TileData.SizeFor(FlowingWaterPlugin.Settings.CellSize.Value)))
+                {
+                    terminal.AddString(line);
+                    FlowingWaterPlugin.Log.LogInfo(line);
+                }
+
                 break;
             case "flat":
                 WaterTile.Flat = !WaterTile.Flat;

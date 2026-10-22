@@ -108,6 +108,34 @@ internal sealed class VoxelGrid
         return (float)(total * VoxelVolume);
     }
 
+    /// <summary>
+    /// Reads a brick's solids again (a piece was built or broken there). Water in a voxel that turned solid goes up
+    /// to the first open voxel over it in the brick (a piece built in a pool lifts the water, it does not destroy it).
+    /// </summary>
+    public void Refill(Brick brick)
+    {
+        Array.Clear(brick.Solid, 0, Brick.Count);
+        Array.Clear(brick.Closed, 0, Brick.Count);
+        _solids.Fill(brick, VoxelSize);
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            if (brick.Solid[i] < 1f || brick.Water[i] <= 0f)
+            {
+                continue;
+            }
+
+            for (int up = i + (Brick.Size * Brick.Size); up < Brick.Count; up += Brick.Size * Brick.Size)
+            {
+                if (brick.Solid[up] < 1f)
+                {
+                    brick.Water[up] += brick.Water[i];
+                    brick.Water[i] = 0f;
+                    break;
+                }
+            }
+        }
+    }
+
     /// <summary>Asks for the brick at these brick coordinates, to be made after the step (safe from any thread).</summary>
     public void Want(int x, int y, int z)
     {

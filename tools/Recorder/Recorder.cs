@@ -235,6 +235,7 @@ public sealed class Recorder : BaseUnityPlugin
             "look" => Look(steep, gentle),
             "prep" => Prep(),
             "pools" => Pools(),
+            "at" => At(),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
@@ -779,11 +780,15 @@ public sealed class Recorder : BaseUnityPlugin
         Console.instance.TryRunCommand(text, false, true);
     }
 
-    private IEnumerator Go(Vector3 point)
+    private IEnumerator Go(Vector3 point, float? standAt = null)
     {
         Player player = Player.m_localPlayer;
         float ground = WorldGenerator.instance.GetHeight(point.x, point.z);
-        if (ZoneSystem.instance.GetGroundHeight(point, out float loaded))
+        if (standAt is { } given)
+        {
+            ground = given - 0.5f;
+        }
+        else if (ZoneSystem.instance.GetGroundHeight(point, out float loaded))
         {
             ground = loaded;
         }
@@ -882,6 +887,24 @@ public sealed class Recorder : BaseUnityPlugin
 
     // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
     // well above the sea, that keeps falling for 30 m the same way.
+    // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
+    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log.
+    private IEnumerator At()
+    {
+        foreach (string step in (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] parts = step.Split(new[] { '|' }, 2);
+            float[] where = [.. parts[0].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture))];
+            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
+            if (parts.Length > 1)
+            {
+                Command(parts[1].Trim());
+            }
+
+            yield return new WaitForSeconds(2f);
+        }
+    }
+
     // Readies a test world for the editor: at each place of FW_REC_DIG ("x,z;x,z"), the game generates the zones
     // around (the player stands there) and the ground is dug once (the editor makes new ground only where the
     // game already has some). The server saves the world when it stops.
