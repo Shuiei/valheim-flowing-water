@@ -79,6 +79,9 @@ internal sealed class VoxelServer
 
     private float _droppedInAll;
 
+    // The points water was poured at that had no room, each told of once until the markers are looked for again.
+    private readonly HashSet<Vector3> _noRoom = [];
+
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
 
@@ -376,11 +379,19 @@ internal sealed class VoxelServer
     // Water poured at points, all of it or none: null (nothing poured) unless each finds room, under the brick cap.
     private float? PourAll(List<(Vector3 Point, float Volume)> water)
     {
+        // Bricks made only to look for room are forgotten again when the water does not go in: they would hold
+        // places under MaxBricks for nothing.
+        var before = new HashSet<Brick>(_grid.Bricks);
         var pours = new List<(int X, int Y, int Z, float Volume)>();
         foreach ((Vector3 point, float volume) in water)
         {
             if (!Room(point, out int x, out int y, out int z))
             {
+                foreach (Brick made in _grid.Bricks.Where(b => !before.Contains(b)).ToList())
+                {
+                    _grid.Forget(made);
+                }
+
                 return null;
             }
 
@@ -477,7 +488,14 @@ internal sealed class VoxelServer
     private void ApplyVoxelSize()
     {
         float size = SettingVoxelSize();
-        if (Mathf.Approximately(size, _grid.VoxelSize) || Mathf.Approximately(size, _refusedSize))
+        if (Mathf.Approximately(size, _grid.VoxelSize))
+        {
+            // Back to the size the water is in: a size refused before may be tried again when chosen again.
+            _refusedSize = 0f;
+            return;
+        }
+
+        if (Mathf.Approximately(size, _refusedSize))
         {
             return;
         }
@@ -526,15 +544,16 @@ internal sealed class VoxelServer
             return;
         }
 
-        // The brick cap is told of once (WarnCapped); solid all the way up, each time.
-        if (!_grid.Capped)
+        // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once a
+        // point until the markers are looked for again.
+        if (!_grid.Capped && _noRoom.Add(point))
         {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} for {cubicMetres:0.00} m³; dropped"));
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
         }
     }
 
     // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks); false
-    // when none is, or a brick it needs cannot be made (MaxBricks).
+    // when none is, a brick it needs cannot be made (MaxBricks), or the point is past the grid's reach.
     private bool Room(Vector3 point, out int x, out int y, out int z)
     {
         float s = _grid.VoxelSize;
@@ -543,7 +562,7 @@ internal sealed class VoxelServer
         z = Mathf.FloorToInt(point.z / s);
         for (int up = 0; up < Brick.Size * 4; up++, y++)
         {
-            if (_grid.Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+            if (!VoxelGrid.Within(x >> 4, y >> 4, z >> 4) || _grid.Make(x >> 4, y >> 4, z >> 4) is not { } brick)
             {
                 return false;
             }
@@ -627,6 +646,7 @@ internal sealed class VoxelServer
 
     private void ScanMarkers()
     {
+        _noRoom.Clear();
         int before = _markers.Count;
         _markers.Clear();
         Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
