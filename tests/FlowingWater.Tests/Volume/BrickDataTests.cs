@@ -47,6 +47,24 @@ public class BrickDataTests
     }
 
     [Fact]
+    public void ATraceOfWaterTooSmallToKeepDoesNotShiftTheVelocitiesAfterIt()
+    {
+        var brick = new Brick(0, 0, 0);
+        brick.Water[0] = 0.001f;
+        brick.FlowX[0] = 5f;
+        brick.Water[1] = 0.8f;
+        brick.FlowX[1] = 2f;
+        brick.FlowX[0] = 2f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.Equal(0f, view.Water[0]);
+        Assert.Equal(0f, view.VelocityX[0]);
+        Assert.Equal(0.8f, view.Water[1], 2);
+        Assert.Equal(2f, view.VelocityX[1], 1);
+    }
+
+    [Fact]
     public void WaterPressedInIsKeptUpToTheBytesReachAndSpeedsUpTo16()
     {
         var brick = new Brick(0, 0, 0);

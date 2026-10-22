@@ -32,15 +32,18 @@ internal static class BrickData
             writer.Write(brick.Y);
             writer.Write(brick.Z);
             writer.Write(voxelSize);
-            foreach (float water in brick.Water)
+            // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
+            byte[] water = new byte[Brick.Count];
+            for (int i = 0; i < Brick.Count; i++)
             {
-                writer.Write((byte)Math.Min(255, (int)Math.Round(water * Full)));
+                water[i] = (byte)Math.Min(255, (int)Math.Round(brick.Water[i] * Full));
             }
 
+            writer.Write(water);
             float area = voxelSize * voxelSize;
             for (int i = 0; i < Brick.Count; i++)
             {
-                if (brick.Water[i] > Brick.Dry)
+                if (water[i] > 0)
                 {
                     (float x, float y, float z) = Velocity(brick, i, area);
                     writer.Write(SpeedByte(x));
@@ -81,7 +84,7 @@ internal static class BrickData
 
             for (int i = 0; i < Brick.Count; i++)
             {
-                if (view.Water[i] > Brick.Dry)
+                if (water[i] > 0)
                 {
                     view.VelocityX[i] = Speed(reader.ReadSByte());
                     view.VelocityY[i] = Speed(reader.ReadSByte());

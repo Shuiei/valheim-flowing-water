@@ -27,6 +27,9 @@ internal sealed class VoxelServer
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
+    // The farthest a drain reaches, metres: as far as the DefaultDrainRadius setting allows.
+    private const float MaxDrainRadius = 16f;
+
     private readonly ZoneTerrain _terrain = new();
 
     private readonly GameSolids _solids;
@@ -378,31 +381,38 @@ internal sealed class VoxelServer
 
     private void Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
 
-    // A drain takes from every voxel within its reach: all of it with no rate, else at most its rate, from each in
-    // proportion to its water.
+    // A drain takes from every voxel within its reach (its own voxel at least): all of it with no rate, else at most
+    // its rate, from each in proportion to its water. Only bricks there are looked in.
     private void Drain(Source drain, float dt)
     {
         float s = _grid.VoxelSize;
-        int reach = Mathf.Max(0, Mathf.FloorToInt(drain.Radius / s));
+        int reach = Mathf.FloorToInt(drain.Radius / s);
         int cx = Mathf.FloorToInt(drain.Point.x / s);
         int cy = Mathf.FloorToInt((drain.Point.y + 0.05f) / s);
         int cz = Mathf.FloorToInt(drain.Point.z / s);
         float there = 0f;
         var found = new List<(Brick Brick, int Index)>();
-        for (int dy = -reach; dy <= reach; dy++)
+        foreach (Brick brick in _grid.Bricks)
         {
-            for (int dz = -reach; dz <= reach; dz++)
+            int x0 = brick.X * Brick.Size;
+            int y0 = brick.Y * Brick.Size;
+            int z0 = brick.Z * Brick.Size;
+            if (x0 > cx + reach || x0 + Brick.Size <= cx - reach || y0 > cy + reach || y0 + Brick.Size <= cy - reach || z0 > cz + reach || z0 + Brick.Size <= cz - reach)
             {
-                for (int dx = -reach; dx <= reach; dx++)
+                continue;
+            }
+
+            for (int i = 0; i < Brick.Count; i++)
+            {
+                (int x, int y, int z) = Brick.Place(i);
+                int dx = x0 + x - cx;
+                int dy = y0 + y - cy;
+                int dz = z0 + z - cz;
+                bool within = ((dx * dx) + (dy * dy) + (dz * dz)) * s * s <= drain.Radius * drain.Radius || (dx == 0 && dy == 0 && dz == 0);
+                if (within && brick.Water[i] > 0f)
                 {
-                    if (((dx * dx) + (dy * dy) + (dz * dz)) * s * s <= drain.Radius * drain.Radius || (dx == 0 && dy == 0 && dz == 0))
-                    {
-                        if (_grid.Locate(cx + dx, cy + dy, cz + dz, out Brick brick, out int i) && brick.Water[i] > 0f)
-                        {
-                            found.Add((brick, i));
-                            there += brick.Water[i];
-                        }
-                    }
+                    found.Add((brick, i));
+                    there += brick.Water[i];
                 }
             }
         }
@@ -449,7 +459,9 @@ internal sealed class VoxelServer
         float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
         foreach (ZDO zdo in All(prefab))
         {
-            _markers.Add(new Source(zdo.GetPosition(), zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, drain ? zdo.GetFloat(ZdoKeys.Radius, defaultRadius) : 0f));
+            // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
+            float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
+            _markers.Add(new Source(zdo.GetPosition(), zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, radius));
         }
     }
 
@@ -476,7 +488,7 @@ internal sealed class VoxelServer
                 continue;
             }
 
-            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? radius : 0f));
+            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
         }
     }
 
