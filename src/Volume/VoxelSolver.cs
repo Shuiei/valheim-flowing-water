@@ -280,8 +280,10 @@ internal sealed class VoxelSolver
 
             for (int y = 0; y < Brick.Size; y++)
             {
+                // Between sleeping voxels nothing settles: their water is still, and a sleeping brick's data is
+                // sent again only when it counts a change.
                 int i = Brick.Index(x, y, z);
-                if (lower != null && brick.Water[i] > Brick.Dry)
+                if (lower != null && brick.Water[i] > Brick.Dry && !(brick.Asleep && lower.Asleep))
                 {
                     float room = 1f - lower.Solid[below] - lower.Water[below];
                     if (room > 0f && lower.Water[below] > Brick.Dry && (lower.Closed[below] & Brick.ClosedY) == 0 && lower.Solid[below] < 1f && brick.Solid[i] <= 0f)
@@ -294,6 +296,8 @@ internal sealed class VoxelSolver
                         }
 
                         brick.Water[i] -= drop;
+                        brick.Changes++;
+                        lower.Changes++;
                     }
                 }
 
