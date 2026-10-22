@@ -116,6 +116,13 @@ internal sealed class WaterBrick : MonoBehaviour
             Neighbours(_view, VoxelSurface.Round);
         }
 
+        // The last water gone (the world left): no brick is left to serve the queue, which would keep the bricks
+        // gone with it.
+        if (ByKey.Count == 0)
+        {
+            Waiting.Clear();
+        }
+
         if (_mesh != null)
         {
             Destroy(_mesh);

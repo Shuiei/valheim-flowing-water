@@ -27,6 +27,13 @@ internal sealed class TakeTurns<T>
         }
     }
 
+    /// <summary>Lets every waiting one go.</summary>
+    public void Clear()
+    {
+        _waiting.Clear();
+        _queued.Clear();
+    }
+
     /// <summary>
     /// Serves the waiting ones in the order they came, each at most once, while <paramref name="more"/> says time
     /// is left (the first ready one always). Those not ready yet go to the back and wait on.
