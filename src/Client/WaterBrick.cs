@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -48,7 +49,7 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private float _drawnAt;
 
-    private Task<Shape> _building;
+    private readonly BackgroundBuild<Shape> _building = new();
 
     // Every brick is drawn again with the other material when the shader setting changes.
     private static void WatchSetting()
@@ -99,15 +100,14 @@ internal sealed class WaterBrick : MonoBehaviour
             Read(zdo.GetByteArray(ZdoKeys.Brick));
         }
 
-        if (_building is { IsCompleted: true } && InBudget())
+        if (_building.Done && InBudget() && _building.TryTake(out Shape shape, out Exception failure))
         {
             FrameDrawing.Start();
-            Apply(_building);
+            Apply(shape, failure);
             FrameDrawing.Stop();
-            _building = null;
         }
 
-        if (_dirty && _building == null && Time.time - _drawnAt >= RedrawSeconds)
+        if (_dirty && !_building.Busy && Time.time - _drawnAt >= RedrawSeconds)
         {
             Build();
         }
@@ -128,10 +128,10 @@ internal sealed class WaterBrick : MonoBehaviour
             Destroy(_mesh);
         }
 
-        // A surface still being built is not drawn; a failure to build it is still told (where, read here: the
-        // telling is on another thread).
+        // A surface still being built is not drawn; a failure to build it is still told, in the game's frame (its log
+        // is the game's), from where the brick was.
         Vector3 at = transform.position;
-        _building?.ContinueWith(task => Failed(task, at), TaskContinuationOptions.OnlyOnFaulted);
+        _building.Abandon(failure => Failed(failure, at), TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     private void Read(byte[] data)
@@ -200,15 +200,15 @@ internal sealed class WaterBrick : MonoBehaviour
         BrickView view = _view;
         VoxelField near = VoxelWater.Field.Near(view);
         Vector3 origin = transform.position;
-        _building = Task.Run(() => Shape.Of(near, view, origin));
+        _building.TryStart(() => Shape.Of(near, view, origin));
     }
 
     // A built surface handed to the mesh.
-    private void Apply(Task<Shape> task)
+    private void Apply(Shape shape, Exception failure)
     {
-        if (task.IsFaulted)
+        if (failure != null)
         {
-            Failed(task, transform.position);
+            Failed(failure, transform.position);
             return;
         }
 
@@ -218,7 +218,6 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        Shape shape = task.Result;
         _mesh.Clear();
         _mesh.indexFormat = shape.Vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
         _mesh.SetVertices(shape.Vertices);
@@ -232,8 +231,8 @@ internal sealed class WaterBrick : MonoBehaviour
         _renderer.sharedMaterial = material;
     }
 
-    private static void Failed(Task task, Vector3 at) =>
-        FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({task.Exception?.GetBaseException()})");
+    private static void Failed(Exception failure, Vector3 at) =>
+        FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({failure})");
 
     private static Material Material() =>
         FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
