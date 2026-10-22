@@ -121,14 +121,22 @@ internal sealed class SolidsWatch
         _ground[key] = ground;
     }
 
-    // The zones under the bricks.
+    // The zones a piece of which may reach a brick: those under each brick, or within a piece's reach of it.
     private static HashSet<Vector2s> Zones(VoxelGrid grid)
     {
         var zones = new HashSet<Vector2s>();
         float span = Brick.Size * grid.VoxelSize;
         foreach (Brick brick in grid.Bricks)
         {
-            zones.Add(ZoneSystem.GetZone(new Vector3((brick.X + 0.5f) * span, 0f, (brick.Z + 0.5f) * span)));
+            Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - Reach, 0f, (brick.Z * span) - Reach));
+            Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + Reach, 0f, ((brick.Z + 1) * span) + Reach));
+            for (int z = first.y; z <= last.y; z++)
+            {
+                for (int x = first.x; x <= last.x; x++)
+                {
+                    zones.Add(new Vector2s(x, z));
+                }
+            }
         }
 
         return zones;

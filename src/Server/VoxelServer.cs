@@ -250,6 +250,13 @@ internal sealed class VoxelServer
                 continue;
             }
 
+            // A brick of a voxel size the setting cannot have, or beyond the grid's reach, is left as it was.
+            if (Array.IndexOf(TileData.CellSizes, view.VoxelSize) < 0 || Math.Abs((long)view.X) > VoxelGrid.MaxBrick || Math.Abs((long)view.Y) > VoxelGrid.MaxBrick || Math.Abs((long)view.Z) > VoxelGrid.MaxBrick)
+            {
+                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels cannot be read into the grid; left as it is"));
+                continue;
+            }
+
             total += PourView(view);
             DestroyZdo(zdo);
         }
@@ -461,7 +468,11 @@ internal sealed class VoxelServer
         {
             // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
             float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
-            _markers.Add(new Source(zdo.GetPosition(), zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, radius));
+            float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
+            if (Usable(rate, drain, zdo.GetPosition().ToString()))
+            {
+                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
+            }
         }
     }
 
@@ -488,8 +499,23 @@ internal sealed class VoxelServer
                 continue;
             }
 
-            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
+            if (Usable(rate, drain, trimmed))
+            {
+                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
+            }
         }
+    }
+
+    // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more.
+    private static bool Usable(float rate, bool drain, string where)
+    {
+        if (!float.IsNaN(rate) && !float.IsInfinity(rate) && (drain ? rate >= 0f : rate > 0f))
+        {
+            return true;
+        }
+
+        FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
+        return false;
     }
 
     // A top-down map per zone, a character per 2 by 2 metres: '.' dry, then deeper and deeper (all the water over
