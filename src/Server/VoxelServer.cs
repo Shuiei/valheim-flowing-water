@@ -257,7 +257,14 @@ internal sealed class VoxelServer
                 continue;
             }
 
-            total += PourView(view);
+            // Only a brick whose every voxel of water found room is taken over; another is kept as it is.
+            if (PourView(view) is not { } poured)
+            {
+                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up); left as it is"));
+                continue;
+            }
+
+            total += poured;
             DestroyZdo(zdo);
         }
 
@@ -265,12 +272,12 @@ internal sealed class VoxelServer
     }
 
     // A saved brick's water into the grid: as it was when the voxels are the same size, else poured at each voxel's
-    // middle into the new grid's voxels.
-    private float PourView(BrickView view)
+    // middle into the new grid's voxels. Nothing is poured (null) unless every voxel of water finds room.
+    private float? PourView(BrickView view)
     {
         float s = view.VoxelSize;
         float volume = s * s * s;
-        float total = 0f;
+        var pours = new List<(int X, int Y, int Z, float Volume)>();
         for (int i = 0; i < Brick.Count; i++)
         {
             if (view.Water[i] <= Brick.Dry)
@@ -280,11 +287,20 @@ internal sealed class VoxelServer
 
             (int x, int y, int z) = Brick.Place(i);
             var middle = new Vector3(((view.X * Brick.Size) + x + 0.5f) * s, ((view.Y * Brick.Size) + y + 0.5f) * s, ((view.Z * Brick.Size) + z + 0.5f) * s);
-            PourAt(middle, view.Water[i] * volume);
-            total += view.Water[i] * volume;
+            if (!Room(middle, out int rx, out int ry, out int rz))
+            {
+                return null;
+            }
+
+            pours.Add((rx, ry, rz, view.Water[i] * volume));
         }
 
-        return total;
+        foreach ((int x, int y, int z, float cubicMetres) in pours)
+        {
+            _grid.Pour(x, y, z, cubicMetres);
+        }
+
+        return pours.Sum(p => p.Volume);
     }
 
     private static BrickView Read(ZDO zdo)
@@ -362,28 +378,39 @@ internal sealed class VoxelServer
         float s = _grid.VoxelSize;
         List<BrickView> views = [.. _grid.Bricks.Select(b => BrickData.Decode(BrickData.Encode(b, s)))];
         NewGrid(size);
-        float total = views.Sum(PourView);
+        float total = views.Sum(v => PourView(v) ?? 0f);
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
     }
 
     // Water poured at a point: into its voxel, or the first open one over it when the point is in a solid.
     private void PourAt(Vector3 point, float cubicMetres)
     {
-        float s = _grid.VoxelSize;
-        int x = Mathf.FloorToInt(point.x / s);
-        int y = Mathf.FloorToInt(point.y / s);
-        int z = Mathf.FloorToInt(point.z / s);
-        for (int up = 0; up < Brick.Size * 4; up++)
+        if (Room(point, out int x, out int y, out int z))
         {
-            Brick brick = _grid.Get(x >> 4, (y + up) >> 4, z >> 4);
-            if (brick.Solid[Brick.Index(x & 15, (y + up) & 15, z & 15)] < 1f)
-            {
-                _grid.Pour(x, y + up, z, cubicMetres);
-                return;
-            }
+            _grid.Pour(x, y, z, cubicMetres);
+            return;
         }
 
         FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} for {cubicMetres:0.00} m³; dropped"));
+    }
+
+    // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks).
+    private bool Room(Vector3 point, out int x, out int y, out int z)
+    {
+        float s = _grid.VoxelSize;
+        x = Mathf.FloorToInt(point.x / s);
+        y = Mathf.FloorToInt(point.y / s);
+        z = Mathf.FloorToInt(point.z / s);
+        for (int up = 0; up < Brick.Size * 4; up++, y++)
+        {
+            Brick brick = _grid.Get(x >> 4, y >> 4, z >> 4);
+            if (brick.Solid[Brick.Index(x & 15, y & 15, z & 15)] < 1f)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
