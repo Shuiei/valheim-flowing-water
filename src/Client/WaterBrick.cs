@@ -118,10 +118,13 @@ internal sealed class WaterBrick : MonoBehaviour
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
     {
-        if (_view != null)
+        // A brick made again at the same place (dry, then wet again) may have come before this one went: its water
+        // and its place in the lookup are its own, left alone.
+        long key = _view == null ? 0L : VoxelGrid.Key(_view.X, _view.Y, _view.Z);
+        if (_view != null && ByKey.TryGetValue(key, out WaterBrick current) && current == this)
         {
             VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
-            ByKey.Remove(VoxelGrid.Key(_view.X, _view.Y, _view.Z));
+            ByKey.Remove(key);
             Neighbours(_view, VoxelSurface.Round);
         }
 

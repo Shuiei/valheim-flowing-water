@@ -19,7 +19,8 @@ internal sealed class SolidsWatch
 
     private const int PartObjects = 64;
 
-    // Zones this close to a brick are looked over, metres: a piece standing in one may reach the brick.
+    // Zones this close to a brick are looked over, metres, at least (farther when a piece read reaches farther): a
+    // piece standing in one may reach the brick.
     private const float Reach = 4f;
 
     private static readonly int StateHash = "state".GetStableHashCode();
@@ -74,7 +75,7 @@ internal sealed class SolidsWatch
         if (_timer >= LookSeconds && !_scan.Busy)
         {
             _timer = 0f;
-            _scan.Start(Zones(grid));
+            _scan.Start(Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest)));
         }
 
         _lookWatch.Restart();
@@ -189,14 +190,14 @@ internal sealed class SolidsWatch
     }
 
     // The zones a piece of which may reach a brick: those under each brick, or within a piece's reach of it.
-    private static HashSet<Vector2s> Zones(VoxelGrid grid)
+    private static HashSet<Vector2s> Zones(VoxelGrid grid, float reach)
     {
         var zones = new HashSet<Vector2s>();
         float span = Brick.Size * grid.VoxelSize;
         foreach (Brick brick in grid.Bricks)
         {
-            Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - Reach, 0f, (brick.Z * span) - Reach));
-            Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + Reach, 0f, ((brick.Z + 1) * span) + Reach));
+            Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - reach, 0f, (brick.Z * span) - reach));
+            Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + reach, 0f, ((brick.Z + 1) * span) + reach));
             for (int z = first.y; z <= last.y; z++)
             {
                 for (int x = first.x; x <= last.x; x++)

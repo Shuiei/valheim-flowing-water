@@ -34,8 +34,10 @@ internal sealed class GameSolids : ISolids
         SolidRaster.Ground(brick, voxelSize, Ground);
         _near.Clear();
         float span = Brick.Size * voxelSize;
-        Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - voxelSize, 0f, (brick.Z * span) - voxelSize));
-        Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + voxelSize, 0f, ((brick.Z + 1) * span) + voxelSize));
+        // The zones whose pieces may reach the brick or the voxel round it: as far as the farthest piece read so far.
+        float margin = Mathf.Max(voxelSize, Shapes.Farthest);
+        Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - margin, 0f, (brick.Z * span) - margin));
+        Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + margin, 0f, ((brick.Z + 1) * span) + margin));
         for (int zz = first.y; zz <= last.y; zz++)
         {
             for (int zx = first.x; zx <= last.x; zx++)
