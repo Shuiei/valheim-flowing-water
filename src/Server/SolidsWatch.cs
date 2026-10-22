@@ -13,7 +13,7 @@ internal sealed class SolidsWatch
 {
     private const float LookSeconds = 2f;
 
-    // A piece reaches this far from its place at most, metres: bricks this close to a changed piece are read again.
+    // Zones this close to a brick are looked over, metres: a piece standing in one may reach the brick.
     private const float Reach = 4f;
 
     private static readonly int StateHash = "state".GetStableHashCode();
@@ -23,7 +23,7 @@ internal sealed class SolidsWatch
     private readonly ZoneTerrain _terrain;
 
     // Each zone's pieces as last looked at: where each stands, and its turn and state.
-    private readonly Dictionary<long, Dictionary<ZDOID, (Vector3 At, int Look)>> _pieces = [];
+    private readonly Dictionary<long, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)>> _pieces = [];
 
     private readonly Dictionary<long, int> _ground = [];
 
@@ -97,14 +97,14 @@ internal sealed class SolidsWatch
         if (_solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
             Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
-            PieceChanged(zone, zdo.GetPosition());
+            PieceChanged(zone, zdo.GetPosition(), _solids.Shapes.Reach(zdo));
 
             // Heard of already: the next look does not find it gone again, so where it stood when last looked at
             // (it may have moved since) is read again now.
-            if (_pieces.TryGetValue(TileData.Key(zone), out Dictionary<ZDOID, (Vector3 At, int Look)> pieces)
-                && pieces.TryGetValue(zdo.m_uid, out (Vector3 At, int Look) was))
+            if (_pieces.TryGetValue(TileData.Key(zone), out Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> pieces)
+                && pieces.TryGetValue(zdo.m_uid, out (Vector3 At, float Reach, int Look) was))
             {
-                PieceChanged(zone, was.At);
+                PieceChanged(zone, was.At, was.Reach);
                 pieces.Remove(zdo.m_uid);
             }
         }
@@ -117,16 +117,16 @@ internal sealed class SolidsWatch
         long key = TileData.Key(zone);
         _found.Clear();
         ZDOMan.instance.FindSectorObjects(zone, new SimulationDistance(0, 0), _found);
-        var pieces = new Dictionary<ZDOID, (Vector3 At, int Look)>();
+        var pieces = new Dictionary<ZDOID, (Vector3 At, float Reach, int Look)>();
         foreach (ZDO zdo in _found)
         {
             if (_solids.Shapes.Count(zdo.GetPrefab()) > 0)
             {
-                pieces[zdo.m_uid] = (zdo.GetPosition(), unchecked((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)));
+                pieces[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)));
             }
         }
 
-        if (_pieces.TryGetValue(key, out Dictionary<ZDOID, (Vector3 At, int Look)> was))
+        if (_pieces.TryGetValue(key, out Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> was))
         {
             Compare(zone, was, pieces);
         }
@@ -144,29 +144,30 @@ internal sealed class SolidsWatch
     }
 
     // The pieces that differ between two looks at a zone: where each was, and where it is.
-    private void Compare(Vector2s zone, Dictionary<ZDOID, (Vector3 At, int Look)> was, Dictionary<ZDOID, (Vector3 At, int Look)> now)
+    private void Compare(Vector2s zone, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> was, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> now)
     {
-        foreach (KeyValuePair<ZDOID, (Vector3 At, int Look)> piece in now)
+        foreach (KeyValuePair<ZDOID, (Vector3 At, float Reach, int Look)> piece in now)
         {
-            if (!was.TryGetValue(piece.Key, out (Vector3 At, int Look) old) || old != piece.Value)
+            if (!was.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) old) || old != piece.Value)
             {
-                PieceChanged(zone, piece.Value.At);
+                PieceChanged(zone, piece.Value.At, piece.Value.Reach);
             }
         }
 
-        foreach (KeyValuePair<ZDOID, (Vector3 At, int Look)> piece in was)
+        foreach (KeyValuePair<ZDOID, (Vector3 At, float Reach, int Look)> piece in was)
         {
-            if (!now.TryGetValue(piece.Key, out (Vector3 At, int Look) then) || then.At != piece.Value.At)
+            if (!now.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) then) || then.At != piece.Value.At || then.Reach != piece.Value.Reach)
             {
-                PieceChanged(zone, piece.Value.At);
+                PieceChanged(zone, piece.Value.At, piece.Value.Reach);
             }
         }
     }
 
-    private void PieceChanged(Vector2s zone, Vector3 at)
+    // A piece changed at a place: the bricks its solid boxes reach (as far as they go from it) read their solids again.
+    private void PieceChanged(Vector2s zone, Vector3 at, float reach)
     {
         _changed.Add(zone);
-        _regions.Add(new Bounds(at, Vector3.one * (2f * Reach)));
+        _regions.Add(new Bounds(at, Vector3.one * (2f * reach)));
     }
 
     // The zones a piece of which may reach a brick: those under each brick, or within a piece's reach of it.

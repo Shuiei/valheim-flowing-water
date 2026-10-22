@@ -45,6 +45,13 @@ internal sealed class PieceShapes
         }
     }
 
+    /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
+    public float Reach(ZDO zdo)
+    {
+        Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
+        return Of(zdo.GetPrefab()).Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+    }
+
     /// <summary>How many solid boxes a prefab has (0: water ignores it).</summary>
     public int Count(int prefab) => Of(prefab).Boxes.Length;
 
@@ -139,10 +146,18 @@ internal sealed class PieceShapes
         {
             Boxes = boxes;
             Door = door;
+            foreach (Box box in boxes)
+            {
+                float corner = (box.AxisX.magnitude * box.Half.x) + (box.AxisY.magnitude * box.Half.y) + (box.AxisZ.magnitude * box.Half.z);
+                Reach = Mathf.Max(Reach, box.Centre.magnitude + corner);
+            }
         }
 
         public Box[] Boxes { get; }
 
         public bool Door { get; }
+
+        // How far its boxes reach from the prefab's origin at most, unscaled.
+        public float Reach { get; }
     }
 }
