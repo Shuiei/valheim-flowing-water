@@ -14,7 +14,8 @@ public class VoxelSurfaceTests
     [Fact]
     public void ANewBrickTouchesEveryBrickRoundIt()
     {
-        Assert.Equal(26, VoxelSurface.Touched(null, View()).Count);
+        // Three by three, from one under to five over, less itself.
+        Assert.Equal((3 * 3 * 7) - 1, VoxelSurface.Touched(null, View()).Count);
     }
 
     [Fact]
@@ -35,9 +36,10 @@ public class VoxelSurfaceTests
     }
 
     [Fact]
-    public void AChangeInsideTouchesOnlyTheBrickOverIt()
+    public void AChangeInsideTouchesOnlyTheBricksOverIt()
     {
-        Assert.Equal([(0, 1, 0)], VoxelSurface.Touched(View((5, 5, 5, 0.5f)), View((5, 5, 5, 0.6f))));
+        // The depth under water up to five bricks over it is measured down through it.
+        Assert.Equal(Up(0, 0), VoxelSurface.Touched(View((5, 5, 5, 0.5f)), View((5, 5, 5, 0.6f))).OrderBy(o => o.Y).ToArray());
     }
 
     [Fact]
@@ -46,7 +48,7 @@ public class VoxelSurfaceTests
         // The voxel under it, in the bottom layer, is a top for the brick below only when no water goes on up.
         var touched = VoxelSurface.Touched(View(), View((5, 1, 5, 0.5f))).OrderBy(o => o).ToArray();
 
-        Assert.Equal([(0, -1, 0), (0, 1, 0)], touched);
+        Assert.Equal([(0, -1, 0), .. Up(0, 0)], touched);
     }
 
     [Fact]
@@ -54,7 +56,7 @@ public class VoxelSurfaceTests
     {
         var touched = VoxelSurface.Touched(View(), View((15, 5, 5, 0.5f))).OrderBy(o => o).ToArray();
 
-        Assert.Equal([(0, 1, 0), (1, 0, 0), (1, 1, 0)], touched);
+        Assert.Equal([.. Up(0, 0), (1, 0, 0), .. Up(1, 0)], touched);
     }
 
     [Fact]
@@ -62,12 +64,15 @@ public class VoxelSurfaceTests
     {
         var touched = VoxelSurface.Touched(View(), View((0, 0, 0, 0.5f)));
 
-        // Every brick west and south of it, at, under or over its level (2 x 2 x 3 less itself), none east or north.
-        Assert.Equal(11, touched.Count);
+        // Every brick west and south of it, from one under to five over (2 x 2 x 7 less itself), none east or north.
+        Assert.Equal((2 * 2 * 7) - 1, touched.Count);
         Assert.Contains((-1, -1, -1), touched);
         Assert.Contains((0, -1, 0), touched);
         Assert.DoesNotContain(touched, o => o.X > 0 || o.Z > 0);
     }
+
+    // The bricks one to five over (x, 0, z).
+    private static (int X, int Y, int Z)[] Up(int x, int z) => [.. Enumerable.Range(1, 5).Select(y => (x, y, z))];
 
     private static BrickView View(params (int X, int Y, int Z, float Water)[] voxels)
     {

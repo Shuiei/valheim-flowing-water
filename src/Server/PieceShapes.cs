@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FlowingWater.Volume;
 using UnityEngine;
@@ -19,6 +20,10 @@ internal sealed class PieceShapes
 
     private readonly int _pieceLayer = LayerMask.NameToLayer("piece");
 
+    private float _farthest;
+
+    private bool _prefabsMeasured;
+
     /// <summary>Adds the solid boxes of the piece this ZDO is (none if it is no solid piece) to the list.</summary>
     public void AddBoxes(ZDO zdo, List<SolidBox> boxes)
     {
@@ -31,7 +36,7 @@ internal sealed class PieceShapes
         Vector3 position = zdo.GetPosition();
         Quaternion rotation = zdo.GetRotation();
         Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
-        Farthest = Mathf.Max(Farthest, shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
+        _farthest = Mathf.Max(Farthest, shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
         foreach (Box box in shape.Boxes)
         {
             Vector3 x = rotation * Vector3.Scale(box.AxisX, scale);
@@ -46,8 +51,32 @@ internal sealed class PieceShapes
         }
     }
 
-    /// <summary>How far the solid boxes of any piece read so far reach from its place, metres (scales taken in).</summary>
-    public float Farthest { get; private set; }
+    /// <summary>
+    /// How far the solid boxes of any piece may reach from its place, metres: the farthest of the game's piece prefabs
+    /// (measured the first time this is asked, unscaled), or of any piece read since (its scale taken in) if farther.
+    /// Known before a zone's pieces are read, so that a zone holding a long piece is never left out.
+    /// </summary>
+    public float Farthest
+    {
+        get
+        {
+            if (!_prefabsMeasured && ZNetScene.instance != null)
+            {
+                _prefabsMeasured = true;
+                foreach (GameObject prefab in ZNetScene.instance.m_prefabs)
+                {
+                    if (prefab != null && prefab.GetComponent<Piece>() != null)
+                    {
+                        _farthest = Mathf.Max(_farthest, Of(prefab.name.GetStableHashCode()).Reach);
+                    }
+                }
+
+                FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: building pieces reach up to {_farthest:0.0} m from their place"));
+            }
+
+            return _farthest;
+        }
+    }
 
     /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
     public float Reach(ZDO zdo)

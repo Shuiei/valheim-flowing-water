@@ -14,14 +14,18 @@ internal static class VoxelSurface
 {
     private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
-    /// <summary>The 26 bricks round one, as offsets in bricks.</summary>
+    // Bricks over one whose surface may read it: a column's depth is measured down 64 voxels (four bricks) from its
+    // top, which may be a row over the brick it is in.
+    private const int Above = (64 / Brick.Size) + 1;
+
+    /// <summary>The bricks round one whose surface may read it, as offsets in bricks: beside it, under it, and up to five over.</summary>
     public static IReadOnlyList<(int X, int Y, int Z)> Round { get; } = [.. Offsets()];
 
     /// <summary>
     /// The bricks round one (offsets in bricks) whose surface may change when its water goes from
     /// <paramref name="was"/> to <paramref name="now"/>: one beside it reads its columns facing it, one under it its
-    /// bottom two layers (its top voxels are tops when no water goes on up through them), one over it any column (the
-    /// depth under that brick's water is measured down through this one).
+    /// bottom two layers (its top voxels are tops when no water goes on up through them), those over it up to five
+    /// bricks up any column (the depth under their water is measured down through this one).
     /// All of them when there was none before.
     /// </summary>
     public static ICollection<(int X, int Y, int Z)> Touched(BrickView was, BrickView now)
@@ -52,7 +56,7 @@ internal static class VoxelSurface
     // its bottom two layers, over it always.
     private static void AddRound(HashSet<(int X, int Y, int Z)> touched, int x, int y, int z)
     {
-        for (int dy = y <= 1 ? -1 : 0; dy <= 1; dy++)
+        for (int dy = y <= 1 ? -1 : 0; dy <= Above; dy++)
         {
             for (int dz = z == 0 ? -1 : 0; dz <= (z == Brick.Size - 1 ? 1 : 0); dz++)
             {
@@ -69,7 +73,7 @@ internal static class VoxelSurface
 
     private static IEnumerable<(int X, int Y, int Z)> Offsets()
     {
-        for (int dy = -1; dy <= 1; dy++)
+        for (int dy = -1; dy <= Above; dy++)
         {
             for (int dz = -1; dz <= 1; dz++)
             {
@@ -170,11 +174,17 @@ internal static class VoxelSurface
         return (found > 0 ? sum / found : (y + 1) * field.VoxelSize, found / 4f, depth);
     }
 
-    // The top voxel of a column within a voxel of row y (a wet voxel with no water over it).
+    // The top voxel of a column within a voxel of row y (a wet voxel with no water over it); the one a row up only if
+    // the column's water at row y goes on into it (a pool over a floor is not the one under it).
     private static bool TopNear(VoxelField field, int x, int y, int z, out int top)
     {
         for (top = y + 1; top >= y - 1; top--)
         {
+            if (top == y + 1 && !field.GoesUp(x, y, z))
+            {
+                continue;
+            }
+
             if (field.IsWet(x, top, z) && !field.GoesUp(x, top, z))
             {
                 return true;
