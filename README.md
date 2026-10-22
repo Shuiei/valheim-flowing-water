@@ -91,7 +91,10 @@ there to the new grid (same volume), at the next start or at once with a config 
   plus all the water resting on it in its column (up to air, a solid or a closed face), so a still pool is still,
   water over air falls, and a hole low in a box's side lets water out faster the deeper the box; water pressed in
   under a ceiling adds a stiff head, so a pipe carries the push of the water above it. A voxel never gives more
-  than it holds. Long steps are split so the water stays stable 10 m deep. A source pours at its point (the first
+  than it holds. Long steps are split so the water stays stable 10 m deep. Each step works only on the part of a
+  block round its water (and its borders where the next block has water), and a block whose water has barely
+  moved for a second sleeps (skipped) until water is poured in, a solid changes or a block beside it moves:
+  still pools cost almost nothing. A source pours at its point (the first
   open voxel there); a drain takes from every voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's

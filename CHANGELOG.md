@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.1 — 2026-10-21
+
+### Fixed
+- The 3D water cost the server too much: it now works only where water is and moves, and still pools and lakes
+  cost almost nothing until something stirs them.
+
 ## v0.14.0 — 2026-10-21
 
 ### Changed
