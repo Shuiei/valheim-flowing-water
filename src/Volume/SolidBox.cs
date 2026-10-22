@@ -3,7 +3,7 @@ using System;
 namespace FlowingWater.Volume;
 
 /// <summary>A point or a direction in world metres, without the game.</summary>
-internal readonly struct Vec3
+internal readonly struct Vec3 : IEquatable<Vec3>
 {
     /// <summary>A point or direction (x east, y up, z north).</summary>
     public Vec3(float x, float y, float z)
@@ -28,6 +28,19 @@ internal readonly struct Vec3
 
     public static Vec3 operator *(Vec3 a, float k) => new(a.X * k, a.Y * k, a.Z * k);
 
+    public static bool operator ==(Vec3 a, Vec3 b) => a.Equals(b);
+
+    public static bool operator !=(Vec3 a, Vec3 b) => !a.Equals(b);
+
+    /// <inheritdoc/>
+    public bool Equals(Vec3 other) => X.Equals(other.X) && Y.Equals(other.Y) && Z.Equals(other.Z);
+
+    /// <inheritdoc/>
+    public override bool Equals(object obj) => obj is Vec3 other && Equals(other);
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => unchecked((((X.GetHashCode() * 397) ^ Y.GetHashCode()) * 397) ^ Z.GetHashCode());
+
     /// <summary>The dot product.</summary>
     public float Dot(Vec3 other) => (X * other.X) + (Y * other.Y) + (Z * other.Z);
 }
@@ -36,7 +49,7 @@ internal readonly struct Vec3
 /// A solid box in the world, turned any way, without the game: a building piece's collider. Water cannot be in a
 /// voxel whose middle it holds, nor pass between two voxels whose middles it separates.
 /// </summary>
-internal readonly struct SolidBox
+internal sealed class SolidBox
 {
     /// <summary>A box round its centre, with its three axes (of length 1) and its half sizes along them.</summary>
     public SolidBox(Vec3 centre, Vec3 axisX, Vec3 axisY, Vec3 axisZ, Vec3 half)

@@ -111,7 +111,7 @@ internal sealed class PieceShapes
     private static Vec3 ToVec(Vector3 v) => new(v.x, v.y, v.z);
 
     // A box in the prefab's space: axes scaled as the collider is (their lengths), half sizes unscaled.
-    private readonly struct Box
+    private sealed class Box
     {
         public Box(Vector3 centre, Vector3 axisX, Vector3 axisY, Vector3 axisZ, Vector3 half)
         {

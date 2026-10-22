@@ -74,15 +74,36 @@ public class SolidRasterTests
     }
 
     [Fact]
-    public void AFloorClosesTheFacesUnderIt()
+    public void AFloorAcrossTwoVoxelsClosesTheFaceUnderItAndFillsOnlyTheVoxelItRisesFrom()
     {
         var brick = new Brick(0, 0, 0);
 
         SolidRaster.Pieces(brick, 1f, [SolidBox.Between(new Vec3(0f, 4.9f, 0f), new Vec3(2f, 5.1f, 2f))]);
 
+        // Its underside is in the top of row 4 (a ceiling there), its top in the bottom of row 5 (a floor).
+        Assert.Equal(0f, brick.Solid[Brick.Index(1, 4, 1)]);
+        Assert.Equal(0.1f, brick.Solid[Brick.Index(1, 5, 1)], 3);
         Assert.Equal(Brick.ClosedY, brick.Closed[Brick.Index(1, 4, 1)]);
         Assert.Equal(0, brick.Closed[Brick.Index(1, 5, 1)]);
         Assert.Equal(0, brick.Closed[Brick.Index(2, 4, 1)]);
+    }
+
+    [Fact]
+    public void ARaisedFloorLeavesItsVoxelsOpenUpwardsAndAWallOnItClosesTheWayOverIt()
+    {
+        var brick = new Brick(0, 0, 0);
+
+        // A raised box's floor (top 0.6 m into row 7) and a wall standing on it at x = 6, as in game.
+        SolidRaster.Pieces(brick, 1f, [
+            SolidBox.Between(new Vec3(1f, 7.47f, 1f), new Vec3(6f, 7.6f, 6f)),
+            SolidBox.Between(new Vec3(5.85f, 7.6f, 1f), new Vec3(6.15f, 9.6f, 6f)),
+        ]);
+
+        int onFloor = Brick.Index(3, 7, 3);
+        Assert.Equal(0, brick.Closed[onFloor]);
+        Assert.Equal(Brick.ClosedY, brick.Closed[Brick.Index(3, 6, 3)]);
+        Assert.Equal(Brick.ClosedX, brick.Closed[Brick.Index(5, 7, 3)] & Brick.ClosedX);
+        Assert.Equal(Brick.ClosedX, brick.Closed[Brick.Index(5, 8, 3)] & Brick.ClosedX);
     }
 
     [Fact]
@@ -156,7 +177,8 @@ public class SolidRasterTests
         }
     }
 
-    // The voxels of row y = 4 within lo..hi on x and z reached from a start through open x and z faces.
+    // The voxels of row y = 4 within lo..hi on x and z reached from a start through open x and z faces, as the
+    // solver lets water through: never into a solid voxel.
     private static HashSet<(int X, int Z)> Flood(Brick brick, (int X, int Z) start, int lo, int hi)
     {
         var reached = new HashSet<(int X, int Z)> { start };
@@ -172,7 +194,7 @@ public class SolidRasterTests
                 (x, z - 1, z > 0 && (brick.Closed[Brick.Index(x, 4, z - 1)] & Brick.ClosedZ) == 0),
             })
             {
-                if (open && nx >= lo && nx <= hi && nz >= lo && nz <= hi && reached.Add((nx, nz)))
+                if (open && nx >= lo && nx <= hi && nz >= lo && nz <= hi && brick.Solid[Brick.Index(nx, 4, nz)] < 1f && reached.Add((nx, nz)))
                 {
                     queue.Enqueue((nx, nz));
                 }

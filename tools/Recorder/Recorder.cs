@@ -813,7 +813,7 @@ public sealed class Recorder : BaseUnityPlugin
 
         yield return new WaitForSeconds(4f);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
-        if (off > 5f)
+        if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
             throw new InvalidOperationException($"teleport to {target} ended at {player.transform.position}");
         }
@@ -893,7 +893,13 @@ public sealed class Recorder : BaseUnityPlugin
     // source there taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s".
     private IEnumerator At()
     {
-        foreach (string step in (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+        string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+        if (steps.Length == 0)
+        {
+            throw new InvalidOperationException("the at scenario needs FW_REC_AT (\"x,z[,y]|command;...\"), and it has no steps");
+        }
+
+        foreach (string step in steps)
         {
             string[] parts = step.Split(new[] { '|' }, 2);
             float[] where = [.. parts[0].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture))];

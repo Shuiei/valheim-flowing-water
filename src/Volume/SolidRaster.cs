@@ -32,62 +32,97 @@ internal static class SolidRaster
         }
     }
 
-    /// <summary>Fills the voxels the boxes hold and closes the faces they cross.</summary>
+    /// <summary>
+    /// Fills the voxels the boxes stand in from below, then closes the faces they cross: each tested at the middle of
+    /// the room left above the solid (a wall standing on a floor closes the water's way over that floor, the floor
+    /// itself does not close the voxel it lies in).
+    /// </summary>
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
     /// <param name="boxes">The pieces' boxes near the brick.</param>
-    public static void Pieces(Brick brick, float voxelSize, IEnumerable<SolidBox> boxes)
+    public static void Pieces(Brick brick, float voxelSize, IReadOnlyList<SolidBox> boxes)
     {
         foreach (SolidBox box in boxes)
         {
-            (Vec3 min, Vec3 max) = box.Bounds();
+            Over(brick, voxelSize, box, (x, y, z) => Fill(brick, voxelSize, box, x, y, z));
+        }
 
-            // The voxels whose middles, or the segments from them to the next middles east, up or north, may meet it.
-            if (!Range(min.X, max.X, brick.X, voxelSize, out int x0, out int x1)
-                || !Range(min.Y, max.Y, brick.Y, voxelSize, out int y0, out int y1)
-                || !Range(min.Z, max.Z, brick.Z, voxelSize, out int z0, out int z1))
-            {
-                continue;
-            }
+        foreach (SolidBox box in boxes)
+        {
+            Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z));
+        }
+    }
 
-            for (int y = y0; y <= y1; y++)
+    // Each voxel of the brick whose middle, or the segments from it to the next middles east, up or north, may
+    // meet the box.
+    private static void Over(Brick brick, float s, SolidBox box, Action<int, int, int> each)
+    {
+        (Vec3 min, Vec3 max) = box.Bounds();
+        if (!Range(min.X, max.X, brick.X, s, out int x0, out int x1)
+            || !Range(min.Y, max.Y, brick.Y, s, out int y0, out int y1)
+            || !Range(min.Z, max.Z, brick.Z, s, out int z0, out int z1))
+        {
+            return;
+        }
+
+        for (int y = y0; y <= y1; y++)
+        {
+            for (int z = z0; z <= z1; z++)
             {
-                for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
                 {
-                    for (int x = x0; x <= x1; x++)
-                    {
-                        Mark(brick, voxelSize, box, x, y, z);
-                    }
+                    each(x, y, z);
                 }
             }
         }
     }
 
-    private static void Mark(Brick brick, float s, SolidBox box, int x, int y, int z)
+    // A box reaching below a voxel's middle fills it from its bottom up to where it ends on the middle line (a floor
+    // lying in it); one only in its upper half is a ceiling over its room, closing the face above instead.
+    private static void Fill(Brick brick, float s, SolidBox box, int x, int y, int z)
     {
-        int i = Brick.Index(x, y, z);
-        var middle = new Vec3(((brick.X * Brick.Size) + x + 0.5f) * s, ((brick.Y * Brick.Size) + y + 0.5f) * s, ((brick.Z * Brick.Size) + z + 0.5f) * s);
-        Vec3 half = new(0f, s * 0.5f, 0f);
-        if (box.Span(middle - half, middle + half, out _, out float top))
+        Vec3 bottom = Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f);
+        if (box.Span(bottom, bottom + new Vec3(0f, s, 0f), out float enter, out float top) && enter <= 0.5f)
         {
+            int i = Brick.Index(x, y, z);
             brick.Solid[i] = Math.Max(brick.Solid[i], top);
         }
+    }
 
-        if (box.Crosses(middle, middle + new Vec3(s, 0f, 0f)))
+    private static void Close(Brick brick, float s, SolidBox box, int x, int y, int z)
+    {
+        int i = Brick.Index(x, y, z);
+        float share = brick.Solid[i];
+        if (share >= 1f)
+        {
+            return;
+        }
+
+        Vec3 corner = Corner(brick, s, x, y, z);
+        float room = OpenMiddle(share, x + 1 < Brick.Size ? brick.Solid[i + 1] : share, s);
+        if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 1.5f, room, s * 0.5f)))
         {
             brick.Closed[i] |= Brick.ClosedX;
         }
 
-        if (box.Crosses(middle, middle + new Vec3(0f, s, 0f)))
-        {
-            brick.Closed[i] |= Brick.ClosedY;
-        }
-
-        if (box.Crosses(middle, middle + new Vec3(0f, 0f, s)))
+        room = OpenMiddle(share, z + 1 < Brick.Size ? brick.Solid[i + Brick.Size] : share, s);
+        if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 0.5f, room, s * 1.5f)))
         {
             brick.Closed[i] |= Brick.ClosedZ;
         }
+
+        float above = y + 1 < Brick.Size ? brick.Solid[i + (Brick.Size * Brick.Size)] : 0f;
+        if (box.Crosses(corner + new Vec3(s * 0.5f, OpenMiddle(share, share, s), s * 0.5f), corner + new Vec3(s * 0.5f, s + OpenMiddle(above, above, s), s * 0.5f)))
+        {
+            brick.Closed[i] |= Brick.ClosedY;
+        }
     }
+
+    // Height of the middle of the room two voxels side by side leave above their solids, from their bottom, metres.
+    private static float OpenMiddle(float share, float other, float s) => (Math.Max(share, other) + 1f) * 0.5f * s;
+
+    private static Vec3 Corner(Brick brick, float s, int x, int y, int z) =>
+        new Vec3((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z) * s;
 
     // The brick's voxels along one axis from which a box spanning min..max may be met (a voxel's segment reaches
     // the next middle, a voxel further): false when none.
