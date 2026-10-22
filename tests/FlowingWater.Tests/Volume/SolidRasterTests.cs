@@ -107,6 +107,21 @@ public class SolidRasterTests
     }
 
     [Fact]
+    public void AWallOnGroundPastABricksEdgeIsTestedOverThatGround()
+    {
+        // The ground steps up from 7.0 to 7.6 m at x = 16, the next brick's edge; a wall stands on it there.
+        var brick = new Brick(0, 0, 0);
+        SolidRaster.Ground(brick, 1f, (x, _) => x < 16f ? 7f : 7.6f);
+
+        SolidRaster.Pieces(brick, 1f, [SolidBox.Between(new Vec3(15.85f, 7.6f, 1f), new Vec3(16.15f, 9.6f, 6f))], (x, _) => x < 16f ? 7f : 7.6f);
+
+        // Voxel x = 15 has no ground in row 7, but the face east of it is tested over the ground beyond (7.8 m, not
+        // the voxel's middle 7.5 m under the wall): the wall closes it.
+        Assert.Equal(0f, brick.Solid[Brick.Index(15, 7, 3)]);
+        Assert.Equal(Brick.ClosedX, brick.Closed[Brick.Index(15, 7, 3)] & Brick.ClosedX);
+    }
+
+    [Fact]
     public void AWallTurned45DegreesLetsNoWaterPast()
     {
         // A wall 0.2 m thick along x = z, from (1, 1) to (13, 13), as tall as the brick.
@@ -217,7 +232,7 @@ public class SolidRasterTests
         public void Fill(Brick brick, float voxelSize)
         {
             SolidRaster.Ground(brick, voxelSize, (_, _) => 0f);
-            SolidRaster.Pieces(brick, voxelSize, _pieces);
+            SolidRaster.Pieces(brick, voxelSize, _pieces, (_, _) => 0f);
         }
     }
 }
