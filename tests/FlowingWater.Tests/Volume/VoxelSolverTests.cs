@@ -111,6 +111,29 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStillPoolFallsAsleepAndWaterPouredInWakesIt()
+    {
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 30; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Brick pool = grid.Find(0, 0, 0);
+        Assert.True(pool.Quiet >= 24, $"quiet for {pool.Quiet} steps");
+
+        // Water poured in wakes it: the pool rises evenly, the poured water does not stay where it fell.
+        grid.Pour(3, 3, 3, 16f);
+        Assert.Equal(0, pool.Quiet);
+        Run(grid, 40f);
+        Assert.Equal(1f, grid.WaterAt(0, 1, 0), 2);
+        Assert.Equal(0.25f, grid.WaterAt(7, 2, 7), 2);
+        Assert.Equal(64f * 2.25f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
