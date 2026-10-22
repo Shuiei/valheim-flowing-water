@@ -208,10 +208,19 @@ jobs:
           name: Codecov's reports of this commit before the upload
           command: |
             # Each upload Codecov takes adds a session to the commit: a re-run must add one, not find an earlier one.
+            # A commit Codecov does not know (404) or knows with no report has none; any other answer fails the job,
+            # since taking it for none would let an earlier report pass the check after the upload.
             url="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1/"
-            sessions=$(curl -fsS "$url" 2>/dev/null | grep -Eo '"sessions": *[0-9]+' | head -1 | grep -Eo '[0-9]+$' || true)
-            echo "${sessions:-0}" > /tmp/codecov-sessions
-            echo "Codecov has ${sessions:-0} report(s) of $CIRCLE_SHA1 so far."
+            status=$(curl -sS -o /tmp/codecov-commit.json -w '%{http_code}' "$url") || { echo "Codecov could not be asked for $CIRCLE_SHA1."; exit 1; }
+            sessions=$(grep -Eo '"sessions": *[0-9]+' /tmp/codecov-commit.json | head -1 | grep -Eo '[0-9]+$' || true)
+            if [ "$status" = 404 ] || { [ "$status" = 200 ] && grep -Eq '"totals": *null' /tmp/codecov-commit.json; }; then
+              sessions=0
+            elif [ "$status" != 200 ] || [ -z "$sessions" ]; then
+              echo "Codecov answered HTTP $status for $CIRCLE_SHA1 with no report count: $(head -c 300 /tmp/codecov-commit.json)"
+              exit 1
+            fi
+            echo "$sessions" > /tmp/codecov-sessions
+            echo "Codecov has $sessions report(s) of $CIRCLE_SHA1 so far."
       - codecov/upload:
           dir: /tmp/coverage
           plugins: noop
