@@ -179,7 +179,8 @@ jobs:
 
   # The unit tests' coverage sent to Codecov: on main only, once unit-tests has passed (workflows). The orb's
   # fail_on_error does nothing (its set_codecov_envs.sh empties CODECOV_FAIL_ON_ERROR, so the CLI never fails the
-  # step): a missing report is caught before, and a failed upload leaves Codecov with the last figure.
+  # step): a missing report is caught before the upload, and a refused or unprocessed one after it, by asking
+  # Codecov for this commit's coverage.
   coverage:
     executor: dotnet
     steps:
@@ -197,6 +198,22 @@ jobs:
       - codecov/upload:
           dir: /tmp/coverage
           plugins: noop
+      - run:
+          name: Codecov has this commit's coverage
+          command: |
+            # Codecov processes a report after taking it: its public API is asked for this commit's, every 10 s for
+            # up to five minutes. None (the upload refused, or never processed) fails the job.
+            url="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1/"
+            for _ in $(seq 30); do
+              commit=$(curl -fsS "$url" 2>/dev/null || true)
+              if printf '%s' "$commit" | grep -Eq '"state": *"complete"'; then
+                echo "Codecov has $CIRCLE_SHA1: $(printf '%s' "$commit" | grep -Eo '"coverage": *[0-9.]+' | head -1)"
+                exit 0
+              fi
+              sleep 10
+            done
+            echo "Codecov has no processed coverage for $CIRCLE_SHA1 after five minutes: the upload was refused or failed."
+            exit 1
 
   formatting:
     executor: dotnet
