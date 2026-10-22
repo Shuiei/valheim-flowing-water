@@ -8,7 +8,7 @@ namespace FlowingWater.Tests.Volume;
 /// <summary>
 /// Water in the 3D grid: it falls and spreads level keeping its volume, stays still in a box, runs out of a hole
 /// low in a box's side (faster from a deeper box), stays on a raised floor until it opens, levels out between two
-/// chambers joined under a wall, and the sea takes it.
+/// chambers joined under a wall, settles level again when stirred (deep or not), and the sea takes it.
 /// </summary>
 public class VoxelSolverTests
 {
@@ -248,6 +248,25 @@ public class VoxelSolverTests
 
         Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.02f)));
         Assert.Equal(64f * 2.25f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
+    public void ADeepPoolStirredHardSettlesLevelAgain()
+    {
+        // 24.5 voxels deep, twice as deep as the least stiffness holds: sixteen voxels of water dropped on it.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 24.5f);
+        grid.Pour(3, 26, 3, 16f);
+
+        Run(grid, 90f);
+
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.02f)));
+        for (int y = 0; y < 25; y++)
+        {
+            Assert.Equal(grid.WaterAt(0, y, 0), grid.WaterAt(7, y, 7), 2);
+        }
+
+        Assert.Equal(64f * 24.75f, grid.TotalWater(), 0);
     }
 
     [Fact]
