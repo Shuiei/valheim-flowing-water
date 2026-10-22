@@ -960,6 +960,10 @@ public sealed class Recorder : BaseUnityPlugin
                     // Its files are written in the output folder, never elsewhere.
                     Note("recorder shot or film name that is not a plain name: " + command);
                 }
+                else if (film && !FilmName(v[6]))
+                {
+                    Note("film name ffmpeg's frame list refuses (letters, digits, '.', '_' and '-' only, no '.' first): " + command);
+                }
                 else if (!film)
                 {
                     yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
@@ -992,6 +996,10 @@ public sealed class Recorder : BaseUnityPlugin
     private static bool PlainName(string name) =>
         name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\', '\'', '"', '\n', '\r']) < 0
         && name != "." && name != ".." && !string.Equals(name, "log", StringComparison.OrdinalIgnoreCase) && !Device(name);
+
+    // A name ffmpeg's concat list takes in its safe mode: ASCII letters, digits, '.', '_' and '-', not starting with '.'.
+    private static bool FilmName(string name) =>
+        name[0] != '.' && name.All(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '.' or '_' or '-');
 
     // Whether Windows takes a file of this name (with any extension after it) for a device, not a file.
     private static bool Device(string name) => Devices.Contains(name.Split('.')[0].TrimEnd(' '));
