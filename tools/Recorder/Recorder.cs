@@ -194,6 +194,8 @@ public sealed class Recorder : BaseUnityPlugin
         }
 
         Note($"landed at {player.transform.position}");
+        Camera view = GameCamera.instance.GetComponent<Camera>();
+        Note($"camera renders {view.actualRenderingPath}, depth texture {view.depthTextureMode}");
         // Saved with its place in this world, the character starts there next time: no Valkyrie.
         Game.instance.SavePlayerProfile(true);
         yield return new WaitForSeconds(5f);
@@ -223,6 +225,9 @@ public sealed class Recorder : BaseUnityPlugin
         {
             "cascade" => Cascade(spawn),
             "look" => Look(steep, gentle),
+            "pool" => Pool(steep, FindHollow(spawn), gentle),
+            "prep" => Prep(),
+            "pools" => Pools(),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
@@ -607,19 +612,9 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater source " + rate);
         yield return Go(steep.At(8f));
         yield return new WaitForSeconds(120f);
-        // Unset or empty: the material as it is.
-        string configured = Environment.GetEnvironmentVariable("FW_REC_LOOKS");
-        string sets = string.IsNullOrWhiteSpace(configured) ? "default=" : configured;
-        foreach (string set in sets.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (string set in LookSets())
         {
-            // "name=property value;property value"; a name alone changes nothing.
-            string[] named = set.Split(new[] { '=' }, 2);
-            string properties = named.Length > 1 ? named[1] : string.Empty;
-            foreach (string property in properties.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                Command("flowingwater mat custom " + property.Trim());
-            }
-
+            string look = UseLook(set);
             yield return new WaitForSeconds(1f);
             foreach (Site site in new[] { steep, gentle })
             {
@@ -627,16 +622,77 @@ public sealed class Recorder : BaseUnityPlugin
 
                 // The server sends a zone's water to the players near it.
                 yield return Go(site.At(8f));
-                yield return Shot(site.At(10f) + (site.Across * 6f) + new Vector3(0f, 7f, 0f), site.At(12f), $"{named[0]}-{where}-near");
-                yield return Shot(site.Side(), site.At(12f), $"{named[0]}-{where}-side");
-                yield return Shot(site.At(15f) + (site.Across * 50f) + new Vector3(0f, 35f, 0f), site.At(15f), $"{named[0]}-{where}-far");
+                yield return Shot(site.At(10f) + (site.Across * 6f) + new Vector3(0f, 7f, 0f), site.At(12f), $"{look}-{where}-near");
+                yield return Shot(site.Side(), site.At(12f), $"{look}-{where}-side");
+                yield return Shot(site.At(15f) + (site.Across * 50f) + new Vector3(0f, 35f, 0f), site.At(15f), $"{look}-{where}-far");
             }
 
             // A view of the caller's (FW_REC_VIEW: "fromX,fromY,fromZ,atX,atY,atZ"), to look at one place.
             if (View() is { } view)
             {
                 yield return Go(view.At);
-                yield return Shot(view.From, view.At, $"{named[0]}-view");
+                yield return Shot(view.From, view.At, $"{look}-view");
+            }
+        }
+    }
+
+    // The looks to compare (FW_REC_LOOKS: "name=property value;property value|name=..."); unset or empty: the
+    // material as it is.
+    private static string[] LookSets()
+    {
+        string configured = Environment.GetEnvironmentVariable("FW_REC_LOOKS");
+        return (string.IsNullOrWhiteSpace(configured) ? "default=" : configured).Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    // Sets one look's properties on the custom material (a name alone changes nothing), and gives its name.
+    private string UseLook(string set)
+    {
+        string[] named = set.Split(new[] { '=' }, 2);
+        string properties = named.Length > 1 ? named[1] : string.Empty;
+        foreach (string property in properties.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            Command("flowingwater mat custom " + property.Trim());
+        }
+
+        return named[0];
+    }
+
+    // The pools of a test world (FW_REC_POOLS: "x,z,radius,depth;..."): each filled by a spring sized to fill it in
+    // about a minute, the springs taken away, then each pool seen from its side and from above, in every look.
+    private IEnumerator Pools()
+    {
+        var pools = (Environment.GetEnvironmentVariable("FW_REC_POOLS") ?? "-66,190,3,1;-84,190,5,2;-108,190,8,4;-140,190,12,7.5")
+            .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture)).ToArray())
+            .ToList();
+        foreach (float[] p in pools)
+        {
+            float volume = 0.5f * Mathf.PI * p[2] * p[2] * p[3];
+            yield return Go(new Vector3(p[0], 0f, p[1]));
+            Command(FormattableString.Invariant($"flowingwater source {Mathf.Max(0.2f, volume / 60f):0.##}"));
+        }
+
+        yield return new WaitForSeconds(75f);
+        foreach (float[] p in pools)
+        {
+            yield return Go(new Vector3(p[0], 0f, p[1]));
+            Command("flowingwater remove");
+        }
+
+        yield return new WaitForSeconds(20f);
+        foreach (string set in LookSets())
+        {
+            string look = UseLook(set);
+            yield return new WaitForSeconds(1f);
+            foreach (float[] p in pools)
+            {
+                var centre = new Vector3(p[0], 0f, p[1]);
+                yield return Go(centre);
+                ZoneSystem.instance.GetGroundHeight(centre, out float bottom);
+                centre.y = bottom + p[3];
+                string name = FormattableString.Invariant($"{look}-pool{p[2]:0}m");
+                yield return Shot(centre + new Vector3(0f, (p[2] * 0.6f) + 2f, -((p[2] * 1.6f) + 4f)), centre, name + "-side");
+                yield return Shot(centre + new Vector3(p[2] * 0.3f, (p[2] * 1.8f) + 6f, -p[2] * 0.5f), centre, name + "-above");
             }
         }
     }
@@ -818,6 +874,132 @@ public sealed class Recorder : BaseUnityPlugin
 
     // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
     // well above the sea, that keeps falling for 30 m the same way.
+    // Readies a test world for the editor: at each place of FW_REC_DIG ("x,z;x,z"), the game generates the zones
+    // around (the player stands there) and the ground is dug once (the editor makes new ground only where the
+    // game already has some). The server saves the world when it stops.
+    private IEnumerator Prep()
+    {
+        foreach (string place in (Environment.GetEnvironmentVariable("FW_REC_DIG") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] xz = place.Split(',');
+            var at = new Vector3(float.Parse(xz[0], CultureInfo.InvariantCulture), 0f, float.Parse(xz[1], CultureInfo.InvariantCulture));
+            yield return Go(at);
+            ZoneSystem.instance.GetGroundHeight(at, out at.y);
+            yield return Dig(at, 0.5f, 1);
+            yield return new WaitForSeconds(5f);
+        }
+    }
+
+    // The look on a pool: a hollow's, or, without one, a pit dug with the game's pickaxe 12 m below the gentle
+    // site's spring.
+    private IEnumerator Pool(Site steep, Site hollow, Site gentle)
+    {
+        if (hollow == null)
+        {
+            yield return Go(gentle.At(12f));
+            yield return Dig(gentle.At(12f), 5f, 6);
+        }
+
+        IEnumerator look = Look(steep, hollow ?? gentle);
+        while (look.MoveNext())
+        {
+            yield return look.Current;
+        }
+    }
+
+    // A pit this wide, dug with the game's own terrain operation (the pickaxe's) over and over.
+    private IEnumerator Dig(Vector3 centre, float radius, int passes)
+    {
+        // The tools carry them: what the pickaxe leaves where it hits the ground, the hoe's pieces.
+        List<GameObject> ops = [.. ObjectDB.instance.m_items
+            .Select(i => i.GetComponent<ItemDrop>()?.m_itemData.m_shared)
+            .Where(s => s != null)
+            .SelectMany(s => new[] { s.m_spawnOnHitTerrain }.Concat(s.m_buildPieces != null ? s.m_buildPieces.m_pieces : []))
+            .Where(p => p != null && p.GetComponent<TerrainOp>() != null)
+            .Distinct()];
+        Note($"terrain operations: {string.Join(", ", ops.Select(p => p.name))}");
+        GameObject dig = ops.FirstOrDefault(p => p.name.IndexOf("dig", StringComparison.OrdinalIgnoreCase) >= 0)
+            ?? throw new InvalidOperationException("no dig terrain operation among the game's prefabs");
+        for (int pass = 0; pass < passes; pass++)
+        {
+            // A grid 1.5 m apart round the centre, which is always dug.
+            int steps = Mathf.FloorToInt(radius / 1.5f);
+            for (int iz = -steps; iz <= steps; iz++)
+            {
+                float dz = iz * 1.5f;
+                for (int ix = -steps; ix <= steps; ix++)
+                {
+                    float dx = ix * 1.5f;
+                    if ((dx * dx) + (dz * dz) > radius * radius)
+                    {
+                        continue;
+                    }
+
+                    Vector3 at = centre + new Vector3(dx, 0f, dz);
+                    ZoneSystem.instance.GetGroundHeight(at, out float ground);
+                    at.y = ground;
+                    Instantiate(dig, at, Quaternion.identity);
+                }
+            }
+
+            yield return new WaitForSeconds(1f);
+        }
+
+        ZoneSystem.instance.GetGroundHeight(centre, out float bottom);
+        Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
+    }
+
+    // The nearest hollow in open meadow above the sea, at least a metre below the ground all round it 8 m away, as a site whose
+    // spring (at 0 m) is 12 m uphill of it: the water runs down and fills it, a pool to look at (at 12 m).
+    private Site FindHollow(Vector3 spawn)
+    {
+        WorldGenerator generator = WorldGenerator.instance;
+        float sea = ZoneSystem.instance.m_waterLevel;
+        Site best = null;
+        float bestDistance = float.MaxValue;
+        for (float dz = -300f; dz <= 300f; dz += 3f)
+        {
+            for (float dx = -300f; dx <= 300f; dx += 3f)
+            {
+                float x = spawn.x + dx;
+                float z = spawn.z + dz;
+                float h = generator.GetHeight(x, z);
+                float distance = new Vector2(dx, dz).magnitude;
+                if (h < sea + 5f || distance >= bestDistance || generator.GetBiome(x, z) != Heightmap.Biome.Meadows || WorldGenerator.InForest(new Vector3(x, h, z)) || WorldGenerator.InForest(new Vector3(x, h, z - 12f)))
+                {
+                    continue;
+                }
+
+                // The rim: its lowest point must stand a metre over the bottom; the spring comes from its highest.
+                float lowest = float.MaxValue;
+                float highest = float.MinValue;
+                Vector2 from = Vector2.zero;
+                for (int k = 0; k < 16; k++)
+                {
+                    float angle = k * Mathf.PI / 8f;
+                    var ring = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                    float rim = generator.GetHeight(x + (ring.x * 8f), z + (ring.y * 8f));
+                    lowest = Mathf.Min(lowest, rim);
+                    if (rim > highest)
+                    {
+                        highest = rim;
+                        from = ring;
+                    }
+                }
+
+                if (lowest - h >= 1f)
+                {
+                    bestDistance = distance;
+                    var down = new Vector3(-from.x, 0f, -from.y);
+                    best = new Site(new Vector3(x, h, z) - (down * 12f), down, (highest - h) / 8f);
+                }
+            }
+        }
+
+        Note(best == null ? "no hollow found: the gentle site instead" : $"hollow {best}");
+        return best;
+    }
+
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
     {
         WorldGenerator generator = WorldGenerator.instance;
