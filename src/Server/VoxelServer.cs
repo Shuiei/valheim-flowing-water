@@ -272,7 +272,7 @@ internal sealed class VoxelServer
             // Only a brick whose every voxel of water found room is taken over; another is kept as it is.
             if (PourView(view) is not { } poured)
             {
-                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up); left as it is"));
+                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); left as it is"));
                 continue;
             }
 
@@ -289,22 +289,31 @@ internal sealed class VoxelServer
     {
         float s = view.VoxelSize;
         float volume = s * s * s;
-        var pours = new List<(int X, int Y, int Z, float Volume)>();
+        var water = new List<(Vector3 Point, float Volume)>();
         for (int i = 0; i < Brick.Count; i++)
         {
-            if (view.Water[i] <= Brick.Dry)
+            if (view.Water[i] > Brick.Dry)
             {
-                continue;
+                (int x, int y, int z) = Brick.Place(i);
+                water.Add((new Vector3(((view.X * Brick.Size) + x + 0.5f) * s, ((view.Y * Brick.Size) + y + 0.5f) * s, ((view.Z * Brick.Size) + z + 0.5f) * s), view.Water[i] * volume));
             }
+        }
 
-            (int x, int y, int z) = Brick.Place(i);
-            var middle = new Vector3(((view.X * Brick.Size) + x + 0.5f) * s, ((view.Y * Brick.Size) + y + 0.5f) * s, ((view.Z * Brick.Size) + z + 0.5f) * s);
-            if (!Room(middle, out int rx, out int ry, out int rz))
+        return PourAll(water);
+    }
+
+    // Water poured at points, all of it or none: null (nothing poured) unless each finds room, under the brick cap.
+    private float? PourAll(List<(Vector3 Point, float Volume)> water)
+    {
+        var pours = new List<(int X, int Y, int Z, float Volume)>();
+        foreach ((Vector3 point, float volume) in water)
+        {
+            if (!Room(point, out int x, out int y, out int z))
             {
                 return null;
             }
 
-            pours.Add((rx, ry, rz, view.Water[i] * volume));
+            pours.Add((x, y, z, volume));
         }
 
         foreach ((int x, int y, int z, float cubicMetres) in pours)
@@ -344,27 +353,42 @@ internal sealed class VoxelServer
             byte[] bytes = zdo.GetByteArray(ZdoKeys.Data);
             if (bytes != null && data.Decode(bytes))
             {
-                float area = data.CellSize * data.CellSize;
-                for (int z = 0; z < data.Size; z++)
+                // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
+                if (PourAll(TileWater(data)) is not { } poured)
                 {
-                    for (int x = 0; x < data.Size; x++)
-                    {
-                        float depth = data.Depth[data.Index(x, z)];
-                        if (depth > 0f)
-                        {
-                            float wx = data.WorldX(x);
-                            float wz = data.WorldZ(z);
-                            PourAt(new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * area);
-                            total += depth * area;
-                        }
-                    }
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); left as it is"));
+                    continue;
                 }
+
+                total += poured;
             }
 
             DestroyZdo(zdo);
         }
 
         return total;
+    }
+
+    // An old column tile's water: each cell's, at the ground in its middle.
+    private List<(Vector3 Point, float Volume)> TileWater(TileData data)
+    {
+        float area = data.CellSize * data.CellSize;
+        var water = new List<(Vector3 Point, float Volume)>();
+        for (int z = 0; z < data.Size; z++)
+        {
+            for (int x = 0; x < data.Size; x++)
+            {
+                float depth = data.Depth[data.Index(x, z)];
+                if (depth > 0f)
+                {
+                    float wx = data.WorldX(x);
+                    float wz = data.WorldZ(z);
+                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * area));
+                }
+            }
+        }
+
+        return water;
     }
 
     private List<ZDO> All(string prefab)
@@ -422,10 +446,15 @@ internal sealed class VoxelServer
             return;
         }
 
-        FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} for {cubicMetres:0.00} m³; dropped"));
+        // The brick cap is told of once (WarnCapped); solid all the way up, each time.
+        if (!_grid.Capped)
+        {
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} for {cubicMetres:0.00} m³; dropped"));
+        }
     }
 
-    // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks).
+    // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks); false
+    // when none is, or a brick it needs cannot be made (MaxBricks).
     private bool Room(Vector3 point, out int x, out int y, out int z)
     {
         float s = _grid.VoxelSize;
@@ -434,7 +463,11 @@ internal sealed class VoxelServer
         z = Mathf.FloorToInt(point.z / s);
         for (int up = 0; up < Brick.Size * 4; up++, y++)
         {
-            Brick brick = _grid.Get(x >> 4, y >> 4, z >> 4);
+            if (_grid.Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+            {
+                return false;
+            }
+
             if (brick.Solid[Brick.Index(x & 15, y & 15, z & 15)] < 1f)
             {
                 return true;

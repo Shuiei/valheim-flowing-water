@@ -276,6 +276,50 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterReachingABricksEdgeMakesTheBrickBesideAndRunsIntoIt()
+    {
+        // A channel two bricks long, the water poured at its west end only.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 31, 0, 3)));
+        Fill(grid, 0, 3, 0, 3, 2f);
+        Assert.Null(grid.Find(1, 0, 0));
+
+        Run(grid, 30f);
+
+        Assert.NotNull(grid.Find(1, 0, 0));
+        Assert.Equal(grid.WaterAt(2, 0, 1), grid.WaterAt(29, 0, 1), 2);
+        Assert.Equal(16f * 2f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
+    public void OneLongStepIsTakenInStableShortOnes()
+    {
+        // Forty seconds asked for at once: the water settles level and still as it does a tenth at a time.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(3, 6, 3, 20f);
+
+        new VoxelSolver(grid).Step(40f);
+
+        Assert.Equal(20f, grid.TotalWater(), 1);
+        Assert.Equal(20f / 64f, grid.WaterAt(0, 0, 0), 2);
+        Assert.Equal(20f / 64f, grid.WaterAt(7, 0, 7), 2);
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.01f)));
+    }
+
+    [Fact]
+    public void WaterAtTheGridsReachIsHeldThereNotLost()
+    {
+        // A brick at the farthest place the grid reaches, water poured at its east edge: no brick past it is asked for.
+        int edge = (VoxelGrid.MaxBrick * Brick.Size) + Brick.Size - 1;
+        var grid = new VoxelGrid(Volume, new TestSolids(int.MinValue));
+        grid.Pour(edge, 0, 0, 4f);
+
+        Run(grid, 2f);
+
+        Assert.DoesNotContain(grid.Bricks, b => !VoxelGrid.Within(b.X, b.Y, b.Z));
+        Assert.Equal(4f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
