@@ -44,7 +44,7 @@ internal sealed class GameSolids : ISolids
             }
         }
 
-        SolidRaster.Pieces(brick, voxelSize, _near);
+        SolidRaster.Pieces(brick, voxelSize, _near, Ground);
     }
 
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>

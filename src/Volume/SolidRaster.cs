@@ -24,9 +24,8 @@ internal static class SolidRaster
                 float ground = groundAt(((brick.X * Brick.Size) + x + 0.5f) * voxelSize, ((brick.Z * Brick.Size) + z + 0.5f) * voxelSize);
                 for (int y = 0; y < Brick.Size; y++)
                 {
-                    float bottom = ((brick.Y * Brick.Size) + y) * voxelSize;
                     int i = Brick.Index(x, y, z);
-                    brick.Solid[i] = Math.Max(brick.Solid[i], Math.Min(1f, Math.Max(0f, (ground - bottom) / voxelSize)));
+                    brick.Solid[i] = Math.Max(brick.Solid[i], GroundShare(ground, (brick.Y * Brick.Size) + y, voxelSize));
                 }
             }
         }
@@ -40,18 +39,45 @@ internal static class SolidRaster
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
     /// <param name="boxes">The pieces' boxes near the brick.</param>
-    public static void Pieces(Brick brick, float voxelSize, IReadOnlyList<SolidBox> boxes)
+    /// <param name="groundAt">The ground's height at a point (world x, z), metres, for the voxels just past the brick's
+    /// edges (whose share a face there is tested by); none: no ground there.</param>
+    public static void Pieces(Brick brick, float voxelSize, IReadOnlyList<SolidBox> boxes, Func<float, float, float> groundAt = null)
     {
         foreach (SolidBox box in boxes)
         {
             Over(brick, voxelSize, box, (x, y, z) => Fill(brick, voxelSize, box, x, y, z));
         }
 
+        // A voxel's solid share: from the brick, or worked out from the ground and the boxes past its edges (the
+        // brick there may not exist yet).
+        float Share(int x, int y, int z) =>
+            x < Brick.Size && y < Brick.Size && z < Brick.Size ? brick.Solid[Brick.Index(x, y, z)] : Beyond(brick, voxelSize, boxes, groundAt, x, y, z);
         foreach (SolidBox box in boxes)
         {
-            Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z));
+            Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z, Share));
         }
     }
+
+    // A ground's share of voxel row y: from its bottom up to the ground.
+    private static float GroundShare(float ground, int y, float s) => Math.Min(1f, Math.Max(0f, (ground - (y * s)) / s));
+
+    // The solid share of a voxel past the brick's edge (brick-relative coordinates).
+    private static float Beyond(Brick brick, float s, IReadOnlyList<SolidBox> boxes, Func<float, float, float> groundAt, int x, int y, int z)
+    {
+        Vec3 bottom = Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f);
+        float share = groundAt == null ? 0f : GroundShare(groundAt(bottom.X, bottom.Z), (brick.Y * Brick.Size) + y, s);
+        foreach (SolidBox box in boxes)
+        {
+            share = Math.Max(share, Standing(box, bottom, s));
+        }
+
+        return share;
+    }
+
+    // How far up a voxel a box fills it from below, from the bottom of its middle line (0 when it reaches no lower
+    // than the voxel's middle: a ceiling, not a floor).
+    private static float Standing(SolidBox box, Vec3 bottom, float s) =>
+        box.Span(bottom, bottom + new Vec3(0f, s, 0f), out float enter, out float top) && enter <= 0.5f ? top : 0f;
 
     // Each voxel of the brick whose middle, or the segments from it to the next middles east, up or north, may
     // meet the box.
@@ -81,38 +107,34 @@ internal static class SolidRaster
     // lying in it); one only in its upper half is a ceiling over its room, closing the face above instead.
     private static void Fill(Brick brick, float s, SolidBox box, int x, int y, int z)
     {
-        Vec3 bottom = Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f);
-        if (box.Span(bottom, bottom + new Vec3(0f, s, 0f), out float enter, out float top) && enter <= 0.5f)
-        {
-            int i = Brick.Index(x, y, z);
-            brick.Solid[i] = Math.Max(brick.Solid[i], top);
-        }
+        int i = Brick.Index(x, y, z);
+        brick.Solid[i] = Math.Max(brick.Solid[i], Standing(box, Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f), s));
     }
 
-    private static void Close(Brick brick, float s, SolidBox box, int x, int y, int z)
+    private static void Close(Brick brick, float s, SolidBox box, int x, int y, int z, Func<int, int, int, float> share)
     {
         int i = Brick.Index(x, y, z);
-        float share = brick.Solid[i];
-        if (share >= 1f)
+        float own = brick.Solid[i];
+        if (own >= 1f)
         {
             return;
         }
 
         Vec3 corner = Corner(brick, s, x, y, z);
-        float room = OpenMiddle(share, x + 1 < Brick.Size ? brick.Solid[i + 1] : share, s);
+        float room = OpenMiddle(own, share(x + 1, y, z), s);
         if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 1.5f, room, s * 0.5f)))
         {
             brick.Closed[i] |= Brick.ClosedX;
         }
 
-        room = OpenMiddle(share, z + 1 < Brick.Size ? brick.Solid[i + Brick.Size] : share, s);
+        room = OpenMiddle(own, share(x, y, z + 1), s);
         if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 0.5f, room, s * 1.5f)))
         {
             brick.Closed[i] |= Brick.ClosedZ;
         }
 
-        float above = y + 1 < Brick.Size ? brick.Solid[i + (Brick.Size * Brick.Size)] : 0f;
-        if (box.Crosses(corner + new Vec3(s * 0.5f, OpenMiddle(share, share, s), s * 0.5f), corner + new Vec3(s * 0.5f, s + OpenMiddle(above, above, s), s * 0.5f)))
+        float above = share(x, y + 1, z);
+        if (box.Crosses(corner + new Vec3(s * 0.5f, OpenMiddle(own, own, s), s * 0.5f), corner + new Vec3(s * 0.5f, s + OpenMiddle(above, above, s), s * 0.5f)))
         {
             brick.Closed[i] |= Brick.ClosedY;
         }
