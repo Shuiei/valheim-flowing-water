@@ -100,11 +100,17 @@ internal static class VoxelSurface
         return (found > 0 ? sum / found : (y + 1) * field.VoxelSize, found / 4f, depth);
     }
 
-    // The top voxel of a column within a voxel of row y (a wet voxel with no water over it).
+    // The top voxel of a column within a voxel of row y (a wet voxel with no water over it); the one a row up only if
+    // the column's water at row y goes on into it (a pool over a floor is not the one under it).
     private static bool TopNear(VoxelField field, int x, int y, int z, out int top)
     {
         for (top = y + 1; top >= y - 1; top--)
         {
+            if (top == y + 1 && !field.GoesUp(x, y, z))
+            {
+                continue;
+            }
+
             if (field.IsWet(x, top, z) && !field.GoesUp(x, top, z))
             {
                 return true;

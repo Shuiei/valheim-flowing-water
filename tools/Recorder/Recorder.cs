@@ -947,6 +947,11 @@ public sealed class Recorder : BaseUnityPlugin
                 {
                     Note("recorder command with missing or bad numbers: " + command);
                 }
+                else if (!PlainName(v[6]))
+                {
+                    // Its files are written in the output folder, never elsewhere.
+                    Note("recorder shot or film name that is not a plain name: " + command);
+                }
                 else if (!film)
                 {
                     yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
@@ -973,6 +978,10 @@ public sealed class Recorder : BaseUnityPlugin
             yield return new WaitForSeconds(2f);
         }
     }
+
+    // A name that makes a file in the output folder: not empty, no folder, no "..".
+    private static bool PlainName(string name) =>
+        name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\']) < 0 && name != "." && name != "..";
 
     // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)
