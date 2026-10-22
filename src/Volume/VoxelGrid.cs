@@ -273,14 +273,20 @@ internal sealed class VoxelGrid
 
         foreach (Brick brick in gone)
         {
-            _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
-            Version++;
-            for (int side = 0; side < Sides.Length; side++)
+            Forget(brick);
+        }
+    }
+
+    /// <summary>Forgets a brick (and its water): it is unlinked from the bricks beside it.</summary>
+    public void Forget(Brick brick)
+    {
+        _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
+        Version++;
+        for (int side = 0; side < Sides.Length; side++)
+        {
+            if (brick.Beside[side] is { } next)
             {
-                if (brick.Beside[side] is { } next)
-                {
-                    next.Beside[side ^ 1] = null;
-                }
+                next.Beside[side ^ 1] = null;
             }
         }
     }
