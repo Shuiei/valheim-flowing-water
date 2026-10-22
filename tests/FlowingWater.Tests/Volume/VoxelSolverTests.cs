@@ -219,6 +219,63 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterCrossesEveryFaceOfABrickAlike()
+    {
+        // Poured high over the corner four bricks share, in a box spanning them: it falls through the bricks under it
+        // and spreads into all four alike.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(8, 23, 8, 23)));
+        grid.Pour(16, 20, 16, 64f);
+
+        Run(grid, 60f);
+
+        float level = grid.WaterAt(8, 0, 8);
+        Assert.Equal(64f / 256f, level, 2);
+        Assert.Equal(level, grid.WaterAt(23, 0, 23), 2);
+        Assert.Equal(level, grid.WaterAt(8, 0, 23), 2);
+        Assert.Equal(level, grid.WaterAt(23, 0, 8), 2);
+        Assert.Equal(64f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
+    public void AVoxelTheWaterLeftHoldsNoFlow()
+    {
+        // Water poured high falls into the sea, which takes it: once dry, no face keeps a flow from its fall.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(3, 6, 3, 20f);
+        var solver = new VoxelSolver(grid) { SeaLevel = 1f };
+
+        for (int k = 0; k < 200; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.Equal(0f, grid.TotalWater(), 3);
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 1e-4f)));
+    }
+
+    [Fact]
+    public void ABrickMadeAfterStepsBeganIsSteppedToo()
+    {
+        // The solver's columns of bricks are made again when bricks come: water poured where there was none falls.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 1f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 10; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        grid.Pour(3, 40, 3, 4f);
+        for (int k = 0; k < 100; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.Equal(0f, grid.WaterAt(3, 40, 3), 3);
+        Assert.Equal(1f + (4f / 64f), grid.WaterAt(0, 0, 0) + grid.WaterAt(0, 1, 0), 2);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
