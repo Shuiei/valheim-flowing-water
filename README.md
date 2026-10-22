@@ -47,19 +47,15 @@ add its radius in metres, `x,z,rate,radius`.
 | Setting | Default | What |
 |---|---|---|
 | `Enabled` | true | Simulate (server) and show (client) |
-| `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
-| `Server.StepsPerSecond` | 15 | Simulation steps per second with 1 m cells (twice that at 0.5, four times at 0.25) |
-| `Server.Friction` | 0.5 | How fast a flow loses its momentum, per second, besides the bed's drag |
-| `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built |
+| `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
+| `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built (paused with the 3D water, back in a later version) |
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
-| `Server.BedRoughness` | 0.04 | The ground's drag on running water (Manning's n): 0.03 smooth channel, 0.04 natural stream, 0.08 grass; 0 = none |
-| `Server.SendSeconds` | 1 | How often a changed zone is sent to the players near it |
-| `Server.MaxTiles` | 256 | Most zones with water at once |
-| `Server.MaxDepth` | 40 | Deepest a cell fills, metres |
-| `Server.EmptyTileSeconds` | 30 | A dry zone without a source forgets its tile after this (with erosion on, not while a zone beside it has water) |
+| `Server.SendSeconds` | 1 | How often a changed block of water is sent to the players near it |
+| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 120 KB each) |
+| `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
-| `Server.DebugSeconds` | 0 | Log each tile as a map of depths this often (0 = off) |
+| `Server.DebugSeconds` | 0 | Log each zone with water as a map of depths this often (0 = off) |
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
@@ -75,46 +71,34 @@ add its radius in metres, `x,z,rate,radius`.
 
 ### Grid size
 
-`Server.CellSize` sets how fine the water is. Smaller cells give narrower streams and finer shores, and
-cost more: four times the cells per halving, each stepped twice as often. Measured on one test world (the
-same two springs, seven zones with water, a 24-thread PC):
-
-| `CellSize` | Cells per zone | Server time per second | Frame rate looking at the stream |
-|---|---|---|---|
-| 1 | 64 × 64 | 9 ms | 90 fps |
-| 0.5 | 128 × 128 | 53 ms (5.5×) | 78 fps |
-| 0.25 | 256 × 256 | 300 ms (32×) | 32 fps |
-
-The data sent to players grows with the cells (4× and 16× before compression). 0.5 suits most servers;
-0.25 is for a few small streams. The zones are stepped in parallel, so the server's cost spreads over its cores.
-
-Only the server's setting counts: each zone's saved water carries its own grid and players draw whatever
-they receive. Changing the setting moves the water already there to the new grid (same volume), at the
-next start or at once with a config manager.
+`Server.CellSize` sets the side of the water's voxels. Smaller voxels give finer streams, shores and falls, and
+cost far more: eight times the voxels per halving, each stepped twice as often, and eight times the data sent to
+players. 1 m suits most servers; 0.5 is for builds and small streams, 0.25 for tests. The blocks of voxels are
+stepped in parallel, so the server's cost spreads over its cores. Changing the setting moves the water already
+there to the new grid (same volume), at the next start or at once with a config manager.
 
 ## How it works
 
-- **Grid.** One tile per zone, a square of cells of `CellSize` metres (64 × 64 at one metre), the first at
-  the zone's south-west corner. A cell holds a depth of water over its ground, which is the game's
-  heightmap read between its one-metre vertices as the game reads it. Water that reaches a cell under sea
-  level is the sea's.
-- **Step.** The pipe model: every cell has a pipe to each of its eight neighbours carrying a flow that keeps
-  its momentum. Each step the level difference accelerates it (gravity, over the pipe's length, on the water
-  standing above the higher of the two beds: a film is pushed like a film, a weir by what spills over it, up to
-  4 m deep), `Friction` slows it, and the bed's drag (Manning, `BedRoughness`) slows the cell's whole outflow
-  by its speed over its depth to the 4/3, so shallow water is held back far more than deep: a stream runs
-  deeper and slower instead of as a fast film. A flow may move at most half the difference (so two cells
-  level out without crossing over), a flow pushed uphill dies fast, and a cell never gives more than it holds. The flows then move the water, across
-  zone borders too. A cell's net flow over its width and depth is its velocity: the current. Smaller cells
-  step more often, so water crosses at most about a cell a step and keeps the same speed on any grid.
-  A source spreads its water over the cells about a metre around it; a drain takes from every cell within
-  its radius, in its zone or the next.
-- **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs
-  on a dedicated server and in zones no player has loaded. Ground heights come from the world
-  generator as the game's heightmap builder makes them, plus the players' terrain changes read from
-  each zone's terrain-changes object. Each step moves all tiles at once on the thread pool and skips the
-  dry cells nothing flows into. A changed tile is written to its ZDO every `SendSeconds`, and the
-  game sends it to the players near that zone.
+- **Grid.** Water lives in 3D: cubic voxels of `CellSize` metres, kept in blocks of 16 × 16 × 16 (bricks)
+  that exist only where water is or lately was. A voxel holds a share of its volume of water (a little more
+  when pressed in). The ground fills each voxel from its bottom up to the terrain's height; building pieces, as
+  the boxes of their solid colliders, fill the voxels they stand in from below (a floor) and close the faces
+  between voxels they separate, so a wall thinner than a voxel holds water, a box on posts holds a pool, and
+  breaking a piece lets the water out. The solids are read again when a piece is built, broken, moved, opened
+  or closed (a door), or the ground changes. Water that reaches the sea is the sea's.
+- **Step.** The pipe model in three dimensions: each face between two voxels is a pipe whose flow keeps its
+  momentum, sped up by the difference of the two voxels' heads and slowed by drag. A voxel's head is its floor
+  plus all the water resting on it in its column (up to air, a solid or a closed face), so a still pool is still,
+  water over air falls, and a hole low in a box's side lets water out faster the deeper the box; water pressed in
+  under a ceiling adds a stiff head, so a pipe carries the push of the water above it. A voxel never gives more
+  than it holds. Long steps are split so the water stays stable 10 m deep. A source pours at its point (the first
+  open voxel there); a drain takes from every voxel within its radius.
+- **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
+  dedicated server and where no player is. Ground heights come from the world generator as the game's
+  heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
+  prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
+  every `SendSeconds`, and the game sends it to the players near it. The column water of earlier versions is
+  moved into voxels once, when the world opens.
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,

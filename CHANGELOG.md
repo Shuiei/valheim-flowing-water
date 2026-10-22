@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.13.0 — 2026-10-21
+
+### Changed
+- The server simulates the water in 3D: walls and floors you build hold it, a raised wooden box keeps its pool,
+  and breaking a piece lets the water run out and fall. Water of earlier versions is carried over.
+- Settings `StepsPerSecond`, `Friction`, `BedRoughness` and `MaxDepth` are gone; `MaxTiles` is now `MaxBricks`.
+  Erosion is paused until it comes back on the 3D water.
+
 ## v0.12.0 — 2026-10-21
 
 ### Added

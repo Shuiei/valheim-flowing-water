@@ -41,8 +41,8 @@ on). A server can also have sources and drains with no marker placed, from its c
 | Setting | Default | What |
 |---|---|---|
 | `Enabled` | true | Simulate (server) and show (client) |
-| `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m. Smaller gives narrower streams at a higher cost |
-| `Server.MaxTiles` | 256 | Most zones with water at once |
+| `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m. Smaller gives finer water at a much higher cost |
+| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
