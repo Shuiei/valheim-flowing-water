@@ -107,9 +107,11 @@ internal sealed class WaterBrick : MonoBehaviour
             FrameDrawing.Stop();
         }
 
-        if (_dirty && !_building.Busy && Time.time - _drawnAt >= RedrawSeconds)
+        if (_dirty && !_building.Busy && Time.time - _drawnAt >= RedrawSeconds && InBudget())
         {
+            FrameDrawing.Start();
             Build();
+            FrameDrawing.Stop();
         }
     }
 
