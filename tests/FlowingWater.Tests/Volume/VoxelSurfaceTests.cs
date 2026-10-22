@@ -24,6 +24,17 @@ public class VoxelSurfaceTests
     }
 
     [Fact]
+    public void AChangeOfSolidAloneTouchesToo()
+    {
+        // The same water on a floor raised by a piece: the brick beside it sees the water stand higher.
+        BrickView was = View((15, 5, 5, 0.5f));
+        BrickView now = View((15, 5, 5, 0.5f));
+        now.Solid[Brick.Index(15, 5, 5)] = 0.4f;
+
+        Assert.Contains((1, 0, 0), VoxelSurface.Touched(was, now));
+    }
+
+    [Fact]
     public void AChangeInsideTouchesOnlyTheBrickOverIt()
     {
         Assert.Equal([(0, 1, 0)], VoxelSurface.Touched(View((5, 5, 5, 0.5f)), View((5, 5, 5, 0.6f))));
@@ -93,6 +104,27 @@ public class VoxelSurfaceTests
         Assert.Equal(whole.Shores, fromNear.Shores);
         Assert.Equal(whole.Triangles, fromNear.Triangles);
         Assert.Contains(whole.Depths, d => d > 30f);
+    }
+
+    [Fact]
+    public void TheBricksNearOneAreThoseItsSurfaceMayRead()
+    {
+        // A column of bricks from seven under to two over, and one two east: only five under to one over are near.
+        var field = new VoxelField();
+        for (int y = -7; y <= 2; y++)
+        {
+            field.Set(View(0, y, 0));
+        }
+
+        field.Set(View(2, 0, 0));
+        VoxelField near = field.Near(field.Find(0, 0, 0));
+
+        Assert.Equal(7, near.Bricks.Count);
+        Assert.NotNull(near.Find(0, -5, 0));
+        Assert.NotNull(near.Find(0, 1, 0));
+        Assert.Null(near.Find(0, -6, 0));
+        Assert.Null(near.Find(0, 2, 0));
+        Assert.Null(near.Find(2, 0, 0));
     }
 
     private static BrickView View(int x, int y, int z) => new(x, y, z, 1f);
