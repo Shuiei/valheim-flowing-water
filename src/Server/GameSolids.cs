@@ -52,6 +52,9 @@ internal sealed class GameSolids : ISolids
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>
     public void Forget(Vector2s zone) => _boxesByZone.Remove(TileData.Key(zone));
 
+    /// <summary>Forgets every zone's pieces, to read them again.</summary>
+    public void ForgetAll() => _boxesByZone.Clear();
+
     // The solid boxes of a zone's pieces, read once until forgotten.
     private List<SolidBox> Boxes(Vector2s zone)
     {
