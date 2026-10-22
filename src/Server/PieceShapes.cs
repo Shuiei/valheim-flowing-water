@@ -31,6 +31,7 @@ internal sealed class PieceShapes
         Vector3 position = zdo.GetPosition();
         Quaternion rotation = zdo.GetRotation();
         Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
+        Farthest = Mathf.Max(Farthest, shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
         foreach (Box box in shape.Boxes)
         {
             Vector3 x = rotation * Vector3.Scale(box.AxisX, scale);
@@ -44,6 +45,9 @@ internal sealed class PieceShapes
                 new Vec3(box.Half.x * x.magnitude, box.Half.y * y.magnitude, box.Half.z * z.magnitude)));
         }
     }
+
+    /// <summary>How far the solid boxes of any piece read so far reach from its place, metres (scales taken in).</summary>
+    public float Farthest { get; private set; }
 
     /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
     public float Reach(ZDO zdo)
