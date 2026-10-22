@@ -172,6 +172,18 @@ internal sealed class VoxelServer
         }
     }
 
+    // Every brick's object destroyed and forgotten.
+    private void DropObjects()
+    {
+        foreach (ZDO zdo in _objects.Values.Where(z => ZDOMan.instance.GetZDO(z.m_uid) != null))
+        {
+            DestroyZdo(zdo);
+        }
+
+        _objects.Clear();
+        _sent.Clear();
+    }
+
     /// <summary>Stops listening to the world (it closes).</summary>
     public void Close() => _watch.Close();
 
@@ -377,9 +389,28 @@ internal sealed class VoxelServer
 
         float s = _grid.VoxelSize;
         List<BrickView> views = [.. _grid.Bricks.Select(b => BrickData.Decode(BrickData.Encode(b, s)))];
+
+        // The bricks are cut differently now: a key of the old grid is another place in the new one.
+        DropObjects();
         NewGrid(size);
-        float total = views.Sum(v => PourView(v) ?? 0f);
+        float total = 0f, lost = 0f;
+        foreach (BrickView view in views)
+        {
+            if (PourView(view) is { } poured)
+            {
+                total += poured;
+            }
+            else
+            {
+                lost += view.Water.Sum() * s * s * s;
+            }
+        }
+
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
+        if (lost > 0f)
+        {
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: {lost:0.0} m³ found no room in the new voxels (solid all the way up) and is lost"));
+        }
     }
 
     // Water poured at a point: into its voxel, or the first open one over it when the point is in a solid.
