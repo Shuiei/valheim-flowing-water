@@ -39,6 +39,12 @@ internal sealed class VoxelField
     /// <summary>Whether voxel (x, y, z) holds water to draw.</summary>
     public bool IsWet(int x, int y, int z) => WaterAt(x, y, z) > Wet;
 
+    /// <summary>
+    /// Whether the water of voxel (x, y, z) goes on into the voxel over it: that one is wet and has no floor in it (a
+    /// solid share there is a floor between them, the water over it a pool of its own).
+    /// </summary>
+    public bool GoesUp(int x, int y, int z) => IsWet(x, y + 1, z) && Floor(x, y + 1, z) <= (y + 1) * VoxelSize;
+
     /// <summary>The height of the water's top in voxel (x, y, z), metres: on its solid share, at most its top.</summary>
     public float Level(int x, int y, int z)
     {
@@ -66,7 +72,7 @@ internal sealed class VoxelField
             return float.NegativeInfinity;
         }
 
-        while (IsWet(vx, vy + 1, vz))
+        while (GoesUp(vx, vy, vz))
         {
             vy++;
         }

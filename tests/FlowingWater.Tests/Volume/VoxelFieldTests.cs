@@ -33,6 +33,21 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void WaterUnderARaisedFloorFloatsAtItsOwnLevelNotThePoolsOnTheFloor()
+    {
+        // Water filling row 6 under a floor whose top is 0.6 m into row 7, and a pool over the floor.
+        VoxelField field = Field((3, 6, 3, 1f, 0f), (3, 7, 3, 0.3f, 0.6f), (3, 8, 3, 0.5f, 0f));
+
+        Assert.Equal(7f, field.SurfaceAt(3.5f, 6.4f, 3.5f), 4);
+        Assert.Equal(8.5f, field.SurfaceAt(3.5f, 7.8f, 3.5f), 4);
+
+        // Both are drawn: a top for the water under the floor, and one for the pool.
+        SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
+        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7f) < 0.01f);
+        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 8.5f) < 0.01f);
+    }
+
+    [Fact]
     public void TheVelocityIsTheVoxelsTheSwimmerIsIn()
     {
         var view = new BrickView(0, 0, 0, 1f);
@@ -78,10 +93,12 @@ public class VoxelFieldTests
 
         SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
 
-        // The corners they share are at the mean of 1.5 and 1.0.
+        // The corners they share are at the mean of 1.5 and 1.0, and so are the tops of the sides there: no side
+        // sticks out above the surface drawn.
         int shared = mesh.Vertices.FindIndex(v => v.X == 3f && v.Z == 2f && v.Y > 1.1f && v.Y < 1.4f);
         Assert.True(shared >= 0);
         Assert.Equal(1.25f, mesh.Vertices[shared].Y, 4);
+        Assert.DoesNotContain(mesh.Vertices, v => v.X == 3f && System.Math.Abs(v.Y - 1.5f) < 0.01f);
     }
 
     [Fact]

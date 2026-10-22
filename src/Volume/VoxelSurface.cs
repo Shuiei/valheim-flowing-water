@@ -34,7 +34,7 @@ internal static class VoxelSurface
             int y = oy + ly;
             int z = oz + lz;
             var velocity = new Vec3(brick.VelocityX[i], brick.VelocityY[i], brick.VelocityZ[i]);
-            bool top = !field.IsWet(x, y + 1, z);
+            bool top = !field.GoesUp(x, y, z);
             if (top)
             {
                 Top(field, mesh, corners, x, y, z, velocity);
@@ -62,8 +62,7 @@ internal static class VoxelSurface
         mesh.Triangles.AddRange([a, b, c, a, c, d]);
     }
 
-    // The vertex at grid corner (cx, cz) of row y: the mean level of the tops of the four columns round it (within a
-    // voxel of y), how many of them hold water (its shore), and the deepest water under them.
+    // The vertex at grid corner (cx, cz) of row y (<see cref="Level"/>), shared by the tops round it.
     private static int Corner(VoxelField field, SurfaceMesh mesh, Dictionary<(int X, int Y, int Z), int> corners, int cx, int y, int cz, Vec3 velocity)
     {
         if (corners.TryGetValue((cx, y, cz), out int index))
@@ -71,6 +70,17 @@ internal static class VoxelSurface
             return index;
         }
 
+        (float height, float shore, float depth) = Level(field, cx, y, cz);
+        float s = field.VoxelSize;
+        index = mesh.Add(new Vec3(cx * s, height, cz * s), depth, shore, velocity);
+        corners[(cx, y, cz)] = index;
+        return index;
+    }
+
+    // At grid corner (cx, cz) of row y: the mean level of the tops of the four columns round it (within a voxel of
+    // y), how many of them hold water (its shore), and the deepest water under them.
+    private static (float Height, float Shore, float Depth) Level(VoxelField field, int cx, int y, int cz)
+    {
         float sum = 0f;
         int found = 0;
         float depth = 0f;
@@ -87,10 +97,7 @@ internal static class VoxelSurface
             }
         }
 
-        float s = field.VoxelSize;
-        index = mesh.Add(new Vec3(cx * s, found > 0 ? sum / found : (y + 1) * s, cz * s), depth, found / 4f, velocity);
-        corners[(cx, y, cz)] = index;
-        return index;
+        return (found > 0 ? sum / found : (y + 1) * field.VoxelSize, found / 4f, depth);
     }
 
     // The top voxel of a column within a voxel of row y (a wet voxel with no water over it).
@@ -98,7 +105,7 @@ internal static class VoxelSurface
     {
         for (top = y + 1; top >= y - 1; top--)
         {
-            if (field.IsWet(x, top, z) && !field.IsWet(x, top + 1, z))
+            if (field.IsWet(x, top, z) && !field.GoesUp(x, top, z))
             {
                 return true;
             }
@@ -111,7 +118,7 @@ internal static class VoxelSurface
     private static float Depth(VoxelField field, int x, int top, int z)
     {
         int bottom = top;
-        while (field.IsWet(x, bottom - 1, z) && top - bottom < 64)
+        while (field.GoesUp(x, bottom - 1, z) && top - bottom < 64)
         {
             bottom--;
         }
@@ -119,25 +126,26 @@ internal static class VoxelSurface
         return field.Level(x, top, z) - field.Floor(x, bottom, z);
     }
 
-    // A side towards (dx, dz): from the water's floor in the voxel up to its top (the top's own corners there,
-    // or the voxel's top under more water), facing out.
+    // A side towards (dx, dz): from the water's floor in the voxel up to its top (the top's own corners there, so
+    // that it meets the surface drawn, or the voxel's top under more water), facing out.
     private static void Side(VoxelField field, SurfaceMesh mesh, int x, int y, int z, int dx, int dz, bool top, Vec3 velocity)
     {
         float s = field.VoxelSize;
         float floor = field.Floor(x, y, z);
-        float high = top ? field.Level(x, y, z) : (y + 1) * s;
 
         // The face's two ends along the side, so that it faces out of the voxel (clockwise seen from outside).
-        (float ax, float az, float bx, float bz) = (dx, dz) switch
+        (int ax, int az, int bx, int bz) = (dx, dz) switch
         {
             (1, _) => (x + 1, z, x + 1, z + 1),
             (-1, _) => (x, z + 1, x, z),
             (_, 1) => (x + 1, z + 1, x, z + 1),
             _ => (x, z, x + 1, z),
         };
+        float highA = top ? Level(field, ax, y, az).Height : (y + 1) * s;
+        float highB = top ? Level(field, bx, y, bz).Height : (y + 1) * s;
         int a = mesh.Add(new Vec3(ax * s, floor, az * s), 1f, 1f, velocity);
-        int b = mesh.Add(new Vec3(ax * s, high, az * s), 1f, 1f, velocity);
-        int c = mesh.Add(new Vec3(bx * s, high, bz * s), 1f, 1f, velocity);
+        int b = mesh.Add(new Vec3(ax * s, highA, az * s), 1f, 1f, velocity);
+        int c = mesh.Add(new Vec3(bx * s, highB, bz * s), 1f, 1f, velocity);
         int d = mesh.Add(new Vec3(bx * s, floor, bz * s), 1f, 1f, velocity);
         mesh.Triangles.AddRange([a, b, c, a, c, d]);
     }

@@ -9,7 +9,8 @@ namespace FlowingWater.Client;
 /// <summary>
 /// A brick of the 3D water on a player's game: reads the brick's data when the server changes it, keeps it in
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
-/// water's material. When its water changes, the bricks beside it are drawn again too (their sides depend on it).
+/// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
+/// depend on it).
 /// </summary>
 internal sealed class WaterBrick : MonoBehaviour
 {
@@ -18,7 +19,11 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static readonly Dictionary<long, WaterBrick> ByKey = [];
 
-    private static readonly (int X, int Y, int Z)[] Beside = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
+    // Every brick round one: a top's corner reads the columns of up to four bricks, diagonal ones included, a row up
+    // or down.
+    private static readonly (int X, int Y, int Z)[] Beside = [.. Around()];
+
+    private static bool _settingWatched;
 
     private ZNetView _nview;
 
@@ -36,9 +41,48 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private float _drawnAt;
 
+    private static IEnumerable<(int X, int Y, int Z)> Around()
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx != 0 || dy != 0 || dz != 0)
+                    {
+                        yield return (dx, dy, dz);
+                    }
+                }
+            }
+        }
+    }
+
+    // Every brick is drawn again with the other material when the shader setting changes.
+    private static void WatchSetting()
+    {
+        if (_settingWatched)
+        {
+            return;
+        }
+
+        _settingWatched = true;
+        FlowingWaterPlugin.Settings.CustomShader.SettingChanged += (_, _) =>
+        {
+            foreach (WaterBrick brick in ByKey.Values)
+            {
+                if (brick != null)
+                {
+                    brick._dirty = true;
+                }
+            }
+        };
+    }
+
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Awake()
     {
+        WatchSetting();
         _nview = GetComponent<ZNetView>();
         _filter = GetComponent<MeshFilter>();
         _renderer = GetComponent<MeshRenderer>();
