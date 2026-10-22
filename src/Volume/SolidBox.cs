@@ -75,12 +75,18 @@ internal readonly struct SolidBox
     }
 
     /// <summary>Whether the segment from one point to the other passes through the box.</summary>
-    public bool Crosses(Vec3 from, Vec3 to)
+    public bool Crosses(Vec3 from, Vec3 to) => Span(from, to, out _, out _);
+
+    /// <summary>
+    /// Whether the segment from one point to the other passes through the box, and the part of it inside (0 at
+    /// the first point, 1 at the second).
+    /// </summary>
+    public bool Span(Vec3 from, Vec3 to, out float enter, out float leave)
     {
         Vec3 start = from - Centre;
         Vec3 along = to - from;
-        float enter = 0f;
-        float leave = 1f;
+        enter = 0f;
+        leave = 1f;
         return Slab(start.Dot(AxisX), along.Dot(AxisX), Half.X, ref enter, ref leave)
             && Slab(start.Dot(AxisY), along.Dot(AxisY), Half.Y, ref enter, ref leave)
             && Slab(start.Dot(AxisZ), along.Dot(AxisZ), Half.Z, ref enter, ref leave);

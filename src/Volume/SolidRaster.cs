@@ -5,8 +5,9 @@ namespace FlowingWater.Volume;
 
 /// <summary>
 /// What is solid in a brick, without the game: the ground, filling each voxel from its bottom up to the ground's
-/// height at the middle of its column, and building pieces, as boxes that fill the voxels whose middles they hold
-/// and close the faces between voxels whose middles they separate (so a wall thinner than a voxel still holds water).
+/// height at the middle of its column, and building pieces, as boxes that fill a voxel from its bottom up to where
+/// they end on the voxel's middle line (a thin floor puts the water's floor at its top) and close the faces between
+/// voxels whose middles they separate (so a wall thinner than a voxel still holds water).
 /// </summary>
 internal static class SolidRaster
 {
@@ -66,9 +67,10 @@ internal static class SolidRaster
     {
         int i = Brick.Index(x, y, z);
         var middle = new Vec3(((brick.X * Brick.Size) + x + 0.5f) * s, ((brick.Y * Brick.Size) + y + 0.5f) * s, ((brick.Z * Brick.Size) + z + 0.5f) * s);
-        if (box.Contains(middle))
+        Vec3 half = new(0f, s * 0.5f, 0f);
+        if (box.Span(middle - half, middle + half, out _, out float top))
         {
-            brick.Solid[i] = 1f;
+            brick.Solid[i] = Math.Max(brick.Solid[i], top);
         }
 
         if (box.Crosses(middle, middle + new Vec3(s, 0f, 0f)))

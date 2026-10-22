@@ -60,6 +60,20 @@ public class SolidRasterTests
     }
 
     [Fact]
+    public void AFloorThinnerThanAVoxelPutsTheWatersFloorAtItsTop()
+    {
+        var brick = new Brick(0, 0, 0);
+
+        // A 0.13 m floor whose top is 0.6 m into voxel row 7, as a raised box's floor is in game.
+        SolidRaster.Pieces(brick, 1f, [SolidBox.Between(new Vec3(2f, 7.47f, 2f), new Vec3(4f, 7.6f, 4f))]);
+
+        Assert.Equal(0.6f, brick.Solid[Brick.Index(3, 7, 3)], 3);
+        Assert.Equal(Brick.ClosedY, brick.Closed[Brick.Index(3, 6, 3)] & Brick.ClosedY);
+        Assert.Equal(0f, brick.Solid[Brick.Index(3, 8, 3)]);
+        Assert.Equal(0f, brick.Solid[Brick.Index(4, 7, 3)]);
+    }
+
+    [Fact]
     public void AFloorClosesTheFacesUnderIt()
     {
         var brick = new Brick(0, 0, 0);
