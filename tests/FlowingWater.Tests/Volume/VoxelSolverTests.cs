@@ -111,6 +111,31 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void APoolStirredHardSettlesLevelAgain()
+    {
+        // A pool two voxels deep, then sixteen voxels of water dropped into one voxel over it.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        Run(grid, 3f);
+        grid.Pour(3, 3, 3, 16f);
+
+        Run(grid, 40f);
+
+        // Level a quarter voxel higher, the voxels under it full, and still.
+        for (int z = 0; z < 8; z += 7)
+        {
+            for (int x = 0; x < 8; x += 7)
+            {
+                Assert.Equal(1f, grid.WaterAt(x, 1, z), 2);
+                Assert.Equal(0.25f, grid.WaterAt(x, 2, z), 2);
+            }
+        }
+
+        Assert.All(grid.Bricks, b => Assert.True(b.FlowX.Concat(b.FlowY).Concat(b.FlowZ).All(f => Math.Abs(f) < 0.02f)));
+        Assert.Equal(64f * 2.25f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));

@@ -25,6 +25,9 @@ internal sealed class VoxelSolver
     // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
     private const float Damping = 0.3f, Drag = 0.05f;
 
+    // The share of a voxel's room over which the weight of the water over it comes on as it fills.
+    private const float Contact = 0.1f;
+
     // The deepest water steps are kept stable for, metres: longer steps are split.
     private const float DeepestStable = 10f;
 
@@ -78,6 +81,7 @@ internal sealed class VoxelSolver
         {
             for (int x = 0; x < Brick.Size; x++)
             {
+                Settle(column, x, z);
                 float above = 0f;
                 int over = int.MaxValue;
                 foreach (Brick brick in column)
@@ -101,10 +105,51 @@ internal sealed class VoxelSolver
                             continue;
                         }
 
-                        brick.Head[i] = Floor(brick, i, y, s) + ((water + above) * s) + (Math.Max(0f, water - room) * Stiffness * s);
-                        above = OpenBelow(brick, i, y) ? above + water : 0f;
+                        // What is over the voxel presses on it only as it fills: water over a voxel not full hangs over
+                        // air and falls, its weight carried by nothing; the weight comes on over the last tenth of the
+                        // voxel's room, so that no head jumps (a jump feeds the water energy and it never settles).
+                        float carried = Math.Min(1f, Math.Max(0f, ((water / room) - (1f - Contact)) / Contact)) * above;
+                        brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * Stiffness * s);
+                        above = OpenBelow(brick, i, y) ? carried + water : 0f;
                     }
                 }
+            }
+        }
+    }
+
+    // Water resting on a voxel with room left drops into it, bottom up through the column: water cannot hang over
+    // water that is not full (it would fall at once), and once it cannot, a voxel's head never switches between
+    // carrying the water over it and not. Water over an empty voxel is left to fall through the pipes.
+    private static void Settle(Brick[] column, int x, int z)
+    {
+        Brick lower = null;
+        int below = -1;
+        for (int b = column.Length - 1; b >= 0; b--)
+        {
+            Brick brick = column[b];
+
+            // A gap between bricks is air: nothing rests across it.
+            if (lower != null && lower.Y != brick.Y - 1)
+            {
+                lower = null;
+            }
+
+            for (int y = 0; y < Brick.Size; y++)
+            {
+                int i = Brick.Index(x, y, z);
+                if (lower != null && brick.Water[i] > Brick.Dry)
+                {
+                    float room = 1f - lower.Solid[below] - lower.Water[below];
+                    if (room > 0f && lower.Water[below] > Brick.Dry && (lower.Closed[below] & Brick.ClosedY) == 0 && lower.Solid[below] < 1f && brick.Solid[i] <= 0f)
+                    {
+                        float drop = Math.Min(room, brick.Water[i]);
+                        lower.Water[below] += drop;
+                        brick.Water[i] -= drop;
+                    }
+                }
+
+                lower = brick;
+                below = i;
             }
         }
     }
