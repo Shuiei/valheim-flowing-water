@@ -37,6 +37,10 @@ internal sealed class VoxelSolver
 
     private const int StepsToSleep = 24;
 
+    // Water settling into a voxel wakes its brick when more than this share of a voxel: a still pool's last traces
+    // settling do not keep it awake.
+    private const float WakingDrop = 1e-4f;
+
     private readonly VoxelGrid _grid;
 
     private Brick[] _bricks = [];
@@ -282,6 +286,11 @@ internal sealed class VoxelSolver
                     {
                         float drop = Math.Min(room, brick.Water[i]);
                         lower.Water[below] += drop;
+                        if (drop > WakingDrop)
+                        {
+                            lower.Wets(below);
+                        }
+
                         brick.Water[i] -= drop;
                     }
                 }
