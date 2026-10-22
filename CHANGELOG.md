@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.8.0 — 2026-10-21
+
+### Added
+- Erosion, in progress and off by default (server setting `Erosion`, speed `ErosionSpeed`): running water wears
+  the ground away where it runs fast and lays it down where it slows, so a stream cuts its own bed. For now
+  only the simulation sees it: players' ground does not change yet.
+
 ## v0.7.0 — 2026-10-21
 
 ### Added

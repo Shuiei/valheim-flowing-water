@@ -18,6 +18,7 @@
     <Compile Include="../../src/Client/SurfaceMath.cs" Link="Mod/SurfaceMath.cs" />
     <Compile Include="../../src/Client/WhiteWaterMix.cs" Link="Mod/WhiteWaterMix.cs" />
     <Compile Include="../../src/Client/WaterSounds.cs" Link="Mod/WaterSounds.cs" />
+    <Compile Include="../../src/Server/ErosionRules.cs" Link="Mod/ErosionRules.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
   </ItemGroup>
 </Project>

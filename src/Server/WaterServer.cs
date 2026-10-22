@@ -49,6 +49,9 @@ internal sealed class WaterServer
     // Shallower than this, the bed's drag is taken at this depth (no division by nothing).
     private const float MinDragDepth = 0.005f;
 
+    // Long enough, in erosion's time, for any water that dried to set down all it carried.
+    private const float AllDown = 1000f;
+
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
@@ -221,6 +224,10 @@ internal sealed class WaterServer
             }
 
             text.Append(FormattableString.Invariant($"\nzone {data.Zone}: {tile.Water:0.0} m³, ground {minGround:0.0}..{maxGround:0.0} m"));
+            if (FlowingWaterPlugin.Settings.Erosion.Value)
+            {
+                text.Append(ErosionSummary(tile));
+            }
             for (int z = data.Size - block; z >= 0; z -= block)
             {
                 text.Append('\n');
@@ -232,6 +239,28 @@ internal sealed class WaterServer
         }
 
         FlowingWaterPlugin.Log.LogInfo(text.ToString());
+    }
+
+    // What erosion did to a tile: ground cut and laid down (cubic metres), the deepest cut and the ground carried.
+    private string ErosionSummary(ServerTile tile)
+    {
+        float cut = 0f;
+        float raised = 0f;
+        float deepest = 0f;
+        foreach (float change in tile.GroundChange)
+        {
+            cut -= Mathf.Min(0f, change);
+            raised += Mathf.Max(0f, change);
+            deepest = Mathf.Min(deepest, change);
+        }
+
+        float carried = 0f;
+        foreach (float sediment in tile.Sediment)
+        {
+            carried += sediment;
+        }
+
+        return FormattableString.Invariant($"; erosion cut {cut * CellArea:0.00} m³ (deepest {-deepest:0.000} m), laid down {raised * CellArea:0.00} m³, carried {carried * CellArea:0.00} m³");
     }
 
     private static char Glyph(TileData data, int x, int z, int block)
@@ -411,7 +440,9 @@ internal sealed class WaterServer
         {
             for (int x = 0; x < data.Size; x++)
             {
-                data.Height[data.Index(x, z)] = ZoneTerrain.Sample(heights, x * cell, z * cell);
+                // The terrain's own, and what erosion changed over it.
+                int i = data.Index(x, z);
+                data.Height[i] = ZoneTerrain.Sample(heights, x * cell, z * cell) + tile.GroundChange[i];
             }
         }
     }
@@ -444,10 +475,20 @@ internal sealed class WaterServer
         LoadNeighbourGround();
         var flow = new FlowStep(dt);
         Parallel.For(0, _stepTiles.Count, k => UpdateFlux(_stepTiles[k], flow));
+        bool erosion = FlowingWaterPlugin.Settings.Erosion.Value;
+        if (erosion)
+        {
+            Parallel.For(0, _stepTiles.Count, k => TakeCarry(_stepTiles[k]));
+        }
 
         float sea = ZoneSystem.instance.m_waterLevel;
         float maxDepth = FlowingWaterPlugin.Settings.MaxDepth.Value;
         Parallel.For(0, _stepTiles.Count, k => Apply(_stepTiles[k], dt, sea, maxDepth));
+        if (erosion)
+        {
+            float wear = FlowingWaterPlugin.Settings.ErosionSpeed.Value;
+            Parallel.For(0, _stepTiles.Count, k => Erode(_stepTiles[k], dt, wear, sea));
+        }
 
         foreach (Marker marker in _markers)
         {
@@ -736,18 +777,7 @@ internal sealed class WaterServer
                 for (int dir = 0; dir < Directions.Count; dir++)
                 {
                     float outflow = flux[dir][i];
-                    float inflow;
-                    if (inner)
-                    {
-                        inflow = flux[Directions.Opposite[dir]][i + _offsets[dir]];
-                    }
-                    else
-                    {
-                        inflow = Neighbour(tile, x + Directions.Dx[dir], z + Directions.Dz[dir], out ServerTile other, out int index, out _)
-                            ? other.Flux[Directions.Opposite[dir]][index]
-                            : 0f;
-                    }
-
+                    float inflow = Inflow(tile, x, z, i, inner, dir, out _, out _);
                     change += inflow - outflow;
                     netX += (outflow - inflow) * Directions.UnitX[dir];
                     netZ += (outflow - inflow) * Directions.UnitZ[dir];
@@ -786,6 +816,78 @@ internal sealed class WaterServer
         }
 
         tile.Water = total * area;
+    }
+
+    // The water flowing into a cell this step from its neighbour in a direction (cubic metres per second),
+    // and that neighbour's tile and cell; none where it has no tile.
+    private float Inflow(ServerTile tile, int x, int z, int i, bool inner, int dir, out ServerTile from, out int index)
+    {
+        if (inner)
+        {
+            from = tile;
+            index = i + _offsets[dir];
+        }
+        else if (!Neighbour(tile, x + Directions.Dx[dir], z + Directions.Dz[dir], out from, out index, out _))
+        {
+            return 0f;
+        }
+
+        return from.Flux[Directions.Opposite[dir]][index];
+    }
+
+    // What each cell's water carries per metre of it, before the water moves: its outflow takes that along.
+    private static void TakeCarry(ServerTile tile)
+    {
+        for (int i = 0; i < tile.Sediment.Length; i++)
+        {
+            tile.Carry[i] = ErosionRules.Concentration(tile.Sediment[i], tile.Data.Depth[i]);
+        }
+    }
+
+    // Erosion, once the water has moved: the ground the water carries goes with it (out with each cell's
+    // outflow, in with its neighbours' inflow, at what each carried), then each cell's water picks ground up
+    // or sets it down (ErosionRules); where the water is gone it sets it all down, and the sea takes what
+    // reaches it. Only this tile's cells are written: tiles erode in parallel.
+    private void Erode(ServerTile tile, float dt, float wear, float sea)
+    {
+        TileData data = tile.Data;
+        int size = data.Size;
+        float[] sediment = tile.Sediment;
+        float area = CellArea;
+        for (int z = 0; z < size; z++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int i = (z * size) + x;
+                float depth = data.Depth[i];
+                if (depth <= 0f && sediment[i] <= 0f)
+                {
+                    continue;
+                }
+
+                bool inner = x > 0 && z > 0 && x < size - 1 && z < size - 1;
+                float moved = 0f;
+                for (int dir = 0; dir < Directions.Count; dir++)
+                {
+                    float inflow = Inflow(tile, x, z, i, inner, dir, out ServerTile from, out int index);
+                    float brought = inflow > 0f ? inflow * from.Carry[index] : 0f;
+                    moved += brought - (tile.Flux[dir][i] * tile.Carry[i]);
+                }
+
+                sediment[i] = Mathf.Max(0f, sediment[i] + (moved * dt / area));
+                if (data.Height[i] < sea)
+                {
+                    sediment[i] = 0f;
+                    continue;
+                }
+
+                float speed = Mathf.Sqrt((data.VelX[i] * data.VelX[i]) + (data.VelZ[i] * data.VelZ[i]));
+                float taken = ErosionRules.Exchange(sediment[i], ErosionRules.Capacity(speed, depth), tile.GroundChange[i], depth > 0f ? dt * wear : AllDown);
+                sediment[i] += taken;
+                data.Height[i] -= taken;
+                tile.GroundChange[i] -= taken;
+            }
+        }
     }
 
     // A drain takes water from every cell within its radius, in this zone or the next: all of it

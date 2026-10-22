@@ -24,6 +24,15 @@ internal sealed class ServerTile
     /// <summary>Cells water flows into this step, wet or not (dry cells without it are skipped).</summary>
     public bool[] Active { get; private set; }
 
+    /// <summary>Ground the water carries per cell, metres over the cell (erosion).</summary>
+    public float[] Sediment { get; private set; }
+
+    /// <summary>Ground carried per metre of each cell's water at the start of the step, what its outflow takes along.</summary>
+    public float[] Carry { get; private set; }
+
+    /// <summary>How far erosion has cut (negative) or raised each cell's ground, metres; kept over the terrain's own.</summary>
+    public float[] GroundChange { get; private set; }
+
     /// <summary>Depths changed since the last send.</summary>
     public bool Dirty { get; set; }
 
@@ -39,7 +48,10 @@ internal sealed class ServerTile
     /// <summary>Cubic metres in the tile after the last step.</summary>
     public float Water { get; set; }
 
-    /// <summary>Puts the water on a grid of this many cells per side; the flows start again from rest.</summary>
+    /// <summary>
+    /// Puts the water on a grid of this many cells per side; the flows start again from rest, and erosion afresh
+    /// (what it changed so far is not carried over to the new grid).
+    /// </summary>
     public void Resize(int size)
     {
         if (size == Data.Size)
@@ -62,5 +74,8 @@ internal sealed class ServerTile
 
         Flowing = new bool[Data.Cells];
         Active = new bool[Data.Cells];
+        Sediment = new float[Data.Cells];
+        Carry = new float[Data.Cells];
+        GroundChange = new float[Data.Cells];
     }
 }

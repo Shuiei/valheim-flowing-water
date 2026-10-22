@@ -11,6 +11,8 @@ internal sealed class Settings
         CellSize = config.Bind("Server", "CellSize", 1f, new ConfigDescription("Size of the simulation's square cells, in metres. Smaller cells give narrower streams and finer shores, at a cost: 0.5 is about 6 times the server work and 4 times the data sent to players of 1, 0.25 about 32 and 16 times (for a few small streams only). Changing it moves the water already there to the new grid.", new AcceptableValueList<float>(TileData.CellSizes)));
         StepsPerSecond = config.Bind("Server", "StepsPerSecond", 15, new ConfigDescription("Simulation steps per second with one-metre cells; smaller cells step proportionally more often (30 for 0.5, 60 for 0.25).", new AcceptableValueRange<int>(2, 30)));
         Friction = config.Bind("Server", "Friction", 0.5f, new ConfigDescription("How fast a flow loses its momentum, per second, besides the bed's drag. Lower keeps pools sloshing longer; higher settles them sooner.", new AcceptableValueRange<float>(0f, 5f)));
+        Erosion = config.Bind("Server", "Erosion", false, "Running water wears the ground away where it runs fast and lays it down where it slows, so streams slowly cut their own beds. In progress: the change stays in the simulation (players' ground does not change yet) and is forgotten on restart.");
+        ErosionSpeed = config.Bind("Server", "ErosionSpeed", 1f, new ConfigDescription("How fast erosion goes (1 = millimetres a minute in a fast stream); higher to watch it happen, for testing.", new AcceptableValueRange<float>(0.1f, 1000f)));
         BedRoughness = config.Bind("Server", "BedRoughness", 0.04f, new ConfigDescription("How rough the ground is under running water (Manning's n): the drag that slows shallow water much more than deep, so a stream gathers into a deeper, slower channel instead of a fast film. 0.03 smooth channel, 0.04 natural stream, 0.08 grass; 0 = no drag.", new AcceptableValueRange<float>(0f, 0.2f)));
         SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed water tile is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
         MaxTiles = config.Bind("Server", "MaxTiles", 256, new ConfigDescription("Most zones that may hold water at once (each is 64 by 64 metres). Water stops spreading beyond.", new AcceptableValueRange<int>(1, 4096)));
@@ -41,6 +43,10 @@ internal sealed class Settings
     public ConfigEntry<float> Friction { get; }
 
     public ConfigEntry<float> BedRoughness { get; }
+
+    public ConfigEntry<bool> Erosion { get; }
+
+    public ConfigEntry<float> ErosionSpeed { get; }
 
     public ConfigEntry<float> SendSeconds { get; }
 
