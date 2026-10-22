@@ -121,6 +121,7 @@ public class VoxelFieldTests
         // The middle corner is among water all round, an outer one at the shore.
         int middle = mesh.Vertices.FindIndex(v => v.X == 3f && v.Z == 3f && v.Y > 0.01f);
         int outer = mesh.Vertices.FindIndex(v => v.X == 2f && v.Z == 2f && v.Y > 0.01f);
+        Assert.Equal(0.5f, mesh.Depths[middle], 4);
         Assert.Equal(1f, mesh.Shores[middle]);
         Assert.Equal(0.25f, mesh.Shores[outer]);
     }
