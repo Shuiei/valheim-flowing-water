@@ -20,6 +20,7 @@
     <Compile Include="../../src/Client/WhiteWaterMix.cs" Link="Mod/WhiteWaterMix.cs" />
     <Compile Include="../../src/Client/WaterSounds.cs" Link="Mod/WaterSounds.cs" />
     <Compile Include="../../src/Server/ErosionRules.cs" Link="Mod/ErosionRules.cs" />
+    <Compile Include="../../src/Server/ZoneScan.cs" Link="Mod/ZoneScan.cs" />
     <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />

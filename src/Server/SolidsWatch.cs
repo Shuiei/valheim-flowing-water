@@ -38,17 +38,11 @@ internal sealed class SolidsWatch
 
     private readonly List<Bounds> _regions = [];
 
-    private readonly List<ZDO> _found = [];
-
-    // The zones still to look at this time round, the one being looked at, how far into its objects, and its pieces
-    // found so far (a cleared dictionary kept to be used again).
-    private readonly Queue<Vector2s> _toLook = new();
+    // Each round of looking, spread over frames; a zone's pieces found so far (a cleared dictionary kept to be used
+    // again).
+    private readonly ZoneScan<Vector2s, ZDO> _scan;
 
     private readonly System.Diagnostics.Stopwatch _lookWatch = new();
-
-    private Vector2s _looking;
-
-    private int _foundAt = -1;
 
     private Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> _now = [];
 
@@ -59,6 +53,7 @@ internal sealed class SolidsWatch
     {
         _solids = solids;
         _terrain = terrain;
+        _scan = new ZoneScan<Vector2s, ZDO>((zone, found) => ZDOMan.instance.FindSectorObjects(zone, new SimulationDistance(0, 0), found), Read, Looked, PartObjects);
         ZDOMan.instance.m_onZDODestroyed += Destroyed;
     }
 
@@ -76,21 +71,14 @@ internal sealed class SolidsWatch
     public int Update(float dt, VoxelGrid grid)
     {
         _timer += dt;
-        if (_timer >= LookSeconds && _toLook.Count == 0 && _foundAt < 0)
+        if (_timer >= LookSeconds && !_scan.Busy)
         {
             _timer = 0f;
-            foreach (Vector2s zone in Zones(grid))
-            {
-                _toLook.Enqueue(zone);
-            }
+            _scan.Start(Zones(grid));
         }
 
         _lookWatch.Restart();
-        do
-        {
-            LookPart();
-        }
-        while ((_foundAt >= 0 || _toLook.Count > 0) && _lookWatch.Elapsed.TotalMilliseconds < LookBudget);
+        _scan.Run(() => _lookWatch.Elapsed.TotalMilliseconds < LookBudget);
 
         if (_regions.Count == 0)
         {
@@ -135,40 +123,13 @@ internal sealed class SolidsWatch
         }
     }
 
-    // A part of the look: the next zone's objects found, or the next PartObjects of them read, or, once all are, what
-    // changed in the zone since last looked at (each piece built, gone, moved, turned, opened or closed, and the
-    // ground). An object destroyed meanwhile is read as it is now (a different object, or none): at worst a change
-    // that was none.
-    private void LookPart()
+    // One object of a zone looked at: a piece's place, reach, turn and state. One destroyed since it was found is
+    // left out, or read as whatever object it is now: at worst a change that was none.
+    private void Read(ZDO zdo)
     {
-        if (_foundAt < 0)
+        if (zdo.IsValid() && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
-            if (_toLook.Count == 0)
-            {
-                return;
-            }
-
-            _looking = _toLook.Dequeue();
-            _found.Clear();
-            ZDOMan.instance.FindSectorObjects(_looking, new SimulationDistance(0, 0), _found);
-            _foundAt = 0;
-            return;
-        }
-
-        int end = System.Math.Min(_found.Count, _foundAt + PartObjects);
-        for (; _foundAt < end; _foundAt++)
-        {
-            ZDO zdo = _found[_foundAt];
-            if (zdo.IsValid() && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
-            {
-                _now[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)));
-            }
-        }
-
-        if (_foundAt == _found.Count)
-        {
-            _foundAt = -1;
-            Looked(_looking);
+            _now[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)));
         }
     }
 
