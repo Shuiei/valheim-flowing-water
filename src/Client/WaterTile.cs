@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using FlowingWater.Server;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -531,7 +530,7 @@ internal sealed class WaterTile : MonoBehaviour
         if (zdo.DataRevision != _revision)
         {
             _revision = zdo.DataRevision;
-            byte[] data = zdo.GetByteArray(WaterServer.DataHash);
+            byte[] data = zdo.GetByteArray(ZdoKeys.Data);
             if (data != null && _target.Decode(data))
             {
                 if (_target.Size != _size)

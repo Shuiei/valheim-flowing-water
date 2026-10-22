@@ -6,7 +6,8 @@ namespace FlowingWater;
 
 /// <summary>
 /// The plugin's networked objects, made in code (no asset bundle) and added to the game's prefab
-/// list each time a world opens: a water tile per zone with water, and the source and drain markers.
+/// list each time a world opens: a water brick per 16-voxel cube with water (and the zone tiles of the column
+/// water before it, read once to move their water over), the source and drain markers, erosion's ground.
 /// </summary>
 internal static class Prefabs
 {
@@ -18,6 +19,8 @@ internal static class Prefabs
 
     public const string GroundName = "FlowingWater_Ground";
 
+    public const string BrickName = "FlowingWater_Brick";
+
     public const string WaterLayer = "WaterVolume";
 
     public static readonly int TileHash = TileName.GetStableHashCode();
@@ -27,6 +30,8 @@ internal static class Prefabs
     public static readonly int DrainHash = DrainName.GetStableHashCode();
 
     public static readonly int GroundHash = GroundName.GetStableHashCode();
+
+    public static readonly int BrickHash = BrickName.GetStableHashCode();
 
     private static GameObject _root;
 
@@ -80,6 +85,7 @@ internal static class Prefabs
         Networked(SourceName).AddComponent<Marker>().IsDrain = false;
         Networked(DrainName).AddComponent<Marker>().IsDrain = true;
         Networked(GroundName).AddComponent<GroundChanges>();
+        Networked(BrickName);
     }
 
     private static GameObject Networked(string name)

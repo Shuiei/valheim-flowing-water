@@ -24,7 +24,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     private Harmony _harmony;
 
-    private WaterServer _server;
+    private VoxelServer _server;
 
     internal static ManualLogSource Log { get; private set; }
 
@@ -53,6 +53,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
             if (_server != null)
             {
                 Logger.LogInfo("World closed: water simulation stopped");
+                _server.Close();
                 _server = null;
             }
 
@@ -72,7 +73,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
                 return;
             }
 
-            _server = new WaterServer();
+            _server = new VoxelServer();
             Logger.LogInfo("World open: water simulation started");
         }
 
@@ -86,6 +87,6 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _harmony?.UnpatchSelf();
     }
 
-    // Erosion's latest change goes into the world before it is saved (it is otherwise written once a minute).
-    private void OnWorldSave() => _server?.WriteGrounds();
+    // The water's latest state goes into the world before it is saved (it is otherwise sent every SendSeconds).
+    private void OnWorldSave() => _server?.Publish();
 }

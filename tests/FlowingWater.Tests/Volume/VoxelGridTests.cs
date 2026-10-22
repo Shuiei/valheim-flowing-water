@@ -122,6 +122,20 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void NoMoreBricksThanAllowedAreMadeForTheWater()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 2 };
+        grid.Get(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+
+        grid.MakeWanted();
+
+        Assert.Equal(2, grid.Bricks.Count);
+        Assert.True(grid.Capped);
+    }
+
+    [Fact]
     public void ABrickHoldingOnlyATraceTooSmallToFlowIsForgotten()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000));

@@ -41,6 +41,12 @@ internal sealed class VoxelGrid
     /// <summary>A voxel's volume, cubic metres.</summary>
     public float VoxelVolume => VoxelSize * VoxelSize * VoxelSize;
 
+    /// <summary>The most bricks there may be: water asking for more stays where it is.</summary>
+    public int MaxBricks { get; set; } = int.MaxValue;
+
+    /// <summary>Whether water has asked for a brick beyond <see cref="MaxBricks"/> (it stopped spreading).</summary>
+    public bool Capped { get; private set; }
+
     /// <summary>The bricks there are.</summary>
     public IReadOnlyCollection<Brick> Bricks => _bricks.Values;
 
@@ -165,6 +171,12 @@ internal sealed class VoxelGrid
 
         foreach (long key in wanted)
         {
+            if (_bricks.Count >= MaxBricks)
+            {
+                Capped = true;
+                return;
+            }
+
             Get(Unpack(key >> 42), Unpack(key >> 21), Unpack(key));
         }
     }
