@@ -24,6 +24,7 @@
     <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />
+    <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
     <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
   </ItemGroup>

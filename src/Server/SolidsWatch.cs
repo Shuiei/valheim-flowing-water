@@ -87,7 +87,7 @@ internal sealed class SolidsWatch
         if (_timer >= LookSeconds && !_scan.Busy)
         {
             _timer = 0f;
-            _scan.Start(Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest)));
+            _scan.Start(Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest) + grid.VoxelSize));
         }
 
         _lookWatch.Restart();
@@ -201,7 +201,8 @@ internal sealed class SolidsWatch
         _regions.Add(new Bounds(at, Vector3.one * (2f * reach)));
     }
 
-    // The zones a piece of which may reach a brick: those under each brick, or within a piece's reach of it.
+    // The zones a piece of which may reach a brick or the voxel round it: those under each brick, or within that far
+    // of it.
     private static HashSet<Vector2s> Zones(VoxelGrid grid, float reach)
     {
         var zones = new HashSet<Vector2s>();
