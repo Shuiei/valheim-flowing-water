@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Threading.Tasks;
 using FlowingWater.Volume;
 using UnityEngine;
 
@@ -11,7 +12,8 @@ namespace FlowingWater.Client;
 /// A brick of the 3D water on a player's game: reads the brick's data when the server changes it, keeps it in
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
 /// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
-/// depend on it).
+/// depend on it). The surface is built on another thread, from the bricks it reads as they were then; only handing
+/// it to the mesh is done in the game's frame.
 /// </summary>
 internal sealed class WaterBrick : MonoBehaviour
 {
@@ -45,6 +47,8 @@ internal sealed class WaterBrick : MonoBehaviour
     private bool _dirty;
 
     private float _drawnAt;
+
+    private Task<Shape> _building;
 
     // Every brick is drawn again with the other material when the shader setting changes.
     private static void WatchSetting()
@@ -95,11 +99,17 @@ internal sealed class WaterBrick : MonoBehaviour
             Read(zdo.GetByteArray(ZdoKeys.Brick));
         }
 
-        if (_dirty && Time.time - _drawnAt >= RedrawSeconds && InBudget())
+        if (_building is { IsCompleted: true } && InBudget())
         {
             FrameDrawing.Start();
-            Draw();
+            Apply(_building);
             FrameDrawing.Stop();
+            _building = null;
+        }
+
+        if (_dirty && _building == null && Time.time - _drawnAt >= RedrawSeconds)
+        {
+            Build();
         }
     }
 
@@ -117,6 +127,11 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             Destroy(_mesh);
         }
+
+        // A surface still being built is not drawn; a failure to build it is still told (where, read here: the
+        // telling is on another thread).
+        Vector3 at = transform.position;
+        _building?.ContinueWith(task => Failed(task, at), TaskContinuationOptions.OnlyOnFaulted);
     }
 
     private void Read(byte[] data)
@@ -172,46 +187,86 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
-    private void Draw()
+    // The surface over the brick, built on another thread from the bricks round it as they are now.
+    private void Build()
     {
         _dirty = false;
         _drawnAt = Time.time;
-        Material material = Material();
-        if (_view == null || material == null)
+        if (_view == null)
         {
             return;
         }
 
-        SurfaceMesh surface = VoxelSurface.Build(VoxelWater.Field, _view);
+        BrickView view = _view;
+        VoxelField near = VoxelWater.Field.Near(view);
         Vector3 origin = transform.position;
-        var vertices = new List<Vector3>(surface.Vertices.Count);
-        var world = new List<Vector2>(surface.Vertices.Count);
-        var water = new List<Vector4>(surface.Vertices.Count);
-        var current = new List<Vector2>(surface.Vertices.Count);
-        for (int i = 0; i < surface.Vertices.Count; i++)
-        {
-            Vec3 v = surface.Vertices[i];
-            vertices.Add(new Vector3(v.X, v.Y, v.Z) - origin);
+        _building = Task.Run(() => Shape.Of(near, view, origin));
+    }
 
-            // Ripples on the sides run up them: their texture shifts with height.
-            world.Add(new Vector2(v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f)));
-            water.Add(new Vector4(surface.Depths[i], 0f, surface.Shores[i], 0f));
-            current.Add(new Vector2(surface.Velocities[i].X, surface.Velocities[i].Z));
+    // A built surface handed to the mesh.
+    private void Apply(Task<Shape> task)
+    {
+        if (task.IsFaulted)
+        {
+            Failed(task, transform.position);
+            return;
         }
 
+        Material material = Material();
+        if (material == null)
+        {
+            return;
+        }
+
+        Shape shape = task.Result;
         _mesh.Clear();
-        _mesh.indexFormat = vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
-        _mesh.SetVertices(vertices);
-        _mesh.SetUVs(0, world);
-        _mesh.SetUVs(1, water);
-        _mesh.SetUVs(2, current);
-        _mesh.SetTriangles(surface.Triangles, 0);
+        _mesh.indexFormat = shape.Vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
+        _mesh.SetVertices(shape.Vertices);
+        _mesh.SetUVs(0, shape.World);
+        _mesh.SetUVs(1, shape.Water);
+        _mesh.SetUVs(2, shape.Current);
+        _mesh.SetTriangles(shape.Triangles, 0);
         _mesh.RecalculateNormals();
         _mesh.RecalculateTangents();
         _mesh.RecalculateBounds();
         _renderer.sharedMaterial = material;
     }
 
+    private static void Failed(Task task, Vector3 at) =>
+        FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({task.Exception?.GetBaseException()})");
+
     private static Material Material() =>
         FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
+
+    // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries.
+    private sealed class Shape
+    {
+        public List<Vector3> Vertices { get; } = [];
+
+        public List<Vector2> World { get; } = [];
+
+        public List<Vector4> Water { get; } = [];
+
+        public List<Vector2> Current { get; } = [];
+
+        public List<int> Triangles { get; private set; } = [];
+
+        public static Shape Of(VoxelField field, BrickView view, Vector3 origin)
+        {
+            SurfaceMesh surface = VoxelSurface.Build(field, view);
+            var shape = new Shape { Triangles = surface.Triangles };
+            for (int i = 0; i < surface.Vertices.Count; i++)
+            {
+                Vec3 v = surface.Vertices[i];
+                shape.Vertices.Add(new Vector3(v.X, v.Y, v.Z) - origin);
+
+                // Ripples on the sides run up them: their texture shifts with height.
+                shape.World.Add(new Vector2(v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f)));
+                shape.Water.Add(new Vector4(surface.Depths[i], 0f, surface.Shores[i], 0f));
+                shape.Current.Add(new Vector2(surface.Velocities[i].X, surface.Velocities[i].Z));
+            }
+
+            return shape;
+        }
+    }
 }

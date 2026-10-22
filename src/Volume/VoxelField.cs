@@ -27,6 +27,32 @@ internal sealed class VoxelField
         _bricks[VoxelGrid.Key(view.X, view.Y, view.Z)] = view;
     }
 
+    /// <summary>
+    /// A field of only the bricks <see cref="VoxelSurface.Build"/> reads for this one, to build its surface away from
+    /// this field (on another thread, while this one changes): those round it, the one over them, and those under
+    /// them as far down as a column's depth is measured (from a top as low as a voxel under the brick).
+    /// </summary>
+    public VoxelField Near(BrickView view)
+    {
+        var near = new VoxelField { VoxelSize = view.VoxelSize };
+        for (int dy = -(VoxelSurface.DeepestColumn / Brick.Size) - 1; dy <= 1; dy++)
+        {
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    long key = VoxelGrid.Key(view.X + dx, view.Y + dy, view.Z + dz);
+                    if (_bricks.TryGetValue(key, out BrickView brick))
+                    {
+                        near._bricks[key] = brick;
+                    }
+                }
+            }
+        }
+
+        return near;
+    }
+
     /// <summary>Forgets a brick (its object is gone).</summary>
     public void Remove(int x, int y, int z) => _bricks.Remove(VoxelGrid.Key(x, y, z));
 

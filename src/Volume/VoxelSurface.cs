@@ -14,6 +14,9 @@ internal static class VoxelSurface
 {
     private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
+    /// <summary>The most voxels down a column's depth is measured, under its top.</summary>
+    public const int DeepestColumn = 64;
+
     /// <summary>The 26 bricks round one, as offsets in bricks.</summary>
     public static IReadOnlyList<(int X, int Y, int Z)> Round { get; } = [.. Offsets()];
 
@@ -188,7 +191,7 @@ internal static class VoxelSurface
     private static float Depth(VoxelField field, int x, int top, int z)
     {
         int bottom = top;
-        while (field.GoesUp(x, bottom - 1, z) && top - bottom < 64)
+        while (field.GoesUp(x, bottom - 1, z) && top - bottom < DeepestColumn)
         {
             bottom--;
         }
