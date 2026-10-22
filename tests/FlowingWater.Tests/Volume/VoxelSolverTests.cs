@@ -273,6 +273,30 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStepFindsTheBoxOfTheWetVoxels()
+    {
+        // Water poured in two corners of a closed box falls to its floor: the wet box spans both, one row high.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        grid.Pour(1, 4, 2, 0.5f);
+        grid.Pour(6, 3, 5, 0.5f);
+
+        Run(grid, 1f);
+
+        Brick brick = grid.Find(0, 0, 0);
+        Assert.Equal(0, brick.WetLow.Y);
+        Assert.Equal(0, brick.WetHigh.Y);
+        Assert.True(brick.WetLow.X <= 1 && brick.WetHigh.X >= 6, $"x {brick.WetLow.X}..{brick.WetHigh.X}");
+        Assert.True(brick.WetLow.Z <= 2 && brick.WetHigh.Z >= 5, $"z {brick.WetLow.Z}..{brick.WetHigh.Z}");
+        Assert.All(Enumerable.Range(0, Brick.Count).Where(i => brick.Water[i] > Brick.Dry), i =>
+        {
+            (int x, int y, int z) = Brick.Place(i);
+            Assert.InRange(x, brick.WetLow.X, brick.WetHigh.X);
+            Assert.InRange(y, brick.WetLow.Y, brick.WetHigh.Y);
+            Assert.InRange(z, brick.WetLow.Z, brick.WetHigh.Z);
+        });
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
