@@ -95,12 +95,39 @@ internal sealed class VoxelGrid
         return brick != null;
     }
 
-    /// <summary>Pours this much water into voxel (x, y, z), cubic metres (its brick made if needed).</summary>
-    public void Pour(int x, int y, int z, float cubicMetres)
+    /// <summary>
+    /// The brick at these brick coordinates for water to go in: made (with its solids) if there was none and fewer
+    /// than <see cref="MaxBricks"/> are; null when that many are (<see cref="Capped"/> is then set).
+    /// </summary>
+    public Brick Make(int x, int y, int z)
     {
-        Brick brick = Get(x >> 4, y >> 4, z >> 4);
+        InReach(x, y, z);
+        if (Find(x, y, z) is { } found)
+        {
+            return found;
+        }
+
+        if (_bricks.Count >= MaxBricks)
+        {
+            Capped = true;
+            return null;
+        }
+
+        return Get(x, y, z);
+    }
+
+    /// <summary>Pours this much water into voxel (x, y, z), cubic metres (its brick made if needed).</summary>
+    /// <returns>False when its brick could not be made (<see cref="MaxBricks"/>): nothing poured.</returns>
+    public bool Pour(int x, int y, int z, float cubicMetres)
+    {
+        if (Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+        {
+            return false;
+        }
+
         brick.Water[Brick.Index(x & 15, y & 15, z & 15)] += cubicMetres / VoxelVolume;
         brick.EmptyFor = 0f;
+        return true;
     }
 
     /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where there is no brick.</summary>
@@ -136,24 +163,31 @@ internal sealed class VoxelGrid
             if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)
             {
                 (int x, int y, int z) = Brick.Place(i);
-                Lift((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z, brick.Water[i]);
-                brick.Water[i] = 0f;
+                if (Lift((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z, brick.Water[i]))
+                {
+                    brick.Water[i] = 0f;
+                }
             }
         }
     }
 
-    // Water out of solid voxel (x, y, z) into the first open voxel over it (bricks made as it climbs).
-    private void Lift(int x, int y, int z, float water)
+    // Water out of solid voxel (x, y, z) into the first open voxel over it (bricks made as it climbs); false when a
+    // brick it needs cannot be made (MaxBricks): the water stays where it is.
+    private bool Lift(int x, int y, int z, float water)
     {
         for (int up = y + 1; ; up++)
         {
-            Brick brick = Get(x >> 4, up >> 4, z >> 4);
+            if (Make(x >> 4, up >> 4, z >> 4) is not { } brick)
+            {
+                return false;
+            }
+
             int i = Brick.Index(x & 15, up & 15, z & 15);
             if (brick.Solid[i] < 1f)
             {
                 brick.Water[i] += water;
                 brick.EmptyFor = 0f;
-                return;
+                return true;
             }
         }
     }
@@ -218,10 +252,14 @@ internal sealed class VoxelGrid
         }
     }
 
+    /// <summary>Whether a brick at these brick coordinates is within the grid's reach (<see cref="MaxBrick"/>).</summary>
+    public static bool Within(int x, int y, int z) =>
+        x >= -MaxBrick && x <= MaxBrick && y >= -MaxBrick && y <= MaxBrick && z >= -MaxBrick && z <= MaxBrick;
+
     // A brick farther than the key can tell apart would share another's: refused before any lookup.
     private static void InReach(int x, int y, int z)
     {
-        if (x < -MaxBrick || x > MaxBrick || y < -MaxBrick || y > MaxBrick || z < -MaxBrick || z > MaxBrick)
+        if (!Within(x, y, z))
         {
             throw new ArgumentOutOfRangeException(nameof(x), $"brick {x}, {y}, {z} is beyond the grid's reach ({MaxBrick} bricks from the world's zero)");
         }
