@@ -184,6 +184,23 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void ATraceSettlingIntoASleepingPoolCountsAChangeWithoutWakingIt()
+    {
+        // As in the test above, but too little water to wake the pool: its data still changed.
+        VoxelGrid grid = StillPool(13, 2.5f, out VoxelSolver solver);
+        Brick pool = grid.Find(0, 0, 0);
+        int before = pool.Changes;
+        grid.Locate(3, 16, 3, out Brick above, out int i);
+        above.Water[i] = 5e-5f;
+        above.Quiet = 0;
+
+        solver.Step(0.1f);
+
+        Assert.True(pool.Asleep);
+        Assert.NotEqual(before, pool.Changes);
+    }
+
+    [Fact]
     public void SleepingBricksBesideAwakeOnesKeepTheVolume()
     {
         // A pool three bricks long; once it is still, its east end is fed a little every step (awake), the rest sleeps.
