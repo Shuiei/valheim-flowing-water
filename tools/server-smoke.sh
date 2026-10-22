@@ -7,7 +7,7 @@
 #   1. FlowingWater loads, starts its simulation when the world opens, finds the fixed sources, and the
 #      water of one on dry ground stays in its zone (the depth maps DebugSeconds logs, 20 s in); no
 #      error, warning or exception of its own
-#   2. after a restart, the water saved with the world is loaded again
+#   2. after a restart, the water saved with the world (its bricks) is loaded again
 # Usage: tools/server-smoke.sh <server> <package.zip>   (needs curl and unzip; changes <server>)
 # The logs of both runs are left in <server>/smoke-logs/ (CI keeps them as artifacts).
 set -euo pipefail
@@ -88,14 +88,14 @@ echo "Run 'water': a new world with fixed sources"
 expect water "$name $version loaded" "Loading \[$name $escaped\]"
 expect water "the simulation started with the world" "World open: water simulation started"
 expect water "the fixed sources found" "Water: 9 sources and drains"
-expect water "the water made zones' tiles" "Water reached zone"
+expect water "the water made bricks" "Water: [1-9][0-9]* bricks of"
 expect water "a zone's depth map, with water in it" "$wet"
 expect water "no error or warning from $name" ! "^\[(Error|Fatal|Warning) *: *$name\]"
 expect water "no exception in $name" ! "at FlowingWater\."
 
-run reload 'Water: [0-9]+ tiles loaded' 600
+run reload 'Water: [0-9]+ bricks of [0-9.]+ m voxels, [0-9.]+ m³ read' 600
 echo "Run 'reload': the same world again"
-expect reload "the saved water loaded" "Water: [1-9][0-9]* tiles loaded, [1-9][0-9]*\.[0-9] m³"
+expect reload "the saved water loaded" "Water: [1-9][0-9]* bricks of [0-9.]+ m voxels, [1-9][0-9]*\.[0-9] m³ read from bricks"
 expect reload "no error or warning from $name" ! "^\[(Error|Fatal|Warning) *: *$name\]"
 expect reload "no exception in $name" ! "at FlowingWater\."
 

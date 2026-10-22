@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.IO.Compression;
 
 namespace FlowingWater.Volume;
 
@@ -22,86 +21,67 @@ internal static class BrickData
     /// <summary>The brick as bytes.</summary>
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
-    public static byte[] Encode(Brick brick, float voxelSize)
+    public static byte[] Encode(Brick brick, float voxelSize) => Packed.Write(writer =>
     {
-        using var packed = new MemoryStream();
-        using (var gzip = new GZipStream(packed, CompressionMode.Compress, leaveOpen: true))
-        using (var writer = new BinaryWriter(gzip))
-        {
-            writer.Write(FormatVersion);
-            writer.Write(brick.X);
-            writer.Write(brick.Y);
-            writer.Write(brick.Z);
-            writer.Write(voxelSize);
-            // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
-            byte[] water = new byte[Brick.Count];
-            for (int i = 0; i < Brick.Count; i++)
-            {
-                water[i] = (byte)Math.Min(255, (int)Math.Round(brick.Water[i] * Full));
-            }
+        writer.Write(FormatVersion);
+        writer.Write(brick.X);
+        writer.Write(brick.Y);
+        writer.Write(brick.Z);
+        writer.Write(voxelSize);
 
-            writer.Write(water);
-            float area = voxelSize * voxelSize;
-            for (int i = 0; i < Brick.Count; i++)
-            {
-                if (water[i] > 0)
-                {
-                    (float x, float y, float z) = Velocity(brick, i, area);
-                    writer.Write((byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f));
-                    writer.Write(SpeedByte(x));
-                    writer.Write(SpeedByte(y));
-                    writer.Write(SpeedByte(z));
-                }
-            }
+        // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
+        byte[] water = new byte[Brick.Count];
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            water[i] = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(brick.Water[i] * Full)));
         }
 
-        return packed.ToArray();
-    }
+        writer.Write(water);
+        float area = voxelSize * voxelSize;
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            if (water[i] > 0)
+            {
+                (float x, float y, float z) = Velocity(brick, i, area);
+                writer.Write((byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f));
+                writer.Write(SpeedByte(x));
+                writer.Write(SpeedByte(y));
+                writer.Write(SpeedByte(z));
+            }
+        }
+    });
 
     /// <summary>The brick kept by <see cref="Encode"/>.</summary>
     /// <exception cref="InvalidDataException">The bytes are not that (or of another version).</exception>
-    public static BrickView Decode(byte[] data)
+    public static BrickView Decode(byte[] data) => Packed.Read(data, "brick data", reader =>
     {
-        try
+        byte version = reader.ReadByte();
+        if (version != FormatVersion)
         {
-            using var gzip = new GZipStream(new MemoryStream(data), CompressionMode.Decompress);
-            using var reader = new BinaryReader(gzip);
-            byte version = reader.ReadByte();
-            if (version != FormatVersion)
-            {
-                throw new InvalidDataException($"brick data version {version}, expected {FormatVersion}");
-            }
-
-            var view = new BrickView(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadSingle());
-            byte[] water = reader.ReadBytes(Brick.Count);
-            if (water.Length < Brick.Count)
-            {
-                throw new EndOfStreamException();
-            }
-
-            for (int i = 0; i < Brick.Count; i++)
-            {
-                view.Water[i] = water[i] / Full;
-            }
-
-            for (int i = 0; i < Brick.Count; i++)
-            {
-                if (water[i] > 0)
-                {
-                    view.Solid[i] = reader.ReadByte() / 255f;
-                    view.VelocityX[i] = Speed(reader.ReadSByte());
-                    view.VelocityY[i] = Speed(reader.ReadSByte());
-                    view.VelocityZ[i] = Speed(reader.ReadSByte());
-                }
-            }
-
-            return view;
+            throw new InvalidDataException($"brick data version {version}, expected {FormatVersion}");
         }
-        catch (EndOfStreamException e)
+
+        var view = new BrickView(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadSingle());
+        byte[] water = reader.ReadBytes(Brick.Count);
+        if (water.Length < Brick.Count)
         {
-            throw new InvalidDataException("brick data cut short", e);
+            throw new EndOfStreamException();
         }
-    }
+
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            view.Water[i] = water[i] / Full;
+            if (water[i] > 0)
+            {
+                view.Solid[i] = reader.ReadByte() / 255f;
+                view.VelocityX[i] = Speed(reader.ReadSByte());
+                view.VelocityY[i] = Speed(reader.ReadSByte());
+                view.VelocityZ[i] = Speed(reader.ReadSByte());
+            }
+        }
+
+        return view;
+    });
 
     /// <summary>
     /// A voxel's velocity, metres a second: the mean of what flows through its two faces on each axis, over a face's
