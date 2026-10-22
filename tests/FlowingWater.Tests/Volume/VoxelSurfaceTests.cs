@@ -24,6 +24,17 @@ public class VoxelSurfaceTests
     }
 
     [Fact]
+    public void AChangeOfSolidAloneTouchesToo()
+    {
+        // The same water on a floor raised by a piece: the brick beside it sees the water stand higher.
+        BrickView was = View((15, 5, 5, 0.5f));
+        BrickView now = View((15, 5, 5, 0.5f));
+        now.Solid[Brick.Index(15, 5, 5)] = 0.4f;
+
+        Assert.Contains((1, 0, 0), VoxelSurface.Touched(was, now));
+    }
+
+    [Fact]
     public void AChangeInsideTouchesOnlyTheBrickOverIt()
     {
         Assert.Equal([(0, 1, 0)], VoxelSurface.Touched(View((5, 5, 5, 0.5f)), View((5, 5, 5, 0.6f))));
