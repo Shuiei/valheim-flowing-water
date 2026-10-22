@@ -106,11 +106,14 @@ internal sealed class VoxelField
         return Level(vx, vy, vz);
     }
 
-    /// <summary>The water's velocity at a point in it, metres a second (x east, y up, z north); false where dry.</summary>
+    /// <summary>
+    /// The water's velocity at a point in it, metres a second (x east, y up, z north); false where dry, and over the
+    /// water's surface.
+    /// </summary>
     public bool VelocityAt(float x, float y, float z, out float vx, out float vy, out float vz)
     {
         vx = vy = vz = 0f;
-        if (!Wettest(x, y, z, out int ix, out int iy, out int iz))
+        if (!Wettest(x, y, z, out int ix, out int iy, out int iz) || y > SurfaceAt(x, y, z))
         {
             return false;
         }
@@ -123,7 +126,8 @@ internal sealed class VoxelField
         return true;
     }
 
-    // The wet voxel a point is in, or the one under it when the point is just over the water.
+    // The wet voxel a point is in, or the one under it when the point is just over the water; none for a point in a
+    // wet voxel's solid share, under its floor (inside a raised floor, not in the water on it).
     private bool Wettest(float x, float y, float z, out int vx, out int vy, out int vz)
     {
         float s = VoxelSize;
@@ -132,7 +136,7 @@ internal sealed class VoxelField
         vz = (int)Math.Floor(z / s);
         if (IsWet(vx, vy, vz))
         {
-            return true;
+            return y >= Floor(vx, vy, vz);
         }
 
         vy--;
