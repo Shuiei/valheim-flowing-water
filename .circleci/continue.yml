@@ -13,6 +13,12 @@
 #   server-smoke   the package in a real dedicated server with BepInExPack (tools/server-smoke.sh): it
 #                  loads, simulates a fixed source's water with no error, and loads the saved water again
 #                  after a restart
+#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests); on main, with their
+#                  code coverage, kept for the coverage job
+#   coverage       on main only, once unit-tests has passed: sends the coverage to Codecov (codecov.yml), which
+#                  fails its own check (codecov/project) under 95% line coverage. A failed test run sends
+#                  nothing, so Codecov never shows the coverage of part of the tests. Branches and pull
+#                  requests run the tests without it, as the Valheim world editor's pipeline does
 # When a release is due (main, a release pull request's commit "Release v<VERSION>", VERSION's CHANGELOG
 # heading dated, no tag for it yet), the release workflow runs instead, and nothing in it runs before the
 # approval (the checks ran on the pull request, which main's ruleset keeps up to date with main):
@@ -29,6 +35,11 @@
 # game client; check those in the game before releasing. The shader bundles are built by Unity by hand
 # (README.md, Building) and committed.
 version: 2.1
+
+orbs:
+  # Codecov's official orb: uploads the coverage with Codecov's CLI, checked against its signature (needs gpg).
+  # The token is the project's CODECOV_TOKEN. Any 6.x (the latest); a new major version is taken by hand.
+  codecov: codecov/codecov@6
 
 parameters:
   # Set by .circleci/config.yml: true on main when VERSION is ready to be released and not tagged yet.
@@ -141,7 +152,51 @@ jobs:
       - checkout
       - run:
           name: Unit tests
-          command: dotnet test --project tests/FlowingWater.Tests -c Release
+          command: |
+            # On main only, the tests' code coverage (tests/coverage.runsettings: the mod's rules, in
+            # tests/FlowingWater.Rules), kept for the coverage job.
+            coverage=()
+            if [ "$CIRCLE_BRANCH" = main ]; then
+              coverage=(--coverage --coverage-output-format cobertura --coverage-settings "$PWD/tests/coverage.runsettings"
+                --coverage-output /tmp/coverage/coverage.cobertura.xml)
+            fi
+            dotnet test --project tests/FlowingWater.Tests -c Release "${coverage[@]}"
+      # On main, the coverage report, kept for the coverage job. Only when the tests passed: a failed run keeps
+      # nothing, and its job fails, so the coverage job does not run.
+      - when:
+          condition:
+            equal: [main, << pipeline.git.branch >>]
+          steps:
+            - run:
+                name: The coverage report is there
+                command: |
+                  ls /tmp/coverage/coverage.cobertura.xml \
+                    || { echo "No coverage report: Codecov would get nothing."; exit 1; }
+            - persist_to_workspace:
+                root: /tmp/coverage
+                paths:
+                  - coverage.cobertura.xml
+
+  # The unit tests' coverage sent to Codecov: on main only, once unit-tests has passed (workflows). The orb's
+  # fail_on_error does nothing (its set_codecov_envs.sh empties CODECOV_FAIL_ON_ERROR, so the CLI never fails the
+  # step): a missing report is caught before, and a failed upload leaves Codecov with the last figure.
+  coverage:
+    executor: dotnet
+    steps:
+      # Codecov's CLI reads the commit and the repository's files from the checkout.
+      - checkout
+      - run:
+          name: gpg (Codecov's CLI is checked against its signature)
+          command: apt-get update -qq && apt-get install -y -qq gnupg > /dev/null
+      - attach_workspace:
+          at: /tmp/coverage
+      # The report itself, kept with the build: its line-by-line hits show which lines Codecov misses.
+      - store_artifacts:
+          path: /tmp/coverage
+          destination: coverage
+      - codecov/upload:
+          dir: /tmp/coverage
+          plugins: noop
 
   formatting:
     executor: dotnet
@@ -282,6 +337,12 @@ workflows:
           requires:
             - game-dlls
       - unit-tests
+      - coverage:
+          requires:
+            - unit-tests
+          filters:
+            branches:
+              only: main
       - formatting:
           requires:
             - game-dlls
