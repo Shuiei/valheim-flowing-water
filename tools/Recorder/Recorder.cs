@@ -929,7 +929,18 @@ public sealed class Recorder : BaseUnityPlugin
                 string[] v = command.Substring(6).Split(',');
                 Vector3 from = new(Number(v[0]), Number(v[1]), Number(v[2]));
                 Vector3 at = new(Number(v[3]), Number(v[4]), Number(v[5]));
-                yield return command[1] == 's' ? Shot(from, at, v[6]) : Film(from, at, v[6], Number(v[7]), int.Parse(v[8], CultureInfo.InvariantCulture));
+                if (command[1] == 's')
+                {
+                    yield return Shot(from, at, v[6]);
+                }
+                else if (int.Parse(v[8], CultureInfo.InvariantCulture) is int fps && fps >= 1 && Number(v[7]) * fps >= 1f)
+                {
+                    yield return Film(from, at, v[6], Number(v[7]), fps);
+                }
+                else
+                {
+                    Note("film needs at least one frame: " + command);
+                }
             }
             else if (command.StartsWith("!", StringComparison.Ordinal))
             {
