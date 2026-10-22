@@ -14,6 +14,76 @@ internal static class VoxelSurface
 {
     private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
+    /// <summary>The 26 bricks round one, as offsets in bricks.</summary>
+    public static IReadOnlyList<(int X, int Y, int Z)> Round { get; } = [.. Offsets()];
+
+    /// <summary>
+    /// The bricks round one (offsets in bricks) whose surface may change when its water goes from
+    /// <paramref name="was"/> to <paramref name="now"/>: one beside it reads its columns facing it, one under it its
+    /// bottom two layers (its top voxels are tops when no water goes on up through them), one over it any column (the
+    /// depth under that brick's water is measured down through this one).
+    /// All of them when there was none before.
+    /// </summary>
+    public static ICollection<(int X, int Y, int Z)> Touched(BrickView was, BrickView now)
+    {
+        if (was == null)
+        {
+            return [.. Round];
+        }
+
+        var touched = new HashSet<(int X, int Y, int Z)>();
+        for (int i = 0; i < Brick.Count && touched.Count < Round.Count; i++)
+        {
+            if (!Same(was, now, i))
+            {
+                (int x, int y, int z) = Brick.Place(i);
+                AddRound(touched, x, y, z);
+            }
+        }
+
+        return touched;
+    }
+
+    // Whether a voxel's water and solid share are the same in both.
+    private static bool Same(BrickView was, BrickView now, int i) =>
+        was.Water[i].Equals(now.Water[i]) && was.Solid[i].Equals(now.Solid[i]);
+
+    // The bricks a changed voxel at (x, y, z) of a brick touches: beside it only from its border, under it only from
+    // its bottom two layers, over it always.
+    private static void AddRound(HashSet<(int X, int Y, int Z)> touched, int x, int y, int z)
+    {
+        for (int dy = y <= 1 ? -1 : 0; dy <= 1; dy++)
+        {
+            for (int dz = z == 0 ? -1 : 0; dz <= (z == Brick.Size - 1 ? 1 : 0); dz++)
+            {
+                for (int dx = x == 0 ? -1 : 0; dx <= (x == Brick.Size - 1 ? 1 : 0); dx++)
+                {
+                    if (dx != 0 || dy != 0 || dz != 0)
+                    {
+                        touched.Add((dx, dy, dz));
+                    }
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<(int X, int Y, int Z)> Offsets()
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx != 0 || dy != 0 || dz != 0)
+                    {
+                        yield return (dx, dy, dz);
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>The surface over a brick of the field.</summary>
     public static SurfaceMesh Build(VoxelField field, BrickView brick)
     {
