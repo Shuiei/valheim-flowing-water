@@ -139,7 +139,8 @@ internal sealed class VoxelServer
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        Step(dt);
+        // Work that waited for a step under way, or a send due now, gets this frame's end: no new step is begun.
+        Step(dt, _waited > 0f || _sendTimer + dt >= FlowingWaterPlugin.Settings.SendSeconds.Value);
         WarnCapped();
 
         _sendTimer += dt;
@@ -202,8 +203,9 @@ internal sealed class VoxelServer
         }
     }
 
-    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts.
-    private void Step(float dt)
+    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts; with
+    // noNewStep, only the one under way is gone on with.
+    private void Step(float dt, bool noNewStep)
     {
         double budget = FlowingWaterPlugin.Settings.StepBudget.Value;
         _pacer.Add(dt, budget);
@@ -214,7 +216,7 @@ internal sealed class VoxelServer
             if (!_solver.InStep)
             {
                 float step = _solver.MaxStep;
-                if (!_pacer.Take(step))
+                if (noNewStep || !_pacer.Take(step))
                 {
                     break;
                 }
