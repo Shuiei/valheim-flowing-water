@@ -129,6 +129,7 @@ internal sealed class WaterBrick : MonoBehaviour
         if (ByKey.Count == 0)
         {
             Waiting.Clear();
+            Built.Clear();
         }
 
         if (_mesh != null)
@@ -184,10 +185,15 @@ internal sealed class WaterBrick : MonoBehaviour
         _frame = Time.frameCount;
         FrameDrawing.Reset();
         Built.Serve(brick => brick == null || brick._building.Done, InBudget, brick => Timed(brick, b => b.Take()));
-        Waiting.Serve(
-            brick => brick == null || (!brick._building.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
-            InBudget,
-            brick => Timed(brick, b => b.Build()));
+
+        // A build reads the bricks round it in the frame: none once the meshes took the frame's time.
+        if (InBudget())
+        {
+            Waiting.Serve(
+                brick => brick == null || (!brick._building.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
+                InBudget,
+                brick => Timed(brick, b => b.Build()));
+        }
     }
 
     // Whether this frame's drawing time has some left.
