@@ -29,6 +29,14 @@ public sealed class Recorder : BaseUnityPlugin
     // How far from the given point "!remove" looks for the source, metres.
     private const float RemoveReach = 2f;
 
+    // Names Windows keeps for devices.
+    private static readonly HashSet<string> Devices = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+    };
+
     private static Recorder _instance;
 
     private static Vector3? _cameraAt;
@@ -980,10 +988,13 @@ public sealed class Recorder : BaseUnityPlugin
     }
 
     // A name that makes a file in the output folder: not empty, no folder, no "..", nothing a film's ffmpeg list would
-    // need escaped (quotes, line breaks), and not "log" (the recorder's own log.txt is open).
+    // need escaped (quotes, line breaks), not "log" (the recorder's own log.txt is open) and no Windows device.
     private static bool PlainName(string name) =>
         name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\', '\'', '"', '\n', '\r']) < 0
-        && name != "." && name != ".." && !string.Equals(name, "log", StringComparison.OrdinalIgnoreCase);
+        && name != "." && name != ".." && !string.Equals(name, "log", StringComparison.OrdinalIgnoreCase) && !Device(name);
+
+    // Whether Windows takes a file of this name (with any extension after it) for a device, not a file.
+    private static bool Device(string name) => Devices.Contains(name.Split('.')[0].TrimEnd(' '));
 
     // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)
