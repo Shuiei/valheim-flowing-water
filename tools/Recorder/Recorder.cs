@@ -225,7 +225,6 @@ public sealed class Recorder : BaseUnityPlugin
         {
             "cascade" => Cascade(spawn),
             "look" => Look(steep, gentle),
-            "pool" => Pool(steep, FindHollow(spawn), gentle),
             "prep" => Prep(),
             "pools" => Pools(),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
@@ -890,23 +889,6 @@ public sealed class Recorder : BaseUnityPlugin
         }
     }
 
-    // The look on a pool: a hollow's, or, without one, a pit dug with the game's pickaxe 12 m below the gentle
-    // site's spring.
-    private IEnumerator Pool(Site steep, Site hollow, Site gentle)
-    {
-        if (hollow == null)
-        {
-            yield return Go(gentle.At(12f));
-            yield return Dig(gentle.At(12f), 5f, 6);
-        }
-
-        IEnumerator look = Look(steep, hollow ?? gentle);
-        while (look.MoveNext())
-        {
-            yield return look.Current;
-        }
-    }
-
     // A pit this wide, dug with the game's own terrain operation (the pickaxe's) over and over.
     private IEnumerator Dig(Vector3 centre, float radius, int passes)
     {
@@ -947,57 +929,6 @@ public sealed class Recorder : BaseUnityPlugin
 
         ZoneSystem.instance.GetGroundHeight(centre, out float bottom);
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
-    }
-
-    // The nearest hollow in open meadow above the sea, at least a metre below the ground all round it 8 m away, as a site whose
-    // spring (at 0 m) is 12 m uphill of it: the water runs down and fills it, a pool to look at (at 12 m).
-    private Site FindHollow(Vector3 spawn)
-    {
-        WorldGenerator generator = WorldGenerator.instance;
-        float sea = ZoneSystem.instance.m_waterLevel;
-        Site best = null;
-        float bestDistance = float.MaxValue;
-        for (float dz = -300f; dz <= 300f; dz += 3f)
-        {
-            for (float dx = -300f; dx <= 300f; dx += 3f)
-            {
-                float x = spawn.x + dx;
-                float z = spawn.z + dz;
-                float h = generator.GetHeight(x, z);
-                float distance = new Vector2(dx, dz).magnitude;
-                if (h < sea + 5f || distance >= bestDistance || generator.GetBiome(x, z) != Heightmap.Biome.Meadows || WorldGenerator.InForest(new Vector3(x, h, z)) || WorldGenerator.InForest(new Vector3(x, h, z - 12f)))
-                {
-                    continue;
-                }
-
-                // The rim: its lowest point must stand a metre over the bottom; the spring comes from its highest.
-                float lowest = float.MaxValue;
-                float highest = float.MinValue;
-                Vector2 from = Vector2.zero;
-                for (int k = 0; k < 16; k++)
-                {
-                    float angle = k * Mathf.PI / 8f;
-                    var ring = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-                    float rim = generator.GetHeight(x + (ring.x * 8f), z + (ring.y * 8f));
-                    lowest = Mathf.Min(lowest, rim);
-                    if (rim > highest)
-                    {
-                        highest = rim;
-                        from = ring;
-                    }
-                }
-
-                if (lowest - h >= 1f)
-                {
-                    bestDistance = distance;
-                    var down = new Vector3(-from.x, 0f, -from.y);
-                    best = new Site(new Vector3(x, h, z) - (down * 12f), down, (highest - h) / 8f);
-                }
-            }
-        }
-
-        Note(best == null ? "no hollow found: the gentle site instead" : $"hollow {best}");
-        return best;
     }
 
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
