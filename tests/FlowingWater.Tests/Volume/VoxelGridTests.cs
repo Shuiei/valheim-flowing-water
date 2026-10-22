@@ -122,6 +122,21 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void BricksAskedForAreMadeOneAtLeastPerCallWhileTimeIsLeft()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(0));
+        grid.Want(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+
+        grid.MakeWanted(() => false);
+        Assert.Single(grid.Bricks);
+
+        grid.MakeWanted(() => true);
+        Assert.Equal(3, grid.Bricks.Count);
+    }
+
+    [Fact]
     public void NoMoreBricksThanAllowedAreMadeForTheWater()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 2 };

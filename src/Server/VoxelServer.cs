@@ -63,6 +63,9 @@ internal sealed class VoxelServer
 
     private float _dropped;
 
+    // The most a frame spent on the water's steps since last logged, milliseconds.
+    private double _longestFrame;
+
     private readonly Stopwatch _sendWatch = new();
 
     private int _sentCount;
@@ -216,7 +219,9 @@ internal sealed class VoxelServer
             Ended(_solver.Advance(_length, _timeLeft, Chunk));
         }
 
-        _pacer.Spent(_frameWatch.Elapsed.TotalMilliseconds);
+        double spent = _frameWatch.Elapsed.TotalMilliseconds;
+        _pacer.Spent(spent);
+        _longestFrame = Math.Max(_longestFrame, spent);
         _stepWatch.Stop();
         // A hitch gives up a little time now and then; a second of it in all is the water needing more than its
         // budget.
@@ -731,11 +736,12 @@ internal sealed class VoxelServer
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms, sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;
         _dropped = 0f;
+        _longestFrame = 0.0;
         int cells = (int)(TileData.ZoneMetres / MapMetres);
         foreach (KeyValuePair<long, Dictionary<(int X, int Z), float>> zone in depths)
         {

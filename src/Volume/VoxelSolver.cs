@@ -80,6 +80,9 @@ internal sealed class VoxelSolver
 
     private float _headsStiffness;
 
+    // What tells the step under way whether the frame has time left (new bricks are made only while it has).
+    private Func<bool> _stepTimeLeft = Always;
+
     /// <summary>A solver for this grid.</summary>
     public VoxelSolver(VoxelGrid grid)
     {
@@ -123,6 +126,7 @@ internal sealed class VoxelSolver
     /// <returns>Whether the step is done, under way, or to be taken again shorter (it found deeper water).</returns>
     public StepState Advance(float dt, Func<bool> timeLeft, int chunk)
     {
+        _stepTimeLeft = timeLeft;
         if (_phase == Idle)
         {
             if (!Begin())
@@ -166,7 +170,7 @@ internal sealed class VoxelSolver
         Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
         if (Array.TrueForAll(_bricks, b => b.PartCount == 0))
         {
-            _grid.MakeWanted();
+            _grid.MakeWanted(_stepTimeLeft);
             return false;
         }
 
@@ -210,7 +214,7 @@ internal sealed class VoxelSolver
 
         if (_phase == ApplyPhase)
         {
-            _grid.MakeWanted();
+            _grid.MakeWanted(_stepTimeLeft);
             _phase = Idle;
             return StepState.Done;
         }
