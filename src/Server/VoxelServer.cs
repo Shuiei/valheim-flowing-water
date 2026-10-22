@@ -59,6 +59,9 @@ internal sealed class VoxelServer
     // The length of the step under way, seconds.
     private float _length;
 
+    // Seconds the solids watch and forgetting dry bricks have waited for a step under way.
+    private float _waited;
+
     private readonly StepPacer _pacer = new(MostOwed);
 
     private float _dropped;
@@ -125,10 +128,13 @@ internal sealed class VoxelServer
 
         // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
         dt = Mathf.Min(dt, LongestFrame);
+        // Their time waits with them.
+        _waited += dt;
         if (!_solver.InStep)
         {
-            _watch.Update(dt, _grid);
-            _grid.ForgetDry(dt, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
+            _watch.Update(_waited, _grid);
+            _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
+            _waited = 0f;
         }
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
@@ -147,7 +153,7 @@ internal sealed class VoxelServer
         if (debug > 0f)
         {
             _debugTimer += dt;
-            if (_debugTimer >= debug)
+            if (_debugTimer >= debug && !_solver.InStep)
             {
                 _debugTimer = 0f;
                 LogMaps();
