@@ -216,12 +216,20 @@ public sealed class Recorder : BaseUnityPlugin
             spawn = new Vector3(float.Parse(parts[0], CultureInfo.InvariantCulture), 0f, float.Parse(parts[1], CultureInfo.InvariantCulture));
             Note($"sites looked for around {spawn}");
         }
-        Site steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
-        Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
-        Note($"steep site {steep}");
-        Note($"gentle site {gentle}");
-        // A scenario of its own (FW_REC_SCENARIO), else every command below.
-        IEnumerator scenario = Environment.GetEnvironmentVariable("FW_REC_SCENARIO") switch
+        // A scenario of its own (FW_REC_SCENARIO), else every command below. Those on a test world's own places
+        // need no slope (a flat world has none, and the search would stop the run).
+        string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
+        Site steep = null;
+        Site gentle = null;
+        if (chosen is not ("prep" or "pools" or "cascade"))
+        {
+            steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
+            gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
+            Note($"steep site {steep}");
+            Note($"gentle site {gentle}");
+        }
+
+        IEnumerator scenario = chosen switch
         {
             "cascade" => Cascade(spawn),
             "look" => Look(steep, gentle),
@@ -683,13 +691,14 @@ public sealed class Recorder : BaseUnityPlugin
         {
             string look = UseLook(set);
             yield return new WaitForSeconds(1f);
-            foreach (float[] p in pools)
+            for (int k = 0; k < pools.Count; k++)
             {
+                float[] p = pools[k];
                 var centre = new Vector3(p[0], 0f, p[1]);
                 yield return Go(centre);
                 ZoneSystem.instance.GetGroundHeight(centre, out float bottom);
                 centre.y = bottom + p[3];
-                string name = FormattableString.Invariant($"{look}-pool{p[2]:0}m");
+                string name = FormattableString.Invariant($"{look}-pool{k + 1}-{p[2]:0}m");
                 yield return Shot(centre + new Vector3(0f, (p[2] * 0.6f) + 2f, -((p[2] * 1.6f) + 4f)), centre, name + "-side");
                 yield return Shot(centre + new Vector3(p[2] * 0.3f, (p[2] * 1.8f) + 6f, -p[2] * 0.5f), centre, name + "-above");
             }
