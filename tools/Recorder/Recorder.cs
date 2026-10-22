@@ -146,25 +146,35 @@ public sealed class Recorder : BaseUnityPlugin
         _log?.WriteLine(line);
     }
 
+    // Runs the steps, stepping any coroutine they start itself (not handing it to Unity), so that an exception at any
+    // depth ends here, logged as FAILED.
     private IEnumerator Run()
     {
-        IEnumerator steps = Steps();
-        while (true)
+        var running = new Stack<IEnumerator>();
+        running.Push(Steps());
+        while (running.Count > 0)
         {
             object current;
             try
             {
-                if (!steps.MoveNext())
+                if (!running.Peek().MoveNext())
                 {
-                    break;
+                    running.Pop();
+                    continue;
                 }
 
-                current = steps.Current;
+                current = running.Peek().Current;
             }
             catch (Exception e)
             {
                 Note("FAILED: " + e);
                 break;
+            }
+
+            if (current is IEnumerator nested)
+            {
+                running.Push(nested);
+                continue;
             }
 
             yield return current;
