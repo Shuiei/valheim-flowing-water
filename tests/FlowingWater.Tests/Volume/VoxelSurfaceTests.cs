@@ -95,6 +95,27 @@ public class VoxelSurfaceTests
         Assert.Contains(whole.Depths, d => d > 30f);
     }
 
+    [Fact]
+    public void TheBricksNearOneAreThoseItsSurfaceMayRead()
+    {
+        // A column of bricks from seven under to two over, and one two east: only five under to one over are near.
+        var field = new VoxelField();
+        for (int y = -7; y <= 2; y++)
+        {
+            field.Set(View(0, y, 0));
+        }
+
+        field.Set(View(2, 0, 0));
+        VoxelField near = field.Near(field.Find(0, 0, 0));
+
+        Assert.Equal(7, near.Bricks.Count);
+        Assert.NotNull(near.Find(0, -5, 0));
+        Assert.NotNull(near.Find(0, 1, 0));
+        Assert.Null(near.Find(0, -6, 0));
+        Assert.Null(near.Find(0, 2, 0));
+        Assert.Null(near.Find(2, 0, 0));
+    }
+
     private static BrickView View(int x, int y, int z) => new(x, y, z, 1f);
 
     private static BrickView View(params (int X, int Y, int Z, float Water)[] voxels)
