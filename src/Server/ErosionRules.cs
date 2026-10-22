@@ -28,6 +28,10 @@ internal static class ErosionRules
     // Shallower than this, water is taken as gone: whatever it carried is set down.
     private const float MinDepth = 0.0005f;
 
+    // The steepest bank loose ground holds (rise over run: 40 degrees), and the share of the excess that slides
+    // each second; a slope steeper by less than a millimetre is left.
+    private const float Talus = 0.84f, SlideRate = 0.05f, MinExcess = 0.001f;
+
     /// <summary>Ground carried per metre of water (its sediment over its depth); none where there is no water.</summary>
     /// <param name="sediment">Ground carried, metres over the cell.</param>
     /// <param name="depth">The water's depth, metres.</param>
@@ -57,5 +61,36 @@ internal static class ErosionRules
             ? Math.Min(PickUp * (capacity - sediment) * dt, capacity - sediment)
             : -Math.Min(SetDown * (sediment - capacity) * dt, sediment);
         return Math.Max(change - MaxChange, Math.Min(change + MaxChange, taken));
+    }
+
+    /// <summary>
+    /// How much ground slides from one cell to its neighbour over a time (negative: the other way), where erosion
+    /// left the bank between them steeper than loose ground holds: the slope it had before erosion, or the
+    /// steepest bank (40 degrees) where that was gentler. Natural cliffs, and a stream bed cut evenly down a
+    /// steep slope, stay as they are; a channel's walls fall in until they hold. What slides is never more than
+    /// half what erosion moved one cell against the other, so neither goes past <see cref="MaxChange"/>.
+    /// </summary>
+    /// <param name="a">The first cell's ground, metres.</param>
+    /// <param name="aChange">How far erosion has moved it so far, metres.</param>
+    /// <param name="b">The neighbour's ground.</param>
+    /// <param name="bChange">How far erosion has moved it.</param>
+    /// <param name="distance">Between the two cells' centres, metres.</param>
+    /// <param name="dt">Seconds (times the erosion speed).</param>
+    public static float Slide(float a, float aChange, float b, float bChange, float distance, float dt)
+    {
+        if (a < b)
+        {
+            return -Slide(b, bChange, a, aChange, distance, dt);
+        }
+
+        float held = Math.Max(Talus * distance, a - aChange - (b - bChange));
+        float excess = a - b - held;
+        if (excess <= MinExcess)
+        {
+            return 0f;
+        }
+
+        // Half the excess evens the two out.
+        return excess * 0.5f * Math.Min(1f, SlideRate * dt);
     }
 }

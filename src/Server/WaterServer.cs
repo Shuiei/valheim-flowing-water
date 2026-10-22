@@ -60,6 +60,9 @@ internal sealed class WaterServer
     // Long enough, in erosion's time, for any water that dried to set down all it carried.
     private const float AllDown = 1000f;
 
+    // The zones sharing an edge with one.
+    private static readonly (int X, int Z)[] Beside = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
     // A cell's ground moving less than this in a step (metres: a micrometre) is no reason to write the zone
     // again; it still counts in its change, written with the next larger one.
     private const float GroundStep = 0.000001f;
@@ -527,6 +530,10 @@ internal sealed class WaterServer
         {
             float wear = FlowingWaterPlugin.Settings.ErosionSpeed.Value;
             Parallel.For(0, _stepTiles.Count, k => Erode(_stepTiles[k], dt, wear, sea));
+            foreach (ServerTile tile in _stepTiles)
+            {
+                SlumpEdges(tile, dt * wear);
+            }
         }
 
         foreach (Marker marker in _markers)
@@ -933,6 +940,85 @@ internal sealed class WaterServer
                 tile.GroundDirty |= Math.Abs(taken) > GroundStep;
             }
         }
+
+        Slump(tile, dt * wear);
+    }
+
+    // Where erosion left a bank steeper than loose ground holds, it slides into the cell below it, none near
+    // what players built. Between the tile's own cells here (the tiles in parallel), across its edges after.
+    private static void Slump(ServerTile tile, float dt)
+    {
+        int size = tile.Data.Size;
+        for (int z = 0; z < size; z++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int i = (z * size) + x;
+                if (x + 1 < size)
+                {
+                    Slide(tile, i, tile, i + 1, dt);
+                }
+
+                if (z + 1 < size)
+                {
+                    Slide(tile, i, tile, i + size, dt);
+                }
+            }
+        }
+    }
+
+    // The banks between a tile's edges and the next zones' tiles, one tile at a time: each pair once, from the
+    // tile west or south of it. Where a wet tile's bank would fall into a zone with no tile, the tile is made
+    // (as for water crossing).
+    private void SlumpEdges(ServerTile tile, float dt)
+    {
+        int last = tile.Data.Size - 1;
+        for (int k = 0; k <= last; k++)
+        {
+            SlideAcross(tile, last, k, last + 1, k, dt);
+            SlideAcross(tile, k, last, k, last + 1, dt);
+            SlideAcross(tile, 0, k, -1, k, dt);
+            SlideAcross(tile, k, 0, k, -1, dt);
+        }
+    }
+
+    private void SlideAcross(ServerTile tile, int x, int z, int beyondX, int beyondZ, float dt)
+    {
+        int i = tile.Data.Index(x, z);
+        bool there = Neighbour(tile, beyondX, beyondZ, out ServerTile other, out int index, out Vector2s zone);
+
+        // A west or south pair is the tile beyond's east or north one: slid from there, once a step.
+        if (there && beyondX >= 0 && beyondZ >= 0)
+        {
+            Slide(tile, i, other, index, dt);
+        }
+        else if (!there && tile.EmptyFor <= 0f && !tile.Kept[i])
+        {
+            float ground = _terrain.HeightAt(zone, (index % tile.Data.Size) * CellSize, (index / tile.Data.Size) * CellSize);
+            if (Math.Abs(ErosionRules.Slide(tile.Data.Height[i], tile.GroundChange[i], ground, 0f, CellSize, AllDown)) > GroundStep)
+            {
+                _wanted.Add(zone);
+            }
+        }
+    }
+
+    private static void Slide(ServerTile tile, int a, ServerTile other, int b, float dt)
+    {
+        float[] change = tile.GroundChange;
+        float[] otherChange = other.GroundChange;
+        if (tile.Kept[a] || other.Kept[b] || Math.Abs(change[a]) + Math.Abs(otherChange[b]) < GroundStep)
+        {
+            return;
+        }
+
+        float slid = ErosionRules.Slide(tile.Data.Height[a], change[a], other.Data.Height[b], otherChange[b], tile.Data.CellSize, dt);
+        tile.Data.Height[a] -= slid;
+        change[a] -= slid;
+        other.Data.Height[b] += slid;
+        otherChange[b] += slid;
+        bool moved = Math.Abs(slid) > GroundStep;
+        tile.GroundDirty |= moved;
+        other.GroundDirty |= moved;
     }
 
     // Every zone's FlowingWater_Ground object, where erosion's change to its ground is kept.
@@ -1120,13 +1206,33 @@ internal sealed class WaterServer
         }
     }
 
+    // With erosion on, a dry tile beside one with water stays: the banks between them may still fall in.
+    private bool BanksBeside(ServerTile tile)
+    {
+        if (!FlowingWaterPlugin.Settings.Erosion.Value)
+        {
+            return false;
+        }
+
+        Vector2s zone = tile.Data.Zone;
+        foreach ((int dx, int dz) in Beside)
+        {
+            if (_tiles.TryGetValue(TileData.Key(new Vector2s(zone.x + dx, zone.y + dz)), out ServerTile other) && other.EmptyFor <= 0f)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void Publish()
     {
         _stepTiles.Clear();
         _stepTiles.AddRange(_tiles.Values);
         foreach (ServerTile tile in _stepTiles)
         {
-            if (tile.EmptyFor > FlowingWaterPlugin.Settings.EmptyTileSeconds.Value)
+            if (tile.EmptyFor > FlowingWaterPlugin.Settings.EmptyTileSeconds.Value && !BanksBeside(tile))
             {
                 FlowingWaterPlugin.Log.LogInfo($"Zone {tile.Data.Zone} dry: water tile removed");
                 WriteGround(tile);
