@@ -99,9 +99,12 @@ internal sealed class SolidsWatch
             Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
             PieceChanged(zone, zdo.GetPosition());
 
-            // Heard of already: the next look does not find it gone again.
-            if (_pieces.TryGetValue(TileData.Key(zone), out Dictionary<ZDOID, (Vector3 At, int Look)> pieces))
+            // Heard of already: the next look does not find it gone again, so where it stood when last looked at
+            // (it may have moved since) is read again now.
+            if (_pieces.TryGetValue(TileData.Key(zone), out Dictionary<ZDOID, (Vector3 At, int Look)> pieces)
+                && pieces.TryGetValue(zdo.m_uid, out (Vector3 At, int Look) was))
             {
+                PieceChanged(zone, was.At);
                 pieces.Remove(zdo.m_uid);
             }
         }
