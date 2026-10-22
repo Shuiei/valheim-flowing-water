@@ -18,6 +18,10 @@ internal static class Materials
 
     private static readonly int MainTextureId = Shader.PropertyToID("_MainTex");
 
+    private static readonly int AbsorptionId = Shader.PropertyToID("_Absorption");
+
+    private static readonly int DeepColourId = Shader.PropertyToID("_DeepColor");
+
     private static Material _still;
 
     private static Material _flow;
@@ -102,8 +106,19 @@ internal static class Materials
         }
 
         _custom = new Material(material) { name = "FlowingWater custom" };
+        ApplyLook();
+        FlowingWaterPlugin.Settings.WaterClarity.SettingChanged += (_, _) => ApplyLook();
+        FlowingWaterPlugin.Settings.WaterColour.SettingChanged += (_, _) => ApplyLook();
         FlowingWaterPlugin.Log.LogInfo($"Water shader {material.shader.name} loaded from the {platform} bundle");
         return _custom;
+    }
+
+    // The water's clarity and colour from the settings, onto the custom material.
+    private static void ApplyLook()
+    {
+        (float r, float g, float b) = WaterLook.Absorption(FlowingWaterPlugin.Settings.WaterClarity.Value);
+        _custom.SetVector(AbsorptionId, new Vector4(r, g, b, 0f));
+        _custom.SetColor(DeepColourId, FlowingWaterPlugin.Settings.WaterColour.Value);
     }
 
     /// <summary>The game's sea water, without its wind waves; null (logged once) when it cannot be found.</summary>
@@ -247,6 +262,13 @@ internal static class Materials
             case 3:
             case 4:
                 var colour = new Color(values[0], values[1], values[2], values.Length == 4 ? values[3] : 1f);
+                if (material.shader.GetPropertyType(material.shader.FindPropertyIndex(property)) == UnityEngine.Rendering.ShaderPropertyType.Vector)
+                {
+                    // A vector is numbers as they are; a colour is converted to the game's colour space.
+                    material.SetVector(property, colour);
+                    return $"{kind} {property} = {(Vector4)colour}";
+                }
+
                 material.SetColor(property, colour);
                 return $"{kind} {property} = {colour}";
             case 0:

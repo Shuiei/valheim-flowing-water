@@ -44,6 +44,8 @@ on). A server can also have sources and drains with no marker placed, from its c
 | `Server.CellSize` | 1 | Size of the simulation's cells: 1, 0.5 or 0.25 m. Smaller gives narrower streams at a higher cost |
 | `Server.MaxTiles` | 256 | Most zones with water at once |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
+| `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
+| `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
 | `Client.Spray` | true | Spray where the water rushes down steep ground |

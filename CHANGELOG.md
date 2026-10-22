@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.11.0 — 2026-10-21
+
+### Changed
+- Water now looks like a body of water: you see the ground through it, bent by the ripples, and the deeper it
+  is the more it takes its own colour, until deep pools hide their bed. Settings `WaterClarity` (how far you
+  see into it) and `WaterColour` change it live.
+- Sunlight glints off the ripples in sharp sparkles instead of a pale sheen over the whole surface.
+
 ## v0.10.0 — 2026-10-21
 
 ### Changed

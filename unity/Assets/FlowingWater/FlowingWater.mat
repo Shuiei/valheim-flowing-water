@@ -45,13 +45,16 @@ Material:
     - _FoamSpeed: 4
     - _NormalStrength: 0.45
     - _Reflection: 0.9
+    - _Refraction: 0.02
     - _RippleScale: 0.3
     - _ShoreFoam: 0.1
-    - _Smoothness: 0.8
+    - _Smoothness: 0.92
     - _StillScale: 0.12
     - _StillSpeed: 0.05
+    - _SurfaceTint: 0.15
     m_Colors:
-    - _DeepColor: {r: 0.03, g: 0.11, b: 0.14, a: 0.9}
+    - _Absorption: {r: 0.45, g: 0.12, b: 0.09, a: 0}
+    - _DeepColor: {r: 0.03, g: 0.11, b: 0.14, a: 1}
     - _FoamColor: {r: 0.92, g: 0.95, b: 0.97, a: 1}
     - _ShallowColor: {r: 0.2, g: 0.32, b: 0.3, a: 0.15}
   m_BuildTextureStacks: []
