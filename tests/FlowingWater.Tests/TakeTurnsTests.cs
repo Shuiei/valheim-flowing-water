@@ -102,6 +102,22 @@ public class TakeTurnsTests
     }
 
     [Fact]
+    public void ClearedOnesWaitNoMoreAndMayBeAddedAgain()
+    {
+        var turns = new TakeTurns<string>();
+        turns.Add("a");
+        turns.Add("b");
+
+        turns.Clear();
+        Assert.Equal(0, turns.Count);
+
+        turns.Add("b");
+        var served = new List<string>();
+        turns.Serve(_ => true, () => true, served.Add);
+        Assert.Equal(["b"], served);
+    }
+
+    [Fact]
     public void OneServedMayWaitAgainAndIsServedOnTheNextTurn()
     {
         var turns = new TakeTurns<string>();
