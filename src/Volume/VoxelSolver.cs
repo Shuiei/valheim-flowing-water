@@ -28,9 +28,19 @@ internal sealed class VoxelSolver
     // The deepest water steps are kept stable for, metres: longer steps are split.
     private const float DeepestStable = 10f;
 
+    // A brick whose every flow stayed under this (cubic metres a second) for this many steps sleeps: it is skipped
+    // while the bricks beside it sleep too or are dry (water poured in, a solid changed or a waking neighbour wakes it).
+    private const float SleepingFlow = 1e-3f;
+
+    private const int StepsToSleep = 24;
+
     private readonly VoxelGrid _grid;
 
     private Brick[] _bricks = [];
+
+    private Brick[][] _columns = [];
+
+    private int _columnsVersion = -1;
 
     /// <summary>A solver for this grid.</summary>
     public VoxelSolver(VoxelGrid grid)
@@ -57,12 +67,19 @@ internal sealed class VoxelSolver
         }
     }
 
+    // One step, on each brick's wet part only (with the voxels round it): a still pool's air costs nothing.
     private void StepOnce(float dt)
     {
-        _bricks = [.. _grid.Bricks];
+        if (_columnsVersion != _grid.Version)
+        {
+            _columnsVersion = _grid.Version;
+            _bricks = [.. _grid.Bricks];
+            _columns = [.. _bricks.GroupBy(b => ((long)b.X << 32) | (uint)b.Z).Select(g => g.OrderByDescending(b => b.Y).ToArray())];
+        }
+
         float s = _grid.VoxelSize;
-        Brick[][] columns = [.. _bricks.GroupBy(b => ((long)b.X << 32) | (uint)b.Z).Select(g => g.OrderByDescending(b => b.Y).ToArray())];
-        Parallel.For(0, columns.Length, k => Heads(columns[k], s));
+        Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
+        Parallel.For(0, _columns.Length, k => Heads(_columns[k], s));
         Parallel.For(0, _bricks.Length, k => Flows(_bricks[k], dt, s));
         Parallel.For(0, _bricks.Length, k => Shares(_bricks[k], dt, s));
         Parallel.For(0, _bricks.Length, k => Scale(_bricks[k]));
@@ -70,13 +87,114 @@ internal sealed class VoxelSolver
         _grid.MakeWanted();
     }
 
+    // The part a step works on: the wet voxels and those round them, the border layers facing a brick wet at that
+    // border (its water may come over), and last step's part (its flows must be set again, to nothing if dry); none
+    // for a sleeping brick.
+    private static void Part(Brick brick)
+    {
+        if (Sleeps(brick))
+        {
+            brick.PartCount = 0;
+            return;
+        }
+
+        (int wlx, int wly, int wlz) = brick.WetLow;
+        (int whx, int why, int whz) = brick.WetHigh;
+        bool wet = whx >= 0;
+        int lx = wet ? Math.Max(0, wlx - 1) : Brick.Size, ly = wet ? Math.Max(0, wly - 1) : Brick.Size, lz = wet ? Math.Max(0, wlz - 1) : Brick.Size;
+        int hx = wet ? Math.Min(Brick.Size - 1, whx + 1) : -1, hy = wet ? Math.Min(Brick.Size - 1, why + 1) : -1, hz = wet ? Math.Min(Brick.Size - 1, whz + 1) : -1;
+        for (int side = 0; side < 6; side++)
+        {
+            if (brick.Beside[side] is not { } next || next.WetHigh.X < 0 || !Touches(next, side ^ 1))
+            {
+                continue;
+            }
+
+            // The whole border layer facing it.
+            int axis = side / 2;
+            int layer = side % 2 == 0 ? Brick.Size - 1 : 0;
+            (int fx, int fy, int fz) = axis == 0 ? (layer, -1, -1) : axis == 1 ? (-1, layer, -1) : (-1, -1, layer);
+            lx = Math.Min(lx, fx < 0 ? 0 : fx);
+            hx = Math.Max(hx, fx < 0 ? Brick.Size - 1 : fx);
+            ly = Math.Min(ly, fy < 0 ? 0 : fy);
+            hy = Math.Max(hy, fy < 0 ? Brick.Size - 1 : fy);
+            lz = Math.Min(lz, fz < 0 ? 0 : fz);
+            hz = Math.Max(hz, fz < 0 ? Brick.Size - 1 : fz);
+        }
+
+        (int llx, int lly, int llz) = brick.LastLow;
+        (int lhx, int lhy, int lhz) = brick.LastHigh;
+        brick.LastLow = (lx, ly, lz);
+        brick.LastHigh = (hx, hy, hz);
+        if (lhx >= 0)
+        {
+            (lx, ly, lz) = (Math.Min(lx, llx), Math.Min(ly, lly), Math.Min(lz, llz));
+            (hx, hy, hz) = (Math.Max(hx, lhx), Math.Max(hy, lhy), Math.Max(hz, lhz));
+        }
+
+        brick.Low = (lx, ly, lz);
+        brick.High = (hx, hy, hz);
+        int count = 0;
+        for (int y = ly; y <= hy; y++)
+        {
+            for (int z = lz; z <= hz; z++)
+            {
+                for (int x = lx; x <= hx; x++)
+                {
+                    brick.Part[count++] = Brick.Index(x, y, z);
+                }
+            }
+        }
+
+        brick.PartCount = count;
+    }
+
+    // A brick sleeps when it and every brick beside it with water have been quiet long enough.
+    private static bool Sleeps(Brick brick)
+    {
+        if (brick.Quiet < StepsToSleep)
+        {
+            return false;
+        }
+
+        foreach (Brick next in brick.Beside)
+        {
+            if (next != null && next.WetHigh.X >= 0 && next.Quiet < StepsToSleep)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Whether a brick's wet voxels reach its border on this side (0 east ... 5 south).
+    private static bool Touches(Brick brick, int side) => side switch
+    {
+        0 => brick.WetHigh.X == Brick.Size - 1,
+        1 => brick.WetLow.X == 0,
+        2 => brick.WetHigh.Y == Brick.Size - 1,
+        3 => brick.WetLow.Y == 0,
+        4 => brick.WetHigh.Z == Brick.Size - 1,
+        _ => brick.WetLow.Z == 0,
+    };
+
     // The heads of a column of bricks, top down: a voxel's floor, plus all the water resting on it (its own and that
     // of the wet voxels over it, up to air, a solid or a closed face), plus the push of what is pressed in.
     private static void Heads(Brick[] column, float s)
     {
-        for (int z = 0; z < Brick.Size; z++)
+        int lx = Brick.Size, lz = Brick.Size, hx = -1, hz = -1;
+        foreach (Brick brick in column)
         {
-            for (int x = 0; x < Brick.Size; x++)
+            lx = Math.Min(lx, brick.Low.X);
+            lz = Math.Min(lz, brick.Low.Z);
+            hx = Math.Max(hx, brick.High.X);
+            hz = Math.Max(hz, brick.High.Z);
+        }
+
+        for (int z = lz; z <= hz; z++)
+        {
+            for (int x = lx; x <= hx; x++)
             {
                 float above = 0f;
                 int over = int.MaxValue;
@@ -128,15 +246,28 @@ internal sealed class VoxelSolver
     // The flows through each voxel's east, upper and north faces.
     private void Flows(Brick brick, float dt, float s)
     {
-        for (int i = 0; i < Brick.Count; i++)
+        for (int k = 0; k < brick.PartCount; k++)
         {
+            int i = brick.Part[k];
+            if (brick.Water[i] <= Brick.Dry && DryAhead(brick, i))
+            {
+                // Dry, and so are the voxels its own faces lead to: nothing flows through them.
+                brick.FlowX[i] = brick.FlowY[i] = brick.FlowZ[i] = 0f;
+                continue;
+            }
+
             (int x, int y, int z) = Brick.Place(i);
             WantBeside(brick, x, y, z, i);
-            brick.FlowX[i] = Flow(brick, i, x, y, z, 0, dt, s, brick.FlowX[i]);
-            brick.FlowY[i] = Flow(brick, i, x, y, z, 2, dt, s, brick.FlowY[i]);
-            brick.FlowZ[i] = Flow(brick, i, x, y, z, 4, dt, s, brick.FlowZ[i]);
+            brick.FlowX[i] = Flow(brick, i, y, 0, dt, s, brick.FlowX[i]);
+            brick.FlowY[i] = Flow(brick, i, y, 2, dt, s, brick.FlowY[i]);
+            brick.FlowZ[i] = Flow(brick, i, y, 4, dt, s, brick.FlowZ[i]);
         }
     }
+
+    // Whether the voxels east, over and north of voxel i are dry (or have no brick).
+    private static bool DryAhead(Brick brick, int i) => Dry(brick, i, 0) && Dry(brick, i, 2) && Dry(brick, i, 4);
+
+    private static bool Dry(Brick brick, int i, int side) => !Next(brick, i, side, out Brick other, out int j) || other.Water[j] <= Brick.Dry;
 
     // A wet voxel on the brick's edge asks for the bricks its water may go into.
     private void WantBeside(Brick brick, int x, int y, int z, int i)
@@ -157,9 +288,9 @@ internal sealed class VoxelSolver
     }
 
     // The new flow of one of a voxel's own faces (side 0: east, 2: up, 4: north).
-    private static float Flow(Brick brick, int i, int x, int y, int z, int side, float dt, float s, float flow)
+    private static float Flow(Brick brick, int i, int y, int side, float dt, float s, float flow)
     {
-        if (!Next(brick, x, y, z, side, out Brick other, out int j) || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << (side / 2))) != 0)
+        if (!Next(brick, i, side, out Brick other, out int j) || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << (side / 2))) != 0)
         {
             return 0f;
         }
@@ -200,8 +331,9 @@ internal sealed class VoxelSolver
     private static void Shares(Brick brick, float dt, float s)
     {
         float volume = s * s * s;
-        for (int i = 0; i < Brick.Count; i++)
+        for (int k = 0; k < brick.PartCount; k++)
         {
+            int i = brick.Part[k];
             (float west, float down, float south) = Behind(brick, i);
             float outflow = Math.Max(brick.FlowX[i], 0f) + Math.Max(brick.FlowY[i], 0f) + Math.Max(brick.FlowZ[i], 0f)
                 + Math.Max(-west, 0f) + Math.Max(-down, 0f) + Math.Max(-south, 0f);
@@ -213,59 +345,100 @@ internal sealed class VoxelSolver
     // Each face's flow scaled by the share its source voxel can give.
     private static void Scale(Brick brick)
     {
-        for (int i = 0; i < Brick.Count; i++)
+        for (int k = 0; k < brick.PartCount; k++)
         {
-            (int x, int y, int z) = Brick.Place(i);
-            brick.FlowX[i] = Scaled(brick, i, x, y, z, 0, brick.FlowX[i]);
-            brick.FlowY[i] = Scaled(brick, i, x, y, z, 2, brick.FlowY[i]);
-            brick.FlowZ[i] = Scaled(brick, i, x, y, z, 4, brick.FlowZ[i]);
+            int i = brick.Part[k];
+            brick.FlowX[i] = Scaled(brick, i, 0, brick.FlowX[i]);
+            brick.FlowY[i] = Scaled(brick, i, 2, brick.FlowY[i]);
+            brick.FlowZ[i] = Scaled(brick, i, 4, brick.FlowZ[i]);
         }
     }
 
-    private static float Scaled(Brick brick, int i, int x, int y, int z, int side, float flow)
+    private static float Scaled(Brick brick, int i, int side, float flow)
     {
         if (flow > 0f)
         {
             return flow * brick.Share[i];
         }
 
-        return flow < 0f && Next(brick, x, y, z, side, out Brick other, out int j) ? flow * other.Share[j] : flow;
+        return flow < 0f && Next(brick, i, side, out Brick other, out int j) ? flow * other.Share[j] : flow;
     }
 
     // The water moved: in through some faces, out through others; the sea takes what falls into it.
     private void Apply(Brick brick, float dt, float s)
     {
-        float perVolume = dt / (s * s * s);
-        for (int i = 0; i < Brick.Count; i++)
+        if (brick.PartCount == 0)
         {
+            return;
+        }
+
+        float perVolume = dt / (s * s * s);
+        float strongest = 0f;
+        int lx = Brick.Size, ly = Brick.Size, lz = Brick.Size, hx = -1, hy = -1, hz = -1;
+        for (int k = 0; k < brick.PartCount; k++)
+        {
+            int i = brick.Part[k];
+            strongest = Math.Max(strongest, Math.Max(Math.Abs(brick.FlowX[i]), Math.Max(Math.Abs(brick.FlowY[i]), Math.Abs(brick.FlowZ[i]))));
             (float west, float down, float south) = Behind(brick, i);
             float net = west + down + south - brick.FlowX[i] - brick.FlowY[i] - brick.FlowZ[i];
             float water = Math.Max(0f, brick.Water[i] + (net * perVolume));
-            brick.Water[i] = ((brick.Y * Brick.Size) + Brick.Place(i).Y + 1) * s <= SeaLevel ? 0f : water;
+            (int x, int y, int z) = Brick.Place(i);
+            brick.Water[i] = ((brick.Y * Brick.Size) + y + 1) * s <= SeaLevel ? 0f : water;
+            if (brick.Water[i] > Brick.Dry)
+            {
+                (lx, ly, lz) = (Math.Min(lx, x), Math.Min(ly, y), Math.Min(lz, z));
+                (hx, hy, hz) = (Math.Max(hx, x), Math.Max(hy, y), Math.Max(hz, z));
+            }
         }
+
+        // The wet voxels are all in the part (water only moves into it), so their box is found here.
+        brick.WetLow = (lx, ly, lz);
+        brick.WetHigh = (hx, hy, hz);
+        brick.Quiet = strongest < SleepingFlow ? brick.Quiet + 1 : 0;
     }
 
     // The flows of the faces a voxel shares with the voxels west, under and south of it, which those own
     // (positive: into this voxel); 0 where there is no brick.
-    private static (float West, float Down, float South) Behind(Brick brick, int i)
-    {
-        (int x, int y, int z) = Brick.Place(i);
-        return (
-            Next(brick, x, y, z, 1, out Brick west, out int w) ? west.FlowX[w] : 0f,
-            Next(brick, x, y, z, 3, out Brick under, out int d) ? under.FlowY[d] : 0f,
-            Next(brick, x, y, z, 5, out Brick south, out int so) ? south.FlowZ[so] : 0f);
-    }
+    private static (float West, float Down, float South) Behind(Brick brick, int i) => (
+        Next(brick, i, 1, out Brick west, out int w) ? west.FlowX[w] : 0f,
+        Next(brick, i, 3, out Brick under, out int d) ? under.FlowY[d] : 0f,
+        Next(brick, i, 5, out Brick south, out int so) ? south.FlowZ[so] : 0f);
 
-    // The voxel beside (x, y, z) on a side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south), maybe in the next
-    // brick; false where there is no brick.
-    private static bool Next(Brick brick, int x, int y, int z, int side, out Brick other, out int j)
+    // The voxel beside voxel i on a side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south): in the brick unless i is
+    // on its edge that way, else in the brick beside; false where there is no brick.
+    private static bool Next(Brick brick, int i, int side, out Brick other, out int j)
     {
-        (int dx, int dy, int dz) = Offset(side);
-        int nx = x + dx;
-        int ny = y + dy;
-        int nz = z + dz;
-        other = Crosses(x, y, z, side) ? brick.Beside[side] : brick;
-        j = Brick.Index(nx & (Brick.Size - 1), ny & (Brick.Size - 1), nz & (Brick.Size - 1));
+        const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
+        bool edge;
+        switch (side)
+        {
+            case 0:
+                edge = (i & Last) == Last;
+                j = edge ? i - Last : i + 1;
+                break;
+            case 1:
+                edge = (i & Last) == 0;
+                j = edge ? i + Last : i - 1;
+                break;
+            case 2:
+                edge = i >= Last * Layer;
+                j = edge ? i - (Last * Layer) : i + Layer;
+                break;
+            case 3:
+                edge = i < Layer;
+                j = edge ? i + (Last * Layer) : i - Layer;
+                break;
+            case 4:
+                edge = (i & (Last * Row)) == Last * Row;
+                j = edge ? i - (Last * Row) : i + Row;
+                break;
+            default:
+                edge = (i & (Last * Row)) == 0;
+                j = edge ? i + (Last * Row) : i - Row;
+                break;
+        }
+
+        other = edge ? brick.Beside[side] : brick;
         return other != null;
     }
 

@@ -85,8 +85,8 @@ public class VoxelSolverTests
 
         // The floor's middle piece breaks: its voxel's upper face opens.
         open = true;
-        grid.Locate(3, 4, 3, out Brick brick, out int i);
-        brick.Closed[i] = 0;
+        grid.Locate(3, 4, 3, out Brick brick, out _);
+        grid.Refill(brick);
         Run(grid, 10f);
 
         Assert.True(Below(grid, 5) > 10f, $"fallen {Below(grid, 5)}");

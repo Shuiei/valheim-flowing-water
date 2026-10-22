@@ -47,6 +47,9 @@ internal sealed class VoxelGrid
     /// <summary>Whether water has asked for a brick beyond <see cref="MaxBricks"/> (it stopped spreading).</summary>
     public bool Capped { get; private set; }
 
+    /// <summary>A number that changes each time a brick is made or forgotten.</summary>
+    public int Version { get; private set; }
+
     /// <summary>The bricks there are.</summary>
     public IReadOnlyCollection<Brick> Bricks => _bricks.Values;
 
@@ -74,6 +77,7 @@ internal sealed class VoxelGrid
         var brick = new Brick(x, y, z);
         _solids.Fill(brick, VoxelSize);
         _bricks[Key(x, y, z)] = brick;
+        Version++;
         for (int side = 0; side < Sides.Length; side++)
         {
             Brick next = Find(x + Sides[side].X, y + Sides[side].Y, z + Sides[side].Z);
@@ -99,8 +103,10 @@ internal sealed class VoxelGrid
     public void Pour(int x, int y, int z, float cubicMetres)
     {
         Brick brick = Get(x >> 4, y >> 4, z >> 4);
-        brick.Water[Brick.Index(x & 15, y & 15, z & 15)] += cubicMetres / VoxelVolume;
+        int i = Brick.Index(x & 15, y & 15, z & 15);
+        brick.Water[i] += cubicMetres / VoxelVolume;
         brick.EmptyFor = 0f;
+        brick.Wets(i);
     }
 
     /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where there is no brick.</summary>
@@ -131,6 +137,7 @@ internal sealed class VoxelGrid
         Array.Clear(brick.Solid, 0, Brick.Count);
         Array.Clear(brick.Closed, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
+        brick.Quiet = 0;
         for (int i = 0; i < Brick.Count; i++)
         {
             if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)
@@ -153,6 +160,7 @@ internal sealed class VoxelGrid
             {
                 brick.Water[i] += water;
                 brick.EmptyFor = 0f;
+                brick.Wets(i);
                 return;
             }
         }
@@ -208,6 +216,7 @@ internal sealed class VoxelGrid
         foreach (Brick brick in gone)
         {
             _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
+            Version++;
             for (int side = 0; side < Sides.Length; side++)
             {
                 if (brick.Beside[side] is { } next)

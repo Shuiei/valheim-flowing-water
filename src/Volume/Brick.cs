@@ -1,3 +1,5 @@
+using System;
+
 namespace FlowingWater.Volume;
 
 /// <summary>
@@ -63,6 +65,43 @@ internal sealed class Brick
     /// <summary>The bricks beside it, east, west, up, down, north and south (null where there is none).</summary>
     public Brick[] Beside { get; } = new Brick[6];
 
+    /// <summary>The part of the brick a step works on: its lowest voxel (x, y, z), past its highest when it has none.</summary>
+    public (int X, int Y, int Z) Low { get; set; }
+
+    /// <summary>The part's highest voxel.</summary>
+    public (int X, int Y, int Z) High { get; set; } = (-1, -1, -1);
+
+    /// <summary>The part worked on last step (its flows there were last set then).</summary>
+    public (int X, int Y, int Z) LastLow { get; set; }
+
+    /// <summary>Its highest voxel.</summary>
+    public (int X, int Y, int Z) LastHigh { get; set; } = (-1, -1, -1);
+
+    /// <summary>The wet voxels' lowest corner, as last found; past the highest when it holds none.</summary>
+    public (int X, int Y, int Z) WetLow { get; set; }
+
+    /// <summary>Their highest corner.</summary>
+    public (int X, int Y, int Z) WetHigh { get; set; } = (-1, -1, -1);
+
+    /// <summary>The voxel indices of the part a step works on (the first <see cref="PartCount"/>), in array order.</summary>
+    public int[] Part { get; } = new int[Count];
+
+    /// <summary>How many voxels the part holds.</summary>
+    public int PartCount { get; set; }
+
+    /// <summary>Steps in a row its water has barely moved (every flow under the solver's sleeping flow).</summary>
+    public int Quiet { get; set; }
+
+    /// <summary>Takes voxel i into the box of the wet voxels (water was put there from outside a step).</summary>
+    public void Wets(int i)
+    {
+        (int x, int y, int z) = Place(i);
+        bool none = WetHigh.X < 0;
+        WetLow = none ? (x, y, z) : (Math.Min(WetLow.X, x), Math.Min(WetLow.Y, y), Math.Min(WetLow.Z, z));
+        WetHigh = none ? (x, y, z) : (Math.Max(WetHigh.X, x), Math.Max(WetHigh.Y, y), Math.Max(WetHigh.Z, z));
+        Quiet = 0;
+    }
+
     /// <summary>Seconds it has held no water, to forget it.</summary>
     public float EmptyFor { get; set; }
 
@@ -70,5 +109,5 @@ internal sealed class Brick
     public static int Index(int x, int y, int z) => (y * Size * Size) + (z * Size) + x;
 
     /// <summary>The voxel at an index, in the brick (0 to 15 each).</summary>
-    public static (int X, int Y, int Z) Place(int index) => (index % Size, index / (Size * Size), index / Size % Size);
+    public static (int X, int Y, int Z) Place(int index) => (index & (Size - 1), index >> 8, (index >> 4) & (Size - 1));
 }
