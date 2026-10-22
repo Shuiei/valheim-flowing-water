@@ -19,20 +19,12 @@ internal sealed class TestSolids : ISolids
 
     public void Fill(Brick brick, float voxelSize)
     {
-        for (int y = 0; y < Brick.Size; y++)
+        for (int i = 0; i < Brick.Count; i++)
         {
-            for (int z = 0; z < Brick.Size; z++)
-            {
-                for (int x = 0; x < Brick.Size; x++)
-                {
-                    int gx = (brick.X * Brick.Size) + x;
-                    int gy = (brick.Y * Brick.Size) + y;
-                    int gz = (brick.Z * Brick.Size) + z;
-                    int i = Brick.Index(x, y, z);
-                    brick.Solid[i] = gy < _groundBelow ? 1f : 0f;
-                    brick.Closed[i] = _closed(gx, gy, gz);
-                }
-            }
+            (int x, int y, int z) = Brick.Place(i);
+            int gy = (brick.Y * Brick.Size) + y;
+            brick.Solid[i] = gy < _groundBelow ? 1f : 0f;
+            brick.Closed[i] = _closed((brick.X * Brick.Size) + x, gy, (brick.Z * Brick.Size) + z);
         }
     }
 

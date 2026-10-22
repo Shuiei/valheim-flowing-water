@@ -128,19 +128,13 @@ internal sealed class VoxelSolver
     // The flows through each voxel's east, upper and north faces.
     private void Flows(Brick brick, float dt, float s)
     {
-        for (int y = 0; y < Brick.Size; y++)
+        for (int i = 0; i < Brick.Count; i++)
         {
-            for (int z = 0; z < Brick.Size; z++)
-            {
-                for (int x = 0; x < Brick.Size; x++)
-                {
-                    int i = Brick.Index(x, y, z);
-                    WantBeside(brick, x, y, z, i);
-                    brick.FlowX[i] = Flow(brick, i, x, y, z, 0, dt, s, brick.FlowX[i]);
-                    brick.FlowY[i] = Flow(brick, i, x, y, z, 2, dt, s, brick.FlowY[i]);
-                    brick.FlowZ[i] = Flow(brick, i, x, y, z, 4, dt, s, brick.FlowZ[i]);
-                }
-            }
+            (int x, int y, int z) = Brick.Place(i);
+            WantBeside(brick, x, y, z, i);
+            brick.FlowX[i] = Flow(brick, i, x, y, z, 0, dt, s, brick.FlowX[i]);
+            brick.FlowY[i] = Flow(brick, i, x, y, z, 2, dt, s, brick.FlowY[i]);
+            brick.FlowZ[i] = Flow(brick, i, x, y, z, 4, dt, s, brick.FlowZ[i]);
         }
     }
 
@@ -206,44 +200,25 @@ internal sealed class VoxelSolver
     private static void Shares(Brick brick, float dt, float s)
     {
         float volume = s * s * s;
-        for (int y = 0; y < Brick.Size; y++)
+        for (int i = 0; i < Brick.Count; i++)
         {
-            for (int z = 0; z < Brick.Size; z++)
-            {
-                for (int x = 0; x < Brick.Size; x++)
-                {
-                    int i = Brick.Index(x, y, z);
-                    float outflow = Math.Max(brick.FlowX[i], 0f) + Math.Max(brick.FlowY[i], 0f) + Math.Max(brick.FlowZ[i], 0f);
-                    for (int side = 1; side < 6; side += 2)
-                    {
-                        if (Next(brick, x, y, z, side, out Brick other, out int j))
-                        {
-                            outflow += Math.Max(-Own(other, j, side ^ 1), 0f);
-                        }
-                    }
-
-                    float has = brick.Water[i] * volume;
-                    brick.Share[i] = outflow * dt > has ? has / (outflow * dt) : 1f;
-                }
-            }
+            (float west, float down, float south) = Behind(brick, i);
+            float outflow = Math.Max(brick.FlowX[i], 0f) + Math.Max(brick.FlowY[i], 0f) + Math.Max(brick.FlowZ[i], 0f)
+                + Math.Max(-west, 0f) + Math.Max(-down, 0f) + Math.Max(-south, 0f);
+            float has = brick.Water[i] * volume;
+            brick.Share[i] = outflow * dt > has ? has / (outflow * dt) : 1f;
         }
     }
 
     // Each face's flow scaled by the share its source voxel can give.
     private static void Scale(Brick brick)
     {
-        for (int y = 0; y < Brick.Size; y++)
+        for (int i = 0; i < Brick.Count; i++)
         {
-            for (int z = 0; z < Brick.Size; z++)
-            {
-                for (int x = 0; x < Brick.Size; x++)
-                {
-                    int i = Brick.Index(x, y, z);
-                    brick.FlowX[i] = Scaled(brick, i, x, y, z, 0, brick.FlowX[i]);
-                    brick.FlowY[i] = Scaled(brick, i, x, y, z, 2, brick.FlowY[i]);
-                    brick.FlowZ[i] = Scaled(brick, i, x, y, z, 4, brick.FlowZ[i]);
-                }
-            }
+            (int x, int y, int z) = Brick.Place(i);
+            brick.FlowX[i] = Scaled(brick, i, x, y, z, 0, brick.FlowX[i]);
+            brick.FlowY[i] = Scaled(brick, i, x, y, z, 2, brick.FlowY[i]);
+            brick.FlowZ[i] = Scaled(brick, i, x, y, z, 4, brick.FlowZ[i]);
         }
     }
 
@@ -261,36 +236,25 @@ internal sealed class VoxelSolver
     private void Apply(Brick brick, float dt, float s)
     {
         float perVolume = dt / (s * s * s);
-        for (int y = 0; y < Brick.Size; y++)
+        for (int i = 0; i < Brick.Count; i++)
         {
-            for (int z = 0; z < Brick.Size; z++)
-            {
-                for (int x = 0; x < Brick.Size; x++)
-                {
-                    int i = Brick.Index(x, y, z);
-                    float net = -brick.FlowX[i] - brick.FlowY[i] - brick.FlowZ[i];
-                    for (int side = 1; side < 6; side += 2)
-                    {
-                        if (Next(brick, x, y, z, side, out Brick other, out int j))
-                        {
-                            net += Own(other, j, side ^ 1);
-                        }
-                    }
-
-                    float water = Math.Max(0f, brick.Water[i] + (net * perVolume));
-                    brick.Water[i] = ((brick.Y * Brick.Size) + y + 1) * s <= SeaLevel ? 0f : water;
-                }
-            }
+            (float west, float down, float south) = Behind(brick, i);
+            float net = west + down + south - brick.FlowX[i] - brick.FlowY[i] - brick.FlowZ[i];
+            float water = Math.Max(0f, brick.Water[i] + (net * perVolume));
+            brick.Water[i] = ((brick.Y * Brick.Size) + Brick.Place(i).Y + 1) * s <= SeaLevel ? 0f : water;
         }
     }
 
-    // The flow of a voxel's own face on this side (0: east, 2: up, 4: north).
-    private static float Own(Brick brick, int i, int side) => side switch
+    // The flows of the faces a voxel shares with the voxels west, under and south of it, which those own
+    // (positive: into this voxel); 0 where there is no brick.
+    private static (float West, float Down, float South) Behind(Brick brick, int i)
     {
-        0 => brick.FlowX[i],
-        2 => brick.FlowY[i],
-        _ => brick.FlowZ[i],
-    };
+        (int x, int y, int z) = Brick.Place(i);
+        return (
+            Next(brick, x, y, z, 1, out Brick west, out int w) ? west.FlowX[w] : 0f,
+            Next(brick, x, y, z, 3, out Brick under, out int d) ? under.FlowY[d] : 0f,
+            Next(brick, x, y, z, 5, out Brick south, out int so) ? south.FlowZ[so] : 0f);
+    }
 
     // The voxel beside (x, y, z) on a side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south), maybe in the next
     // brick; false where there is no brick.
