@@ -117,7 +117,8 @@ internal sealed class VoxelGrid
 
     /// <summary>
     /// Reads a brick's solids again (a piece was built or broken there). Water in a voxel that turned solid goes up
-    /// to the first open voxel over it in the brick (a piece built in a pool lifts the water, it does not destroy it).
+    /// to the first open voxel over it, in a brick above if need be (a piece built in a pool lifts the water, it does
+    /// not destroy it).
     /// </summary>
     public void Refill(Brick brick)
     {
@@ -126,19 +127,27 @@ internal sealed class VoxelGrid
         _solids.Fill(brick, VoxelSize);
         for (int i = 0; i < Brick.Count; i++)
         {
-            if (brick.Solid[i] < 1f || brick.Water[i] <= 0f)
+            if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)
             {
-                continue;
+                (int x, int y, int z) = Brick.Place(i);
+                Lift((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z, brick.Water[i]);
+                brick.Water[i] = 0f;
             }
+        }
+    }
 
-            for (int up = i + (Brick.Size * Brick.Size); up < Brick.Count; up += Brick.Size * Brick.Size)
+    // Water out of solid voxel (x, y, z) into the first open voxel over it (bricks made as it climbs).
+    private void Lift(int x, int y, int z, float water)
+    {
+        for (int up = y + 1; ; up++)
+        {
+            Brick brick = Get(x >> 4, up >> 4, z >> 4);
+            int i = Brick.Index(x & 15, up & 15, z & 15);
+            if (brick.Solid[i] < 1f)
             {
-                if (brick.Solid[up] < 1f)
-                {
-                    brick.Water[up] += brick.Water[i];
-                    brick.Water[i] = 0f;
-                    break;
-                }
+                brick.Water[i] += water;
+                brick.EmptyFor = 0f;
+                return;
             }
         }
     }
