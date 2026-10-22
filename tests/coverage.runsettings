@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Coverage of the unit tests (the coverage settings dotnet test is given on main, as .circleci/continue.yml runs
+     them), written as Cobertura for Codecov (codecov.yml). The mod's files that need no game are compiled in
+     tests/FlowingWater.Rules: that assembly is measured, not the tests. What needs the game is checked in game. -->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <CodeCoverage>
+            <ModulePaths>
+              <Include>
+                <ModulePath>.*[\\/]FlowingWater\.Rules\.dll$</ModulePath>
+              </Include>
+            </ModulePaths>
+            <Attributes>
+              <Exclude>
+                <Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+                <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+              </Exclude>
+            </Attributes>
+          </CodeCoverage>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
