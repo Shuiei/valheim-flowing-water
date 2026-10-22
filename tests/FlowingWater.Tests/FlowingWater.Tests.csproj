@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The mod's rules that need no game, tested on .NET: the files are compiled here from the mod (and its
-       recorder), since the mod itself only loads in the game. What needs the game (its prefabs, sounds,
+  <!-- The mod's rules that need no game, tested on .NET: they are compiled from the mod (and its recorder) in
+       FlowingWater.Rules, since the mod itself only loads in the game. What needs the game (its prefabs, sounds,
        particles) is checked in game with the recorder (tools/Recorder). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -12,19 +12,10 @@
   <ItemGroup>
     <!-- As the Valheim world editor's tests: xUnit on Microsoft.Testing.Platform. -->
     <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
+    <!-- Code coverage on main (.circleci/continue.yml, tests/coverage.runsettings), as the editor's tests. -->
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
-    <Compile Include="../../src/Client/SpotRules.cs" Link="Mod/SpotRules.cs" />
-    <Compile Include="../../src/Client/SurfaceMath.cs" Link="Mod/SurfaceMath.cs" />
-    <Compile Include="../../src/Client/WhiteWaterMix.cs" Link="Mod/WhiteWaterMix.cs" />
-    <Compile Include="../../src/Client/WaterSounds.cs" Link="Mod/WaterSounds.cs" />
-    <Compile Include="../../src/Server/ErosionRules.cs" Link="Mod/ErosionRules.cs" />
-    <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
-    <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
-    <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />
-    <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
-    <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />
-    <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
+    <ProjectReference Include="../FlowingWater.Rules/FlowingWater.Rules.csproj" />
   </ItemGroup>
 </Project>

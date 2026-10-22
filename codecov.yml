@@ -1,0 +1,25 @@
+# Codecov (https://app.codecov.io/gh/Shuiei/valheim-flowing-water): gets the unit tests' coverage, sent by CircleCI's
+# coverage job on main once unit-tests has passed (.circleci/continue.yml; branches send none), and checks it on each
+# of main's commits. Which code counts is set by tests/coverage.runsettings: the mod's rules that need no game
+# (tests/FlowingWater.Rules); what needs the game is checked in game, not measured.
+# Reference:
+# https://docs.codecov.com/docs/codecovyml-reference
+codecov:
+  require_ci_to_pass: true
+  notify:
+    # The coverage job's one upload.
+    after_n_builds: 1
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    # The rules' line coverage: the check fails under 95%.
+    project:
+      default:
+        target: 95%
+        threshold: 0%
+    # No patch check and no pull request comment: pull requests send no coverage.
+    patch: off
+
+comment: false
