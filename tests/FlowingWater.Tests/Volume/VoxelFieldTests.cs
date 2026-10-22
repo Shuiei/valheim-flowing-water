@@ -64,6 +64,46 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void APointInsideARaisedFloorIsNotInTheWaterOnIt()
+    {
+        // The floor's top is 0.6 m into row 7, the water over it to 0.9: a point 0.2 m into the row is in the floor.
+        VoxelField field = Field((3, 7, 3, 0.3f, 0.6f));
+
+        Assert.Equal(float.NegativeInfinity, field.SurfaceAt(3.5f, 7.2f, 3.5f));
+        Assert.False(field.VelocityAt(3.5f, 7.2f, 3.5f, out _, out _, out _));
+    }
+
+    [Fact]
+    public void NoCurrentCarriesAPointOverTheWater()
+    {
+        // A voxel of water with a current: a point a third of a voxel over its surface floats there, unmoved.
+        var view = new BrickView(0, 0, 0, 1f);
+        int i = Brick.Index(2, 0, 2);
+        view.Water[i] = 1f;
+        view.VelocityX[i] = 1.5f;
+        var field = new VoxelField();
+        field.Set(view);
+
+        Assert.Equal(1f, field.SurfaceAt(2.5f, 1.3f, 2.5f), 4);
+        Assert.False(field.VelocityAt(2.5f, 1.3f, 2.5f, out _, out _, out _));
+        Assert.True(field.VelocityAt(2.5f, 0.9f, 2.5f, out _, out _, out _));
+    }
+
+    [Fact]
+    public void AWaterTopUnderAFloorIsDrawnAtItsOwnLevel()
+    {
+        // Two by two columns full in row 6, under a floor half into row 7 with a little water on it, nothing over:
+        // the lower water's top is drawn at 7, not at the level of the water on the floor.
+        var cells = (from x in Enumerable.Range(3, 2) from z in Enumerable.Range(3, 2) from c in new[] { (x, 6, z, 1f, 0f), (x, 7, z, 0.3f, 0.5f) } select c).ToArray();
+        VoxelField field = Field(cells);
+
+        SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
+
+        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7f) < 0.01f);
+        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7.8f) < 0.01f);
+    }
+
+    [Fact]
     public void AStillPoolIsAFlatTopWithSidesOnlyWhereItEnds()
     {
         // A 3 by 3 pool, half a voxel deep, in a pit (its sides are the pit's: drawn, then hidden by the ground).

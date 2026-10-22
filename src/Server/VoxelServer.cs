@@ -79,6 +79,9 @@ internal sealed class VoxelServer
 
     private float _droppedInAll;
 
+    // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
+    private float _refusedSize;
+
     /// <summary>A server with an empty grid; the world's water is read on the first update.</summary>
     public VoxelServer()
     {
@@ -474,16 +477,15 @@ internal sealed class VoxelServer
     private void ApplyVoxelSize()
     {
         float size = SettingVoxelSize();
-        if (Mathf.Approximately(size, _grid.VoxelSize))
+        if (Mathf.Approximately(size, _grid.VoxelSize) || Mathf.Approximately(size, _refusedSize))
         {
             return;
         }
 
         float s = _grid.VoxelSize;
         List<BrickView> views = [.. _grid.Bricks.Select(b => BrickData.Decode(BrickData.Encode(b, s)))];
-
-        // The bricks are cut differently now: a key of the old grid is another place in the new one.
-        DropObjects();
+        VoxelGrid oldGrid = _grid;
+        VoxelSolver oldSolver = _solver;
         NewGrid(size);
         float total = 0f, lost = 0f;
         foreach (BrickView view in views)
@@ -498,11 +500,21 @@ internal sealed class VoxelServer
             }
         }
 
-        FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
+        // Water that would find no room in the new voxels (solid all the way up, or MaxBricks reached) is not given
+        // up: the grid stays as it was, until the setting changes again.
         if (lost > 0f)
         {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: {lost:0.0} m³ found no room in the new voxels (solid all the way up) and is lost"));
+            _grid = oldGrid;
+            _solver = oldSolver;
+            _refusedSize = size;
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: voxels of {size} m refused: {lost:0.0} m³ would find no room in them; the water stays in voxels of {s} m"));
+            return;
         }
+
+        // The bricks are cut differently now: a key of the old grid is another place in the new one.
+        _refusedSize = 0f;
+        DropObjects();
+        FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
     }
 
     // Water poured at a point: into its voxel, or the first open one over it when the point is in a solid.
