@@ -21,6 +21,9 @@ namespace FlowingWater.Recorder;
 [BepInDependency("Tie.FlowingWater")]
 public sealed class Recorder : BaseUnityPlugin
 {
+    // How far from the given point "!remove" looks for the source, metres.
+    private const float RemoveReach = 2f;
+
     private static Recorder _instance;
 
     private static Vector3? _cameraAt;
@@ -895,12 +898,10 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"burst {name}: {frames} frames at {fps} fps");
     }
 
-    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
-    // well above the sea, that keeps falling for 30 m the same way.
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
-    // source there taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s",
+    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s",
     // "!shot from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
@@ -926,7 +927,18 @@ public sealed class Recorder : BaseUnityPlugin
                 string[] v = command.Substring(6).Split(',');
                 Vector3 from = new(Number(v[0]), Number(v[1]), Number(v[2]));
                 Vector3 at = new(Number(v[3]), Number(v[4]), Number(v[5]));
-                yield return command[1] == 's' ? Shot(from, at, v[6]) : Film(from, at, v[6], Number(v[7]), int.Parse(v[8], CultureInfo.InvariantCulture));
+                if (command[1] == 's')
+                {
+                    yield return Shot(from, at, v[6]);
+                }
+                else if (int.Parse(v[8], CultureInfo.InvariantCulture) is int fps && fps >= 1 && Number(v[7]) * fps >= 1f)
+                {
+                    yield return Film(from, at, v[6], Number(v[7]), fps);
+                }
+                else
+                {
+                    Note("film needs at least one frame: " + command);
+                }
             }
             else if (command.StartsWith("!", StringComparison.Ordinal))
             {
@@ -947,7 +959,19 @@ public sealed class Recorder : BaseUnityPlugin
     private void Own(string command)
     {
         string[] words = command.Split(new[] { ' ' }, 2);
-        float[] v = [.. words[1].Split(',').Select(t => float.Parse(t, CultureInfo.InvariantCulture))];
+        if (words[0] is not ("!source" or "!remove" or "!break"))
+        {
+            Note("unknown recorder command " + command);
+            return;
+        }
+
+        float[] v = words.Length > 1 ? [.. words[1].Split(',').Select(t => float.Parse(t, CultureInfo.InvariantCulture))] : [];
+        if (v.Length < (words[0] == "!source" ? 4 : 3))
+        {
+            Note("recorder command without its numbers: " + command);
+            return;
+        }
+
         var point = new Vector3(v[0], v[1], v[2]);
         switch (words[0])
         {
@@ -959,6 +983,7 @@ public sealed class Recorder : BaseUnityPlugin
             case "!remove":
                 ZNetView marker = FindObjectsByType<ZNetView>(FindObjectsSortMode.None)
                     .Where(n => n.IsValid() && n.GetZDO().GetPrefab() == "FlowingWater_Source".GetStableHashCode())
+                    .Where(n => Vector3.Distance(n.transform.position, point) <= RemoveReach)
                     .OrderBy(n => Vector3.Distance(n.transform.position, point)).FirstOrDefault();
                 Note(marker == null ? "no source to remove" : FormattableString.Invariant($"source at {marker.transform.position} removed"));
                 if (marker != null)
@@ -975,7 +1000,6 @@ public sealed class Recorder : BaseUnityPlugin
                 piece?.Remove();
                 break;
             default:
-                Note("unknown recorder command " + command);
                 break;
         }
     }
@@ -1038,6 +1062,8 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
     }
 
+    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
+    // well above the sea, that keeps falling for 30 m the same way.
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
     {
         WorldGenerator generator = WorldGenerator.instance;
