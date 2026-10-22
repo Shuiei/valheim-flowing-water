@@ -914,12 +914,24 @@ public sealed class Recorder : BaseUnityPlugin
         foreach (string step in steps)
         {
             string[] parts = step.Split(new[] { '|' }, 2);
-            float[] where = [.. parts[0].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture))];
+            if (!Numbers(parts[0], out float[] where) || where.Length < 2)
+            {
+                Note("recorder step with a bad place: " + step);
+                continue;
+            }
+
             yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
             string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {
-                yield return new WaitForSeconds(float.Parse(command.Substring(6), CultureInfo.InvariantCulture));
+                if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
+                {
+                    yield return new WaitForSeconds(wait[0]);
+                }
+                else
+                {
+                    Note("recorder command with missing or bad numbers: " + command);
+                }
             }
             else if (command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal))
             {
@@ -955,6 +967,22 @@ public sealed class Recorder : BaseUnityPlugin
 
     private static float Number(string text) => float.Parse(text, CultureInfo.InvariantCulture);
 
+    // Numbers given as "a,b,c": false when one is not a number.
+    private static bool Numbers(string text, out float[] values)
+    {
+        string[] parts = text.Split(',');
+        values = new float[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // The recorder's own commands of At.
     private void Own(string command)
     {
@@ -965,10 +993,9 @@ public sealed class Recorder : BaseUnityPlugin
             return;
         }
 
-        float[] v = words.Length > 1 ? [.. words[1].Split(',').Select(t => float.Parse(t, CultureInfo.InvariantCulture))] : [];
-        if (v.Length < (words[0] == "!source" ? 4 : 3))
+        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length < (words[0] == "!source" ? 4 : 3))
         {
-            Note("recorder command without its numbers: " + command);
+            Note("recorder command with missing or bad numbers: " + command);
             return;
         }
 
