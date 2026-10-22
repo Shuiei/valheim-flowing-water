@@ -302,6 +302,25 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStepTooLongForTheDeepWaterItFindsIsNotTaken()
+    {
+        // A pool 24.5 voxels deep, never stepped: a step as long as shallow water allows finds it and is not taken.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 24.5f);
+        var solver = new VoxelSolver(grid);
+        float shallow = solver.MaxStep;
+        float before = grid.TotalWater();
+
+        StepState state = solver.Advance(shallow, () => true, int.MaxValue);
+
+        Assert.Equal(StepState.Again, state);
+        Assert.False(solver.InStep);
+        Assert.True(solver.MaxStep < shallow);
+        Assert.Equal(StepState.Done, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        Assert.Equal(before, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void TheSeaTakesWhatReachesIt()
     {
         var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
