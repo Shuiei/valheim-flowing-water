@@ -167,9 +167,26 @@ public class VoxelGridTests
     }
 
     [Fact]
-    public void WaterAPieceDisplacesStaysWhenTheBrickOverItCannotBeMade()
+    public void BricksAskedForStayAskedForWhenMakingOneFails()
     {
-        // A pool's top row turns solid (a piece built in it); the brick over it would pass the cap.
+        // Reading the second brick's solids fails once: the failure goes up, and the next call makes them all.
+        int fills = 0;
+        var grid = new VoxelGrid(1f, new Failing(() => ++fills == 2));
+        grid.Want(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+
+        Assert.Throws<System.InvalidOperationException>(grid.MakeWanted);
+        grid.MakeWanted();
+
+        Assert.Equal(3, grid.Bricks.Count);
+    }
+
+    [Fact]
+    public void WaterAPieceDisplacesStaysInTheBricksAllowed()
+    {
+        // A pool's top row turns solid (a piece built in it); the brick over it would pass the cap, so the water goes
+        // down into the open voxel under it, and no brick is made.
         bool built = false;
         var grid = new VoxelGrid(1f, new BuiltOver(() => built)) { MaxBricks = 1 };
         grid.Pour(3, 15, 3, 0.5f);
@@ -179,7 +196,33 @@ public class VoxelGridTests
 
         Assert.Single(grid.Bricks);
         Assert.Equal(0.5f, grid.TotalWater(), 3);
-        Assert.Equal(0.5f, grid.WaterAt(3, 15, 3), 3);
+        Assert.Equal(0.5f, grid.WaterAt(3, 14, 3), 3);
+    }
+
+    [Fact]
+    public void WaterAPieceDisplacesUnderAFloorGoesAsideNotOverTheFloor()
+    {
+        // A piece fills a pool's voxel with a solid floor right over it: the water moves into the voxel beside it,
+        // never over the floor; where every side is shut too, it stays.
+        bool built = false;
+        var grid = new VoxelGrid(1f, new Cells(() => built ? [(3, 3, 3), (3, 4, 3)] : []));
+        grid.Pour(3, 3, 3, 0.8f);
+
+        built = true;
+        grid.Refill(grid.Find(0, 0, 0));
+
+        Assert.Equal(0f, grid.WaterAt(3, 3, 3), 3);
+        Assert.Equal(0f, grid.WaterAt(3, 5, 3), 3);
+        Assert.Equal(0.8f, grid.WaterAt(4, 3, 3), 3);
+
+        var shut = new VoxelGrid(1f, new Cells(() => built ? [(3, 3, 3), (3, 4, 3), (4, 3, 3), (2, 3, 3), (3, 3, 4), (3, 3, 2), (3, 2, 3)] : []));
+        built = false;
+        shut.Pour(3, 3, 3, 0.8f);
+        built = true;
+        shut.Refill(shut.Find(0, 0, 0));
+
+        Assert.Equal(0.8f, shut.WaterAt(3, 3, 3), 3);
+        Assert.Equal(0.8f, shut.TotalWater(), 3);
     }
 
     [Fact]
@@ -269,6 +312,33 @@ public class VoxelGridTests
             for (int i = 0; i < Brick.Count; i++)
             {
                 brick.Solid[i] = built() && brick.Y == 0 && Brick.Place(i).Y == Brick.Size - 1 ? 1f : 0f;
+            }
+        }
+    }
+
+    // Nothing solid; reading a brick's solids fails when told to.
+    private sealed class Failing(System.Func<bool> fail) : ISolids
+    {
+        public void Fill(Brick brick, float voxelSize)
+        {
+            if (fail())
+            {
+                throw new System.InvalidOperationException("solids could not be read");
+            }
+        }
+    }
+
+    // Whole voxels solid where a function says, nothing else.
+    private sealed class Cells(System.Func<(int X, int Y, int Z)[]> solid) : ISolids
+    {
+        public void Fill(Brick brick, float voxelSize)
+        {
+            foreach ((int x, int y, int z) in solid())
+            {
+                if (x >> 4 == brick.X && y >> 4 == brick.Y && z >> 4 == brick.Z)
+                {
+                    brick.Solid[Brick.Index(x & 15, y & 15, z & 15)] = 1f;
+                }
             }
         }
     }
