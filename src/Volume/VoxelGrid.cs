@@ -59,14 +59,10 @@ internal sealed class VoxelGrid
     /// <summary>The brick at these brick coordinates, made (with its solids) if there was none.</summary>
     public Brick Get(int x, int y, int z)
     {
+        InReach(x, y, z);
         if (Find(x, y, z) is { } found)
         {
             return found;
-        }
-
-        if (Math.Abs(x) > MaxBrick || Math.Abs(y) > MaxBrick || Math.Abs(z) > MaxBrick)
-        {
-            throw new ArgumentOutOfRangeException(nameof(x), $"brick {x}, {y}, {z} is beyond the grid's reach ({MaxBrick} bricks from the world's zero)");
         }
 
         var brick = new Brick(x, y, z);
@@ -122,6 +118,7 @@ internal sealed class VoxelGrid
     /// <summary>Asks for the brick at these brick coordinates, to be made after the step (safe from any thread).</summary>
     public void Want(int x, int y, int z)
     {
+        InReach(x, y, z);
         lock (_wanted)
         {
             _wanted.Add(Key(x, y, z));
@@ -169,6 +166,15 @@ internal sealed class VoxelGrid
                     next.Beside[side ^ 1] = null;
                 }
             }
+        }
+    }
+
+    // A brick farther than the key can tell apart would share another's: refused before any lookup.
+    private static void InReach(int x, int y, int z)
+    {
+        if (x < -MaxBrick || x > MaxBrick || y < -MaxBrick || y > MaxBrick || z < -MaxBrick || z > MaxBrick)
+        {
+            throw new ArgumentOutOfRangeException(nameof(x), $"brick {x}, {y}, {z} is beyond the grid's reach ({MaxBrick} bricks from the world's zero)");
         }
     }
 
