@@ -134,6 +134,31 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void SleepingBricksBesideAwakeOnesKeepTheVolume()
+    {
+        // A pool three bricks long; once it is still, its east end is fed a little every step (awake), the rest sleeps.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 47, 0, 7)));
+        Fill(grid, 0, 47, 0, 7, 1.5f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 60; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        float before = grid.TotalWater();
+        float poured = 0f;
+        for (int k = 0; k < 300; k++)
+        {
+            grid.Pour(46, 1, 3, 0.002f);
+            poured += 0.002f;
+            solver.Step(0.1f);
+        }
+
+        Assert.True(grid.Find(0, 0, 0).Asleep || grid.Find(0, 0, 0).Quiet >= 24);
+        Assert.Equal(before + poured, grid.TotalWater(), 3);
+    }
+
+    [Fact]
     public void APoolStirredHardSettlesLevelAgain()
     {
         // A pool two voxels deep, then sixteen voxels of water dropped into one voxel over it.

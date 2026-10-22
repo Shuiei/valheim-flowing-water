@@ -92,6 +92,9 @@ internal sealed class Brick
     /// <summary>Steps in a row its water has barely moved (every flow under the solver's sleeping flow).</summary>
     public int Quiet { get; set; }
 
+    /// <summary>Whether it sleeps this step: skipped, and no water crosses its faces.</summary>
+    public bool Asleep { get; set; }
+
     /// <summary>Takes voxel i into the box of the wet voxels (water was put there from outside a step).</summary>
     public void Wets(int i)
     {

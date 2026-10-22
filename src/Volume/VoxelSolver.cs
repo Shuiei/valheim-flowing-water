@@ -104,9 +104,22 @@ internal sealed class VoxelSolver
     {
         if (Sleeps(brick))
         {
+            // Falling asleep, its flows are let go: no water may cross its faces while it sleeps (one side would
+            // count what the other does not).
+            if (!brick.Asleep)
+            {
+                Array.Clear(brick.FlowX, 0, Brick.Count);
+                Array.Clear(brick.FlowY, 0, Brick.Count);
+                Array.Clear(brick.FlowZ, 0, Brick.Count);
+                brick.LastHigh = (-1, -1, -1);
+            }
+
+            brick.Asleep = true;
             brick.PartCount = 0;
             return;
         }
+
+        brick.Asleep = false;
 
         (int wlx, int wly, int wlz) = brick.WetLow;
         (int whx, int why, int whz) = brick.WetHigh;
@@ -342,7 +355,7 @@ internal sealed class VoxelSolver
     // The new flow of one of a voxel's own faces (side 0: east, 2: up, 4: north).
     private static float Flow(Brick brick, int i, int y, int side, float dt, float s, float flow)
     {
-        if (!Next(brick, i, side, out Brick other, out int j) || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << (side / 2))) != 0)
+        if (!Next(brick, i, side, out Brick other, out int j) || other.Asleep || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << (side / 2))) != 0)
         {
             return 0f;
         }
