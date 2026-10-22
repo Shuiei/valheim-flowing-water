@@ -183,6 +183,22 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void BricksAskedForStayAskedForWhenMakingOneFails()
+    {
+        // Reading the second brick's solids fails once: the failure goes up, and the next call makes them all.
+        int fills = 0;
+        var grid = new VoxelGrid(1f, new Failing(() => ++fills == 2));
+        grid.Want(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+
+        Assert.Throws<System.InvalidOperationException>(grid.MakeWanted);
+        grid.MakeWanted();
+
+        Assert.Equal(3, grid.Bricks.Count);
+    }
+
+    [Fact]
     public void NoMoreBricksThanAllowedAreMadeForTheWater()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 2 };
@@ -269,6 +285,18 @@ public class VoxelGridTests
             for (int i = 0; i < Brick.Count; i++)
             {
                 brick.Solid[i] = built() && brick.Y == 0 && Brick.Place(i).Y == Brick.Size - 1 ? 1f : 0f;
+            }
+        }
+    }
+
+    // Nothing solid; reading a brick's solids fails when told to.
+    private sealed class Failing(System.Func<bool> fail) : ISolids
+    {
+        public void Fill(Brick brick, float voxelSize)
+        {
+            if (fail())
+            {
+                throw new System.InvalidOperationException("solids could not be read");
             }
         }
     }

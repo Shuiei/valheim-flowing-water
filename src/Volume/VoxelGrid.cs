@@ -251,7 +251,20 @@ internal sealed class VoxelGrid
             }
 
             made |= Find(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k])) == null;
-            Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+            // Should reading its solids fail, it and those after it are asked for again; the failure goes on up.
+            bool got = false;
+            try
+            {
+                Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+                got = true;
+            }
+            finally
+            {
+                if (!got)
+                {
+                    Want(wanted, k);
+                }
+            }
         }
     }
 
