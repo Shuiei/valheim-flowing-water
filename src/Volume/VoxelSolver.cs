@@ -212,10 +212,11 @@ internal sealed class VoxelSolver
             return Stiffened();
         }
 
+        // The step is over before new bricks are made: should making one fail, the step is not applied again.
         if (_phase == ApplyPhase)
         {
-            _grid.MakeWanted(_stepTimeLeft);
             _phase = Idle;
+            _grid.MakeWanted(_stepTimeLeft);
             return StepState.Done;
         }
 
