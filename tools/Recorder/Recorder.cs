@@ -979,10 +979,11 @@ public sealed class Recorder : BaseUnityPlugin
         }
     }
 
-    // A name that makes a file in the output folder: not empty, no folder, no "..", and nothing a film's ffmpeg list
-    // would need escaped (quotes, line breaks).
+    // A name that makes a file in the output folder: not empty, no folder, no "..", nothing a film's ffmpeg list would
+    // need escaped (quotes, line breaks), and not "log" (the recorder's own log.txt is open).
     private static bool PlainName(string name) =>
-        name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\', '\'', '"', '\n', '\r']) < 0 && name != "." && name != "..";
+        name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\', '\'', '"', '\n', '\r']) < 0
+        && name != "." && name != ".." && !string.Equals(name, "log", StringComparison.OrdinalIgnoreCase);
 
     // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)
