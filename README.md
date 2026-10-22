@@ -71,10 +71,20 @@ add its radius in metres, `x,z,rate,radius`.
 
 ### Grid size
 
-`Server.CellSize` sets the side of the water's voxels. Smaller voxels give finer streams, shores and falls, and
-cost far more: eight times the voxels per halving, each stepped twice as often, and eight times the data sent to
-players. 1 m suits most servers; 0.5 is for builds and small streams, 0.25 for tests. The blocks of voxels are
-stepped in parallel, so the server's cost spreads over its cores. Changing the setting moves the water already
+`Server.CellSize` sets the side of the water's voxels. Smaller voxels give finer streams, shores and falls. Each
+halving gives up to eight times the voxels, stepped about twice as often, but only moving water costs anything:
+still water sleeps at any size. A 20 × 20 m pool 2 m deep, stirred by a splash, took this much time per second
+of water on a desktop PC (the game's server runs the same work about 3 times slower):
+
+| `CellSize` | Moving | Still | Blocks of voxels |
+|---|---|---|---|
+| 1 | 6 ms | 0.1 ms | 12 |
+| 0.5 | 18 ms | 0.2 ms | 24 |
+| 0.25 | 95 ms | 0.7 ms | 74 |
+
+The data sent to players and the server's memory grow with the blocks. 1 m suits most servers; 0.5 is for builds
+and small streams, 0.25 for tests. The blocks of voxels are stepped in parallel, so the server's cost spreads over
+its cores. Changing the setting moves the water already
 there to the new grid (same volume), at the next start or at once with a config manager.
 
 ## How it works
