@@ -64,6 +64,8 @@ add its radius in metres, `x,z,rate,radius`.
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
 | `Commands.CommandsForEveryone` | true | The command without cheats |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
+| `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
+| `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Water faster than this (m/s) is drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | How fast the stream texture runs |
@@ -115,9 +117,12 @@ next start or at once with a config manager.
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,
-  seen from afar, a larger layer that still reads at a distance; colour and opacity go from shallow to deep;
-  foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge fades out
-  to nothing, its reflections included (the blending adds light even where the water is transparent).
+  seen from afar, a larger layer that still reads at a distance; the water is a body, not a tinted sheet: what
+  lies behind it (the scene, grabbed once a frame) is seen through it, bent by the ripples, each colour dimmed
+  by how much water the eye looks through, from the scene's depth (red goes first, so a pool turns blue-green
+  and deeper water hides its bed: `WaterClarity`, `WaterColour`), with 15% of the water's colour even where it
+  is thin; foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge
+  fades out to nothing, its reflections included (the blending adds light even where the water is transparent).
 - **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
   can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s. Carrying less, it
   picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets everything down,

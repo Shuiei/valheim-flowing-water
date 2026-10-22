@@ -1,4 +1,6 @@
 using BepInEx.Configuration;
+using FlowingWater.Client;
+using UnityEngine;
 
 namespace FlowingWater;
 
@@ -27,6 +29,8 @@ internal sealed class Settings
         DefaultDrainRadius = config.Bind("Markers", "DefaultDrainRadius", 1f, new ConfigDescription("How far around it a drain takes water, in metres, when placed without a radius.", new AcceptableValueRange<float>(0.25f, 16f)));
         CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether the flowingwater console command works without cheats on.");
         CustomShader = config.Bind("Client", "CustomShader", true, "Draw the water with the mod's own shader (ripples that run with the current, colour by depth, foam, a shore that fades out). Off: the game's own sea and stream materials.");
+        WaterClarity = config.Bind("Client", "WaterClarity", WaterLook.DefaultClarity, new ConfigDescription("How far one sees into the water, in metres: shallow water stays clear, deeper water takes the water's colour and hides its bed (custom shader only).", new AcceptableValueRange<float>(0.2f, 50f)));
+        WaterColour = config.Bind("Client", "WaterColour", new Color(0.03f, 0.11f, 0.14f, 1f), "The colour deep water takes, as RGBA hex RRGGBBAA (custom shader only).");
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Water faster than this, in metres per second, is drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         Spray = config.Bind("Client", "Spray", true, "Spray where the water falls or runs steeply (rapids, falls).");
@@ -73,6 +77,10 @@ internal sealed class Settings
     public ConfigEntry<bool> CommandsForEveryone { get; }
 
     public ConfigEntry<bool> CustomShader { get; }
+
+    public ConfigEntry<float> WaterClarity { get; }
+
+    public ConfigEntry<Color> WaterColour { get; }
 
     public ConfigEntry<float> CurrentStrength { get; }
 

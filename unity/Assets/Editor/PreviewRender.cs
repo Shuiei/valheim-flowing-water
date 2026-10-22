@@ -240,6 +240,8 @@ public static class PreviewRender
         camera.fieldOfView = 55f;
         camera.farClipPlane = 600f;
         camera.clearFlags = CameraClearFlags.Skybox;
+        // As the game's camera: the water reads the scene's depth behind it.
+        camera.depthTextureMode = DepthTextureMode.Depth | DepthTextureMode.DepthNormals;
         var target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32) { antiAliasing = 4 };
         camera.targetTexture = target;
         camera.Render();
