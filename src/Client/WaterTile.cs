@@ -51,10 +51,12 @@ internal sealed class WaterTile : MonoBehaviour
 
     private const float SteepFoamFull = 1.2f;
 
+    // White water (sound, and spray where steep) is looked for this often (where: SpotRules).
+    private const float SpotSeconds = 0.5f;
+
     private static readonly Dictionary<long, WaterTile> ByZone = [];
 
     // The four vertices beside a vertex, as grid steps.
-    private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     // The eight tiles around: each reads this one's edge (its border heights, and the heights next to
     // the border for its normals).
@@ -113,6 +115,23 @@ internal sealed class WaterTile : MonoBehaviour
     private bool _edgeDirty;
 
     private float _rebuildTimer;
+
+    private WaterEffects _effects;
+
+    // This tile's vertices and its neighbours', drawn or wet, as SurfaceMath reads them.
+    private SurfaceMath.VertexReader _drawnAt;
+
+    private SurfaceMath.VertexReader _wetAt;
+
+    private float _spotTimer;
+
+    private readonly List<WaterSpot> _spots = [];
+
+    private readonly List<WaterSpot> _found = [];
+
+    private readonly List<(float Score, float X, float Z, int Index)> _candidates = [];
+
+    private readonly List<int> _chosen = [];
 
     private TileData _target;
 
@@ -349,10 +368,13 @@ internal sealed class WaterTile : MonoBehaviour
         (int zoneX, int zoneZ, int ox, int oz) = SurfaceMath.Owner(_size, x, z);
         x = ox;
         z = oz;
-
-        // A neighbour still on another grid (the server's changed a moment ago) joins up once it is sent again.
-        return ByZone.TryGetValue(TileData.Key(new Vector2s(Zone.x + zoneX, Zone.y + zoneZ)), out WaterTile other) && other.Ready && other._size == _size ? other : null;
+        return Near(zoneX, zoneZ);
     }
+
+    // The tile at that offset in zones, when shown. A neighbour still on another grid (the server's changed
+    // a moment ago) joins up once it is sent again.
+    private WaterTile Near(int zoneX, int zoneZ) =>
+        ByZone.TryGetValue(TileData.Key(new Vector2s(Zone.x + zoneX, Zone.y + zoneZ)), out WaterTile other) && other.Ready && other._size == _size ? other : null;
 
     // A wet vertex sits on its water (never thinner than MinDrawnDepth, so a stream shows). A dry
     // vertex beside a wet one carries that surface on, just under its own ground, so the surface
@@ -411,6 +433,9 @@ internal sealed class WaterTile : MonoBehaviour
         _mesh.MarkDynamic();
         GetComponent<MeshFilter>().sharedMesh = _mesh;
         ApplyMaterials();
+        _effects = gameObject.AddComponent<WaterEffects>();
+        _drawnAt = (int zoneX, int zoneZ, int x, int z, out float y) => VertexAt(zoneX, zoneZ, x, z, true, out y);
+        _wetAt = (int zoneX, int zoneZ, int x, int z, out float y) => VertexAt(zoneX, zoneZ, x, z, false, out y);
         ByZone[TileData.Key(Zone)] = this;
     }
 
@@ -564,6 +589,13 @@ internal sealed class WaterTile : MonoBehaviour
             _edgeDirty = false;
             _rebuildTimer = RebuildSeconds;
             Rebuild();
+        }
+
+        _spotTimer -= dt;
+        if (_spotTimer <= 0f)
+        {
+            _spotTimer = SpotSeconds;
+            ShowWhiteWater();
         }
 
         if (_properties != null)
@@ -778,42 +810,72 @@ internal sealed class WaterTile : MonoBehaviour
         }
     }
 
-    // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1), from
-    // the wet vertices beside it, on this tile or the next. A vertex of the last row or column is the
-    // next tile's, so the two draw it with the same foam.
-    private float SteepFoam(int x, int z)
-    {
-        int ox = x;
-        int oz = z;
-        WaterTile owner = Beside(ref ox, ref oz);
-        return owner != null ? owner.OwnSteepFoam(ox, oz) : OwnSteepFoam(x, z);
-    }
+    // How steep the drawn water surface is at a wet vertex, as a share of white water (0 to 1).
+    private float SteepFoam(int x, int z) => Mathf.Clamp01((Slope(x, z) - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
 
-    private float OwnSteepFoam(int x, int z)
+    // The drawn water surface's slope at a vertex (rise over run), from the wet vertices beside it, each
+    // read from the tile that has it (a vertex on a border gets the same slope from both tiles); 0 where dry.
+    private float Slope(int x, int z) => SurfaceMath.Steepest(_size, x, z, _cell, _wetAt);
+
+    // White water at the tile's spots; with spray off and no sound, none (and the spots are not looked for).
+    private void ShowWhiteWater()
     {
-        if (!Surface(x, z, false, out float y))
+        if (FlowingWaterPlugin.Settings.Spray.Value || FlowingWaterPlugin.Settings.WaterVolume.Value > 0f)
         {
-            return 0f;
+            FindSpots();
+        }
+        else if (_spots.Count == 0)
+        {
+            return;
+        }
+        else
+        {
+            _spots.Clear();
         }
 
-        float steepest = 0f;
-        foreach ((int dx, int dz) in Sides)
+        _effects.Show(_spots);
+    }
+
+    // The places where most water runs fastest and steepest, the strongest first and never two close
+    // together: where the tile sounds and sprays.
+    private void FindSpots()
+    {
+        _spots.Clear();
+        _found.Clear();
+        _candidates.Clear();
+        float originX = TileData.OriginX(Zone);
+        float originZ = TileData.OriginZ(Zone);
+        for (int z = 0; z < _size; z++)
         {
-            if (Surface(x + dx, z + dz, false, out float ny))
+            for (int x = 0; x < _size; x++)
             {
-                steepest = Mathf.Max(steepest, Mathf.Abs(ny - y) / _cell);
+                int i = Index(x, z);
+                float speed = Mathf.Sqrt((_velX[i] * _velX[i]) + (_velZ[i] * _velZ[i]));
+                if (!SpotRules.Qualifies(_depth[i], speed))
+                {
+                    continue;
+                }
+
+                float slope = Slope(x, z);
+                float flow = speed * _depth[i];
+                var at = new Vector3(originX + (x * _cell), _vertexY[(z * Pitch) + x] + Lift, originZ + (z * _cell));
+                _candidates.Add((SpotRules.Score(flow, slope), at.x, at.z, _found.Count));
+                _found.Add(new WaterSpot(at, new Vector3(_velX[i], 0f, _velZ[i]) / speed, flow, slope));
             }
         }
 
-        return Mathf.Clamp01((steepest - SteepFoamFrom) / (SteepFoamFull - SteepFoamFrom));
+        SpotRules.Pick(_candidates, _chosen);
+        foreach (int chosen in _chosen)
+        {
+            _spots.Add(_found[chosen]);
+        }
     }
 
-    // The drawn surface's height at a vertex of this tile's grid, read from the tile beside when it
-    // lies beyond this one; false when the vertex is dry (or, asked for drawn ones, not in the mesh) or
-    // its tile not shown.
-    private bool Surface(int x, int z, bool drawn, out float y)
+    // A vertex of this tile (zone offset 0, 0) or of the tile at that offset: whether it is there (drawn,
+    // or wet) and its height; false when that tile is not shown.
+    private bool VertexAt(int zoneX, int zoneZ, int x, int z, bool drawn, out float y)
     {
-        WaterTile tile = x < 0 || z < 0 || x >= Pitch || z >= Pitch ? Beside(ref x, ref z) : this;
+        WaterTile tile = zoneX == 0 && zoneZ == 0 ? this : Near(zoneX, zoneZ);
         int i = (z * Pitch) + x;
         bool there = tile != null && (drawn ? tile._meshIndex[i] >= 0 : tile._vertexWet[i]);
         y = there ? tile._vertexY[i] : 0f;
@@ -849,18 +911,9 @@ internal sealed class WaterTile : MonoBehaviour
     // so two tiles light their shared border alike): the normal and the tangent come from it.
     private void SurfaceFrame(int x, int z, out Vector3 normal, out Vector4 tangent)
     {
-        float y = _vertexY[(z * Pitch) + x];
-        ((float X, float Y, float Z) n, (float X, float Y, float Z, float W) t) = SurfaceMath.Frame(Gradient(x, z, 1, 0, y), Gradient(x, z, 0, 1, y));
+        ((float X, float Y, float Z) n, (float X, float Y, float Z, float W) t) = SurfaceMath.FrameAt(_size, x, z, _vertexY[(z * Pitch) + x], _cell, _drawnAt);
         normal = new Vector3(n.X, n.Y, n.Z);
         tangent = new Vector4(t.X, t.Y, t.Z, t.W);
-    }
-
-    // Rise over run through a vertex in one direction, from the drawn vertices either side.
-    private float Gradient(int x, int z, int dx, int dz, float y)
-    {
-        bool ahead = Surface(x + dx, z + dz, true, out float yAhead);
-        bool behind = Surface(x - dx, z - dz, true, out float yBehind);
-        return SurfaceMath.Gradient(y, ahead, yAhead, behind, yBehind, _cell);
     }
 
     // When this tile's edge changed (the two outer rows and columns: what the tiles around read for

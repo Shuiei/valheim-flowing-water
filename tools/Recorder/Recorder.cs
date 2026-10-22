@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
@@ -217,24 +218,19 @@ public sealed class Recorder : BaseUnityPlugin
         Site gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
         Note($"steep site {steep}");
         Note($"gentle site {gentle}");
-        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "look")
+        // A scenario of its own (FW_REC_SCENARIO), else every command below.
+        IEnumerator scenario = Environment.GetEnvironmentVariable("FW_REC_SCENARIO") switch
         {
-            IEnumerator look = Look(steep, gentle);
-            while (look.MoveNext())
-            {
-                yield return look.Current;
-            }
-
-            Note("all steps run");
-            yield break;
-        }
-
-        if (Environment.GetEnvironmentVariable("FW_REC_SCENARIO") == "grid")
+            "cascade" => Cascade(spawn),
+            "look" => Look(steep, gentle),
+            "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
+            _ => null,
+        };
+        if (scenario != null)
         {
-            IEnumerator grid = Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0");
-            while (grid.MoveNext())
+            while (scenario.MoveNext())
             {
-                yield return grid.Current;
+                yield return scenario.Current;
             }
 
             Note("all steps run");
@@ -388,6 +384,13 @@ public sealed class Recorder : BaseUnityPlugin
             yield return Shot(gentle.Close(), gentle.At(7f), $"gentle-close-t{t}");
         }
 
+        Vector3? busiest = EffectStats();
+        if (busiest is { } spray)
+        {
+            yield return Shot(spray + new Vector3(5f, 3f, 3f), spray, "spray-close");
+            yield return Burst(spray + new Vector3(5f, 3f, 3f), spray, "spray-motion", 3f, 12);
+        }
+
         // The frame rate looking at the water (the players' cost of the grid: the mesh rebuilds).
         _cameraAt = Clear(steep.Behind(), steep.At(14f));
         _cameraLook = steep.At(14f);
@@ -431,14 +434,118 @@ public sealed class Recorder : BaseUnityPlugin
         Command("flowingwater remove");
     }
 
+    // The white water the plugin made (its sounds and spray, by their names), and its running-water
+    // sound saved once as a WAV to listen to.
+    private Vector3? EffectStats()
+    {
+        List<AudioSource> sounds = [.. FindObjectsByType<AudioSource>(FindObjectsSortMode.None).Where(s => s.name.StartsWith("FlowingWater white water", StringComparison.Ordinal))];
+        List<ParticleSystem> sprays = [.. FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None).Where(p => p.name.StartsWith("FlowingWater spray", StringComparison.Ordinal))];
+        ParticleSystem busiest = sprays.OrderByDescending(p => p.particleCount).FirstOrDefault();
+        Note($"white water: {sounds.Count} sounds ({sounds.Count(s => s.isPlaying)} playing, loudest {sounds.Select(s => s.volume).DefaultIfEmpty().Max():0.00}), {sprays.Count} sprays with {sprays.Sum(p => p.particleCount)} drops in the air");
+        foreach (AudioClip clip in sounds.Select(s => s.clip).Where(c => c != null).Distinct())
+        {
+            string wav = Path.Combine(_out, clip.name.Replace(' ', '-') + ".wav");
+            if (File.Exists(wav))
+            {
+                continue;
+            }
+
+            float[] samples = new float[clip.samples * clip.channels];
+            // The array overload by reflection: the compiler cannot tell it from the span one on .NET Framework.
+            typeof(AudioClip).GetMethod("GetData", [typeof(float[]), typeof(int)]).Invoke(clip, [samples, 0]);
+            WriteWav(wav, samples, clip.channels, clip.frequency);
+            Note($"sound {clip.name} saved: {clip.length:0.0} s at {clip.frequency} Hz");
+        }
+
+        return busiest != null && busiest.particleCount > 0 ? busiest.transform.position : null;
+    }
+
+    private static void WriteWav(string path, float[] samples, int channels, int rate) => File.WriteAllBytes(path, Wav.Encode(samples, channels, rate));
+
+    // A strong spring at the top of the steepest open slope near the spawn, and once it has run, its
+    // busiest spray filmed with sound: close, then from further off.
+    private IEnumerator Cascade(Vector3 spawn)
+    {
+        Site steep = FindSite(spawn, 0.8f, 1.6f, true) ?? FindSite(spawn, 0.7f, 2f, false);
+        Note($"cascade site {steep}");
+        yield return Go(steep.At(0f));
+        Command("flowingwater source " + (Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4"));
+        yield return Go(steep.At(10f));
+        yield return new WaitForSeconds(90f);
+        yield return Views(steep, "cascade-site");
+        Vector3? busiest = EffectStats();
+        Vector3 at = busiest ?? steep.At(10f);
+        Vector3 side = Vector3.Cross(Vector3.up, (at - steep.At(0f)).normalized);
+        yield return Film(at + (side * 6f) + new Vector3(0f, 2.5f, 0f), at, "cascade-close", 10f, 24);
+        yield return Film(at + (side * 14f) + (steep.Down * 8f) + new Vector3(0f, 6f, 0f), at, "cascade-wide", 8f, 24);
+    }
+
+    // Like Burst, with the sound the camera hears (AudioTap on the audio listener) and each frame's
+    // real time, so that a video can be made of them in step: name-NNN.png, name.wav, name.txt (an ffmpeg
+    // concat list with each frame's duration and the sound's offset).
+    private IEnumerator Film(Vector3 from, Vector3 at, string name, float seconds, int fps)
+    {
+        AudioListener listener = FindObjectsByType<AudioListener>(FindObjectsSortMode.None).FirstOrDefault(l => l.isActiveAndEnabled);
+        if (listener == null)
+        {
+            Note($"film {name}: no audio listener, frames only");
+        }
+        else if (listener.GetComponent<AudioTap>() == null)
+        {
+            listener.gameObject.AddComponent<AudioTap>();
+        }
+
+        from = Clear(from, at);
+        _cameraAt = from;
+        _cameraLook = at;
+        yield return new WaitForSeconds(1f);
+        int frames = Mathf.RoundToInt(seconds * fps);
+        float step = 1f / fps;
+        var times = new List<float>(frames);
+        // Without a listener nothing is heard: no sound file.
+        bool heard = listener != null;
+        AudioTap.On = heard;
+        float soundFrom = Time.realtimeSinceStartup;
+        for (int i = 0; i < frames; i++)
+        {
+            float next = Time.time + step;
+            yield return new WaitForEndOfFrame();
+            times.Add(Time.realtimeSinceStartup);
+            ScreenCapture.CaptureScreenshot(Path.Combine(_out, $"{name}-{i:000}.png"));
+            while (Time.time < next)
+            {
+                yield return null;
+            }
+        }
+
+        AudioTap.On = false;
+        float[] sound = heard ? AudioTap.Samples() : [];
+        if (heard)
+        {
+            WriteWav(Path.Combine(_out, name + ".wav"), sound, AudioTap.Channels, AudioSettings.outputSampleRate);
+        }
+
+        var list = new System.Text.StringBuilder();
+        list.Append(FormattableString.Invariant($"# sound starts {times[0] - soundFrom:0.000} s before the first frame\n"));
+        for (int i = 0; i < times.Count; i++)
+        {
+            float duration = i + 1 < times.Count ? times[i + 1] - times[i] : step;
+            list.Append(FormattableString.Invariant($"file '{name}-{i:000}.png'\nduration {duration:0.0000}\n"));
+        }
+
+        File.WriteAllText(Path.Combine(_out, name + ".txt"), list.ToString());
+        Note(FormattableString.Invariant($"film {name}: {frames} frames over {times[times.Count - 1] - times[0]:0.00} s, sound {sound.Length / (float)Math.Max(1, AudioTap.Channels) / AudioSettings.outputSampleRate:0.00} s at {AudioSettings.outputSampleRate} Hz x{AudioTap.Channels}, starting {times[0] - soundFrom:0.000} s before the first frame"));
+    }
+
     // The custom material's look, one set of properties after the other, on both streams from the
     // same cameras: near, from the side and from far off (where ripples must still show).
     private IEnumerator Look(Site steep, Site gentle)
     {
+        string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "2";
         yield return Go(steep.At(0f));
-        Command("flowingwater source 2");
+        Command("flowingwater source " + rate);
         yield return Go(gentle.At(0f));
-        Command("flowingwater source 2");
+        Command("flowingwater source " + rate);
         yield return Go(steep.At(8f));
         yield return new WaitForSeconds(120f);
         // Unset or empty: the material as it is.
@@ -465,7 +572,33 @@ public sealed class Recorder : BaseUnityPlugin
                 yield return Shot(site.Side(), site.At(12f), $"{named[0]}-{where}-side");
                 yield return Shot(site.At(15f) + (site.Across * 50f) + new Vector3(0f, 35f, 0f), site.At(15f), $"{named[0]}-{where}-far");
             }
+
+            // A view of the caller's (FW_REC_VIEW: "fromX,fromY,fromZ,atX,atY,atZ"), to look at one place.
+            if (View() is { } view)
+            {
+                yield return Go(view.At);
+                yield return Shot(view.From, view.At, $"{named[0]}-view");
+            }
         }
+    }
+
+    private static (Vector3 From, Vector3 At)? View()
+    {
+        string text = Environment.GetEnvironmentVariable("FW_REC_VIEW");
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        string[] parts = text.Split(',');
+        if (parts.Length != 6)
+        {
+            _instance?.Note($"FW_REC_VIEW \"{text}\" is not six numbers (from x,y,z then at x,y,z): left out");
+            return null;
+        }
+
+        float[] v = [.. parts.Select(t => float.Parse(t, CultureInfo.InvariantCulture))];
+        return (new Vector3(v[0], v[1], v[2]), new Vector3(v[3], v[4], v[5]));
     }
 
     // The point with the deepest water between these distances downhill, searching 12 m to each
