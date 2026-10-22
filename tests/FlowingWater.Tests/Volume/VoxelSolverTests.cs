@@ -169,6 +169,21 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void ASleepingPoolCountsNoChangesUntilWaterComes()
+    {
+        VoxelGrid grid = StillPool(0, 2f, out VoxelSolver solver);
+        Brick pool = grid.Find(0, 0, 0);
+        solver.Step(0.1f);
+        int asleep = pool.Changes;
+
+        Run(grid, 2f);
+        Assert.Equal(asleep, pool.Changes);
+
+        grid.Pour(3, 2, 3, 1f);
+        Assert.NotEqual(asleep, pool.Changes);
+    }
+
+    [Fact]
     public void SleepingBricksBesideAwakeOnesKeepTheVolume()
     {
         // A pool three bricks long; once it is still, its east end is fed a little every step (awake), the rest sleeps.

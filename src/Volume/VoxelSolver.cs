@@ -116,6 +116,7 @@ internal sealed class VoxelSolver
                 Array.Clear(brick.FlowY, 0, Brick.Count);
                 Array.Clear(brick.FlowZ, 0, Brick.Count);
                 brick.LastHigh = (-1, -1, -1);
+                brick.Changes++;
             }
 
             brick.Asleep = true;
@@ -124,6 +125,7 @@ internal sealed class VoxelSolver
         }
 
         brick.Asleep = false;
+        brick.Changes++;
 
         (int wlx, int wly, int wlz) = brick.WetLow;
         (int whx, int why, int whz) = brick.WetHigh;
