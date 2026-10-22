@@ -221,7 +221,7 @@ public sealed class Recorder : BaseUnityPlugin
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        if (chosen is not ("prep" or "pools" or "cascade"))
+        if (chosen is not ("prep" or "pools" or "cascade" or "at"))
         {
             steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
             gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
