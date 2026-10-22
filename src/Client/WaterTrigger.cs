@@ -39,7 +39,7 @@ internal sealed class WaterTrigger : MonoBehaviour
         }
 
         Rigidbody body = target.GetComponent<Rigidbody>();
-        if (body == null || body.isKinematic || !WaterTile.CurrentAt(position, out Vector3 current))
+        if (body == null || body.isKinematic || !VoxelWater.CurrentAt(position, out Vector3 current))
         {
             return;
         }
@@ -95,7 +95,7 @@ internal sealed class WaterTrigger : MonoBehaviour
             }
 
             Vector3 position = target.position;
-            float surface = WaterTile.SurfaceAt(position);
+            float surface = VoxelWater.SurfaceAt(position);
             interactable.SetLiquidLevel(surface, LiquidType.Water, this);
             Carry(interactable, target, position, surface);
         }

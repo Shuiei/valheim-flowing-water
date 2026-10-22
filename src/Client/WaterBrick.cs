@@ -1,0 +1,170 @@
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using FlowingWater.Volume;
+using UnityEngine;
+
+namespace FlowingWater.Client;
+
+/// <summary>
+/// A brick of the 3D water on a player's game: reads the brick's data when the server changes it, keeps it in
+/// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
+/// water's material. When its water changes, the bricks beside it are drawn again too (their sides depend on it).
+/// </summary>
+internal sealed class WaterBrick : MonoBehaviour
+{
+    // Shortest time between two drawings of a brick, seconds.
+    private const float RedrawSeconds = 0.1f;
+
+    private static readonly Dictionary<long, WaterBrick> ByKey = [];
+
+    private static readonly (int X, int Y, int Z)[] Beside = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
+
+    private ZNetView _nview;
+
+    private MeshFilter _filter;
+
+    private MeshRenderer _renderer;
+
+    private Mesh _mesh;
+
+    private BrickView _view;
+
+    private uint _revision = uint.MaxValue;
+
+    private bool _dirty;
+
+    private float _drawnAt;
+
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    private void Awake()
+    {
+        _nview = GetComponent<ZNetView>();
+        _filter = GetComponent<MeshFilter>();
+        _renderer = GetComponent<MeshRenderer>();
+        if (_nview == null || !_nview.IsValid())
+        {
+            enabled = false;
+            return;
+        }
+
+        _mesh = new Mesh { name = "FlowingWater brick" };
+        _mesh.MarkDynamic();
+        _filter.sharedMesh = _mesh;
+    }
+
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    private void Update()
+    {
+        ZDO zdo = _nview.GetZDO();
+        if (zdo != null && zdo.DataRevision != _revision)
+        {
+            _revision = zdo.DataRevision;
+            Read(zdo.GetByteArray(ZdoKeys.Brick));
+        }
+
+        if (_dirty && Time.time - _drawnAt >= RedrawSeconds)
+        {
+            Draw();
+        }
+    }
+
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    private void OnDestroy()
+    {
+        if (_view != null)
+        {
+            VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
+            ByKey.Remove(VoxelGrid.Key(_view.X, _view.Y, _view.Z));
+            Neighbours(_view);
+        }
+
+        if (_mesh != null)
+        {
+            Destroy(_mesh);
+        }
+    }
+
+    private void Read(byte[] data)
+    {
+        if (data == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _view = BrickData.Decode(data);
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Water brick at {transform.position}: data unreadable, not drawn ({e.Message})");
+            return;
+        }
+
+        VoxelWater.Field.Set(_view);
+        ByKey[VoxelGrid.Key(_view.X, _view.Y, _view.Z)] = this;
+        if (GetComponentInChildren<BoxCollider>() is { } trigger)
+        {
+            trigger.size = Vector3.one * (Brick.Size * _view.VoxelSize);
+        }
+
+        _dirty = true;
+        Neighbours(_view);
+    }
+
+    // The bricks beside this one are drawn again: their sides towards it depend on its water.
+    private static void Neighbours(BrickView view)
+    {
+        foreach ((int dx, int dy, int dz) in Beside)
+        {
+            if (ByKey.TryGetValue(VoxelGrid.Key(view.X + dx, view.Y + dy, view.Z + dz), out WaterBrick next) && next != null)
+            {
+                next._dirty = true;
+            }
+        }
+    }
+
+    private void Draw()
+    {
+        _dirty = false;
+        _drawnAt = Time.time;
+        Material material = Material();
+        if (_view == null || material == null)
+        {
+            return;
+        }
+
+        SurfaceMesh surface = VoxelSurface.Build(VoxelWater.Field, _view);
+        Vector3 origin = transform.position;
+        var vertices = new List<Vector3>(surface.Vertices.Count);
+        var world = new List<Vector2>(surface.Vertices.Count);
+        var water = new List<Vector4>(surface.Vertices.Count);
+        var current = new List<Vector2>(surface.Vertices.Count);
+        for (int i = 0; i < surface.Vertices.Count; i++)
+        {
+            Vec3 v = surface.Vertices[i];
+            vertices.Add(new Vector3(v.X, v.Y, v.Z) - origin);
+
+            // Ripples on the sides run up them: their texture shifts with height.
+            world.Add(new Vector2(v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f)));
+            water.Add(new Vector4(surface.Depths[i], 0f, surface.Shores[i], 0f));
+            current.Add(new Vector2(surface.Velocities[i].X, surface.Velocities[i].Z));
+        }
+
+        _mesh.Clear();
+        _mesh.indexFormat = vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
+        _mesh.SetVertices(vertices);
+        _mesh.SetUVs(0, world);
+        _mesh.SetUVs(1, water);
+        _mesh.SetUVs(2, current);
+        _mesh.SetTriangles(surface.Triangles, 0);
+        _mesh.RecalculateNormals();
+        _mesh.RecalculateTangents();
+        _mesh.RecalculateBounds();
+        _renderer.sharedMaterial = material;
+    }
+
+    private static Material Material() =>
+        FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
+}

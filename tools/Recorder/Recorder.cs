@@ -890,7 +890,8 @@ public sealed class Recorder : BaseUnityPlugin
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
-    // source there taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s".
+    // source there taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s",
+    // "!shot from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
         string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
@@ -909,6 +910,14 @@ public sealed class Recorder : BaseUnityPlugin
             {
                 yield return new WaitForSeconds(float.Parse(command.Substring(6), CultureInfo.InvariantCulture));
             }
+            else if (command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal))
+            {
+                // "!shot fx,fy,fz,ax,ay,az,name" or "!film fx,fy,fz,ax,ay,az,name,seconds,fps": from a point, at a point.
+                string[] v = command.Substring(6).Split(',');
+                Vector3 from = new(Number(v[0]), Number(v[1]), Number(v[2]));
+                Vector3 at = new(Number(v[3]), Number(v[4]), Number(v[5]));
+                yield return command[1] == 's' ? Shot(from, at, v[6]) : Film(from, at, v[6], Number(v[7]), int.Parse(v[8], CultureInfo.InvariantCulture));
+            }
             else if (command.StartsWith("!", StringComparison.Ordinal))
             {
                 Own(command);
@@ -921,6 +930,8 @@ public sealed class Recorder : BaseUnityPlugin
             yield return new WaitForSeconds(2f);
         }
     }
+
+    private static float Number(string text) => float.Parse(text, CultureInfo.InvariantCulture);
 
     // The recorder's own commands of At.
     private void Own(string command)
