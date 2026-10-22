@@ -13,7 +13,9 @@ public class BrickDataTests
         var brick = new Brick(-3, 2, 7);
         int i = Brick.Index(5, 6, 7);
         brick.Water[i] = 0.5f;
+        brick.Solid[i] = 0.3f;
         brick.Water[Brick.Index(0, 0, 0)] = 1.1f;
+        brick.Solid[Brick.Index(1, 0, 0)] = 1f;
         brick.FlowX[i] = 2f;
         brick.FlowX[i - 1] = 2f;
         brick.FlowY[i] = -1f;
@@ -25,6 +27,10 @@ public class BrickDataTests
         Assert.Equal(0.5f, view.Water[i], 2);
         Assert.Equal(1.1f, view.Water[Brick.Index(0, 0, 0)], 2);
         Assert.Equal(0f, view.Water[Brick.Index(1, 0, 0)]);
+
+        // The water's floor where there is water; nothing kept where there is none.
+        Assert.Equal(0.3f, view.Solid[i], 2);
+        Assert.Equal(0f, view.Solid[Brick.Index(1, 0, 0)]);
 
         // 2 m³/s through both of a 0.5 m voxel's east and west faces: 8 m/s.
         Assert.Equal(8f, view.VelocityX[i], 0);

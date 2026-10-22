@@ -7,7 +7,8 @@ namespace FlowingWater.Volume;
 /// <summary>
 /// A brick's water as the world keeps it and players' games receive it, without the game: gzip of a version, the
 /// brick's coordinates and voxel size, then per voxel its water (a byte, 200 a full voxel, a little more for water
-/// pressed in) and, for voxels with water, its velocity (a byte per axis, square-root steps to 16 m/s).
+/// pressed in) and, for voxels with water, its solid share (a byte, 255 all solid: where the water's floor is, which
+/// the players' games cannot know) and its velocity (a byte per axis, square-root steps to 16 m/s).
 /// </summary>
 internal static class BrickData
 {
@@ -46,6 +47,7 @@ internal static class BrickData
                 if (water[i] > 0)
                 {
                     (float x, float y, float z) = Velocity(brick, i, area);
+                    writer.Write((byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f));
                     writer.Write(SpeedByte(x));
                     writer.Write(SpeedByte(y));
                     writer.Write(SpeedByte(z));
@@ -86,6 +88,7 @@ internal static class BrickData
             {
                 if (water[i] > 0)
                 {
+                    view.Solid[i] = reader.ReadByte() / 255f;
                     view.VelocityX[i] = Speed(reader.ReadSByte());
                     view.VelocityY[i] = Speed(reader.ReadSByte());
                     view.VelocityZ[i] = Speed(reader.ReadSByte());
@@ -153,6 +156,9 @@ internal sealed class BrickView
 
     /// <summary>Each voxel's water, as a share of its volume.</summary>
     public float[] Water { get; } = new float[Brick.Count];
+
+    /// <summary>The solid share of each voxel with water (its water's floor); 0 elsewhere.</summary>
+    public float[] Solid { get; } = new float[Brick.Count];
 
     /// <summary>Each voxel's velocity east, metres a second.</summary>
     public float[] VelocityX { get; } = new float[Brick.Count];
