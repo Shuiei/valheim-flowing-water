@@ -36,7 +36,12 @@ internal sealed class PieceShapes
         Vector3 position = zdo.GetPosition();
         Quaternion rotation = zdo.GetRotation();
         Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
-        _farthest = Mathf.Max(Farthest, shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
+        float reach = shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        if (reach > Farthest)
+        {
+            _farthest = reach;
+            Grown++;
+        }
         foreach (Box box in shape.Boxes)
         {
             Vector3 x = rotation * Vector3.Scale(box.AxisX, scale);
@@ -77,6 +82,15 @@ internal sealed class PieceShapes
             return _farthest;
         }
     }
+
+    /// <summary>
+    /// How many times a piece read (scaled past every prefab) made <see cref="Farthest"/> farther: zones chosen with
+    /// the bound before may have missed pieces like it.
+    /// </summary>
+    public int Grown { get; private set; }
+
+    /// <summary>A piece's scale (one where it was not scaled).</summary>
+    public static Vector3 Scale(ZDO zdo) => zdo.GetVec3(ScaleHash, Vector3.one);
 
     /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
     public float Reach(ZDO zdo)

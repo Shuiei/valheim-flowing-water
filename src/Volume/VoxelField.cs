@@ -34,7 +34,7 @@ internal sealed class VoxelField
     /// </summary>
     public VoxelField Near(BrickView view)
     {
-        var near = new VoxelField { VoxelSize = view.VoxelSize };
+        var near = new VoxelField { VoxelSize = VoxelSize };
         for (int dy = -(VoxelSurface.DeepestColumn / Brick.Size) - 1; dy <= 1; dy++)
         {
             for (int dz = -1; dz <= 1; dz++)
