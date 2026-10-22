@@ -49,6 +49,9 @@ internal sealed class SolidsWatch
 
     private float _timer;
 
+    // How many times the farthest reach of pieces had grown when last looked at.
+    private int _grown;
+
     /// <summary>A watch over these solids and terrain; it listens to the server's destroyed objects at once.</summary>
     public SolidsWatch(GameSolids solids, ZoneTerrain terrain)
     {
@@ -71,6 +74,15 @@ internal sealed class SolidsWatch
     /// <returns>How many bricks read their solids again.</returns>
     public int Update(float dt, VoxelGrid grid)
     {
+        // A piece read reached farther than any before: the zones each brick read its solids from may have missed
+        // ones like it, so every brick reads them again, from zones as far as the new reach.
+        if (_solids.Shapes.Grown != _grown)
+        {
+            _grown = _solids.Shapes.Grown;
+            _solids.ForgetAll();
+            _regions.Add(new Bounds(Vector3.zero, Vector3.one * float.MaxValue));
+        }
+
         _timer += dt;
         if (_timer >= LookSeconds && !_scan.Busy)
         {
@@ -124,13 +136,13 @@ internal sealed class SolidsWatch
         }
     }
 
-    // One object of a zone looked at: a piece's place, reach, turn and state. One destroyed since it was found is
+    // One object of a zone looked at: a piece's place, reach, turn, state and scale. One destroyed since it was found is
     // left out, or read as whatever object it is now: at worst a change that was none.
     private void Read(ZDO zdo)
     {
         if (zdo.IsValid() && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
-            _now[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)));
+            _now[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)) * 31) + PieceShapes.Scale(zdo).GetHashCode()));
         }
     }
 
