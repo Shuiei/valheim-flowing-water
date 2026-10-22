@@ -43,12 +43,26 @@ public class VoxelGridTests
     [InlineData(VoxelGrid.MaxBrick + 1, 0, 0)]
     [InlineData(0, -VoxelGrid.MaxBrick - 1, 0)]
     [InlineData(0, 0, int.MaxValue)]
+    [InlineData(int.MinValue, 0, 0)]
     public void ABrickBeyondTheGridsReachIsRefused(int x, int y, int z)
     {
         var grid = new VoxelGrid(1f, new TestSolids(int.MinValue));
 
         Assert.Throws<System.ArgumentOutOfRangeException>(() => grid.Get(x, y, z));
+        Assert.Throws<System.ArgumentOutOfRangeException>(() => grid.Want(x, y, z));
         Assert.Empty(grid.Bricks);
+    }
+
+    [Fact]
+    public void ABrickBeyondTheReachSharingAKeyWithOneThereIsStillRefused()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(int.MinValue));
+        grid.Get(0, 0, 0);
+
+        // 2^21 packs to the same 21 bits as 0.
+        Assert.Throws<System.ArgumentOutOfRangeException>(() => grid.Get(1 << 21, 0, 0));
+        Assert.Throws<System.ArgumentOutOfRangeException>(() => grid.Pour(1 << 25, 0, 0, 1f));
+        Assert.Equal(0f, grid.TotalWater());
     }
 
     [Fact]
