@@ -113,14 +113,7 @@ public class VoxelSolverTests
     [Fact]
     public void AStillPoolFallsAsleepAndWaterPouredInWakesIt()
     {
-        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
-        Fill(grid, 0, 7, 0, 7, 2f);
-        var solver = new VoxelSolver(grid);
-        for (int k = 0; k < 30; k++)
-        {
-            solver.Step(0.1f);
-        }
-
+        VoxelGrid grid = StillPool(0, 2f, out _);
         Brick pool = grid.Find(0, 0, 0);
         Assert.True(pool.Quiet >= 24, $"quiet for {pool.Quiet} steps");
 
@@ -138,14 +131,7 @@ public class VoxelSolverTests
     {
         // A pool on ground at row 13 up to half its brick's top row, still; then water comes into the brick over it
         // without that brick counting as wet (it stays awake, the pool beside it sleeps) and settles in.
-        var grid = new VoxelGrid(Volume, new TestSolids(13, TestSolids.Box(0, 7, 0, 7)));
-        Fill(grid, 0, 7, 0, 7, 2.5f, bottom: 13);
-        var solver = new VoxelSolver(grid);
-        for (int k = 0; k < 30; k++)
-        {
-            solver.Step(0.1f);
-        }
-
+        VoxelGrid grid = StillPool(13, 2.5f, out VoxelSolver solver);
         Brick pool = grid.Find(0, 0, 0);
         Assert.True(pool.Asleep, $"quiet for {pool.Quiet} steps");
         grid.Locate(3, 16, 3, out Brick above, out int i);
@@ -234,6 +220,21 @@ public class VoxelSolverTests
         Run(grid, seconds);
         float inside = Enumerable.Range(0, 8).Sum(x => Enumerable.Range(0, 8).Sum(z => Enumerable.Range(0, 8).Sum(y => grid.WaterAt(x, y, z))));
         return before - inside;
+    }
+
+    // A pool this deep in an 8 x 8 box on ground under row ground, stepped for three seconds (long enough to fall
+    // asleep).
+    private static VoxelGrid StillPool(int ground, float depth, out VoxelSolver solver)
+    {
+        var grid = new VoxelGrid(Volume, new TestSolids(ground, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, depth, bottom: ground);
+        solver = new VoxelSolver(grid);
+        for (int k = 0; k < 30; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        return grid;
     }
 
     private static float Below(VoxelGrid grid, int y) =>
