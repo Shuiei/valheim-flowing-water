@@ -44,6 +44,12 @@ internal sealed class VoxelGrid
     /// <summary>The bricks there are.</summary>
     public IReadOnlyCollection<Brick> Bricks => _bricks.Values;
 
+    /// <summary>
+    /// The farthest brick from the world's zero along any axis: its key keeps 21 bits of each coordinate (over 16,000
+    /// km of world at 1 m voxels, far beyond any Valheim world).
+    /// </summary>
+    public const int MaxBrick = (1 << 20) - 1;
+
     /// <summary>A brick's key from its brick coordinates (21 bits each).</summary>
     public static long Key(int x, int y, int z) => ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (uint)(z & 0x1FFFFF);
 
@@ -56,6 +62,11 @@ internal sealed class VoxelGrid
         if (Find(x, y, z) is { } found)
         {
             return found;
+        }
+
+        if (Math.Abs(x) > MaxBrick || Math.Abs(y) > MaxBrick || Math.Abs(z) > MaxBrick)
+        {
+            throw new ArgumentOutOfRangeException(nameof(x), $"brick {x}, {y}, {z} is beyond the grid's reach ({MaxBrick} bricks from the world's zero)");
         }
 
         var brick = new Brick(x, y, z);
@@ -148,12 +159,17 @@ internal sealed class VoxelGrid
     /// <summary>Makes the bricks asked for during the step.</summary>
     public void MakeWanted()
     {
-        foreach (long key in _wanted)
+        long[] wanted;
+        lock (_wanted)
+        {
+            wanted = [.. _wanted];
+            _wanted.Clear();
+        }
+
+        foreach (long key in wanted)
         {
             Get(Unpack(key >> 42), Unpack(key >> 21), Unpack(key));
         }
-
-        _wanted.Clear();
     }
 
     /// <summary>Forgets the bricks dry for longer than this, with the time since the last call.</summary>

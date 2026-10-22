@@ -68,4 +68,7 @@ internal sealed class Brick
 
     /// <summary>A voxel's index in the brick's arrays: rows along x, then z, then layers up.</summary>
     public static int Index(int x, int y, int z) => (y * Size * Size) + (z * Size) + x;
+
+    /// <summary>The voxel at an index, in the brick (0 to 15 each).</summary>
+    public static (int X, int Y, int Z) Place(int index) => (index % Size, index / (Size * Size), index / Size % Size);
 }

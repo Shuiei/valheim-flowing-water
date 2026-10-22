@@ -24,6 +24,33 @@ public class VoxelGridTests
         Assert.Null(grid.Find(x + 1, y, z));
     }
 
+    [Theory]
+    [InlineData(VoxelGrid.MaxBrick, -VoxelGrid.MaxBrick, 0)]
+    [InlineData(-VoxelGrid.MaxBrick, VoxelGrid.MaxBrick - 1, VoxelGrid.MaxBrick)]
+    public void BricksAtTheGridsReachKeepApart(int x, int y, int z)
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(int.MinValue));
+
+        Brick far = grid.Get(x, y, z);
+        Brick near = grid.Get(0, 0, 0);
+
+        Assert.Same(far, grid.Find(x, y, z));
+        Assert.Same(near, grid.Find(0, 0, 0));
+        Assert.Equal(2, grid.Bricks.Count);
+    }
+
+    [Theory]
+    [InlineData(VoxelGrid.MaxBrick + 1, 0, 0)]
+    [InlineData(0, -VoxelGrid.MaxBrick - 1, 0)]
+    [InlineData(0, 0, int.MaxValue)]
+    public void ABrickBeyondTheGridsReachIsRefused(int x, int y, int z)
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(int.MinValue));
+
+        Assert.Throws<System.ArgumentOutOfRangeException>(() => grid.Get(x, y, z));
+        Assert.Empty(grid.Bricks);
+    }
+
     [Fact]
     public void AVoxelIsFoundInItsBrickWestAndBelowTheZeroToo()
     {
