@@ -365,9 +365,17 @@ internal sealed class VoxelSolver
     private static float Heads(Brick[] column, float s, float stiffness)
     {
         float deepest = 0f;
+
+        // Over the parts of the bricks stepped (a sleeping one keeps its last part's bounds, not looked at). Settle
+        // still goes down the whole column, so water over a sleeping brick still settles into it.
         int lx = Brick.Size, lz = Brick.Size, hx = -1, hz = -1;
         foreach (Brick brick in column)
         {
+            if (brick.PartCount == 0)
+            {
+                continue;
+            }
+
             lx = Math.Min(lx, brick.Low.X);
             lz = Math.Min(lz, brick.Low.Z);
             hx = Math.Max(hx, brick.High.X);
