@@ -235,4 +235,31 @@ public class SolidRasterTests
             SolidRaster.Pieces(brick, voxelSize, _pieces, (_, _) => 0f);
         }
     }
+
+    [Fact]
+    public void TurnedThinAndEdgeCrossingPiecesRasterAsBeforeTheyWereSkipped()
+    {
+        // A 45-degree thin wall crossing the brick's east edge, a thin floor, a turned thick block and a wall just past
+        // the north edge. The checksum of every voxel's solid share and closed faces was taken from the raster before
+        // it skipped the voxels a box cannot meet: skipping must not change a thing.
+        float r = MathF.Sqrt(0.5f);
+        var boxes = new List<SolidBox>
+        {
+            new(new Vec3(15.5f, 3f, 8f), new Vec3(r, 0f, r), new Vec3(0f, 1f, 0f), new Vec3(-r, 0f, r), new Vec3(3f, 2f, 0.1f)),
+            SolidBox.Between(new Vec3(2f, 5.8f, 2f), new Vec3(9f, 6f, 9f)),
+            new(new Vec3(5f, 9f, 12f), new Vec3(0.8f, 0f, 0.6f), new Vec3(0f, 1f, 0f), new Vec3(-0.6f, 0f, 0.8f), new Vec3(1.5f, 1f, 1f)),
+            SolidBox.Between(new Vec3(4f, 1f, 16.05f), new Vec3(12f, 4f, 16.25f)),
+        };
+        var brick = new Brick(0, 0, 0);
+        SolidRaster.Ground(brick, 1f, (x, _) => 0.5f + (0.05f * x));
+        SolidRaster.Pieces(brick, 1f, boxes, (x, _) => 0.5f + (0.05f * x));
+
+        double sum = 0;
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            sum += (brick.Solid[i] * ((i % 89) + 1)) + (brick.Closed[i] * ((i % 13) + 1));
+        }
+
+        Assert.Equal(12758.375200033188, sum, 6);
+    }
 }
