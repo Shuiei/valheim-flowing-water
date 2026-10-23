@@ -23,7 +23,8 @@ All notable changes to FlowingWater. Newest first.
 - A broken terrain change could stop the server's water for good: the ground there is now taken as generated, and a
   saved block of water holding numbers that are not numbers is refused as unreadable.
 - `flowingwater debug`, `flat` and `lift` did nothing on the 3D water: they work on it now, and `flat` no longer makes
-  a new material each time.
+  a new material each time. `mat stream` is gone: nothing is drawn with the stream material any more (`mat custom`
+  and `mat still` stay).
 - A bright line ran round anything standing in the water (the mod's own shader): the water's light now fades out
   there.
 - Drawing dense changing water could still take more of the frame than its 2 ms: the last of the surface's work is
