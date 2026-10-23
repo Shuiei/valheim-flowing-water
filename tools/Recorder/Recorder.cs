@@ -977,6 +977,13 @@ public sealed class Recorder : BaseUnityPlugin
             return;
         }
 
+        // The server pours only from a source of a rate over 0: one that would pour nothing is not made.
+        if (words[0] == "!source" && v[3] <= 0f)
+        {
+            Note("source rate must be over 0 m³/s: " + command);
+            return;
+        }
+
         var point = new Vector3(v[0], v[1], v[2]);
         switch (words[0])
         {
