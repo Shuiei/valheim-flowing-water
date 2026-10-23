@@ -8,7 +8,10 @@ using UnityEngine;
 
 namespace FlowingWater;
 
-/// <summary>Adds the plugin's prefabs to each world's prefab list before it is indexed.</summary>
+/// <summary>
+/// A world opens: the plugin's prefabs go into its prefab list before it is indexed, and the source and drain panel, off
+/// after a fault in the last world, has a fresh try.
+/// </summary>
 [HarmonyPatch(typeof(ZNetScene), "Awake")]
 internal static class PrefabPatch
 {
@@ -16,6 +19,7 @@ internal static class PrefabPatch
     private static void Prefix(ZNetScene __instance)
     {
         Prefabs.Register(__instance);
+        MarkerPanel.WorldOpened();
     }
 }
 

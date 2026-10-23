@@ -44,6 +44,13 @@ internal sealed class MarkerPanel : MonoBehaviour
 
     private static readonly Color Plain = new(0.85f, 0.85f, 0.85f);
 
+    // The panel's frames, kept from stopping the water: after a fault the panel is put away (TurnOff) and off until a
+    // world opens (WorldOpened).
+    private static readonly FaultGate Gate = new(
+        "The source and drain panel failed; it is off until a world opens, the water goes on",
+        FlowingWaterPlugin.Log.LogError,
+        TurnOff);
+
     private static MarkerPanel _panel;
 
     private static int _closedFrame = -1;
@@ -88,7 +95,7 @@ internal sealed class MarkerPanel : MonoBehaviour
     public static bool TakesInput => (_panel != null && _panel._editing) || ClosedThisFrame;
 
     /// <summary>Whether the panel is off, after a fault in it (<see cref="TurnOff"/>): it neither shows nor opens.</summary>
-    public static bool Off { get; private set; }
+    public static bool Off => !Gate.On;
 
     private bool Placed => _target is not null;
 
@@ -109,9 +116,15 @@ internal sealed class MarkerPanel : MonoBehaviour
 
     /// <summary>
     /// Each frame: the panel shows the next one's values while the player holds the hoe with a source or drain as its
-    /// piece, a placed one's while it is changed, else nothing; and takes [E] and [Esc].
+    /// piece, a placed one's while it is changed, else nothing; and takes [E] and [Esc]. A fault in it is logged once
+    /// and turns it off, until a world opens; the water's frame goes on.
     /// </summary>
-    public static void Tick()
+    public static void Tick() => Gate.Run(TickOn);
+
+    /// <summary>A world opens: the panel, off after a fault in the last one, has a fresh try.</summary>
+    public static void WorldOpened() => Gate.Reset();
+
+    private static void TickOn()
     {
         Player player = Player.m_localPlayer;
         if (player == null || ZNet.instance == null || ZNet.instance.IsDedicated())
@@ -148,13 +161,10 @@ internal sealed class MarkerPanel : MonoBehaviour
         panel.TickPlacing();
     }
 
-    /// <summary>
-    /// The panel put away after a fault in it, and left off until the game restarts: it no longer takes the keyboard or
-    /// the mouse, whatever it was doing.
-    /// </summary>
-    public static void TurnOff()
+    // The panel put away after a fault in it, until a world opens: it no longer takes the keyboard or the mouse,
+    // whatever it was doing.
+    private static void TurnOff()
     {
-        Off = true;
         if (_panel != null)
         {
             Destroy(_panel.gameObject);

@@ -49,7 +49,8 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Update()
     {
-        TickPanel();
+        // The source and drain panel, before the water: a fault in it turns it off and leaves the water's frame be.
+        Client.MarkerPanel.Tick();
         if (ZNet.instance == null || ZDOMan.instance == null)
         {
             WorldLoaded = false;
@@ -83,26 +84,6 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _server.Update(Time.deltaTime);
     }
 
-    // The source and drain panel, before the water. A fault in it would otherwise skip the water's update after it, every
-    // frame: it is logged once in full, and the panel is put away and left off until the game restarts.
-    private void TickPanel()
-    {
-        if (Client.MarkerPanel.Off)
-        {
-            return;
-        }
-
-        try
-        {
-            Client.MarkerPanel.Tick();
-        }
-        catch (Exception e)
-        {
-            Logger.LogError($"The source and drain panel failed; it is off until the game restarts, the water goes on: {e}");
-            Client.MarkerPanel.TurnOff();
-        }
-    }
-
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
     {
@@ -112,7 +93,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     // The water's latest state goes into the world before it is saved (it is otherwise sent every SendSeconds).
     // The game runs this inside its save with nothing to catch: a failure here would stop the world being saved at all.
-    // So it is logged in full and the save goes on, with the water as last sent; this and the panel's (TickPanel) are the
+    // So it is logged in full and the save goes on, with the water as last sent; this and the panel's (FaultGate) are the
     // only places where going on past an error is right.
     private void OnWorldSave()
     {
