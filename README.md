@@ -167,14 +167,17 @@ there to the new grid (same volume), at the next start or at once with a config 
   `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
 - **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
-  with no water over it, its corners at the mean level of the tops beside them (a pool lies flat, a stream slopes
-  smoothly, the edge fades where fewer columns hold water), and the sides of the water where it borders a voxel
-  without (a fall's sheet, water spilling over a wall), with the water's material. It is drawn again at most ten
-  times a second, with the blocks beside it when its water changes. A trigger box on the game's water layer tells
-  characters and floating things the surface over them: the top of the stack of water they are in or just over,
-  so a pool on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level
-  checks and the level any water volume reports include the flowing water, and let a swimmer drift with the
-  current of the voxel they are in.
+  with no water over it, its corners shared with the tops beside it that are one water with it (within a row of
+  it, or with the higher one's water all over the lower top, up to three voxels down), at the mean of their
+  levels: a pool lies flat, a stream down a steep slope is one smooth sheet, and the edge fades where fewer
+  columns hold water. The water has sides where it borders a voxel without, up to the surface over it (a fall's
+  sheet, a pool's edge over a cliff), but none between columns of one water, none against the ground under water
+  standing beside it, and none along a sheet thinner than half a voxel. All with the water's material. It is
+  drawn again at most ten times a second, with the blocks beside it when its water changes. A trigger box on the
+  game's water layer tells characters and floating things the surface over them: the top of the stack of water
+  they are in or just over, so a pool on a raised floor floats a swimmer at its own level. Harmony patches make
+  the game's water-level checks and the level any water volume reports include the flowing water, and let a
+  swimmer drift with the current of the voxel they are in.
 
 ## Building
 
