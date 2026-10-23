@@ -184,3 +184,17 @@ internal static class HoePiecesPatch
         HoePieces.AddTo(__instance);
     }
 }
+
+/// <summary>
+/// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
+/// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
+/// </summary>
+[HarmonyPatch(typeof(TextInput), nameof(TextInput.IsVisible))]
+internal static class PanelInputPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Postfix(ref bool __result)
+    {
+        __result |= MarkerPanel.TakesInput;
+    }
+}

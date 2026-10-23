@@ -6,9 +6,10 @@ namespace FlowingWater.Client;
 
 /// <summary>
 /// A placed source or drain: a small sphere where the water starts or ends. A piece of the hoe's: placed where the
-/// player aims, with the values the next one takes (<see cref="IPlaced"/>).
+/// player aims, with the panel's values (<see cref="IPlaced"/>); its hover text says what it does, and [E] on it opens
+/// the panel to change it.
 /// </summary>
-internal sealed class Marker : MonoBehaviour, IPlaced
+internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
 {
     private static readonly List<Marker> All = [];
 
@@ -61,6 +62,16 @@ internal sealed class Marker : MonoBehaviour, IPlaced
         }
     }
 
+    /// <summary>
+    /// New values for this placed one, from a player's game that may not own it: taken over first, as the game's signs
+    /// are when their text is written, and the server reads them at its next look.
+    /// </summary>
+    public void Change(float rate, float radius)
+    {
+        _nview.ClaimOwnership();
+        Write(_nview.GetZDO(), IsDrain, rate, radius);
+    }
+
     // The game destroys the object at the end of the frame: until then it must not be found again
     // (a second remove in the same frame destroyed it twice and failed).
     public void Remove()
@@ -70,7 +81,7 @@ internal sealed class Marker : MonoBehaviour, IPlaced
         ZNetScene.instance.Destroy(gameObject);
     }
 
-    /// <summary>The player placed it with the hoe: it takes the values kept for the next one.</summary>
+    /// <summary>The player placed it with the hoe: it takes the values the panel shows for the next one.</summary>
     public void OnPlaced()
     {
         if (IsValid)
@@ -79,6 +90,40 @@ internal sealed class Marker : MonoBehaviour, IPlaced
             Write(_nview.GetZDO(), IsDrain, next.Rate(IsDrain), next.Radius);
         }
     }
+
+    public string GetHoverText()
+    {
+        if (!IsValid)
+        {
+            return string.Empty;
+        }
+
+        bool mayChange = PrivateArea.CheckAccess(transform.position, 0f, false);
+        return Localization.instance.Localize(MarkerValues.Hover(IsDrain, Rate, Radius, mayChange));
+    }
+
+    public string GetHoverName() => MarkerValues.Name(IsDrain);
+
+    public float GetHoverOffset() => 0f;
+
+    /// <summary>[E] on it: the panel opens to change it (not within a ward the player is not on).</summary>
+    public bool Interact(Humanoid user, bool hold, bool alt)
+    {
+        if (hold || !IsValid || user != Player.m_localPlayer || MarkerPanel.ClosedThisFrame)
+        {
+            return false;
+        }
+
+        if (!PrivateArea.CheckAccess(transform.position))
+        {
+            return false;
+        }
+
+        MarkerPanel.Open(this);
+        return true;
+    }
+
+    public bool UseItem(Humanoid user, ItemDrop.ItemData item) => false;
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Awake()
