@@ -49,6 +49,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Update()
     {
+        // The source and drain panel, before the water: a fault in it turns it off and leaves the water's frame be.
         Client.MarkerPanel.Tick();
         if (ZNet.instance == null || ZDOMan.instance == null)
         {
@@ -92,8 +93,8 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     // The water's latest state goes into the world before it is saved (it is otherwise sent every SendSeconds).
     // The game runs this inside its save with nothing to catch: a failure here would stop the world being saved at all.
-    // So it is logged in full and the save goes on, with the water as last sent; this is the one place where going on
-    // past an error is right.
+    // So it is logged in full and the save goes on, with the water as last sent; this and the panel's (FaultGate) are the
+    // only places where going on past an error is right.
     private void OnWorldSave()
     {
         try

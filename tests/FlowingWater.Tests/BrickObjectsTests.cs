@@ -11,7 +11,8 @@ namespace FlowingWater.Tests;
 /// The bricks' objects: a changed brick written, an unchanged one left, a dry or gone one's object destroyed; an object
 /// destroyed by something else never written nor destroyed, its brick given a new one; a failure while the
 /// water is packed leaving every object as last sent, and everything sent the next time; a send spread over calls
-/// writing nothing until every brick is packed, and given up for a whole send.
+/// writing nothing until every brick is packed, packing as long as a frame's time lasts and on from there the next,
+/// and given up for a whole send.
 /// </summary>
 public class BrickObjectsTests
 {
@@ -191,6 +192,43 @@ public class BrickObjectsTests
 
         Assert.Equal(1, objects.Publish(bricks, VoxelSize));
         Assert.Equal(0.3f, Water(world, 1), 2);
+    }
+
+    [Fact]
+    public void PackingStopsWhereTheFramesTimeEndsAndGoesOnFromThereNextFrame()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick[] bricks = [.. Enumerable.Range(0, 5).Select(x => Wet(x, 0, 0, 0.5f))];
+
+        // A frame's time for two bricks: asked after each brick packed, it runs out at the second.
+        int packed = 0;
+        int frames = 0;
+        bool TimeLeft() => ++packed % 2 != 0;
+
+        objects.Start(bricks);
+        int written = 0;
+        while (objects.Sending)
+        {
+            written = objects.Send(VoxelSize, TimeLeft);
+            frames++;
+            Assert.Equal(Math.Min(frames * 2, bricks.Length), packed);
+        }
+
+        Assert.Equal(3, frames);
+        Assert.Equal(5, written);
+        Assert.Equal([1, 2, 3, 4, 5], world.Written);
+
+        // A save sends everything at once, whatever a frame's time.
+        foreach (Brick brick in bricks)
+        {
+            brick.Water[0] = 0.8f;
+            brick.Changes++;
+        }
+
+        Assert.Equal(5, objects.Publish(bricks, VoxelSize));
+        Assert.False(objects.Sending);
+        Assert.All(world.Objects.Keys, id => Assert.Equal(0.8f, Water(world, id), 2));
     }
 
     [Fact]

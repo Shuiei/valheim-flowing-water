@@ -44,6 +44,13 @@ internal sealed class MarkerPanel : MonoBehaviour
 
     private static readonly Color Plain = new(0.85f, 0.85f, 0.85f);
 
+    // The panel's frames, kept from stopping the water: after a fault the panel is put away (TurnOff) and off until a
+    // world opens (WorldOpened).
+    private static readonly FaultGate Gate = new(
+        "The source and drain panel failed; it is off until a world opens, the water goes on",
+        FlowingWaterPlugin.Log.LogError,
+        TurnOff);
+
     private static MarkerPanel _panel;
 
     private static int _closedFrame = -1;
@@ -87,12 +94,15 @@ internal sealed class MarkerPanel : MonoBehaviour
     /// </summary>
     public static bool TakesInput => (_panel != null && _panel._editing) || ClosedThisFrame;
 
+    /// <summary>Whether the panel is off, after a fault in it (<see cref="TurnOff"/>): it neither shows nor opens.</summary>
+    public static bool Off => !Gate.On;
+
     private bool Placed => _target is not null;
 
     /// <summary>[E] on a placed one: the panel opens to change it.</summary>
     public static void Open(Marker marker)
     {
-        MarkerPanel panel = Made();
+        MarkerPanel panel = Off ? null : Made();
         if (panel == null)
         {
             return;
@@ -106,9 +116,15 @@ internal sealed class MarkerPanel : MonoBehaviour
 
     /// <summary>
     /// Each frame: the panel shows the next one's values while the player holds the hoe with a source or drain as its
-    /// piece, a placed one's while it is changed, else nothing; and takes [E] and [Esc].
+    /// piece, a placed one's while it is changed, else nothing; and takes [E] and [Esc]. A fault in it is logged once
+    /// and turns it off, until a world opens; the water's frame goes on.
     /// </summary>
-    public static void Tick()
+    public static void Tick() => Gate.Run(TickOn);
+
+    /// <summary>A world opens: the panel, off after a fault in the last one, has a fresh try.</summary>
+    public static void WorldOpened() => Gate.Reset();
+
+    private static void TickOn()
     {
         Player player = Player.m_localPlayer;
         if (player == null || ZNet.instance == null || ZNet.instance.IsDedicated())
@@ -145,6 +161,18 @@ internal sealed class MarkerPanel : MonoBehaviour
         panel.TickPlacing();
     }
 
+    // The panel put away after a fault in it, until a world opens: it no longer takes the keyboard or the mouse,
+    // whatever it was doing.
+    private static void TurnOff()
+    {
+        if (_panel != null)
+        {
+            Destroy(_panel.gameObject);
+        }
+
+        _panel = null;
+    }
+
     // A value typed in a field: taken for the next one or written into the placed one; refused, it is said why and
     // the field shows the value kept. Enter, leaving the field and closing the panel all come here.
     private void Typed(bool radius, string text)
@@ -157,7 +185,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         {
             float before = radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain);
             bool taken = radius ? HoePieces.Next.TrySetRadius(text, out string note) : HoePieces.Next.TrySetRate(_drain, text, out note);
-            if (!taken || note != null || before != (radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
+            if (!taken || note != null || !MarkerValues.Same(before, radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
             {
                 Say(note, taken);
             }
@@ -179,7 +207,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         float rate = _target.Rate;
         float reach = _target.Radius;
         bool taken = radius ? MarkerValues.TryRadius(text, out float value, out string note) : MarkerValues.TryRate(text, _drain, out value, out note);
-        if (!taken || value == (radius ? reach : rate))
+        if (!taken || MarkerValues.Same(value, radius ? reach : rate))
         {
             if (!taken || note != null)
             {
@@ -226,7 +254,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             if (Leaving())
             {
                 Stop();
-                _closedFrame = Time.frameCount;
+                NoteClosed();
             }
 
             return;
@@ -346,7 +374,7 @@ internal sealed class MarkerPanel : MonoBehaviour
 
         if (_editing)
         {
-            _closedFrame = Time.frameCount;
+            NoteClosed();
         }
 
         Stop();
@@ -591,9 +619,15 @@ internal sealed class MarkerPanel : MonoBehaviour
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
-    private void OnDestroy()
+    private void OnDestroy() => Forget(this);
+
+    // The panel was closed this frame (ClosedThisFrame).
+    private static void NoteClosed() => _closedFrame = Time.frameCount;
+
+    // A panel destroyed (with the game's interface, at a new world): made again when next needed.
+    private static void Forget(MarkerPanel panel)
     {
-        if (_panel == this)
+        if (_panel == panel)
         {
             _panel = null;
         }

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using FlowingWater.Volume;
 using Xunit;
@@ -36,6 +37,43 @@ public class BrickDataTests
         Assert.Equal(8f, view.VelocityX[i], 0);
         Assert.Equal(-4f, view.VelocityY[i], 0);
         Assert.Equal(0f, view.VelocityZ[i]);
+    }
+
+    [Fact]
+    public void EveryVoxelOfABrickReadsBackAsItsBytesKeepIt()
+    {
+        // A third of the voxels dry, the others with water on the byte's steps (n/200 of a voxel: nothing carried on),
+        // a few pressed in past its reach, solids on their own steps (n/255) and flows of all speeds both ways.
+        const float Size = 0.5f;
+        var random = new Scrambled(52);
+        var brick = new Brick(4, -1, 9);
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            brick.FlowX[i] = (float)((random.NextDouble() * 6.0) - 3.0);
+            brick.FlowY[i] = (float)((random.NextDouble() * 6.0) - 3.0);
+            brick.FlowZ[i] = (float)((random.NextDouble() * 6.0) - 3.0);
+            if (random.Next(0, 3) == 0)
+            {
+                continue;
+            }
+
+            brick.Water[i] = i % 97 == 0 ? 1.3f + (i / 10000f) : random.Next(1, 255) / 200f;
+            brick.Solid[i] = random.Next(0, 256) / 255f;
+        }
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, Size));
+
+        Assert.Equal((4, -1, 9, Size), (view.X, view.Y, view.Z, view.VoxelSize));
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            bool wet = brick.Water[i] > 0f;
+            (float x, float y, float z) = wet ? BrickData.Velocity(brick, i, Size * Size) : (0f, 0f, 0f);
+            Assert.Equal(brick.Water[i], view.Water[i]);
+            Assert.Equal(brick.Solid[i], view.Solid[i]);
+            Assert.InRange(view.VelocityX[i] - Kept(x), -1e-5f, 1e-5f);
+            Assert.InRange(view.VelocityY[i] - Kept(y), -1e-5f, 1e-5f);
+            Assert.InRange(view.VelocityZ[i] - Kept(z), -1e-5f, 1e-5f);
+        }
     }
 
     [Fact]
@@ -96,7 +134,7 @@ public class BrickDataTests
             }
         }
 
-        Assert.True(System.Math.Abs(after - before) <= 1.0 / 200.0, $"{before} before, {after} after");
+        Assert.True(Math.Abs(after - before) <= 1.0 / 200.0, $"{before} before, {after} after");
     }
 
     [Fact]
@@ -206,5 +244,12 @@ public class BrickDataTests
 
         Assert.ThrowsAny<InvalidDataException>(() => BrickData.Decode([1, 2, 3]));
         Assert.Throws<InvalidDataException>(() => BrickData.Decode(stored[..(stored.Length / 3)]));
+    }
+
+    // A speed as its byte keeps it: the nearest of 127 square-root steps to 16 m/s, either way.
+    private static float Kept(float speed)
+    {
+        float step = (float)Math.Round((float)Math.Sqrt(Math.Min(Math.Abs(speed), BrickData.MaxSpeed) / BrickData.MaxSpeed) * 127f) / 127f;
+        return Math.Sign(speed) * step * step * BrickData.MaxSpeed;
     }
 }

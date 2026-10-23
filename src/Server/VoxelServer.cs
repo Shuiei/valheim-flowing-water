@@ -60,7 +60,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private readonly HashSet<ZDOID> _markersSeen = [];
 
-    // The voxels a drain takes from, kept from call to call (a drain looks every frame, most often finding none).
+    // The voxels a drain takes from, the list kept from call to call (a drain looks every frame, most often finding
+    // none) but emptied after each: it holds no brick a removed drain or a grid made anew would leave reachable.
     private readonly List<(Brick Brick, int Index)> _drained = [];
 
     private readonly Stopwatch _stepWatch = new();
@@ -97,7 +98,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private VoxelSolver _solver;
 
-    private float _scanTimer = float.MaxValue;
+    private readonly LookWait _scanWait = new();
 
     private float _sendTimer;
 
@@ -161,13 +162,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         ApplyVoxelSize();
         // The markers found are swapped in once the look is over the whole world. The next look begins that long after
         // the last one ended: in a world whose look takes longer than that, the look went on every frame.
-        if (!_markerPass.Busy)
+        if (_scanWait.Due(dt, FlowingWaterPlugin.Settings.MarkerScanSeconds.Value, _markerPass.Busy) && _markerPass.Start())
         {
-            _scanTimer += dt;
-            if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
-            {
-                _scanTimer = 0f;
-            }
+            _scanWait.Began();
         }
 
         _parts.Into(WaterPart.Markers);
@@ -673,13 +670,24 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     // its rate, from each in proportion to its water. Only bricks there are looked in. False when it took nothing.
     private bool Drain(Source drain, float dt)
     {
+        try
+        {
+            return DrainFrom(drain, dt);
+        }
+        finally
+        {
+            _drained.Clear();
+        }
+    }
+
+    private bool DrainFrom(Source drain, float dt)
+    {
         float s = _grid.VoxelSize;
         int reach = Mathf.FloorToInt(drain.Radius / s);
         int cx = Mathf.FloorToInt(drain.Point.x / s);
         int cy = Mathf.FloorToInt((drain.Point.y + 0.05f) / s);
         int cz = Mathf.FloorToInt(drain.Point.z / s);
         float there = 0f;
-        _drained.Clear();
         foreach (Brick brick in _grid.Bricks)
         {
             int x0 = brick.X * Brick.Size;

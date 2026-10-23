@@ -78,6 +78,30 @@ public class LatestReadTests
     }
 
     [Fact]
+    public void DataChangedOnceAReadIsDoneWaitsForItToBeTaken()
+    {
+        // The read is done but not taken yet when the data changes: it still counts as under way, so the newer data
+        // is not read beside it.
+        var read = new LatestRead<int>();
+        read.Wants(1);
+        read.Start(() => 1);
+        Assert.True(WaitDone(read));
+        Assert.False(read.Wants(2));
+        Assert.True(read.Busy);
+        Assert.Throws<InvalidOperationException>(() => read.Start(() => 2));
+
+        // Taken, the older result is dropped; the newest is read next and kept.
+        Assert.False(read.TryTake(out int dropped, out Exception none));
+        Assert.Equal(0, dropped);
+        Assert.Null(none);
+        Assert.True(read.Wants(2));
+        read.Start(() => 2);
+        Assert.True(WaitDone(read));
+        Assert.True(read.TryTake(out int newest, out _));
+        Assert.Equal(2, newest);
+    }
+
+    [Fact]
     public void AStartWhileAReadIsUnderWayIsRefused()
     {
         var read = new LatestRead<int>();

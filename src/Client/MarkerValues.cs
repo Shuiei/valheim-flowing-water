@@ -127,6 +127,12 @@ internal static class MarkerValues
     /// <summary>A number as the panel and the hover text show it: up to two decimals, a point before them.</summary>
     public static string Format(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Whether a value typed is the one already kept, as the panel tells them apart: alike to within a millionth of the
+    /// larger, or a few of the smallest floats near 0 (Unity's Mathf.Approximately), not exactly.
+    /// </summary>
+    public static bool Same(float a, float b) => Math.Abs(b - a) < Math.Max(1e-6f * Math.Max(Math.Abs(a), Math.Abs(b)), float.Epsilon * 8f);
+
     /// <summary>What a rate may be, under its field.</summary>
     /// <param name="drain">A drain's, else a source's.</param>
     public static string RateHint(bool drain) => drain

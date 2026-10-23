@@ -184,6 +184,37 @@ public class MarkerValuesTests
         Assert.Equal(shown, MarkerValues.Format(value));
     }
 
+    [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(2f, 2f)]
+    [InlineData(-3.5f, -3.5f)]
+    public void AValueTypedAsKeptIsTheSame(float typed, float kept)
+    {
+        Assert.True(MarkerValues.Same(typed, kept));
+    }
+
+    [Fact]
+    public void AValueOffByARoundingIsTheSameButOneTypedOtherwiseIsNot()
+    {
+        // 0.1 summed ten times is not 1 in floats, a step of rounding away: the panel takes it for the same.
+        float summed = 0f;
+        for (int i = 0; i < 10; i++)
+        {
+            summed += 0.1f;
+        }
+
+        Assert.NotEqual(1f, summed);
+        Assert.True(MarkerValues.Same(summed, 1f));
+        Assert.True(MarkerValues.Same(100f, 100.00001f));
+        Assert.True(MarkerValues.Same(0f, float.Epsilon));
+
+        // A hundredth (the least the panel shows) is a change, and less near 0.
+        Assert.False(MarkerValues.Same(2f, 2.01f));
+        Assert.False(MarkerValues.Same(100f, 100.01f));
+        Assert.False(MarkerValues.Same(0f, 0.0001f));
+        Assert.False(MarkerValues.Same(1f, -1f));
+    }
+
     [Fact]
     public void TheHintsSayWhatAValueMayBeAndTheMost()
     {

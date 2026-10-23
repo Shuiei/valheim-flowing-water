@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.4 — 2026-10-23
+
+### Fixed
+- A fault in the source and drain panel would have stopped a host's or server's water too, every frame after it: the
+  panel now logs its error once, puts itself away (the keys and mouse back to the game) and stays off until a world is
+  next opened, and the water goes on.
+- A game update renaming one of the methods the hoe's sources and drains rely on would have stopped the whole mod from
+  loading, its water with it: the mod now logs an error naming that method and leaves out only what needs it.
+
 ## v0.16.3 — 2026-10-23
 
 ### Fixed

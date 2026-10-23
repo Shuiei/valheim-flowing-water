@@ -279,7 +279,7 @@ public sealed partial class Recorder
     // A case: its kind, where the player stands, and the view of it.
     private sealed class PerfCase
     {
-        private PerfCase(string kind, Vector3 stand, Vector3 from, Vector3 at)
+        internal PerfCase(string kind, Vector3 stand, Vector3 from, Vector3 at)
         {
             Kind = kind;
             Stand = stand;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Reflection;
 using FlowingWater.Client;
 using HarmonyLib;
@@ -8,7 +9,10 @@ using UnityEngine;
 
 namespace FlowingWater;
 
-/// <summary>Adds the plugin's prefabs to each world's prefab list before it is indexed.</summary>
+/// <summary>
+/// A world opens: the plugin's prefabs go into its prefab list before it is indexed, and the source and drain panel, off
+/// after a fault in the last world, has a fresh try.
+/// </summary>
 [HarmonyPatch(typeof(ZNetScene), "Awake")]
 internal static class PrefabPatch
 {
@@ -16,6 +20,7 @@ internal static class PrefabPatch
     private static void Prefix(ZNetScene __instance)
     {
         Prefabs.Register(__instance);
+        MarkerPanel.WorldOpened();
     }
 }
 
@@ -161,25 +166,46 @@ internal static class CurrentPatch
     }
 }
 
+/// <summary>The game's methods a patch for the sources and drains changes (<see cref="PatchTargets"/>), by name.</summary>
+internal static class GameMethods
+{
+    /// <summary>The methods, each the only one of its name in its type, looked up with Harmony's AccessTools.</summary>
+    public static PatchTargets For(string patch, params (Type Type, string Name)[] methods) =>
+        new(patch, FlowingWaterPlugin.Log.LogError, [.. methods.Select(m => ($"{m.Type.Name}.{m.Name}", (Func<MethodBase>)(() => AccessTools.Method(m.Type, m.Name))))]);
+
+    /// <summary>
+    /// For the patches that refuse a source or drain to a player who may not place or remove one: the player told why in
+    /// the centre of the screen, and the game's method skipped with false as its result.
+    /// </summary>
+    /// <returns>Whether the game's method runs.</returns>
+    public static bool MarkerAllowed(Player player, Piece piece, CommandRights.MarkerUse use, ref bool result)
+    {
+        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(use) is not { } refusal)
+        {
+            return true;
+        }
+
+        player.Message(MessageHud.MessageType.Center, refusal);
+        result = false;
+        return false;
+    }
+}
+
 /// <summary>
 /// The game's item list woke up (a world's, or the main menu's copy of it): the source and drain go into the hoe's
 /// pieces, once.
 /// </summary>
-[HarmonyPatch(typeof(ObjectDB))]
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class HoePiecesPatch
 {
-    [HarmonyPostfix]
-    [HarmonyPatch("Awake")]
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static void Awake(ObjectDB __instance)
-    {
-        HoePieces.AddTo(__instance);
-    }
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(HoePiecesPatch), (typeof(ObjectDB), "Awake"), (typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB)));
 
-    [HarmonyPostfix]
-    [HarmonyPatch(nameof(ObjectDB.CopyOtherDB))]
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static void CopyOtherDB(ObjectDB __instance)
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static void Postfix(ObjectDB __instance)
     {
         HoePieces.AddTo(__instance);
     }
@@ -190,16 +216,15 @@ internal static class HoePiecesPatch
 /// game reads whether a piece is enabled each time it lists them.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class OfferPiecesPatch
 {
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static IEnumerable<MethodBase> TargetMethods() =>
-    [
-        AccessTools.Method(typeof(PieceTable), nameof(PieceTable.UpdateAvailable)),
-        AccessTools.Method(typeof(Player), "UpdateKnownRecipesList"),
-    ];
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(OfferPiecesPatch), (typeof(PieceTable), nameof(PieceTable.UpdateAvailable)), (typeof(Player), "UpdateKnownRecipesList"));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
     private static void Prefix()
     {
         HoePieces.Offer();
@@ -210,52 +235,52 @@ internal static class OfferPiecesPatch
 /// A player who may not place a source or drain is refused with the game's centre message, whatever offered it (with
 /// building costs off, the game lists every piece, enabled or not).
 /// </summary>
-[HarmonyPatch(typeof(Player), nameof(Player.TryPlacePiece))]
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class PlaceMarkerPatch
 {
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
-    {
-        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Place) is not { } refusal)
-        {
-            return true;
-        }
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(PlaceMarkerPatch), (typeof(Player), nameof(Player.TryPlacePiece)));
 
-        __instance.Message(MessageHud.MessageType.Center, refusal);
-        __result = false;
-        return false;
-    }
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result) =>
+        GameMethods.MarkerAllowed(__instance, piece, CommandRights.MarkerUse.Place, ref __result);
 }
 
 /// <summary>
 /// A player who may not remove a source or drain is refused with the game's centre message, at the check the game
 /// makes after its own (wards, no-build places) and before it removes the piece.
 /// </summary>
-[HarmonyPatch(typeof(Player), "CheckCanRemovePiece")]
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class RemoveMarkerPatch
 {
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
-    {
-        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Remove) is not { } refusal)
-        {
-            return true;
-        }
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(RemoveMarkerPatch), (typeof(Player), "CheckCanRemovePiece"));
 
-        __instance.Message(MessageHud.MessageType.Center, refusal);
-        __result = false;
-        return false;
-    }
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result) =>
+        GameMethods.MarkerAllowed(__instance, piece, CommandRights.MarkerUse.Remove, ref __result);
 }
 
 /// <summary>
 /// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>
-[HarmonyPatch(typeof(TextInput), nameof(TextInput.IsVisible))]
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class PanelInputPatch
 {
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(PanelInputPatch), (typeof(TextInput), nameof(TextInput.IsVisible)));
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
     private static void Postfix(ref bool __result)
     {
         __result |= MarkerPanel.TakesInput;
