@@ -30,6 +30,11 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static readonly Stopwatch FrameDrawing = new();
 
+    // All the time the bricks took in the game's frames since the game started (reading their data, animating,
+    // drawing): its cost to the player, read by the in-game recorder's measures. Started and stopped a few times a
+    // frame: well under a microsecond.
+    private static readonly Stopwatch Spent = new();
+
     // Bricks to draw again, those waiting longest first: a brick whose water keeps changing does not hold back
     // the others.
     private static readonly TakeTurns<WaterBrick> Waiting = new();
@@ -115,6 +120,36 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// All the milliseconds the bricks took in the game's frames since the game started: the water's cost to the
+    /// player, a frame's being the difference over it.
+    /// </summary>
+    internal static double SpentMilliseconds => Spent.Elapsed.TotalMilliseconds;
+
+    /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices, for measures.</summary>
+    internal static int Census(out int drawn, out int vertices)
+    {
+        drawn = 0;
+        vertices = 0;
+        int bricks = 0;
+        foreach (WaterBrick brick in ByKey.Values)
+        {
+            if (brick == null)
+            {
+                continue;
+            }
+
+            bricks++;
+            if (brick._mesh != null && brick._mesh.vertexCount > 0 && brick._renderer.enabled)
+            {
+                drawn++;
+                vertices += brick._mesh.vertexCount;
+            }
+        }
+
+        return bricks;
+    }
+
     /// <summary>What the brick at a point draws (else the nearest in the column there), for the console.</summary>
     public static string DebugInfo(Vector3 point)
     {
@@ -163,16 +198,24 @@ internal sealed class WaterBrick : MonoBehaviour
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Update()
     {
-        ZDO zdo = _nview.GetZDO();
-        if (zdo != null && zdo.DataRevision != _revision)
+        Spent.Start();
+        try
         {
-            _revision = zdo.DataRevision;
-            Read(zdo.GetByteArray(ZdoKeys.Brick));
-        }
+            ZDO zdo = _nview.GetZDO();
+            if (zdo != null && zdo.DataRevision != _revision)
+            {
+                _revision = zdo.DataRevision;
+                Read(zdo.GetByteArray(ZdoKeys.Brick));
+            }
 
-        if (_properties != null)
+            if (_properties != null)
+            {
+                Materials.Animate(_renderer, _properties);
+            }
+        }
+        finally
         {
-            Materials.Animate(_renderer, _properties);
+            Spent.Stop();
         }
     }
 
@@ -264,6 +307,19 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         _frame = Time.frameCount;
+        Spent.Start();
+        try
+        {
+            Draw();
+        }
+        finally
+        {
+            Spent.Stop();
+        }
+    }
+
+    private static void Draw()
+    {
         FrameDrawing.Reset();
         Built.Serve(brick => brick == null || brick._building.Done, InBudget, brick => Timed(brick, b => b.Take()));
 

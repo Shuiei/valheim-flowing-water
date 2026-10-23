@@ -272,7 +272,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        if (chosen is not ("prep" or "pools" or "cascade" or "at"))
+        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "at"
+            || (chosen == "perf" && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FW_REC_PERF")));
+        if (!ownPlaces)
         {
             steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
             gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
@@ -288,6 +290,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             "pools" => Pools(),
             "at" => At(),
             "hoe" => Hoe(gentle),
+            "perf" => Perf(spawn, steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
