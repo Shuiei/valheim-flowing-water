@@ -38,8 +38,10 @@ version: 2.1
 
 orbs:
   # Codecov's official orb: uploads the coverage with Codecov's CLI, checked against its signature (needs gpg).
-  # The token is the project's CODECOV_TOKEN. Any 6.x (the latest); a new major version is taken by hand.
-  codecov: codecov/codecov@6
+  # The token is the project's CODECOV_TOKEN. This exact version, as the images below are pinned (their tag and its
+  # digest) and the GitHub Actions to a commit: nothing the jobs run changes unseen (the release jobs hold the
+  # mods' tokens). Dependabot does not update them: a new version is taken by hand.
+  codecov: codecov/codecov@6.1.0
 
 parameters:
   # Set by .circleci/config.yml: true on main when VERSION is ready to be released and not tagged yet.
@@ -55,7 +57,7 @@ parameters:
 executors:
   dotnet:
     docker:
-      - image: mcr.microsoft.com/dotnet/sdk:10.0
+      - image: mcr.microsoft.com/dotnet/sdk:10.0.402@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2
     resource_class: medium
     environment:
       # Where game-dlls leaves the game's DLLs and BepInEx's core (FlowingWater.csproj reads both).
@@ -100,7 +102,7 @@ commands:
 jobs:
   game-dlls:
     docker:
-      - image: cimg/base:current
+      - image: cimg/base:2026.10@sha256:e133b1e03b06cafa4a66dbe6bdb350e6ed7133729b1a4f812635b82c6e1e5389
     resource_class: medium
     steps:
       - checkout
@@ -250,7 +252,7 @@ jobs:
 
   server-smoke:
     docker:
-      - image: cimg/base:current
+      - image: cimg/base:2026.10@sha256:e133b1e03b06cafa4a66dbe6bdb350e6ed7133729b1a4f812635b82c6e1e5389
     # The server generates a new world on its first start: four cores and 8 GB keep that to a minute or two.
     resource_class: large
     steps:
@@ -315,7 +317,7 @@ jobs:
   # A required check of a release pull request, reported at once: its code is main's, checked already.
   tested-on-main:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/base:2026.10@sha256:e133b1e03b06cafa4a66dbe6bdb350e6ed7133729b1a4f812635b82c6e1e5389
     resource_class: small
     steps:
       - run:
