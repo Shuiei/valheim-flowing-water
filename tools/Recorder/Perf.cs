@@ -30,6 +30,8 @@ public sealed partial class Recorder
 
     private IEnumerator Perf(Vector3 spawn, Site steep, Site gentle)
     {
+        // The player stands on each spring, in its water: drowning there is not what is measured.
+        Player.m_localPlayer.SetGodMode(true);
         Type bricks = AccessTools.TypeByName("FlowingWater.Client.WaterBrick");
         _waterSpent = bricks == null ? null : AccessTools.Property(bricks, "SpentMilliseconds");
         _waterCensus = bricks == null ? null : AccessTools.Method(bricks, "Census");

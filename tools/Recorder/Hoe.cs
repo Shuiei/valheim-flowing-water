@@ -32,6 +32,11 @@ public sealed partial class Recorder
     private IEnumerator Hoe(Site site)
     {
         Player player = Player.m_localPlayer;
+
+        // Standing on the source, the player swims in its water and drowns once out of stamina, as the game wants:
+        // not what is tested here.
+        player.SetGodMode(true);
+
         // The panel stays hidden with the game's interface.
         Hud.instance.m_userHidden = false;
         yield return Go(site.At(0f));
