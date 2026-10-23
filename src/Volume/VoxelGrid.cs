@@ -245,15 +245,29 @@ internal sealed class VoxelGrid
             _wanted.Clear();
         }
 
-        foreach (long key in wanted)
+        for (int k = 0; k < wanted.Length; k++)
         {
             if (_bricks.Count >= MaxBricks)
             {
+                // Asked for again, to be made once room is freed: the water that asked may sleep and ask no more.
+                Want(wanted, k);
                 Capped = true;
                 return;
             }
 
-            Get(Unpack(key >> 42), Unpack(key >> 21), Unpack(key));
+            Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+        }
+    }
+
+    // The bricks still wanted, from the k-th on, asked for again.
+    private void Want(long[] wanted, int k)
+    {
+        lock (_wanted)
+        {
+            for (; k < wanted.Length; k++)
+            {
+                _wanted.Add(wanted[k]);
+            }
         }
     }
 
