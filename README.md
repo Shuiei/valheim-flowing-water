@@ -244,14 +244,20 @@ CircleCI makes the release once you approve it:
    Its checks report at once: its code is main's, checked already.
 3. Once it is merged, main's pipeline is a release one: open its `release` workflow in CircleCI and
    approve **hold-release**. Then the package is built and smoke-tested again, and:
+   - **check-thunderstore** and **check-hexium** check all that publishing needs without publishing (the
+     tokens, the version not on the site yet, the categories, the files): a site that would refuse the
+     package stops the release before anything is tagged;
    - **github-release** tags the commit `v<VERSION>` and makes the GitHub release with
      `FlowingWater-<VERSION>.zip` and the notes (the Sign release workflow then signs the zip);
    - **publish-thunderstore** and **publish-hexium** publish it side by side
      (`tools/release/publish.cs`, the sites' settings in `tools/release/sites.json`, team `Tie`).
 
 A version already on a site fails its job: no site takes a version twice. A failed job can be rerun
-from CircleCI (Rerun from failed). Still by hand: **unhide** the new version on Hexium (uploads arrive
-hidden). Nexus Mods comes once the mod has a page there (made on the website: the API cannot): then a
+from CircleCI (Rerun from failed, not from start: the checks would then find the version on a site that
+took it). Rerun, github-release goes on when this commit has its release and zip on GitHub already (it
+fails when the tag is on another commit, or the release has no zip), and publish-hexium takes a version
+an earlier run submitted (hidden) as submitted and sets its metadata. Still by hand: **unhide** the new
+version on Hexium (uploads arrive hidden). Nexus Mods comes once the mod has a page there (made on the website: the API cannot): then a
 `nexus` entry in `sites.json` (its mod and file ids), Moder Warehouse Plus's Nexus publishing in
 `publish.cs`, and a `publish-nexus` job.
 
