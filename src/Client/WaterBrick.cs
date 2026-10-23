@@ -349,17 +349,7 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        // The game's material is animated and drawn only as far as each renderer says, as the game's own water does.
-        if (own == null)
-        {
-            _properties ??= Materials.GameMaterialProperties();
-        }
-        else if (_properties != null)
-        {
-            _properties = null;
-            _renderer.SetPropertyBlock(null);
-        }
-
+        UseGameProperties(own == null);
         _mesh.Clear();
         _mesh.indexFormat = shape.Vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
         _mesh.SetVertices(shape.Vertices);
@@ -371,6 +361,21 @@ internal sealed class WaterBrick : MonoBehaviour
         _mesh.SetTriangles(shape.Triangles, 0, false);
         _mesh.bounds = shape.Bounds;
         _renderer.sharedMaterial = material;
+    }
+
+    // The game's material is animated and drawn only as far as each renderer says, as the game's own water does; the
+    // mod's own reads nothing from the renderer.
+    private void UseGameProperties(bool game)
+    {
+        if (game)
+        {
+            _properties ??= Materials.GameMaterialProperties();
+        }
+        else if (_properties != null)
+        {
+            _properties = null;
+            _renderer.SetPropertyBlock(null);
+        }
     }
 
     private static void Failed(Exception failure, Vector3 at) =>

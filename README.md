@@ -41,7 +41,8 @@ and the drain come later.
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
 add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
-100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once.
+100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once; a drain of rate 0 still takes
+everything that reaches it.
 
 ## Settings
 
@@ -225,7 +226,9 @@ Thunderstore, with every analyzer warning an error (**code-analysis**); checks t
 `thunderstore/build.sh`); and runs it in a real dedicated server (**server-smoke**,
 `tools/server-smoke.sh`): it loads, a fixed source's water fills a zone with no error, and the saved
 water comes back after a restart. It also runs the whole of the unit tests on every branch (**unit-tests**,
-`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`). On
+`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`; the
+release's decisions, `tools/release/ReleaseRules` and `tools/release/still-to-release.sh`; and this pipeline's wiring,
+read from `.circleci/continue.yml`, which the ruleset's list below must match). On
 main only, the unit tests run with their code coverage, which the **coverage** job sends to
 [Codecov](https://app.codecov.io/gh/Shuiei/valheim-flowing-water) once they pass; Codecov's check fails under
 95% of the rules' lines (`codecov.yml`, `tests/coverage.runsettings`). Main's ruleset requires five checks of a
