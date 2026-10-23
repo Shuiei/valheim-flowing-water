@@ -175,7 +175,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         {
             float before = radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain);
             bool taken = radius ? HoePieces.Next.TrySetRadius(text, out string note) : HoePieces.Next.TrySetRate(_drain, text, out note);
-            if (!taken || note != null || before != (radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
+            if (!taken || note != null || !Mathf.Approximately(before, radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
             {
                 Say(note, taken);
             }
@@ -197,7 +197,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         float rate = _target.Rate;
         float reach = _target.Radius;
         bool taken = radius ? MarkerValues.TryRadius(text, out float value, out string note) : MarkerValues.TryRate(text, _drain, out value, out note);
-        if (!taken || value == (radius ? reach : rate))
+        if (!taken || Mathf.Approximately(value, radius ? reach : rate))
         {
             if (!taken || note != null)
             {
@@ -244,7 +244,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             if (Leaving())
             {
                 Stop();
-                _closedFrame = Time.frameCount;
+                NoteClosed();
             }
 
             return;
@@ -364,7 +364,7 @@ internal sealed class MarkerPanel : MonoBehaviour
 
         if (_editing)
         {
-            _closedFrame = Time.frameCount;
+            NoteClosed();
         }
 
         Stop();
@@ -609,9 +609,15 @@ internal sealed class MarkerPanel : MonoBehaviour
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
-    private void OnDestroy()
+    private void OnDestroy() => Forget(this);
+
+    // The panel was closed this frame (ClosedThisFrame).
+    private static void NoteClosed() => _closedFrame = Time.frameCount;
+
+    // A panel destroyed (with the game's interface, at a new world): made again when next needed.
+    private static void Forget(MarkerPanel panel)
     {
-        if (_panel == this)
+        if (_panel == panel)
         {
             _panel = null;
         }
