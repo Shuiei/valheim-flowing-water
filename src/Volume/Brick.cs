@@ -150,6 +150,51 @@ internal sealed class Brick
     /// <summary>Seconds it has held no water, to forget it.</summary>
     public float EmptyFor { get; set; }
 
+    // Whether it held water when last looked, and its count of changes then: a brick unchanged since (asleep) is not
+    // looked over again.
+    private bool _heldWater;
+
+    private int _heldAt;
+
+    private bool _held;
+
+    /// <summary>
+    /// Whether any voxel holds more than <see cref="Dry"/>: looked over only when its water changed since (a sleeping
+    /// brick's answer is kept), its wet voxels' box first.
+    /// </summary>
+    public bool HoldsWater()
+    {
+        if (_held && _heldAt == Changes)
+        {
+            return _heldWater;
+        }
+
+        _held = true;
+        _heldAt = Changes;
+        _heldWater = WetInBox() || Array.Exists(Water, w => w > Dry);
+        return _heldWater;
+    }
+
+    // Whether a voxel of the wet voxels' box holds water.
+    private bool WetInBox()
+    {
+        for (int y = WetLow.Y; y <= WetHigh.Y; y++)
+        {
+            for (int z = WetLow.Z; z <= WetHigh.Z; z++)
+            {
+                for (int x = WetLow.X; x <= WetHigh.X; x++)
+                {
+                    if (Water[Index(x, y, z)] > Dry)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>A voxel's index in the brick's arrays: rows along x, then z, then layers up.</summary>
     public static int Index(int x, int y, int z) => (y * Size * Size) + (z * Size) + x;
 
