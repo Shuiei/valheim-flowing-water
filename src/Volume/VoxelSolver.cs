@@ -50,6 +50,9 @@ internal sealed class VoxelSolver
     // settling do not keep it awake.
     private const float WakingDrop = 1e-4f;
 
+    // A brick's last index along a row, and the index steps a row and a layer.
+    private const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
+
     private readonly VoxelGrid _grid;
 
     private Brick[] _bricks = [];
@@ -388,28 +391,32 @@ internal sealed class VoxelSolver
     // The flows through each voxel's east, upper and north faces.
     private void Flows(Brick brick, float dt, float s)
     {
-        for (int k = 0; k < brick.PartCount; k++)
+        int[] part = brick.Part;
+        float[] water = brick.Water, fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ;
+        int count = brick.PartCount;
+        for (int k = 0; k < count; k++)
         {
-            int i = brick.Part[k];
-            if (brick.Water[i] <= Brick.Dry && DryAhead(brick, i))
+            int i = part[k];
+            bool hasEast = East(brick, i, out Brick east, out int e);
+            bool hasUp = Up(brick, i, out Brick up, out int u);
+            bool hasNorth = North(brick, i, out Brick north, out int n);
+            if (water[i] <= Brick.Dry && Dry(hasEast, east, e) && Dry(hasUp, up, u) && Dry(hasNorth, north, n))
             {
                 // Dry, and so are the voxels its own faces lead to: nothing flows through them.
-                brick.FlowX[i] = brick.FlowY[i] = brick.FlowZ[i] = 0f;
+                fx[i] = fy[i] = fz[i] = 0f;
                 continue;
             }
 
-            (int x, int y, int z) = Brick.Place(i);
-            WantBeside(brick, x, y, z, i);
-            brick.FlowX[i] = Flow(brick, i, y, 0, dt, s, brick.FlowX[i]);
-            brick.FlowY[i] = Flow(brick, i, y, 2, dt, s, brick.FlowY[i]);
-            brick.FlowZ[i] = Flow(brick, i, y, 4, dt, s, brick.FlowZ[i]);
+            int y = i >> 8;
+            WantBeside(brick, i & (Brick.Size - 1), y, (i >> 4) & (Brick.Size - 1), i);
+            fx[i] = hasEast ? Flow(brick, i, y, 0, east, e, dt, s, fx[i]) : 0f;
+            fy[i] = hasUp ? Flow(brick, i, y, 1, up, u, dt, s, fy[i]) : 0f;
+            fz[i] = hasNorth ? Flow(brick, i, y, 2, north, n, dt, s, fz[i]) : 0f;
         }
     }
 
-    // Whether the voxels east, over and north of voxel i are dry (or have no brick).
-    private static bool DryAhead(Brick brick, int i) => Dry(brick, i, 0) && Dry(brick, i, 2) && Dry(brick, i, 4);
-
-    private static bool Dry(Brick brick, int i, int side) => !Next(brick, i, side, out Brick other, out int j) || other.Water[j] <= Brick.Dry;
+    // Whether a voxel ahead is dry (or has no brick).
+    private static bool Dry(bool has, Brick other, int j) => !has || other.Water[j] <= Brick.Dry;
 
     // A wet voxel on the brick's edge asks for the bricks its water may go into.
     // Past the grid's reach there is nothing: that face holds the water as a closed one does.
@@ -434,28 +441,24 @@ internal sealed class VoxelSolver
     }
 
     // The new flow of one of a voxel's own faces (side 0: east, 2: up, 4: north).
-    private static float Flow(Brick brick, int i, int y, int side, float dt, float s, float flow)
+    private static float Flow(Brick brick, int i, int y, int axis, Brick other, int j, float dt, float s, float flow)
     {
-        if (!Next(brick, i, side, out Brick other, out int j) || other.Asleep || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << (side / 2))) != 0)
-        {
-            return 0f;
-        }
-
+        // Most faces in a step's part have no water on either side: that is looked at first.
         float wi = brick.Water[i];
         float wj = other.Water[j];
-        if (wi <= Brick.Dry && wj <= Brick.Dry)
+        if ((wi <= Brick.Dry && wj <= Brick.Dry) || other.Asleep || brick.Solid[i] >= 1f || other.Solid[j] >= 1f || (brick.Closed[i] & (1 << axis)) != 0)
         {
             return 0f;
         }
 
-        float area = side == 2 ? s * s : s * Wet(brick, i, other, j, y, s);
+        float area = axis == 1 ? s * s : s * Wet(brick, i, other, j, y, s);
         if (area <= 0f)
         {
             return 0f;
         }
 
         flow += dt * Gravity * area / s * (brick.Head[i] - other.Head[j]);
-        flow /= 1f + (dt * (Damping + (Drag * Math.Abs(flow) / area)));
+        flow /= 1f + (dt * (Damping + (Drag * (flow < 0f ? -flow : flow) / area)));
 
         // Only water there is can leave.
         return (flow > 0f && wi <= Brick.Dry) || (flow < 0f && wj <= Brick.Dry) ? 0f : flow;
@@ -477,38 +480,54 @@ internal sealed class VoxelSolver
     private static void Shares(Brick brick, float dt, float s)
     {
         float volume = s * s * s;
-        for (int k = 0; k < brick.PartCount; k++)
+        int[] part = brick.Part;
+        float[] fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ, water = brick.Water, share = brick.Share;
+        int count = brick.PartCount;
+        for (int k = 0; k < count; k++)
         {
-            int i = brick.Part[k];
-            (float west, float down, float south) = Behind(brick, i);
-            float outflow = Math.Max(brick.FlowX[i], 0f) + Math.Max(brick.FlowY[i], 0f) + Math.Max(brick.FlowZ[i], 0f)
-                + Math.Max(-west, 0f) + Math.Max(-down, 0f) + Math.Max(-south, 0f);
-            float has = brick.Water[i] * volume;
-            brick.Share[i] = outflow * dt > has ? has / (outflow * dt) : 1f;
+            int i = part[k];
+            float west = FromWest(brick, i), down = FromBelow(brick, i), south = FromSouth(brick, i);
+            float outflow = Out(fx[i]) + Out(fy[i]) + Out(fz[i]) + Out(-west) + Out(-down) + Out(-south);
+            float has = water[i] * volume;
+            share[i] = outflow * dt > has ? has / (outflow * dt) : 1f;
         }
     }
 
     // Each face's flow scaled by the share its source voxel can give.
     private static void Scale(Brick brick)
     {
-        for (int k = 0; k < brick.PartCount; k++)
+        int[] part = brick.Part;
+        float[] fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ, share = brick.Share;
+        int count = brick.PartCount;
+        for (int k = 0; k < count; k++)
         {
-            int i = brick.Part[k];
-            brick.FlowX[i] = Scaled(brick, i, 0, brick.FlowX[i]);
-            brick.FlowY[i] = Scaled(brick, i, 2, brick.FlowY[i]);
-            brick.FlowZ[i] = Scaled(brick, i, 4, brick.FlowZ[i]);
+            int i = part[k];
+            float own = share[i];
+            fx[i] = fx[i] > 0f ? fx[i] * own : fx[i] < 0f && East(brick, i, out Brick east, out int e) ? fx[i] * east.Share[e] : fx[i];
+            fy[i] = fy[i] > 0f ? fy[i] * own : fy[i] < 0f && Up(brick, i, out Brick up, out int u) ? fy[i] * up.Share[u] : fy[i];
+            fz[i] = fz[i] > 0f ? fz[i] * own : fz[i] < 0f && North(brick, i, out Brick north, out int n) ? fz[i] * north.Share[n] : fz[i];
         }
     }
 
-    private static float Scaled(Brick brick, int i, int side, float flow)
+    // The larger of a strength and a flow's (either way).
+    private static float Stronger(float strongest, float flow) => flow > strongest ? flow : -flow > strongest ? -flow : strongest;
+
+    // A range taken out to v if it is not in it yet.
+    private static void Widen(ref int low, ref int high, int v)
     {
-        if (flow > 0f)
+        if (v < low)
         {
-            return flow * brick.Share[i];
+            low = v;
         }
 
-        return flow < 0f && Next(brick, i, side, out Brick other, out int j) ? flow * other.Share[j] : flow;
+        if (v > high)
+        {
+            high = v;
+        }
     }
+
+    // What leaves through a face (a flow out of the voxel, positive), else 0.
+    private static float Out(float flow) => flow > 0f ? flow : 0f;
 
     // The water moved: in through some faces, out through others; the sea takes what falls into it.
     private void Apply(Brick brick, float dt, float s)
@@ -520,20 +539,24 @@ internal sealed class VoxelSolver
 
         float perVolume = dt / (s * s * s);
         float strongest = 0f;
+        int[] part = brick.Part;
+        float[] fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ, waters = brick.Water;
+        int count = brick.PartCount, bottom = brick.Y * Brick.Size;
         int lx = Brick.Size, ly = Brick.Size, lz = Brick.Size, hx = -1, hy = -1, hz = -1;
-        for (int k = 0; k < brick.PartCount; k++)
+        for (int k = 0; k < count; k++)
         {
-            int i = brick.Part[k];
-            strongest = Math.Max(strongest, Math.Max(Math.Abs(brick.FlowX[i]), Math.Max(Math.Abs(brick.FlowY[i]), Math.Abs(brick.FlowZ[i]))));
-            (float west, float down, float south) = Behind(brick, i);
-            float net = west + down + south - brick.FlowX[i] - brick.FlowY[i] - brick.FlowZ[i];
-            float water = Math.Max(0f, brick.Water[i] + (net * perVolume));
-            (int x, int y, int z) = Brick.Place(i);
-            brick.Water[i] = ((brick.Y * Brick.Size) + y + 1) * s <= SeaLevel ? 0f : water;
-            if (brick.Water[i] > Brick.Dry)
+            int i = part[k];
+            strongest = Stronger(Stronger(Stronger(strongest, fx[i]), fy[i]), fz[i]);
+            float net = FromWest(brick, i) + FromBelow(brick, i) + FromSouth(brick, i) - fx[i] - fy[i] - fz[i];
+            int y = i >> 8;
+            float water = waters[i] + (net * perVolume);
+            water = water < 0f || (bottom + y + 1) * s <= SeaLevel ? 0f : water;
+            waters[i] = water;
+            if (water > Brick.Dry)
             {
-                (lx, ly, lz) = (Math.Min(lx, x), Math.Min(ly, y), Math.Min(lz, z));
-                (hx, hy, hz) = (Math.Max(hx, x), Math.Max(hy, y), Math.Max(hz, z));
+                Widen(ref lx, ref hx, i & Last);
+                Widen(ref ly, ref hy, y);
+                Widen(ref lz, ref hz, (i >> 4) & Last);
             }
         }
 
@@ -543,48 +566,64 @@ internal sealed class VoxelSolver
         brick.Quiet = strongest < SleepingFlow ? brick.Quiet + 1 : 0;
     }
 
-    // The flows of the faces a voxel shares with the voxels west, under and south of it, which those own
-    // (positive: into this voxel); 0 where there is no brick.
-    private static (float West, float Down, float South) Behind(Brick brick, int i) => (
-        Next(brick, i, 1, out Brick west, out int w) ? west.FlowX[w] : 0f,
-        Next(brick, i, 3, out Brick under, out int d) ? under.FlowY[d] : 0f,
-        Next(brick, i, 5, out Brick south, out int so) ? south.FlowZ[so] : 0f);
-
-    // The voxel beside voxel i on a side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south): in the brick unless i is
-    // on its edge that way, else in the brick beside; false where there is no brick.
-    private static bool Next(Brick brick, int i, int side, out Brick other, out int j)
+    // The flow of the face a voxel shares with the voxel west (under, south) of it, which that one owns (positive:
+    // into this voxel); 0 where there is no brick. Each way has its own lookup: the hot loops ask with the way known.
+    private static float FromWest(Brick brick, int i)
     {
-        const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
-        bool edge;
-        switch (side)
+        if ((i & Last) != 0)
         {
-            case 0:
-                edge = (i & Last) == Last;
-                j = edge ? i - Last : i + 1;
-                break;
-            case 1:
-                edge = (i & Last) == 0;
-                j = edge ? i + Last : i - 1;
-                break;
-            case 2:
-                edge = i >= Last * Layer;
-                j = edge ? i - (Last * Layer) : i + Layer;
-                break;
-            case 3:
-                edge = i < Layer;
-                j = edge ? i + (Last * Layer) : i - Layer;
-                break;
-            case 4:
-                edge = (i & (Last * Row)) == Last * Row;
-                j = edge ? i - (Last * Row) : i + Row;
-                break;
-            default:
-                edge = (i & (Last * Row)) == 0;
-                j = edge ? i + (Last * Row) : i - Row;
-                break;
+            return brick.FlowX[i - 1];
         }
 
-        other = edge ? brick.Beside[side] : brick;
+        Brick west = brick.Beside[1];
+        return west == null ? 0f : west.FlowX[i + Last];
+    }
+
+    private static float FromBelow(Brick brick, int i)
+    {
+        if (i >= Layer)
+        {
+            return brick.FlowY[i - Layer];
+        }
+
+        Brick under = brick.Beside[3];
+        return under == null ? 0f : under.FlowY[i + (Last * Layer)];
+    }
+
+    private static float FromSouth(Brick brick, int i)
+    {
+        if ((i & (Last * Row)) != 0)
+        {
+            return brick.FlowZ[i - Row];
+        }
+
+        Brick south = brick.Beside[5];
+        return south == null ? 0f : south.FlowZ[i + (Last * Row)];
+    }
+
+    // The voxel east (over, north) of voxel i: in the brick unless i is on its edge that way, else in the brick
+    // beside; false where there is no brick.
+    private static bool East(Brick brick, int i, out Brick other, out int j)
+    {
+        bool inside = (i & Last) != Last;
+        other = inside ? brick : brick.Beside[0];
+        j = inside ? i + 1 : i - Last;
+        return other != null;
+    }
+
+    private static bool Up(Brick brick, int i, out Brick other, out int j)
+    {
+        bool inside = i < Last * Layer;
+        other = inside ? brick : brick.Beside[2];
+        j = inside ? i + Layer : i - (Last * Layer);
+        return other != null;
+    }
+
+    private static bool North(Brick brick, int i, out Brick other, out int j)
+    {
+        bool inside = (i & (Last * Row)) != Last * Row;
+        other = inside ? brick : brick.Beside[4];
+        j = inside ? i + Row : i - (Last * Row);
         return other != null;
     }
 

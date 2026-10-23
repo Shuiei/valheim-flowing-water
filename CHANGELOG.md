@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.3 — 2026-10-22
+
+### Fixed
+- The water cost the game's server much more than it needed to: the same water now takes about 40% less of the
+  server's time.
+
 ## v0.15.2 — 2026-10-22
 
 ### Fixed
