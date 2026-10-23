@@ -159,11 +159,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         ApplyVoxelSize();
-        // The markers found are swapped in once the look is over the whole world.
-        _scanTimer += dt;
-        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
+        // The markers found are swapped in once the look is over the whole world. The next look begins that long after
+        // the last one ended: in a world whose look takes longer than that, the look went on every frame.
+        if (!_markerPass.Busy)
         {
-            _scanTimer = 0f;
+            _scanTimer += dt;
+            if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
+            {
+                _scanTimer = 0f;
+            }
         }
 
         _parts.Into(WaterPart.Markers);
