@@ -256,6 +256,8 @@ internal sealed class VoxelGrid
         {
             if (_bricks.Count >= MaxBricks)
             {
+                // Asked for again, to be made once room is freed: the water that asked may sleep and ask no more.
+                Want(wanted, k);
                 Capped = true;
                 return;
             }

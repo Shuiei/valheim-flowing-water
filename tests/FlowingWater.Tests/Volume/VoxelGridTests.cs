@@ -200,6 +200,35 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void BricksAskedForPastTheCapAreMadeOnceThereIsRoom()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 2 };
+        grid.Get(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+        grid.MakeWanted();
+        Assert.Null(grid.Find(2, 0, 0));
+
+        // No one asks again (the water that did sleeps); room is freed.
+        grid.MaxBricks = 3;
+        grid.MakeWanted();
+
+        Assert.NotNull(grid.Find(2, 0, 0));
+        Assert.Equal(3, grid.Bricks.Count);
+    }
+
+    [Fact]
+    public void ABrickHoldingOnlyATraceTooSmallToFlowIsForgotten()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000));
+        grid.Pour(0, 0, 0, Brick.Dry / 10f);
+
+        grid.ForgetDry(10f, 8f);
+
+        Assert.Empty(grid.Bricks);
+    }
+
+    [Fact]
     public void WaterAPieceDisplacesUnderAFloorGoesAsideNotOverTheFloor()
     {
         // A piece fills a pool's voxel with a solid floor right over it: the water moves into the voxel beside it,
@@ -237,17 +266,6 @@ public class VoxelGridTests
 
         Assert.Equal(2, grid.Bricks.Count);
         Assert.True(grid.Capped);
-    }
-
-    [Fact]
-    public void ABrickHoldingOnlyATraceTooSmallToFlowIsForgotten()
-    {
-        var grid = new VoxelGrid(1f, new TestSolids(-1000));
-        grid.Pour(0, 0, 0, Brick.Dry / 10f);
-
-        grid.ForgetDry(10f, 8f);
-
-        Assert.Empty(grid.Bricks);
     }
 
     [Fact]

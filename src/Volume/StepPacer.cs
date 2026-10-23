@@ -32,12 +32,7 @@ internal sealed class StepPacer
     public void Add(float seconds, double budget)
     {
         Owed += seconds;
-        if (Owed > _mostOwed)
-        {
-            Dropped += Owed - _mostOwed;
-            Owed = _mostOwed;
-        }
-
+        GiveUpPastTheLimit();
         _credit = System.Math.Min(_credit + budget, budget);
     }
 
@@ -53,14 +48,28 @@ internal sealed class StepPacer
         return true;
     }
 
-    /// <summary>A step taken was not done (to be taken shorter): its time is owed again.</summary>
-    public void Return(float step) => Owed += step;
+    /// <summary>A step taken was not done (to be taken shorter): its time is owed again, within the limit.</summary>
+    public void Return(float step)
+    {
+        Owed += step;
+        GiveUpPastTheLimit();
+    }
 
     /// <summary>Milliseconds of credit left once the frame has spent <paramref name="spent"/> on the water.</summary>
     public double Left(double spent) => _credit - spent;
 
     /// <summary>The frame spent this many milliseconds on the water.</summary>
     public void Spent(double milliseconds) => _credit -= milliseconds;
+
+    // Owed time past the limit is given up (and counted).
+    private void GiveUpPastTheLimit()
+    {
+        if (Owed > _mostOwed)
+        {
+            Dropped += Owed - _mostOwed;
+            Owed = _mostOwed;
+        }
+    }
 
     /// <summary>The seconds given up since last asked, and forgets them.</summary>
     public float TakeDropped()
