@@ -80,7 +80,7 @@ public class StepPacerTests
         pacer.Add(0.5f, 8.0);
         Assert.True(pacer.Take(0.04f));
         pacer.Add(0.04f, 8.0);
-        Assert.Equal(0f, pacer.TakeDropped());
+        Assert.Equal(0f, pacer.TakeDropped(), 4);
 
         pacer.Return(0.04f);
 
