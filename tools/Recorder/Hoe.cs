@@ -69,7 +69,7 @@ public sealed partial class Recorder
         TypeInto(panel, "Rate", "7.5");
         Check(Field(panel, "Rate").text == "7.5", $"the rate typed shows 7.5 (shows \"{Field(panel, "Rate").text}\")");
         TypeInto(panel, "Rate", "250");
-        Check(Field(panel, "Rate").text == "100" && Label(panel, "Status").Contains("held to 100"), $"a rate over the most is held to 100 and says so (\"{Field(panel, "Rate").text}\", \"{Label(panel, "Status")}\")");
+        Check(Field(panel, "Rate").text == "100" && Label(panel, "Status").Contains("Held to 100"), $"a rate over the most is held to 100 and says so (\"{Field(panel, "Rate").text}\", \"{Label(panel, "Status")}\")");
         TypeInto(panel, "Rate", "0");
         Check(Field(panel, "Rate").text == "100" && Label(panel, "Status").Contains("above 0"), $"a source's rate of 0 is refused, the rate kept (\"{Field(panel, "Rate").text}\", \"{Label(panel, "Status")}\")");
         TypeInto(panel, "Rate", "7.5");
@@ -95,8 +95,15 @@ public sealed partial class Recorder
         Check(Mathf.Approximately(source.GetZDO().GetFloat(RateKey, -1f), 7.5f), $"the placed source's object says 7.5 m³/s ({source.GetZDO().GetFloat(RateKey, -1f)})");
         yield return Snap("hoe-2-source-placed");
 
-        // 4. A floor a metre over the ground, a drain placed on it with the panel's rate 0 and radius 3.
+        // 4. A floor a metre over the ground, a drain placed on it with the panel's rate 0 and radius 3: across the slope,
+        // out of any place the game forbids building in (the spawn's temple reaches far).
         Vector3 floorSpot = OnGround(site.At(0f) + (site.Across * 12f));
+        for (float across = 20f; Location.IsInsideNoBuildLocation(floorSpot) && across <= 80f; across += 8f)
+        {
+            floorSpot = OnGround(site.At(0f) + (site.Across * across));
+        }
+
+        Check(!Location.IsInsideNoBuildLocation(floorSpot), $"the floor's place may be built on ({floorSpot.ToString("F2")})");
         yield return Go(floorSpot - (site.Across * 3f));
         GameObject floor = Instantiate(ZNetScene.instance.GetPrefab("wood_floor"), floorSpot + Vector3.up, Quaternion.identity);
         floor.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, player.GetPlayerID());
