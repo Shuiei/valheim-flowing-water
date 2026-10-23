@@ -26,14 +26,17 @@ public sealed partial class Recorder
 
     private MethodInfo _waterCensus;
 
+    private PropertyInfo _waterParts;
+
     private IEnumerator Perf(Vector3 spawn, Site steep, Site gentle)
     {
         Type bricks = AccessTools.TypeByName("FlowingWater.Client.WaterBrick");
         _waterSpent = bricks == null ? null : AccessTools.Property(bricks, "SpentMilliseconds");
         _waterCensus = bricks == null ? null : AccessTools.Method(bricks, "Census");
-        if (_waterSpent == null || _waterCensus == null)
+        _waterParts = bricks == null ? null : AccessTools.Property(bricks, "SpentParts");
+        if (_waterSpent == null || _waterCensus == null || _waterParts == null)
         {
-            throw new InvalidOperationException("the mod's water measures (WaterBrick.SpentMilliseconds, Census) not found: is it the mod of this branch?");
+            throw new InvalidOperationException("the mod's water measures (WaterBrick.SpentMilliseconds, SpentParts, Census) not found: is it the mod of this branch?");
         }
 
         float seconds = Seconds("FW_REC_PERF_SECONDS", 20f);
@@ -41,16 +44,14 @@ public sealed partial class Recorder
         List<PerfCase> cases = PerfCases(spawn, steep, gentle);
         Note("perf cases: " + string.Join("; ", cases.Select(c => c.ToString())));
         Hud.instance.m_userHidden = true;
-        _perfRows.Add("case,avg fps,1% low fps,worst ms,water ms/frame avg,water ms/frame max,bricks,bricks drawn,vertices,gc collections,memory delta MB");
+        _perfRows.Add("case,avg fps,1% low fps,worst ms,water ms/frame avg,water ms/frame max,frames water > 8 ms,read ms max,build ms max,mesh ms max,bricks,bricks drawn,vertices,gc collections,memory delta MB");
 
-        // No water: from the first case's view, before anything is placed.
-        PerfCase first = cases[0];
-        yield return Go(first.Stand);
-        yield return Measure("no water", first.From, first.At, seconds);
-
+        // Each case from the same view before its water and with it: the difference is the water's, not the view's
+        // (the earlier cases' water still runs, out of that view).
         foreach (PerfCase c in cases)
         {
             yield return Go(c.Stand);
+            yield return Measure(c.Kind + " before", c.From, c.At, seconds);
             yield return Place(c);
             yield return new WaitForSeconds(spread);
             yield return Measure(c.Kind, c.From, c.At, seconds);
@@ -226,6 +227,8 @@ public sealed partial class Recorder
         int collections = GC.CollectionCount(0);
         long memory = GC.GetTotalMemory(false);
         double spent = Spent();
+        double[] parts = Parts();
+        double[] partsMax = new double[parts.Length];
         var frames = new List<float>();
         var water = new List<double>();
         float until = Time.realtimeSinceStartup + seconds;
@@ -236,6 +239,13 @@ public sealed partial class Recorder
             double now = Spent();
             water.Add(now - spent);
             spent = now;
+            double[] nowParts = Parts();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                partsMax[i] = Math.Max(partsMax[i], nowParts[i] - parts[i]);
+            }
+
+            parts = nowParts;
         }
 
         int gcs = GC.CollectionCount(0) - collections;
@@ -245,13 +255,16 @@ public sealed partial class Recorder
         float[] sorted = [.. frames.OrderBy(f => f)];
         float total = frames.Sum();
         float p99 = sorted[Mathf.Min(sorted.Length - 1, (int)(sorted.Length * 0.99f))];
-        string row = FormattableString.Invariant($"{name},{frames.Count * 1000f / total:0.0},{1000f / p99:0.0},{sorted[sorted.Length - 1]:0.0},{water.Average():0.000},{water.Max():0.000},{bricks},{census[0]},{census[1]},{gcs},{megabytes:0.0}");
+        string row = FormattableString.Invariant($"{name},{frames.Count * 1000f / total:0.0},{1000f / p99:0.0},{sorted[sorted.Length - 1]:0.0},{water.Average():0.000},{water.Max():0.000},{water.Count(w => w > 8.0)},{partsMax[0]:0.000},{partsMax[1]:0.000},{partsMax[2]:0.000},{bricks},{census[0]},{census[1]},{gcs},{megabytes:0.0}");
         _perfRows.Add(row);
         Note($"perf {name}: {row}");
         yield return Shot(from, at, "perf-" + name.Replace(' ', '-'));
     }
 
     private double Spent() => (double)_waterSpent.GetValue(null, null);
+
+    // The water's time so far in its parts: reading data, starting builds, handing meshes over.
+    private double[] Parts() => (double[])_waterParts.GetValue(null, null);
 
     // A case: its kind, where the player stands, and the view of it.
     private sealed class PerfCase
@@ -272,17 +285,17 @@ public sealed partial class Recorder
 
         public Vector3 At { get; }
 
-        // A stream or cascade runs downhill from the site (seen from behind its spring); a fountain or lake is seen
-        // from beside and over it. The player stands on the spring (the command places it under them), but beside
-        // the fountain's column.
+        // A stream or cascade runs downhill from the site, a fountain or lake stays round it: each seen from high
+        // over it, uphill, above the trees (their leaves stop no ray, so a view under them sees only leaves). The
+        // player stands on the spring (the command places it under them), but beside the fountain's column.
         public static PerfCase Of(string kind, Site site) => kind switch
         {
-            "stream" or "cascade" => new PerfCase(kind, site.At(0f), site.Behind(), site.At(14f)),
-            "fountain" => new PerfCase(kind, site.At(0f) - (site.Across * 5f), Beside(site), site.At(0f)),
-            _ => new PerfCase(kind, site.At(0f), Beside(site), site.At(0f)),
+            "stream" or "cascade" => new PerfCase(kind, site.At(0f), Over(site, site.At(14f)), site.At(14f)),
+            "fountain" => new PerfCase(kind, site.At(0f) - (site.Across * 5f), Over(site, site.At(0f)), site.At(0f)),
+            _ => new PerfCase(kind, site.At(0f), Over(site, site.At(0f)), site.At(0f)),
         };
 
-        private static Vector3 Beside(Site site) => site.At(0f) + (site.Across * 12f) + new Vector3(0f, 8f, 0f) - (site.Down * 6f);
+        private static Vector3 Over(Site site, Vector3 at) => at + new Vector3(0f, 28f, 0f) - (site.Down * 18f);
 
         public override string ToString() => FormattableString.Invariant($"{Kind} at {Stand.ToString("F0")}");
     }
