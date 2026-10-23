@@ -9,7 +9,8 @@ namespace FlowingWater.Volume;
 /// pressed in) and, for voxels with water, its solid share (a byte, 255 all solid: where the water's floor is, which
 /// the players' games cannot know) and its velocity (a byte per axis, square-root steps to 16 m/s). From version 2, a
 /// water byte of 255 means more than the byte holds (water pressed in hard, or poured into smaller voxels): its exact
-/// share follows the velocity, as a float, so none is lost.
+/// share follows the velocity, as a float, so none is lost. What a voxel's byte rounds off is carried on to the next
+/// voxel with water, so the brick keeps its volume to within a byte's step, however thin its water.
 /// </summary>
 internal static class BrickData
 {
@@ -39,9 +40,20 @@ internal static class BrickData
 
         // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
         byte[] water = new byte[Brick.Count];
+        float[] exact = new float[Brick.Count];
+        float carried = 0f;
         for (int i = 0; i < Brick.Count; i++)
         {
-            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(brick.Water[i] * Full)));
+            // A dry voxel takes nothing carried: water rounded off elsewhere does not wet it.
+            if (brick.Water[i] <= 0f)
+            {
+                continue;
+            }
+
+            float share = brick.Water[i] + carried;
+            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(share * Full)));
+            exact[i] = share;
+            carried = water[i] == More ? 0f : share - (water[i] / Full);
         }
 
         writer.Write(water);
@@ -57,7 +69,7 @@ internal static class BrickData
                 writer.Write(SpeedByte(z));
                 if (water[i] == More)
                 {
-                    writer.Write(brick.Water[i]);
+                    writer.Write(exact[i]);
                 }
             }
         }
