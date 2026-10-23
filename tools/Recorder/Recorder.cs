@@ -21,10 +21,12 @@ namespace FlowingWater.Recorder;
 [BepInDependency("Tie.FlowingWater")]
 public sealed class Recorder : BaseUnityPlugin
 {
-    // The most a "!film" takes: frames a second, and frames in all (five minutes at 60).
+    // The most a "!film" takes: frames a second, frames in all and seconds (five minutes, at up to 60 a second).
     private const int MaxFps = 60;
 
     private const int MaxFrames = 18000;
+
+    private const float MaxSeconds = (float)MaxFrames / MaxFps;
 
     // How far from the given point "!remove" looks for the source, metres.
     private const float RemoveReach = 2f;
@@ -969,13 +971,13 @@ public sealed class Recorder : BaseUnityPlugin
                     yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
                 }
                 else if (Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
-                    && fps is >= 1 and <= MaxFps && seconds[0] * fps is >= 1f and <= MaxFrames)
+                    && fps is >= 1 and <= MaxFps && seconds[0] <= MaxSeconds && seconds[0] * fps is >= 1f and <= MaxFrames)
                 {
                     yield return Film(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6], seconds[0], fps);
                 }
                 else
                 {
-                    Note(FormattableString.Invariant($"film with bad numbers, no frame or too many (fps up to {MaxFps}, frames up to {MaxFrames}): {command}"));
+                    Note(FormattableString.Invariant($"film with bad numbers, no frame or too many (fps up to {MaxFps}, frames up to {MaxFrames}, seconds up to {MaxSeconds}): {command}"));
                 }
             }
             else if (command.StartsWith("!", StringComparison.Ordinal))
