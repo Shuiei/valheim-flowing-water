@@ -48,6 +48,15 @@ internal sealed class StepPacer
         return true;
     }
 
+    /// <summary>Takes all the owed time at once (nothing was to step: it passes as still).</summary>
+    /// <returns>The seconds that were owed.</returns>
+    public float TakeAll()
+    {
+        float owed = Owed;
+        Owed = 0f;
+        return owed;
+    }
+
     /// <summary>A step taken was not done (to be taken shorter): its time is owed again, within the limit.</summary>
     public void Return(float step)
     {

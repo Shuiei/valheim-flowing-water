@@ -184,6 +184,30 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStepOverStillWaterIsIdleUntilWaterComes()
+    {
+        VoxelGrid grid = StillPool(0, 2f, out VoxelSolver solver);
+        solver.Step(0.1f);
+        float before = grid.TotalWater();
+
+        Assert.Equal(StepState.Idle, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        Assert.False(solver.InStep);
+        solver.Step(5f);
+        Assert.Equal(before, grid.TotalWater(), 3);
+
+        grid.Pour(3, 2, 3, 1f);
+        Assert.NotEqual(StepState.Idle, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+    }
+
+    [Fact]
+    public void ADryGridIsIdle()
+    {
+        var solver = new VoxelSolver(new VoxelGrid(Volume, new TestSolids(0)));
+
+        Assert.Equal(StepState.Idle, solver.Advance(0.1f, () => true, int.MaxValue));
+    }
+
+    [Fact]
     public void ATraceSettlingIntoASleepingPoolCountsAChangeWithoutWakingIt()
     {
         // As in the test above, but too little water to wake the pool: its data still changed.

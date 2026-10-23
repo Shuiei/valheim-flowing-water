@@ -111,7 +111,14 @@ internal sealed class VoxelSolver
         {
             int steps = Math.Max(1, (int)Math.Ceiling(left / MaxStep));
             float step = left / steps;
-            if (Advance(step, Always, int.MaxValue) == StepState.Done)
+            StepState state = Advance(step, Always, int.MaxValue);
+            if (state == StepState.Idle)
+            {
+                // Everything sleeps: the rest of the time is as still, with no short step left to look for it.
+                return;
+            }
+
+            if (state == StepState.Done)
             {
                 left = steps == 1 ? 0f : left - step;
             }
@@ -123,7 +130,10 @@ internal sealed class VoxelSolver
     /// part at a time: between parts of <paramref name="chunk"/> bricks it stops once <paramref name="timeLeft"/> says
     /// so, to go on at the next call. Nothing else may change the grid while a step is under way.
     /// </summary>
-    /// <returns>Whether the step is done, under way, or to be taken again shorter (it found deeper water).</returns>
+    /// <returns>
+    /// Whether the step is done, under way, to be taken again shorter (it found deeper water), or not taken as nothing
+    /// was to step.
+    /// </returns>
     public StepState Advance(float dt, Func<bool> timeLeft, int chunk)
     {
         _stepTimeLeft = timeLeft;
@@ -131,7 +141,7 @@ internal sealed class VoxelSolver
         {
             if (!Begin())
             {
-                return StepState.Done;
+                return StepState.Idle;
             }
 
             _length = dt;
@@ -757,8 +767,11 @@ internal sealed class VoxelSolver
 /// <summary>How a step taken a part at a time (<see cref="VoxelSolver.Advance"/>) stands.</summary>
 internal enum StepState
 {
-    /// <summary>Done (or nothing was to step).</summary>
+    /// <summary>Done.</summary>
     Done,
+
+    /// <summary>Not taken: nothing was to step (everything sleeps or is dry), nor is for any time asked now.</summary>
+    Idle,
 
     /// <summary>Under way: the next call goes on with it.</summary>
     Pending,

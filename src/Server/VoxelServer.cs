@@ -173,30 +173,33 @@ internal sealed class VoxelServer
     }
 
     // Sources pour and drains take for this much of the water's time (slowed down, the water's time is not the
-    // server's).
-    private void Markers(float dt)
+    // server's). False when none poured or took anything.
+    private bool Markers(float dt)
     {
+        bool acted = false;
         foreach (Source marker in _markers)
         {
-            if (marker.Drain)
-            {
-                Drain(marker, dt);
-            }
-            else
-            {
-                Pour(marker, dt);
-            }
+            acted |= marker.Drain ? Drain(marker, dt) : Pour(marker, dt);
         }
+
+        return acted;
     }
 
     private bool TimeLeft() => _pacer.Left(_frameWatch.Elapsed.TotalMilliseconds) > 0.0;
 
-    // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again.
+    // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again;
+    // nothing to step, its sources and drains still act for its time, and if none did, the rest of the time owed
+    // passes at once (not a short step at a time, each looking over every brick); if one did, the water it woke is
+    // stepped with the rest.
     private void Ended(StepState state)
     {
         if (state == StepState.Done)
         {
             Markers(_length);
+        }
+        else if (state == StepState.Idle && !Markers(_length))
+        {
+            _pacer.TakeAll();
         }
         else if (state == StepState.Again)
         {
@@ -602,12 +605,11 @@ internal sealed class VoxelServer
     }
 
     // Water poured at a point: into its voxel, or the first open one over it when the point is in a solid.
-    private void PourAt(Vector3 point, float cubicMetres)
+    private bool PourAt(Vector3 point, float cubicMetres)
     {
         if (Room(point, out int x, out int y, out int z))
         {
-            _grid.Pour(x, y, z, cubicMetres);
-            return;
+            return _grid.Pour(x, y, z, cubicMetres);
         }
 
         // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once a
@@ -616,6 +618,8 @@ internal sealed class VoxelServer
         {
             FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
         }
+
+        return false;
     }
 
     // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks); false
@@ -642,11 +646,11 @@ internal sealed class VoxelServer
         return false;
     }
 
-    private void Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
+    private bool Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
 
     // A drain takes from every voxel within its reach (its own voxel at least): all of it with no rate, else at most
-    // its rate, from each in proportion to its water. Only bricks there are looked in.
-    private void Drain(Source drain, float dt)
+    // its rate, from each in proportion to its water. Only bricks there are looked in. False when it took nothing.
+    private bool Drain(Source drain, float dt)
     {
         float s = _grid.VoxelSize;
         int reach = Mathf.FloorToInt(drain.Radius / s);
@@ -684,7 +688,7 @@ internal sealed class VoxelServer
         float share = there <= 0f ? 0f : drain.Rate <= 0f ? 1f : Mathf.Min(1f, drain.Rate * dt / (there * volume));
         if (share <= 0f)
         {
-            return;
+            return false;
         }
 
         // Drained, a sleeping brick wakes: the water round the drain flows in.
@@ -693,6 +697,8 @@ internal sealed class VoxelServer
             brick.Water[i] -= brick.Water[i] * share;
             brick.Wets(i);
         }
+
+        return true;
     }
 
     private void WarnCapped()

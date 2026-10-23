@@ -72,6 +72,18 @@ public class StepPacerTests
     }
 
     [Fact]
+    public void AllTheOwedTimeIsTakenAtOnce()
+    {
+        var pacer = new StepPacer(0.5f);
+        pacer.Add(0.1f, 8.0);
+        Assert.True(pacer.Take(0.04f));
+
+        Assert.Equal(0.06f, pacer.TakeAll(), 4);
+        Assert.Equal(0f, pacer.Owed);
+        Assert.False(pacer.Take(0.01f));
+    }
+
+    [Fact]
     public void AStepReturnedWhileTheLimitIsOwedStaysWithinIt()
     {
         // A step taken spans frames that owe the limit again, then is not done: owed time stays at the limit, and

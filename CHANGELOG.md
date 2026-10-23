@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.8 — 2026-10-22
+
+### Fixed
+- After deep water had moved, a world whose water had all gone still kept the server busy each frame checking it in
+  many tiny steps: still water is now checked once a frame.
+
 ## v0.15.7 — 2026-10-22
 
 ### Fixed
