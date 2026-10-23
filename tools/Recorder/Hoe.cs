@@ -198,7 +198,9 @@ public sealed partial class Recorder
         if (drain != null)
         {
             Vector3 drainAt = drain.transform.position;
-            yield return Go(floorSpot - (site.Across * 3f));
+
+            // On the floor beside the drain: the source's water has had a minute to run down round it by now.
+            yield return Go(floorSpot + (site.Across * 0.7f), top);
             ItemDrop.ItemData tool = Tool(player, remover);
             player.EquipItem(tool);
             yield return new WaitForSeconds(1f);

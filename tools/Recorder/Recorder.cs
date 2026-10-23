@@ -835,6 +835,11 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Console.instance.TryRunCommand(text, false, true);
     }
 
+    // The player still there: gone (dead, or out of the world) the run cannot go on, and says so.
+    private static Player Alive(Player player, Vector3 target) => player != null && player == Player.m_localPlayer
+        ? player
+        : throw new InvalidOperationException($"the player is gone (dead?) on the way to {target}");
+
     private IEnumerator Go(Vector3 point, float? standAt = null)
     {
         Player player = Player.m_localPlayer;
@@ -850,7 +855,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
         var target = new Vector3(point.x, ground + 0.5f, point.z);
         float until = Time.time + 30f;
-        while (!player.TeleportTo(target, player.transform.rotation, true))
+        while (!Alive(player, target).TeleportTo(target, player.transform.rotation, true))
         {
             if (Time.time > until)
             {
@@ -861,12 +866,13 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         }
 
         until = Time.time + 60f;
-        while (player.IsTeleporting() && Time.time < until)
+        while (Alive(player, target).IsTeleporting() && Time.time < until)
         {
             yield return null;
         }
 
         yield return new WaitForSeconds(4f);
+        Alive(player, target);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
         if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
