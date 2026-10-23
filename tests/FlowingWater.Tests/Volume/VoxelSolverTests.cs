@@ -131,27 +131,19 @@ public class VoxelSolverTests
     [InlineData(0.25f)]
     public void StillWaterSleepsAfterAboutASecondAtAnyVoxelSize(float voxelSize)
     {
-        var grid = new VoxelGrid(voxelSize, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
-        Fill(grid, 0, 7, 0, 7, 2f);
-        var solver = new VoxelSolver(grid);
-        Brick pool = grid.Find(0, 0, 0);
-        float seconds = 0f;
-        int steps = 0;
-        while (!pool.Asleep && seconds < 5f)
-        {
-            float step = solver.MaxStep;
-            solver.Step(step);
-            seconds += step;
-            steps++;
-        }
+        float seconds = SecondsToSleep(voxelSize, out int steps);
 
         Assert.True(seconds is > 1f and < 1.2f, $"asleep after {seconds} s ({steps} steps)");
-        if (voxelSize == 1f)
-        {
-            // As when it was counted in steps: the first step makes the bricks under and beside the pool (walled: never
-            // made again), which wakes it once; then 24 quiet steps, then the step that finds it asleep.
-            Assert.Equal(26, steps);
-        }
+    }
+
+    [Fact]
+    public void StillWaterOfMetreVoxelsSleepsAfterTheStepsItAlwaysTook()
+    {
+        // As when it was counted in steps: the first step makes the bricks under and beside the pool (walled: never
+        // made again), which wakes it once; then 24 quiet steps, then the step that finds it asleep.
+        SecondsToSleep(1f, out int steps);
+
+        Assert.Equal(26, steps);
     }
 
     [Fact]
@@ -720,6 +712,27 @@ public class VoxelSolverTests
 
         Assert.NotNull(grid.Find(-1, 0, 0));
         Assert.True(grid.WaterAt(-1, 0, 3) > 0.01f);
+    }
+
+    // A pool two voxels deep in a closed box of voxels this size, stepped as long as it may: the seconds (and steps)
+    // until it sleeps, up to five.
+    private static float SecondsToSleep(float voxelSize, out int steps)
+    {
+        var grid = new VoxelGrid(voxelSize, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        Brick pool = grid.Find(0, 0, 0);
+        float seconds = 0f;
+        steps = 0;
+        while (!pool.Asleep && seconds < 5f)
+        {
+            float step = solver.MaxStep;
+            solver.Step(step);
+            seconds += step;
+            steps++;
+        }
+
+        return seconds;
     }
 
     // A pool two voxels deep in a box two bricks long with sixteen voxels of water dropped on it.
