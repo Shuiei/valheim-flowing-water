@@ -208,12 +208,7 @@ internal static class Commands
         }
 
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
-        ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
-        zdo.Set(ZdoKeys.Rate, rate);
-        if (drain)
-        {
-            zdo.Set(ZdoKeys.Radius, radius);
-        }
+        Marker.Write(placed.GetComponent<ZNetView>().GetZDO(), drain, rate, radius);
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
             + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)

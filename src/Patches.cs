@@ -160,3 +160,27 @@ internal static class CurrentPatch
         }
     }
 }
+
+/// <summary>
+/// The game's item list woke up (a world's, or the main menu's copy of it): the source and drain go into the hoe's
+/// pieces, once.
+/// </summary>
+[HarmonyPatch(typeof(ObjectDB))]
+internal static class HoePiecesPatch
+{
+    [HarmonyPostfix]
+    [HarmonyPatch("Awake")]
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Awake(ObjectDB __instance)
+    {
+        HoePieces.AddTo(__instance);
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(ObjectDB.CopyOtherDB))]
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void CopyOtherDB(ObjectDB __instance)
+    {
+        HoePieces.AddTo(__instance);
+    }
+}
