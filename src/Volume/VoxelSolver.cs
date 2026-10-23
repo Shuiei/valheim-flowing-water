@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace FlowingWater.Volume;
 
@@ -97,6 +96,9 @@ internal sealed class VoxelSolver
         _grid = grid;
         _parts = parts ?? new FrameParts();
     }
+
+    /// <summary>The threads the phases run on (<see cref="Crew.Shared"/> unless set).</summary>
+    public Crew Crew { get; set; } = Crew.Shared;
 
     /// <summary>Whether a step is under way (<see cref="Advance"/> stopped in it): the grid must not change.</summary>
     public bool InStep => _phase != Idle;
@@ -201,7 +203,7 @@ internal sealed class VoxelSolver
             _deepest = new float[_columns.Length];
         }
 
-        Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
+        For(0, _bricks.Length, k => Part(_bricks[k]));
         return !Array.TrueForAll(_bricks, b => b.PartCount == 0);
     }
 
@@ -223,24 +225,27 @@ internal sealed class VoxelSolver
         {
             case HeadsPhase:
                 float stiffness = _headsStiffness;
-                Parallel.For(from, to, k => _deepest[k] = Heads(_columns[k], s, stiffness));
+                For(from, to, k => _deepest[k] = Heads(_columns[k], s, stiffness));
                 break;
             case FlowsPhase:
-                Parallel.For(from, to, k => Flows(_bricks[k], dt, s));
+                For(from, to, k => Flows(_bricks[k], dt, s));
                 break;
             case SharesPhase:
-                Parallel.For(from, to, k => Shares(_bricks[k], dt, s));
+                For(from, to, k => Shares(_bricks[k], dt, s));
                 break;
             case ScalePhase:
-                Parallel.For(from, to, k => Scale(_bricks[k]));
+                For(from, to, k => Scale(_bricks[k]));
                 break;
             default:
-                Parallel.For(from, to, k => Apply(_bricks[k], dt, s));
+                For(from, to, k => Apply(_bricks[k], dt, s));
                 break;
         }
 
         _parts.Into(was);
     }
+
+    // Each phase's bodies on the crew's threads.
+    private void For(int from, int to, Action<int> body) => Crew.For(from, to, body);
 
     // A phase done: the next one, or the step's end (null while the step goes on).
     private StepState? EndPhase()
@@ -699,6 +704,7 @@ internal sealed class VoxelSolver
         // The wet voxels are all in the part (water only moves into it), so their box is found here.
         brick.WetLow = (lx, ly, lz);
         brick.WetHigh = (hx, hy, hz);
+
         brick.Quiet = strongest < SleepingFlow * s * s * s ? brick.Quiet + dt : 0f;
     }
 
