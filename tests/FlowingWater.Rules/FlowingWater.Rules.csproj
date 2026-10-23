@@ -20,6 +20,7 @@
     <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
+    <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
     <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />
   </ItemGroup>
 </Project>

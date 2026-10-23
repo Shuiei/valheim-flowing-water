@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using FlowingWater.Volume;
@@ -17,11 +18,19 @@ internal sealed class WaterBrick : MonoBehaviour
     // Shortest time between two drawings of a brick, seconds.
     private const float RedrawSeconds = 0.1f;
 
-    private static readonly Dictionary<long, WaterBrick> ByKey = [];
+    // Longest time drawing bricks may take in a frame, milliseconds: the others wait for the next frame (one is
+    // always drawn), so that much water changing at once does not stall a frame.
+    private const double FrameBudget = 2.0;
 
-    // Every brick round one: a top's corner reads the columns of up to four bricks, diagonal ones included, a row up
-    // or down.
-    private static readonly (int X, int Y, int Z)[] Beside = [.. Around()];
+    private static readonly Stopwatch FrameDrawing = new();
+
+    // Bricks to draw again, those waiting longest first: a brick whose water keeps changing does not hold back
+    // the others.
+    private static readonly TakeTurns<WaterBrick> Waiting = new();
+
+    private static int _frame = -1;
+
+    private static readonly Dictionary<long, WaterBrick> ByKey = [];
 
     private static bool _settingWatched;
 
@@ -37,26 +46,7 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private uint _revision = uint.MaxValue;
 
-    private bool _dirty;
-
     private float _drawnAt;
-
-    private static IEnumerable<(int X, int Y, int Z)> Around()
-    {
-        for (int dy = -1; dy <= 1; dy++)
-        {
-            for (int dz = -1; dz <= 1; dz++)
-            {
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (dx != 0 || dy != 0 || dz != 0)
-                    {
-                        yield return (dx, dy, dz);
-                    }
-                }
-            }
-        }
-    }
 
     // Every brick is drawn again with the other material when the shader setting changes.
     private static void WatchSetting()
@@ -73,7 +63,7 @@ internal sealed class WaterBrick : MonoBehaviour
             {
                 if (brick != null)
                 {
-                    brick._dirty = true;
+                    Waiting.Add(brick);
                 }
             }
         };
@@ -106,12 +96,12 @@ internal sealed class WaterBrick : MonoBehaviour
             _revision = zdo.DataRevision;
             Read(zdo.GetByteArray(ZdoKeys.Brick));
         }
-
-        if (_dirty && Time.time - _drawnAt >= RedrawSeconds)
-        {
-            Draw();
-        }
     }
+
+    // After every brick has read its data this frame.
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls only instance methods.")]
+    private void LateUpdate() => DrawWaiting();
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
@@ -123,7 +113,14 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
             ByKey.Remove(key);
-            Neighbours(_view);
+            Neighbours(_view, VoxelSurface.Round);
+        }
+
+        // The last water gone (the world left): no brick is left to serve the queue, which would keep the bricks
+        // gone with it.
+        if (ByKey.Count == 0)
+        {
+            Waiting.Clear();
         }
 
         if (_mesh != null)
@@ -139,6 +136,7 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
+        BrickView was = _view;
         try
         {
             _view = BrickData.Decode(data);
@@ -156,25 +154,49 @@ internal sealed class WaterBrick : MonoBehaviour
             trigger.size = Vector3.one * (Brick.Size * _view.VoxelSize);
         }
 
-        _dirty = true;
-        Neighbours(_view);
+        Waiting.Add(this);
+        Neighbours(_view, VoxelSurface.Touched(was, _view));
     }
 
-    // The bricks beside this one are drawn again: their sides towards it depend on its water.
-    private static void Neighbours(BrickView view)
+    // Once a frame (from the first brick's LateUpdate), the bricks waiting are drawn, longest waiting first, while the
+    // frame's drawing time lasts. One drawn less than RedrawSeconds ago waits on; one gone is dropped.
+    private static void DrawWaiting()
     {
-        foreach ((int dx, int dy, int dz) in Beside)
+        if (Time.frameCount == _frame)
+        {
+            return;
+        }
+
+        _frame = Time.frameCount;
+        FrameDrawing.Reset();
+        Waiting.Serve(
+            brick => brick == null || Time.time - brick._drawnAt >= RedrawSeconds,
+            () => FrameDrawing.Elapsed.TotalMilliseconds < FrameBudget,
+            brick =>
+            {
+                if (brick != null)
+                {
+                    FrameDrawing.Start();
+                    brick.Draw();
+                    FrameDrawing.Stop();
+                }
+            });
+    }
+
+    // These bricks round this one are drawn again: their surface reads its water.
+    private static void Neighbours(BrickView view, IEnumerable<(int X, int Y, int Z)> round)
+    {
+        foreach ((int dx, int dy, int dz) in round)
         {
             if (ByKey.TryGetValue(VoxelGrid.Key(view.X + dx, view.Y + dy, view.Z + dz), out WaterBrick next) && next != null)
             {
-                next._dirty = true;
+                Waiting.Add(next);
             }
         }
     }
 
     private void Draw()
     {
-        _dirty = false;
         _drawnAt = Time.time;
         Material material = Material();
         if (_view == null || material == null)

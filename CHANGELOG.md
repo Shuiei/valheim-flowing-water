@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.5 — 2026-10-22
+
+### Fixed
+- Moving water could make the game stutter about once a second, when the changed water was drawn again all at
+  once: only the water next to what changed is drawn again, and the drawing is spread over several frames.
+
 ## v0.14.4 — 2026-10-22
 
 ### Fixed
