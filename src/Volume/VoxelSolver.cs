@@ -18,9 +18,18 @@ internal sealed class VoxelSolver
     /// <summary>Metres a second squared.</summary>
     public const float Gravity = 9.81f;
 
-    // Metres of head, per voxel side, for each share of a voxel held over full (water pressed in). Stiff enough that
-    // water falling into a full voxel is pushed on rather than bouncing back (softer kept a pool sloshing for ever).
+    // Metres of head, per voxel side, for each share of a voxel held over full (water pressed in), at least. Stiff
+    // enough that water falling into a full voxel is pushed on rather than bouncing back (softer kept a pool sloshing
+    // for ever).
     private const float Stiffness = 12f;
+
+    // Deeper water needs stiffer: pressed water must push back harder than the weight over it, or a voxel deep down
+    // empties under a column that cannot come down into it, and the pool sloshes for ever. The stiffness used is this
+    // many times the most water over any voxel (in voxels), eased down by StiffnessEasing a step once the water is
+    // shallower, so that a deep pool waking after a sleep finds it as it was.
+    private const float StiffnessPerDepth = 3f;
+
+    private const float StiffnessEasing = 0.99f;
 
     // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
     private const float Damping = 0.3f, Drag = 0.05f;
@@ -49,6 +58,11 @@ internal sealed class VoxelSolver
 
     private int _columnsVersion = -1;
 
+    // The most water over a voxel each column found in its last heads, in voxels.
+    private float[] _deepest = [];
+
+    private float _stiffness = Stiffness;
+
     /// <summary>A solver for this grid.</summary>
     public VoxelSolver(VoxelGrid grid)
     {
@@ -60,28 +74,37 @@ internal sealed class VoxelSolver
 
     /// <summary>
     /// The longest step kept stable, seconds: a wave crosses at most half a voxel in it, in water as deep as
-    /// <see cref="DeepestStable"/> or through pressed water, whichever is faster.
+    /// <see cref="DeepestStable"/> or through pressed water, whichever is faster. Shorter while deep water stiffens.
     /// </summary>
-    public float MaxStep => 0.5f * _grid.VoxelSize / (float)Math.Sqrt(Gravity * Math.Max(DeepestStable, (1f + Stiffness) * _grid.VoxelSize));
+    public float MaxStep => 0.5f * _grid.VoxelSize / (float)Math.Sqrt(Gravity * Math.Max(DeepestStable, (1f + _stiffness) * _grid.VoxelSize));
 
     /// <summary>Moves the water over this much time (in as many short steps as it takes to stay stable).</summary>
     public void Step(float dt)
     {
-        int steps = Math.Max(1, (int)Math.Ceiling(dt / MaxStep));
-        for (int k = 0; k < steps; k++)
+        // The longest stable step is asked again before each: deep water found on the way shortens it, and a step
+        // that finds it too long for that water is not taken but split again.
+        float left = dt;
+        while (left > 0f)
         {
-            StepOnce(dt / steps);
+            int steps = Math.Max(1, (int)Math.Ceiling(left / MaxStep));
+            float step = left / steps;
+            if (StepOnce(step))
+            {
+                left = steps == 1 ? 0f : left - step;
+            }
         }
     }
 
     // One step, on each brick's wet part only (with the voxels round it): a still pool's air costs nothing.
-    private void StepOnce(float dt)
+    // False when the step was not taken: the water is deeper than its length was chosen for.
+    private bool StepOnce(float dt)
     {
         if (_columnsVersion != _grid.Version)
         {
             _columnsVersion = _grid.Version;
             _bricks = [.. _grid.Bricks];
             _columns = [.. _bricks.GroupBy(b => ((long)b.X << 32) | (uint)b.Z).Select(g => g.OrderByDescending(b => b.Y).ToArray())];
+            _deepest = new float[_columns.Length];
         }
 
         float s = _grid.VoxelSize;
@@ -90,15 +113,28 @@ internal sealed class VoxelSolver
         {
             // Everything sleeps (or is dry): nothing to step.
             _grid.MakeWanted();
-            return;
+            return true;
         }
 
-        Parallel.For(0, _columns.Length, k => Heads(_columns[k], s));
+        // Water deeper than the stiffness was for (just loaded, or filled up) has its heads worked out again at once.
+        float was = _stiffness;
+        HeadsAll(s, was);
+        if (_stiffness > was)
+        {
+            if (dt > MaxStep)
+            {
+                return false;
+            }
+
+            HeadsAll(s, _stiffness);
+        }
+
         Parallel.For(0, _bricks.Length, k => Flows(_bricks[k], dt, s));
         Parallel.For(0, _bricks.Length, k => Shares(_bricks[k], dt, s));
         Parallel.For(0, _bricks.Length, k => Scale(_bricks[k]));
         Parallel.For(0, _bricks.Length, k => Apply(_bricks[k], dt, s));
         _grid.MakeWanted();
+        return true;
     }
 
     // The part a step works on: the wet voxels and those round them, the border layers facing a brick wet at that
@@ -208,10 +244,26 @@ internal sealed class VoxelSolver
         _ => brick.WetLow.Z == 0,
     };
 
-    // The heads of a column of bricks, top down: a voxel's floor, plus all the water resting on it (its own and that
-    // of the wet voxels over it, up to air, a solid or a closed face), plus the push of what is pressed in.
-    private static void Heads(Brick[] column, float s)
+    // Every column's heads with this stiffness; the stiffness then follows the deepest water found.
+    private void HeadsAll(float s, float stiffness)
     {
+        Parallel.For(0, _columns.Length, k => _deepest[k] = Heads(_columns[k], s, stiffness));
+        float deepest = 0f;
+        foreach (float column in _deepest)
+        {
+            deepest = Math.Max(deepest, column);
+        }
+
+        _stiffness = Math.Max(Math.Max(Stiffness, StiffnessPerDepth * deepest), _stiffness * StiffnessEasing);
+    }
+
+    // The heads of a column of bricks, top down: a voxel's floor, plus all the water resting on it (its own and that
+    // of the wet voxels over it, up to air, a solid or a closed face), plus the push of what is pressed in. Returns
+    // the most water any voxel of the column carries, in voxels.
+    private static float Heads(Brick[] column, float s, float stiffness)
+    {
+        float deepest = 0f;
+
         // Over the parts of the bricks stepped (a sleeping one keeps its last part's bounds, not looked at). Settle
         // still goes down the whole column, so water over a sleeping brick still settles into it.
         int lx = Brick.Size, lz = Brick.Size, hx = -1, hz = -1;
@@ -260,12 +312,15 @@ internal sealed class VoxelSolver
                         // air and falls, its weight carried by nothing; the weight comes on over the last tenth of the
                         // voxel's room, so that no head jumps (a jump feeds the water energy and it never settles).
                         float carried = Math.Min(1f, Math.Max(0f, ((water / room) - (1f - Contact)) / Contact)) * above;
-                        brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * Stiffness * s);
+                        brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * stiffness * s);
+                        deepest = Math.Max(deepest, carried);
                         above = OpenBelow(brick, i, y) ? carried + water : 0f;
                     }
                 }
             }
         }
+
+        return deepest;
     }
 
     // Water resting on a voxel with room left drops into it, bottom up through the column: water cannot hang over
