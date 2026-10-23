@@ -13,7 +13,9 @@
 // depth: red goes first, so deep water turns blue-green), and the light the water itself
 // scatters fills in what is lost. Foam rises with speed,
 // with the surface's slope (from the mesh) and at the shore; the edge fades out to nothing, its
-// light included (premultiplied blending adds reflections even where alpha is 0).
+// light included (premultiplied blending adds reflections even where alpha is 0). The game's fog
+// covers the water's own light as far off as the surface is, not what is seen through it, which was
+// fogged already.
 Shader "FlowingWater/Water"
 {
     Properties
@@ -56,6 +58,8 @@ Shader "FlowingWater/Water"
         CGPROGRAM
         #pragma surface surf Standard alpha:premul vertex:vert finalcolor:EdgeFade noshadow nolightmap nodynlightmap nodirlightmap nometa nolppv noshadowmask
         #pragma target 3.5
+        // A final colour function turns off the fog surface shaders add by themselves: EdgeFade adds it.
+        #pragma multi_compile_fog
 
         sampler2D _NormalMap;
         sampler2D _FoamTex;
@@ -99,12 +103,28 @@ Shader "FlowingWater/Water"
             return smoothstep(0.0, _EdgeFade, saturate(i.water.z));
         }
 
-        // The reflections and the scene seen through fade out with the water: premultiplied blending
-        // adds them in full even where the water is fully transparent (a rough edge showed as a cream
-        // band, and the scene was added over itself where something stood just behind the surface: a
-        // bright line round anything through the water). The shading fades with it as well.
+        // The game's fog over the water's own light (its colour, the sky's reflection, the sun's glints),
+        // as far off as the surface is. Not over the scene seen through it (the emission): grabbed from
+        // the screen, it has its fog already, the whole way to it; fogged again it would go pale twice.
+        // A light's own pass adds no emission and fogs towards black, as the game's fog does in it.
+        // Then the reflections and the scene seen through fade out with the water: premultiplied
+        // blending adds them in full even where the water is fully transparent (a rough edge showed as
+        // a cream band, and the scene was added over itself where something stood just behind the
+        // surface: a bright line round anything through the water). The shading fades with it as well.
         void EdgeFade(Input i, SurfaceOutputStandard o, inout fixed4 color)
         {
+        #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
+        #if defined(UNITY_PASS_FORWARDADD)
+            float3 seenThrough = 0.0;
+            float3 fogColour = 0.0;
+        #else
+            float3 seenThrough = o.Emission;
+            float3 fogColour = unity_FogColor.rgb;
+        #endif
+            // The fog's distance as Unity's own takes it: along the view axis.
+            UNITY_CALC_FOG_FACTOR_RAW(i.screenPos.w);
+            color.rgb = lerp(fogColour, color.rgb - seenThrough, saturate(unityFogFactor)) + seenThrough;
+        #endif
             color.rgb *= o.Alpha;
         }
 
