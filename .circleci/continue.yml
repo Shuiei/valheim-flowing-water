@@ -13,8 +13,8 @@
 #   server-smoke   the package in a real dedicated server with BepInExPack (tools/server-smoke.sh): it
 #                  loads, simulates a fixed source's water with no error, and loads the saved water again
 #                  after a restart
-#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests); on main, with their
-#                  code coverage, kept for the coverage job
+#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests), the release's
+#                  decisions and this file's wiring; on main, with their code coverage, kept for the coverage job
 #   coverage       on main only, once unit-tests has passed: sends the coverage to Codecov (codecov.yml), which
 #                  fails its own check (codecov/project) under 95% line coverage. A failed test run sends
 #                  nothing, so Codecov never shows the coverage of part of the tests. Branches and pull
@@ -341,7 +341,8 @@ jobs:
 workflows:
   # Side by side once the game's DLLs are there; the smoke test waits for the package. Main's ruleset
   # requires code-analysis, formatting, package, server-smoke and unit-tests of a pull request: it must stay
-  # in step with this list (and with release-pr's below). Every branch runs the whole of the unit tests.
+  # in step with this list (and with release-pr's below; the unit tests' CircleCiTests hold the list too). Every
+  # branch runs the whole of the unit tests.
   test:
     when:
       and:

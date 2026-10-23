@@ -222,7 +222,9 @@ Thunderstore, with every analyzer warning an error (**code-analysis**); checks t
 `thunderstore/build.sh`); and runs it in a real dedicated server (**server-smoke**,
 `tools/server-smoke.sh`): it loads, a fixed source's water fills a zone with no error, and the saved
 water comes back after a restart. It also runs the whole of the unit tests on every branch (**unit-tests**,
-`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`). On
+`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`; the
+release's decisions, `tools/release/ReleaseRules` and `tools/release/still-to-release.sh`; and this pipeline's wiring,
+read from `.circleci/continue.yml`, which the ruleset's list below must match). On
 main only, the unit tests run with their code coverage, which the **coverage** job sends to
 [Codecov](https://app.codecov.io/gh/Shuiei/valheim-flowing-water) once they pass; Codecov's check fails under
 95% of the rules' lines (`codecov.yml`, `tests/coverage.runsettings`). Main's ruleset requires five checks of a

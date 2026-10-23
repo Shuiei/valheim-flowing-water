@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- The mod's rules that need no game, tested on .NET: they are compiled from the mod (and its recorder) in
        FlowingWater.Rules, since the mod itself only loads in the game. What needs the game (its prefabs, sounds,
-       particles) is checked in game with the recorder (tools/Recorder). -->
+       particles) is checked in game with the recorder (tools/Recorder). The release's decisions and the pipeline's
+       wiring are tested here too. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
