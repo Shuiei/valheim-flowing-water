@@ -34,6 +34,16 @@ internal sealed class WaterBrick : MonoBehaviour
     // does not hold back the drawing of those already read, nor wait behind it.
     private const double ReadBudget = FrameBudget / 2;
 
+    // Most milliseconds of a frame the bricks may take starting their reads (each hands its data to the thread pool,
+    // which a busy pool can make slow); the bricks left start theirs next frame, still reading their newest data.
+    private const double StartBudget = 0.5;
+
+    private static readonly Stopwatch StartingFrame = new();
+
+    private static int _startingFrame = -1;
+
+    private static double _longestStart;
+
     private static readonly Stopwatch FrameDrawing = new();
 
     // All the time the bricks took in the game's frames since the game started (reading their data, animating,
@@ -151,6 +161,14 @@ internal sealed class WaterBrick : MonoBehaviour
     internal static double SpentMilliseconds => Spent.Elapsed.TotalMilliseconds;
 
     /// <summary>The parts of <see cref="SpentMilliseconds"/>: reading data, starting builds, handing meshes over.</summary>
+    /// <summary>The longest a single brick took starting its read since last asked, milliseconds (for measures).</summary>
+    internal static double TakeLongestStart()
+    {
+        double longest = _longestStart;
+        _longestStart = 0.0;
+        return longest;
+    }
+
     internal static double[] SpentParts => [Reading.Elapsed.TotalMilliseconds, Building.Elapsed.TotalMilliseconds, Taking.Elapsed.TotalMilliseconds, Starting.Elapsed.TotalMilliseconds];
 
     /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices, for measures.</summary>
@@ -229,16 +247,20 @@ internal sealed class WaterBrick : MonoBehaviour
         try
         {
             ZDO zdo = _nview.GetZDO();
-            if (zdo != null && _reading.Wants(zdo.DataRevision))
+            if (zdo != null && _reading.Wants(zdo.DataRevision) && MayStart())
             {
                 Reading.Start();
                 Starting.Start();
+                StartingFrame.Start();
+                long began = Stopwatch.GetTimestamp();
                 try
                 {
                     StartReading(zdo.GetByteArray(ZdoKeys.Brick));
                 }
                 finally
                 {
+                    _longestStart = Math.Max(_longestStart, (Stopwatch.GetTimestamp() - began) * 1000.0 / Stopwatch.Frequency);
+                    StartingFrame.Stop();
                     Starting.Stop();
                     Reading.Stop();
                 }
@@ -306,6 +328,18 @@ internal sealed class WaterBrick : MonoBehaviour
     // The brick's data, taken in the frame (the game's objects are the frame's), read on another thread. The bytes are
     // the object's own, never changed in place (new data comes as new bytes); the water it had is not changed until
     // this read is handed back, as only one read runs at a time, so what changed is worked out there too.
+    // Whether this frame's time for starting reads has some left (the first brick of a frame always may).
+    private static bool MayStart()
+    {
+        if (_startingFrame != Time.frameCount)
+        {
+            _startingFrame = Time.frameCount;
+            StartingFrame.Reset();
+        }
+
+        return StartingFrame.Elapsed.TotalMilliseconds < StartBudget;
+    }
+
     private void StartReading(byte[] data)
     {
         BrickView was = _view;
