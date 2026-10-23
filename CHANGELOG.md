@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.2 — 2026-10-22
+
+### Fixed
+- Drawing changing water took the game's frame time: the water's surface is now worked out on another core, and only
+  handed to the graphics in the frame, so moving water stutters less.
+
 ## v0.15.1 — 2026-10-22
 
 ### Fixed

@@ -14,9 +14,12 @@ internal static class VoxelSurface
 {
     private static readonly (int X, int Z)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
-    // Bricks over one whose surface may read it: a column's depth is measured down 64 voxels (four bricks) from its
-    // top, which may be a row over the brick it is in.
-    private const int Above = (64 / Brick.Size) + 1;
+    /// <summary>The most voxels down a column's depth is measured, under its top.</summary>
+    public const int DeepestColumn = 64;
+
+    // Bricks over one whose surface may read it: a column's depth is measured down DeepestColumn voxels from its top,
+    // which may be a row over the brick it is in.
+    private const int Above = (DeepestColumn / Brick.Size) + 1;
 
     /// <summary>The bricks round one whose surface may read it, as offsets in bricks: beside it, under it, and up to five over.</summary>
     public static IReadOnlyList<(int X, int Y, int Z)> Round { get; } = [.. Offsets()];
@@ -198,7 +201,7 @@ internal static class VoxelSurface
     private static float Depth(VoxelField field, int x, int top, int z)
     {
         int bottom = top;
-        while (field.IsWet(x, bottom - 1, z) && field.GoesUp(x, bottom - 1, z) && top - bottom < 64)
+        while (field.IsWet(x, bottom - 1, z) && field.GoesUp(x, bottom - 1, z) && top - bottom < DeepestColumn)
         {
             bottom--;
         }
