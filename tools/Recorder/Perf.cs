@@ -287,9 +287,10 @@ public sealed partial class Recorder
 
         public Vector3 At { get; }
 
-        // A stream or cascade runs downhill from the site, a fountain or lake stays round it: each seen from high
-        // over it, uphill, above the trees (their leaves stop no ray, so a view under them sees only leaves). The
-        // player stands on the spring (the command places it under them), but beside the fountain's column.
+        // A stream or cascade runs downhill from the site, a fountain or lake stays round it: each seen from uphill,
+        // low, under the trees' leaves (they stop no ray, so a view in or over a wood sees only leaves; their trunks
+        // are kept out of the view). The player stands on the spring (the command places it under them), but beside
+        // the fountain's column.
         public static PerfCase Of(string kind, Site site) => kind switch
         {
             "stream" or "cascade" => new PerfCase(kind, site.At(0f), Over(site, site.At(14f)), site.At(14f)),
@@ -297,7 +298,11 @@ public sealed partial class Recorder
             _ => new PerfCase(kind, site.At(0f), Over(site, site.At(0f)), site.At(0f)),
         };
 
-        private static Vector3 Over(Site site, Vector3 at) => at + new Vector3(0f, 28f, 0f) - (site.Down * 18f);
+        private static Vector3 Over(Site site, Vector3 at)
+        {
+            Vector3 back = at - (site.Down * 12f);
+            return new Vector3(back.x, WorldGenerator.instance.GetHeight(back.x, back.z) + 3f, back.z);
+        }
 
         public override string ToString() => FormattableString.Invariant($"{Kind} at {Stand.ToString("F0")}");
     }
