@@ -99,11 +99,13 @@ Shader "FlowingWater/Water"
             return smoothstep(0.0, _EdgeFade, saturate(i.water.z));
         }
 
-        // The edge fades the reflections out too: premultiplied blending adds them over the ground
-        // even where the water is fully transparent (a rough edge showed as a cream band).
+        // The reflections and the scene seen through fade out with the water: premultiplied blending
+        // adds them in full even where the water is fully transparent (a rough edge showed as a cream
+        // band, and the scene was added over itself where something stood just behind the surface: a
+        // bright line round anything through the water). The shading fades with it as well.
         void EdgeFade(Input i, SurfaceOutputStandard o, inout fixed4 color)
         {
-            color.rgb *= Edge(i);
+            color.rgb *= o.Alpha;
         }
 
         void vert(inout appdata_full v, out Input o)
