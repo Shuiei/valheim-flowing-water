@@ -122,6 +122,50 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void WaterPouredWhereNoMoreBricksAreAllowedIsRefused()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 1 };
+        Assert.True(grid.Pour(3, 3, 3, 2f));
+
+        Assert.False(grid.Pour(20, 3, 3, 2f));
+
+        Assert.Single(grid.Bricks);
+        Assert.True(grid.Capped);
+        Assert.Equal(2f, grid.TotalWater(), 3);
+    }
+
+    [Fact]
+    public void WaterAPieceDisplacesStaysInTheBricksAllowed()
+    {
+        // A pool's top row turns solid (a piece built in it); the brick over it would pass the cap, so the water goes
+        // down into the open voxel under it, and no brick is made.
+        bool built = false;
+        var grid = new VoxelGrid(1f, new BuiltOver(() => built)) { MaxBricks = 1 };
+        grid.Pour(3, 15, 3, 0.5f);
+
+        built = true;
+        grid.Refill(grid.Find(0, 0, 0));
+
+        Assert.Single(grid.Bricks);
+        Assert.Equal(0.5f, grid.TotalWater(), 3);
+        Assert.Equal(0.5f, grid.WaterAt(3, 14, 3), 3);
+    }
+
+    [Fact]
+    public void NoMoreBricksThanAllowedAreMadeForTheWater()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 2 };
+        grid.Get(0, 0, 0);
+        grid.Want(1, 0, 0);
+        grid.Want(2, 0, 0);
+
+        grid.MakeWanted();
+
+        Assert.Equal(2, grid.Bricks.Count);
+        Assert.True(grid.Capped);
+    }
+
+    [Fact]
     public void ABrickHoldingOnlyATraceTooSmallToFlowIsForgotten()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000));
@@ -208,6 +252,18 @@ public class VoxelGridTests
             {
                 (int x, int y, int z) = Brick.Place(i);
                 brick.Solid[i] = _solid((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z);
+            }
+        }
+    }
+
+    // Nothing solid, until a piece fills the top row of brick 0.
+    private sealed class BuiltOver(System.Func<bool> built) : ISolids
+    {
+        public void Fill(Brick brick, float voxelSize)
+        {
+            for (int i = 0; i < Brick.Count; i++)
+            {
+                brick.Solid[i] = built() && brick.Y == 0 && Brick.Place(i).Y == Brick.Size - 1 ? 1f : 0f;
             }
         }
     }

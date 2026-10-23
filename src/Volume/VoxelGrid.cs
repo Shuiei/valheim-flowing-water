@@ -44,6 +44,12 @@ internal sealed class VoxelGrid
     /// <summary>A voxel's volume, cubic metres.</summary>
     public float VoxelVolume => VoxelSize * VoxelSize * VoxelSize;
 
+    /// <summary>The most bricks there may be: water asking for more stays where it is.</summary>
+    public int MaxBricks { get; set; } = int.MaxValue;
+
+    /// <summary>Whether water has asked for a brick beyond <see cref="MaxBricks"/> (it stopped spreading).</summary>
+    public bool Capped { get; private set; }
+
     /// <summary>The bricks there are.</summary>
     public IReadOnlyCollection<Brick> Bricks => _bricks.Values;
 
@@ -92,12 +98,39 @@ internal sealed class VoxelGrid
         return brick != null;
     }
 
-    /// <summary>Pours this much water into voxel (x, y, z), cubic metres (its brick made if needed).</summary>
-    public void Pour(int x, int y, int z, float cubicMetres)
+    /// <summary>
+    /// The brick at these brick coordinates for water to go in: made (with its solids) if there was none and fewer
+    /// than <see cref="MaxBricks"/> are; null when that many are (<see cref="Capped"/> is then set).
+    /// </summary>
+    public Brick Make(int x, int y, int z)
     {
-        Brick brick = Get(x >> 4, y >> 4, z >> 4);
+        InReach(x, y, z);
+        if (Find(x, y, z) is { } found)
+        {
+            return found;
+        }
+
+        if (_bricks.Count >= MaxBricks)
+        {
+            Capped = true;
+            return null;
+        }
+
+        return Get(x, y, z);
+    }
+
+    /// <summary>Pours this much water into voxel (x, y, z), cubic metres (its brick made if needed).</summary>
+    /// <returns>False when its brick could not be made (<see cref="MaxBricks"/>): nothing poured.</returns>
+    public bool Pour(int x, int y, int z, float cubicMetres)
+    {
+        if (Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+        {
+            return false;
+        }
+
         brick.Water[Brick.Index(x & 15, y & 15, z & 15)] += cubicMetres / VoxelVolume;
         brick.EmptyFor = 0f;
+        return true;
     }
 
     /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where there is no brick.</summary>
@@ -143,7 +176,7 @@ internal sealed class VoxelGrid
     }
 
     // Water out of solid voxel (x, y, z) into the first voxel beside it it can reach: up, east, west, north, south,
-    // down (bricks made as needed). False when none is.
+    // down (bricks made as needed, under MaxBricks). False when none is.
     private bool Displace(int x, int y, int z, float water)
     {
         foreach ((int dx, int dy, int dz) in DisplaceOrder)
@@ -166,15 +199,13 @@ internal sealed class VoxelGrid
         // next one going the other way.
         int ox = dx < 0 ? x - 1 : x, oy = dy < 0 ? y - 1 : y, oz = dz < 0 ? z - 1 : z;
         byte bit = dx != 0 ? Brick.ClosedX : dy != 0 ? Brick.ClosedY : Brick.ClosedZ;
-        Brick owner = Get(ox >> 4, oy >> 4, oz >> 4);
-        if ((owner.Closed[Brick.Index(ox & 15, oy & 15, oz & 15)] & bit) != 0)
+        if (Make(ox >> 4, oy >> 4, oz >> 4) is not { } owner || (owner.Closed[Brick.Index(ox & 15, oy & 15, oz & 15)] & bit) != 0)
         {
             return null;
         }
 
-        Brick brick = Get((x + dx) >> 4, (y + dy) >> 4, (z + dz) >> 4);
         int i = Brick.Index((x + dx) & 15, (y + dy) & 15, (z + dz) & 15);
-        return brick.Solid[i] < 1f ? (brick, i) : null;
+        return Make((x + dx) >> 4, (y + dy) >> 4, (z + dz) >> 4) is { } brick && brick.Solid[i] < 1f ? (brick, i) : null;
     }
 
     /// <summary>Asks for the brick at these brick coordinates, to be made after the step (safe from any thread).</summary>
@@ -199,6 +230,12 @@ internal sealed class VoxelGrid
 
         foreach (long key in wanted)
         {
+            if (_bricks.Count >= MaxBricks)
+            {
+                Capped = true;
+                return;
+            }
+
             Get(Unpack(key >> 42), Unpack(key >> 21), Unpack(key));
         }
     }
@@ -220,13 +257,19 @@ internal sealed class VoxelGrid
 
         foreach (Brick brick in gone)
         {
-            _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
-            for (int side = 0; side < Sides.Length; side++)
+            Forget(brick);
+        }
+    }
+
+    /// <summary>Forgets a brick (and its water): it is unlinked from the bricks beside it.</summary>
+    public void Forget(Brick brick)
+    {
+        _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
+        for (int side = 0; side < Sides.Length; side++)
+        {
+            if (brick.Beside[side] is { } next)
             {
-                if (brick.Beside[side] is { } next)
-                {
-                    next.Beside[side ^ 1] = null;
-                }
+                next.Beside[side ^ 1] = null;
             }
         }
     }

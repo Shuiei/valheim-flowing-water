@@ -174,10 +174,10 @@ internal static class Commands
 
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
         ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
-        zdo.Set(WaterServer.RateHash, rate);
+        zdo.Set(ZdoKeys.Rate, rate);
         if (drain)
         {
-            zdo.Set(WaterServer.RadiusHash, radius);
+            zdo.Set(ZdoKeys.Radius, radius);
         }
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"

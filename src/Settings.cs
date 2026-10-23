@@ -10,20 +10,16 @@ internal sealed class Settings
     public Settings(ConfigFile config)
     {
         Enabled = config.Bind("General", "Enabled", true, "Simulate (server) and show (client) flowing water.");
-        CellSize = config.Bind("Server", "CellSize", 1f, new ConfigDescription("Size of the simulation's square cells, in metres. Smaller cells give narrower streams and finer shores, at a cost: 0.5 is about 6 times the server work and 4 times the data sent to players of 1, 0.25 about 32 and 16 times (for a few small streams only). Changing it moves the water already there to the new grid.", new AcceptableValueList<float>(TileData.CellSizes)));
-        StepsPerSecond = config.Bind("Server", "StepsPerSecond", 15, new ConfigDescription("Simulation steps per second with one-metre cells; smaller cells step proportionally more often (30 for 0.5, 60 for 0.25).", new AcceptableValueRange<int>(2, 30)));
-        Friction = config.Bind("Server", "Friction", 0.5f, new ConfigDescription("How fast a flow loses its momentum, per second, besides the bed's drag. Lower keeps pools sloshing longer; higher settles them sooner.", new AcceptableValueRange<float>(0f, 5f)));
-        Erosion = config.Bind("Server", "Erosion", false, "Running water wears the ground away where it runs fast and lays it down where it slows, so streams slowly cut their own beds. The ground within 5 m of anything players built, and of the game's own places, is left alone. Turning it off stops it; what it did stays.");
+        CellSize = config.Bind("Server", "CellSize", 1f, new ConfigDescription("Side of the water's cubic voxels, in metres. Smaller voxels give finer streams, shores and falls, at a steep cost: 0.5 is about 8 times the server work, memory and data sent to players of 1, 0.25 about 64 times (for small builds only). Changing it moves the water already there to the new grid.", new AcceptableValueList<float>(TileData.CellSizes)));
+        Erosion = config.Bind("Server", "Erosion", false, "Running water wears the ground away where it runs fast and lays it down where it slows, so streams slowly cut their own beds. The ground within 5 m of anything players built, and of the game's own places, is left alone. Turning it off stops it; what it did stays. Paused while the water moves to 3D voxels: it comes back in a later version.");
         ErosionSpeed = config.Bind("Server", "ErosionSpeed", 1f, new ConfigDescription("How fast erosion goes (1 = millimetres a minute in a fast stream); higher to watch it happen, for testing.", new AcceptableValueRange<float>(0.1f, 1000f)));
-        BedRoughness = config.Bind("Server", "BedRoughness", 0.04f, new ConfigDescription("How rough the ground is under running water (Manning's n): the drag that slows shallow water much more than deep, so a stream gathers into a deeper, slower channel instead of a fast film. 0.03 smooth channel, 0.04 natural stream, 0.08 grass; 0 = no drag.", new AcceptableValueRange<float>(0f, 0.2f)));
-        SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed water tile is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
-        MaxTiles = config.Bind("Server", "MaxTiles", 256, new ConfigDescription("Most zones that may hold water at once (each is 64 by 64 metres). Water stops spreading beyond.", new AcceptableValueRange<int>(1, 4096)));
-        MaxDepth = config.Bind("Server", "MaxDepth", 40f, new ConfigDescription("Deepest a cell may fill, in metres; a basin without an outlet stops rising there.", new AcceptableValueRange<float>(1f, 300f)));
-        EmptyTileSeconds = config.Bind("Server", "EmptyTileSeconds", 30f, new ConfigDescription("A zone dry for this long, with no source in it, forgets its water tile (with erosion on, not while a zone beside it has water: their banks may still fall in).", new AcceptableValueRange<float>(5f, 3600f)));
+        SendSeconds = config.Bind("Server", "SendSeconds", 1f, new ConfigDescription("How often a changed block of water is sent to the players near it, in seconds.", new AcceptableValueRange<float>(0.25f, 10f)));
+        MaxBricks = config.Bind("Server", "MaxBricks", 1024, new ConfigDescription("Most blocks of 16 by 16 by 16 voxels that may hold water at once (each about 120 KB of server memory). Water stops spreading beyond.", new AcceptableValueRange<int>(16, 16384)));
+        EmptyTileSeconds = config.Bind("Server", "EmptyTileSeconds", 30f, new ConfigDescription("A block of voxels dry for this long is forgotten (made again when water comes back).", new AcceptableValueRange<float>(5f, 3600f)));
         MarkerScanSeconds = config.Bind("Server", "MarkerScanSeconds", 3f, new ConfigDescription("How often the server looks for new or removed sources and drains, in seconds.", new AcceptableValueRange<float>(1f, 60f)));
         FixedSources = config.Bind("Server", "FixedSources", string.Empty, "Sources that exist without a placed marker, for servers and tests: world x,z and cubic metres per second, like \"120,-340,2; 125,-338,1.5\".");
         FixedDrains = config.Bind("Server", "FixedDrains", string.Empty, "Drains that exist without a placed marker: world x,z and cubic metres per second (0 takes all), like \"180,-400,0\".");
-        DebugSeconds = config.Bind("Server", "DebugSeconds", 0f, new ConfigDescription("Every this many seconds the server logs each water tile as a map of depths (0 = off). For testing.", new AcceptableValueRange<float>(0f, 600f)));
+        DebugSeconds = config.Bind("Server", "DebugSeconds", 0f, new ConfigDescription("Every this many seconds the server logs each zone with water as a map of depths (0 = off). For testing.", new AcceptableValueRange<float>(0f, 600f)));
         DefaultSourceRate = config.Bind("Markers", "DefaultSourceRate", 2f, "Cubic metres per second a source gives when placed without a rate.");
         DefaultDrainRate = config.Bind("Markers", "DefaultDrainRate", 0f, "Cubic metres per second a drain takes when placed without a rate; 0 takes everything that reaches it.");
         DefaultDrainRadius = config.Bind("Markers", "DefaultDrainRadius", 1f, new ConfigDescription("How far around it a drain takes water, in metres, when placed without a radius.", new AcceptableValueRange<float>(0.25f, 16f)));
@@ -42,21 +38,13 @@ internal sealed class Settings
 
     public ConfigEntry<float> CellSize { get; }
 
-    public ConfigEntry<int> StepsPerSecond { get; }
-
-    public ConfigEntry<float> Friction { get; }
-
-    public ConfigEntry<float> BedRoughness { get; }
-
     public ConfigEntry<bool> Erosion { get; }
 
     public ConfigEntry<float> ErosionSpeed { get; }
 
     public ConfigEntry<float> SendSeconds { get; }
 
-    public ConfigEntry<int> MaxTiles { get; }
-
-    public ConfigEntry<float> MaxDepth { get; }
+    public ConfigEntry<int> MaxBricks { get; }
 
     public ConfigEntry<float> EmptyTileSeconds { get; }
 

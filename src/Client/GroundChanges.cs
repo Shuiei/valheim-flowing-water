@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using FlowingWater.Server;
 using HarmonyLib;
 using UnityEngine;
 
@@ -80,7 +79,7 @@ internal sealed class GroundChanges : MonoBehaviour
         }
 
         _revision = zdo.DataRevision;
-        byte[] data = zdo.GetByteArray(WaterServer.GroundHash);
+        byte[] data = zdo.GetByteArray(ZdoKeys.Ground);
         if (data == null)
         {
             return;

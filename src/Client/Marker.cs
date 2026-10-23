@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using FlowingWater.Server;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -16,7 +15,7 @@ internal sealed class Marker : MonoBehaviour
     [SuppressMessage("Design", "CA1051:Do not declare visible instance fields", Justification = "Unity copies fields, not properties, from the prefab.")]
     public bool IsDrain;
 
-    public float Rate => _nview.GetZDO().GetFloat(WaterServer.RateHash, IsDrain ? FlowingWaterPlugin.Settings.DefaultDrainRate.Value : FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
+    public float Rate => _nview.GetZDO().GetFloat(ZdoKeys.Rate, IsDrain ? FlowingWaterPlugin.Settings.DefaultDrainRate.Value : FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
 
     public static Marker Nearest(Vector3 point, float within)
     {

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 
 namespace FlowingWater;
 
@@ -67,51 +66,35 @@ internal static class ErosionGround
     public static float At(short[] points, int x, int z) => points[(z * Size) + x] * Unit;
 
     /// <summary>The points as stored in the world (gzip: version, size, then little-endian shorts).</summary>
-    public static byte[] Encode(short[] points)
+    public static byte[] Encode(short[] points) => Packed.Write(writer =>
     {
-        using var packed = new MemoryStream();
-        using (var gzip = new GZipStream(packed, CompressionMode.Compress, leaveOpen: true))
-        using (var writer = new BinaryWriter(gzip))
+        writer.Write(FormatVersion);
+        writer.Write(Size);
+        foreach (short point in points)
         {
-            writer.Write(FormatVersion);
-            writer.Write(Size);
-            foreach (short point in points)
-            {
-                writer.Write(point);
-            }
+            writer.Write(point);
         }
-
-        return packed.ToArray();
-    }
+    });
 
     /// <summary>The points stored by <see cref="Encode"/>.</summary>
     /// <exception cref="InvalidDataException">The bytes are not that (or another version or size).</exception>
-    public static short[] Decode(byte[] data)
+    public static short[] Decode(byte[] data) => Packed.Read(data, "ground change", reader =>
     {
-        try
+        byte version = reader.ReadByte();
+        int size = reader.ReadInt32();
+        if (version != FormatVersion || size != Size)
         {
-            using var gzip = new GZipStream(new MemoryStream(data), CompressionMode.Decompress);
-            using var reader = new BinaryReader(gzip);
-            byte version = reader.ReadByte();
-            int size = reader.ReadInt32();
-            if (version != FormatVersion || size != Size)
-            {
-                throw new InvalidDataException($"ground change version {version} of {size} points a side, expected {FormatVersion} of {Size}");
-            }
-
-            short[] points = new short[Size * Size];
-            for (int i = 0; i < points.Length; i++)
-            {
-                points[i] = reader.ReadInt16();
-            }
-
-            return points;
+            throw new InvalidDataException($"ground change version {version} of {size} points a side, expected {FormatVersion} of {Size}");
         }
-        catch (EndOfStreamException e)
+
+        short[] points = new short[Size * Size];
+        for (int i = 0; i < points.Length; i++)
         {
-            throw new InvalidDataException("ground change cut short", e);
+            points[i] = reader.ReadInt16();
         }
-    }
+
+        return points;
+    });
 
     /// <summary>The cells of a zone's grid within a radius of any of these places (where erosion leaves the ground alone).</summary>
     /// <param name="cells">Cells along the zone's side.</param>

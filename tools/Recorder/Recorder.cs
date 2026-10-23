@@ -21,6 +21,9 @@ namespace FlowingWater.Recorder;
 [BepInDependency("Tie.FlowingWater")]
 public sealed class Recorder : BaseUnityPlugin
 {
+    // How far from the given point "!remove" looks for the source, metres.
+    private const float RemoveReach = 2f;
+
     private static Recorder _instance;
 
     private static Vector3? _cameraAt;
@@ -895,10 +898,10 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"burst {name}: {frames} frames at {fps} fps");
     }
 
-    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
-    // well above the sea, that keeps falling for 30 m the same way.
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
-    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log.
+    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
+    // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
+    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s".
     private IEnumerator At()
     {
         string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
@@ -910,14 +913,106 @@ public sealed class Recorder : BaseUnityPlugin
         foreach (string step in steps)
         {
             string[] parts = step.Split(new[] { '|' }, 2);
-            float[] where = [.. parts[0].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture))];
-            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
-            if (parts.Length > 1)
+            if (!Numbers(parts[0], out float[] where) || where.Length < 2)
             {
-                Command(parts[1].Trim());
+                Note("recorder step with a bad place: " + step);
+                continue;
+            }
+
+            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
+            string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
+            if (command.StartsWith("!wait ", StringComparison.Ordinal))
+            {
+                if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
+                {
+                    yield return new WaitForSeconds(wait[0]);
+                }
+                else
+                {
+                    Note("recorder command with missing or bad numbers: " + command);
+                }
+            }
+            else if (command.StartsWith("!", StringComparison.Ordinal))
+            {
+                Own(command);
+            }
+            else if (command.Length > 0)
+            {
+                Command(command);
             }
 
             yield return new WaitForSeconds(2f);
+        }
+    }
+
+    // Numbers given as "a,b,c": false when one is not a finite number.
+    private static bool Numbers(string text, out float[] values)
+    {
+        string[] parts = text.Split(',');
+        values = new float[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || float.IsNaN(values[i]) || float.IsInfinity(values[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // The recorder's own commands of At.
+    private void Own(string command)
+    {
+        string[] words = command.Split(new[] { ' ' }, 2);
+        if (words[0] is not ("!source" or "!remove" or "!break"))
+        {
+            Note("unknown recorder command " + command);
+            return;
+        }
+
+        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length < (words[0] == "!source" ? 4 : 3))
+        {
+            Note("recorder command with missing or bad numbers: " + command);
+            return;
+        }
+
+        // The server pours only from a source of a rate over 0: one that would pour nothing is not made.
+        if (words[0] == "!source" && v[3] <= 0f)
+        {
+            Note("source rate must be over 0 m³/s: " + command);
+            return;
+        }
+
+        var point = new Vector3(v[0], v[1], v[2]);
+        switch (words[0])
+        {
+            case "!source":
+                GameObject source = Instantiate(ZNetScene.instance.GetPrefab("FlowingWater_Source"), point, Quaternion.identity);
+                source.GetComponent<ZNetView>().GetZDO().Set("FW_Rate".GetStableHashCode(), v[3]);
+                Note(FormattableString.Invariant($"source of {v[3]} m³/s at {point}"));
+                break;
+            case "!remove":
+                ZNetView marker = FindObjectsByType<ZNetView>(FindObjectsSortMode.None)
+                    .Where(n => n.IsValid() && n.GetZDO().GetPrefab() == "FlowingWater_Source".GetStableHashCode())
+                    .Where(n => Vector3.Distance(n.transform.position, point) <= RemoveReach)
+                    .OrderBy(n => Vector3.Distance(n.transform.position, point)).FirstOrDefault();
+                Note(marker == null ? "no source to remove" : FormattableString.Invariant($"source at {marker.transform.position} removed"));
+                if (marker != null)
+                {
+                    marker.ClaimOwnership();
+                    ZNetScene.instance.Destroy(marker.gameObject);
+                }
+
+                break;
+            case "!break":
+                WearNTear piece = FindObjectsByType<WearNTear>(FindObjectsSortMode.None)
+                    .OrderBy(w => Vector3.Distance(w.transform.position, point)).FirstOrDefault();
+                Note(piece == null ? "no piece to break" : FormattableString.Invariant($"{piece.name} at {piece.transform.position} broken"));
+                piece?.Remove();
+                break;
+            default:
+                break;
         }
     }
 
@@ -979,6 +1074,8 @@ public sealed class Recorder : BaseUnityPlugin
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
     }
 
+    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
+    // well above the sea, that keeps falling for 30 m the same way.
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
     {
         WorldGenerator generator = WorldGenerator.instance;
