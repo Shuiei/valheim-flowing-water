@@ -28,6 +28,9 @@ public sealed partial class Recorder
 
     private PropertyInfo _waterParts;
 
+    // The longest single read start since last asked (none in a mod before it was measured).
+    private MethodInfo _longestStart;
+
     private IEnumerator Perf(Vector3 spawn, Site steep, Site gentle)
     {
         // The player stands on each spring, in its water: drowning there is not what is measured.
@@ -36,6 +39,7 @@ public sealed partial class Recorder
         _waterSpent = bricks == null ? null : AccessTools.Property(bricks, "SpentMilliseconds");
         _waterCensus = bricks == null ? null : AccessTools.Method(bricks, "Census");
         _waterParts = bricks == null ? null : AccessTools.Property(bricks, "SpentParts");
+        _longestStart = bricks == null ? null : AccessTools.Method(bricks, "TakeLongestStart");
         if (_waterSpent == null || _waterCensus == null || _waterParts == null)
         {
             throw new InvalidOperationException("the mod's water measures (WaterBrick.SpentMilliseconds, SpentParts, Census) not found: is it the mod of this branch?");
@@ -46,7 +50,7 @@ public sealed partial class Recorder
         List<PerfCase> cases = PerfCases(spawn, steep, gentle);
         Note("perf cases: " + string.Join("; ", cases.Select(c => c.ToString())));
         Hud.instance.m_userHidden = true;
-        _perfRows.Add("case,avg fps,1% low fps,worst ms,water ms/frame avg,water ms/frame max,frames water > 8 ms,read ms max,read start ms max,build ms max,mesh ms max,bricks,bricks drawn,vertices,gc collections,memory delta MB");
+        _perfRows.Add("case,avg fps,1% low fps,worst ms,water ms/frame avg,water ms/frame max,frames water > 8 ms,read ms max,read start ms max,longest single start ms,build ms max,mesh ms max,bricks,bricks drawn,vertices,gc collections,memory delta MB");
 
         // Each case from the same view before its water and with it: the difference is the water's, not the view's
         // (the earlier cases' water still runs, out of that view).
@@ -229,6 +233,7 @@ public sealed partial class Recorder
         int collections = GC.CollectionCount(0);
         long memory = GC.GetTotalMemory(false);
         double spent = Spent();
+        LongestStart();
         double[] parts = Parts();
         double[] partsMax = new double[parts.Length];
         var frames = new List<float>();
@@ -250,6 +255,7 @@ public sealed partial class Recorder
             parts = nowParts;
         }
 
+        double longestStart = LongestStart();
         int gcs = GC.CollectionCount(0) - collections;
         double megabytes = (GC.GetTotalMemory(false) - memory) / (1024.0 * 1024.0);
         var census = new object[] { 0, 0 };
@@ -257,13 +263,15 @@ public sealed partial class Recorder
         float[] sorted = [.. frames.OrderBy(f => f)];
         float total = frames.Sum();
         float p99 = sorted[Mathf.Min(sorted.Length - 1, (int)(sorted.Length * 0.99f))];
-        string row = FormattableString.Invariant($"{name},{frames.Count * 1000f / total:0.0},{1000f / p99:0.0},{sorted[sorted.Length - 1]:0.0},{water.Average():0.000},{water.Max():0.000},{water.Count(w => w > 8.0)},{partsMax[0]:0.000},{(partsMax.Length > 3 ? partsMax[3] : 0):0.000},{partsMax[1]:0.000},{partsMax[2]:0.000},{bricks},{census[0]},{census[1]},{gcs},{megabytes:0.0}");
+        string row = FormattableString.Invariant($"{name},{frames.Count * 1000f / total:0.0},{1000f / p99:0.0},{sorted[sorted.Length - 1]:0.0},{water.Average():0.000},{water.Max():0.000},{water.Count(w => w > 8.0)},{partsMax[0]:0.000},{(partsMax.Length > 3 ? partsMax[3] : 0):0.000},{longestStart:0.000},{partsMax[1]:0.000},{partsMax[2]:0.000},{bricks},{census[0]},{census[1]},{gcs},{megabytes:0.0}");
         _perfRows.Add(row);
         Note($"perf {name}: {row}");
         yield return Shot(from, at, "perf-" + name.Replace(' ', '-'));
     }
 
     private double Spent() => (double)_waterSpent.GetValue(null, null);
+
+    private double LongestStart() => _longestStart == null ? 0.0 : (double)_longestStart.Invoke(null, null);
 
     // The water's time so far in its parts: reading data, starting builds, handing meshes over.
     private double[] Parts() => (double[])_waterParts.GetValue(null, null);
