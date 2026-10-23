@@ -51,6 +51,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built (paused with the 3D water, back in a later version) |
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
 | `Server.SendSeconds` | 1 | How often a changed block of water is sent to the players near it |
+| `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 120 KB each) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |

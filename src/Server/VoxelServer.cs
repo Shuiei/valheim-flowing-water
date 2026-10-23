@@ -22,6 +22,9 @@ internal sealed class VoxelServer
     // Longest frame stepped at once, seconds: a hitch is let go rather than stepped in one long go.
     private const float LongestFrame = 0.25f;
 
+    // Most water time owed to the water while the server cannot keep up, seconds: past it, time is given up.
+    private const float MostOwed = 0.5f;
+
     private const float TerrainRefreshSeconds = 2f;
 
     // The debug map draws one character per this many metres.
@@ -46,6 +49,12 @@ internal sealed class VoxelServer
 
     private readonly Stopwatch _stepWatch = new();
 
+    private readonly Stopwatch _oneStep = new();
+
+    private readonly StepPacer _pacer = new(MostOwed);
+
+    private float _dropped;
+
     private readonly Stopwatch _sendWatch = new();
 
     private int _sentCount;
@@ -65,6 +74,10 @@ internal sealed class VoxelServer
     private bool _loaded;
 
     private bool _capWarned;
+
+    private bool _slowWarned;
+
+    private float _droppedInAll;
 
     // The points water was poured at that had no room, each told of once until the markers are looked for again.
     private readonly HashSet<Vector3> _noRoom = [];
@@ -106,23 +119,10 @@ internal sealed class VoxelServer
 
         _watch.Update(dt, _grid);
         dt = Mathf.Min(dt, LongestFrame);
-        foreach (Source marker in _markers)
-        {
-            if (marker.Drain)
-            {
-                Drain(marker, dt);
-            }
-            else
-            {
-                Pour(marker, dt);
-            }
-        }
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        _stepWatch.Start();
-        _solver.Step(dt);
-        _stepWatch.Stop();
+        Step(dt);
         WarnCapped();
         _grid.ForgetDry(dt, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
 
@@ -142,6 +142,50 @@ internal sealed class VoxelServer
                 _debugTimer = 0f;
                 LogMaps();
             }
+        }
+    }
+
+    // Sources pour and drains take for this much of the water's time (slowed down, the water's time is not the
+    // server's).
+    private void Markers(float dt)
+    {
+        foreach (Source marker in _markers)
+        {
+            if (marker.Drain)
+            {
+                Drain(marker, dt);
+            }
+            else
+            {
+                Pour(marker, dt);
+            }
+        }
+    }
+
+    // The water's steps this frame: as many as the frame owes, while the budget's credit lasts.
+    private void Step(float dt)
+    {
+        double budget = FlowingWaterPlugin.Settings.StepBudget.Value;
+        _pacer.Add(dt, budget);
+        _stepWatch.Start();
+        while (_pacer.Next(_solver.MaxStep))
+        {
+            _oneStep.Restart();
+            Markers(_solver.MaxStep);
+            _solver.Step(_solver.MaxStep);
+            _pacer.Spent(_oneStep.Elapsed.TotalMilliseconds);
+        }
+
+        _stepWatch.Stop();
+        // A hitch gives up a little time now and then; a second of it in all is the water needing more than its
+        // budget.
+        float dropped = _pacer.TakeDropped();
+        _dropped += dropped;
+        _droppedInAll += dropped;
+        if (_droppedInAll >= 1f && !_slowWarned)
+        {
+            _slowWarned = true;
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: the water needs more than StepBudget ({budget:0} ms a frame) and slows down to keep the server's frames short"));
         }
     }
 
@@ -703,10 +747,11 @@ internal sealed class VoxelServer
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms, sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent)"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms, sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;
+        _dropped = 0f;
         int cells = (int)(TileData.ZoneMetres / MapMetres);
         foreach (KeyValuePair<long, Dictionary<(int X, int Z), float>> zone in depths)
         {

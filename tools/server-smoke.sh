@@ -81,6 +81,21 @@ expect() {   # $1 run, $2 what, then a grep -E pattern that must (or with !, mus
 }
 escaped=$(printf '%s' "$version" | sed 's/[.]/\\&/g')
 
+# No error or warning from the mod in a run's log, but for the water slowing down to its StepBudget: a build
+# machine is slower than a game server, and that warning is the budget at work (noted, not failed).
+slowed="slows down to keep the server's frames short"
+quiet() {   # $1 run
+  local found
+  found=$(grep -aE "^\[(Error|Fatal|Warning) *: *$name\]" "$logs/$1.log" | grep -avF "$slowed" || true)
+  if [ -z "$found" ]; then
+    echo "  ok: no error or warning from $name"
+  else
+    echo "  FAILED: no error or warning from $name"; failed=1
+    printf '%s\n' "$found" | head -20 | sed 's/^/    /'
+  fi
+  if grep -qaF "$slowed" "$logs/$1.log"; then echo "  note: the water slowed down to its StepBudget"; fi
+}
+
 # A zone's depth map with water in it: "zone <x>,<z>: <volume> m³, ground ...".
 wet='^zone -?[0-9]+,-?[0-9]+: [1-9][0-9]*\.[0-9] m³'
 run water "$wet" 900
@@ -90,13 +105,13 @@ expect water "the simulation started with the world" "World open: water simulati
 expect water "the fixed sources found" "Water: 9 sources and drains"
 expect water "the water made bricks" "Water: [1-9][0-9]* bricks of"
 expect water "a zone's depth map, with water in it" "$wet"
-expect water "no error or warning from $name" ! "^\[(Error|Fatal|Warning) *: *$name\]"
+quiet water
 expect water "no exception in $name" ! "at FlowingWater\."
 
 run reload 'Water: [0-9]+ bricks of [0-9.]+ m voxels, [0-9.]+ m³ read' 600
 echo "Run 'reload': the same world again"
 expect reload "the saved water loaded" "Water: [1-9][0-9]* bricks of [0-9.]+ m voxels, [1-9][0-9]*\.[0-9] m³ read from bricks"
-expect reload "no error or warning from $name" ! "^\[(Error|Fatal|Warning) *: *$name\]"
+quiet reload
 expect reload "no exception in $name" ! "at FlowingWater\."
 
 if [ "$failed" != 0 ]; then
