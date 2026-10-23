@@ -25,6 +25,7 @@
     <Compile Include="../../src/Server/ZoneCache.cs" Link="Mod/ZoneCache.cs" />
     <Compile Include="../../src/Server/ZoneHeights.cs" Link="Mod/ZoneHeights.cs" />
     <Compile Include="../../src/Server/SolidsChanges.cs" Link="Mod/SolidsChanges.cs" />
+    <Compile Include="../../src/Server/LeftOut.cs" Link="Mod/LeftOut.cs" />
     <Compile Include="../../src/Server/TerrainChanges.cs" Link="Mod/TerrainChanges.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />

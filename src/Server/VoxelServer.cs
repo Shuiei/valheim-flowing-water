@@ -113,17 +113,12 @@ internal sealed class VoxelServer
 
     private float _droppedInAll;
 
-    // The points water was poured at that had no room, each told of once, until it has room again or no source pours
-    // there any more.
-    private readonly HashSet<Vector3> _noRoom = [];
+    // The sources and drains left out, and the points water was poured at that had no room, each told of once.
+    private readonly LeftOut<Vector3> _leftOut = new(FlowingWaterPlugin.Log.LogWarning);
 
     // The markers (by object) and fixed sources and drains (by their text) whose rate was held to MaxRate, each told
     // of once.
     private readonly HashSet<string> _rateCapped = [];
-
-    // The markers (by object) and fixed sources and drains (by their text) left out for a rate or a text that is not
-    // usable, each told of once: they are looked for again every MarkerScanSeconds.
-    private readonly HashSet<string> _ignored = [];
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
@@ -656,19 +651,15 @@ internal sealed class VoxelServer
     {
         if (Room(point, out int x, out int y, out int z))
         {
-            if (_noRoom.Count > 0)
-            {
-                _noRoom.Remove(point);
-            }
-
+            _leftOut.Room(point);
             return _grid.Pour(x, y, z, cubicMetres);
         }
 
         // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once
         // until it has room again.
-        if (!_grid.Capped && _noRoom.Add(point))
+        if (!_grid.Capped)
         {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
+            _leftOut.NoRoom(point);
         }
 
         return false;
@@ -780,7 +771,7 @@ internal sealed class VoxelServer
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
         CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
-        _noRoom.RemoveWhere(point => !_markers.Exists(m => !m.Drain && PourPoint(m) == point));
+        _leftOut.Pouring(point => _markers.Exists(m => !m.Drain && PourPoint(m) == point));
         if (_markers.Count != before)
         {
             FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
@@ -828,11 +819,7 @@ internal sealed class VoxelServer
                 || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate)
                 || (parts.Length == 4 && (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out radius) || radius <= 0f)))
             {
-                if (_ignored.Add(trimmed))
-                {
-                    FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
-                }
-
+                _leftOut.BadText(trimmed, drain);
                 continue;
             }
 
@@ -868,11 +855,7 @@ internal sealed class VoxelServer
             return true;
         }
 
-        if (_ignored.Add(key))
-        {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
-        }
-
+        _leftOut.BadRate(key, where, rate, drain);
         return false;
     }
 
