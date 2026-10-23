@@ -16,6 +16,7 @@
     <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
     <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
+    <Compile Include="../../src/Client/LatestRead.cs" Link="Mod/LatestRead.cs" />
     <Compile Include="../../src/Server/ZoneScan.cs" Link="Mod/ZoneScan.cs" />
     <Compile Include="../../src/Server/PrefabPass.cs" Link="Mod/PrefabPass.cs" />
     <Compile Include="../../src/Server/ZoneCache.cs" Link="Mod/ZoneCache.cs" />

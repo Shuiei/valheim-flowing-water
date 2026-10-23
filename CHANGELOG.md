@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.1 — 2026-10-23
+
+### Fixed
+- With much water changing at once (a lake filling, several streams in view), the game stuttered every second or so:
+  each brick of water the server sent was read in the frame, all of them in the same one. They are now read away
+  from the game's frame and handed to the water a few at a time, within the time a frame gives the water.
+
 ## v0.16.0 — 2026-10-23
 
 ### Added
