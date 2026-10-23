@@ -39,12 +39,22 @@ internal static class Commands
         if (!net.IsServer())
         {
             Rights.Joining();
-            rpc.Register<bool>(EveryoneRpc, (_, everyone) => Rights.Told(everyone));
+            rpc.Register<bool>(EveryoneRpc, (_, everyone) =>
+            {
+                Rights.Told(everyone);
+                HoePieces.Refresh();
+            });
             return;
         }
 
         CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
     }
+
+    /// <summary>
+    /// Why this game's player may not place, change or remove sources and drains with the hoe; null when they may (as
+    /// for the command); outside a world, as for a player who is no admin.
+    /// </summary>
+    public static string MarkerRefusal(CommandRights.MarkerUse use) => Rights.MarkerRefusal(ZNet.instance != null && ZNet.instance.LocalPlayerIsAdminOrHost(), use);
 
     /// <summary>The server's CommandsForEveryone changed: every player's game is told.</summary>
     public static void TellEveryone()

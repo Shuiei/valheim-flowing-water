@@ -1,3 +1,5 @@
+using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -5,14 +7,19 @@ namespace FlowingWater.Client;
 
 /// <summary>
 /// The source and drain in the hoe's pieces: added to the hoe's piece table when the game's item list wakes up (the
-/// table is the hoe prefab's own, kept from one world to the next: added once), with an icon drawn here; and the
-/// values the next one placed takes.
+/// table is the hoe prefab's own, kept from one world to the next: added once), with an icon drawn here; offered only
+/// to a player who may place them, as the game offers a piece it has enabled.
 /// </summary>
 internal static class HoePieces
 {
     private const string HoeName = "Hoe";
 
     private const int IconSize = 64;
+
+    // The game's own listings of the pieces a player knows and their tool offers (null if the game has them no more).
+    private static readonly MethodInfo UpdateKnownRecipes = AccessTools.Method(typeof(Player), "UpdateKnownRecipesList");
+
+    private static readonly MethodInfo UpdateAvailablePieces = AccessTools.Method(typeof(Player), "UpdateAvailablePiecesList");
 
     private static NextPlacement _next;
 
@@ -65,6 +72,42 @@ internal static class HoePieces
                 table.m_pieces.Add(marker);
             }
         }
+    }
+
+    /// <summary>
+    /// Offers the source and drain to this game's player when they may place them, else not: what the game reads
+    /// when it lists the pieces a tool offers and those the player knows.
+    /// </summary>
+    public static void Offer()
+    {
+        bool may = Commands.MarkerRefusal(CommandRights.MarkerUse.Place) == null;
+        foreach (GameObject marker in Prefabs.Markers)
+        {
+            marker.GetComponent<Piece>().m_enabled = may;
+        }
+    }
+
+    /// <summary>
+    /// What the player may do changed: the pieces they know and their tool offers are listed again (else only when the
+    /// game lists them next, as when a tool is taken in hand).
+    /// </summary>
+    public static void Refresh()
+    {
+        Offer();
+        Player player = Player.m_localPlayer;
+        if (player == null)
+        {
+            return;
+        }
+
+        if (UpdateKnownRecipes == null || UpdateAvailablePieces == null)
+        {
+            FlowingWaterPlugin.Log.LogError("Player.UpdateKnownRecipesList or UpdateAvailablePiecesList not found: the hoe offers the source and drain as the player's rights change only when a tool is next taken in hand");
+            return;
+        }
+
+        UpdateKnownRecipes.Invoke(player, []);
+        UpdateAvailablePieces.Invoke(player, []);
     }
 
     // A source: a drop of water. A drain: a dark whirl taking it in. Drawn here, no file.

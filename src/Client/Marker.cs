@@ -98,7 +98,7 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
             return string.Empty;
         }
 
-        bool mayChange = PrivateArea.CheckAccess(transform.position, 0f, false);
+        bool mayChange = Commands.MarkerRefusal(CommandRights.MarkerUse.Change) == null && PrivateArea.CheckAccess(transform.position, 0f, false);
         return Localization.instance.Localize(MarkerValues.Hover(IsDrain, Rate, Radius, mayChange));
     }
 
@@ -106,11 +106,17 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
 
     public float GetHoverOffset() => 0f;
 
-    /// <summary>[E] on it: the panel opens to change it (not within a ward the player is not on).</summary>
+    /// <summary>[E] on it: the panel opens to change it, for a player who may (others are told why not).</summary>
     public bool Interact(Humanoid user, bool hold, bool alt)
     {
         if (hold || !IsValid || user != Player.m_localPlayer || MarkerPanel.ClosedThisFrame)
         {
+            return false;
+        }
+
+        if (Commands.MarkerRefusal(CommandRights.MarkerUse.Change) is { } refusal)
+        {
+            user.Message(MessageHud.MessageType.Center, refusal);
             return false;
         }
 

@@ -64,6 +64,74 @@ public class CommandRightsTests
         Assert.NotNull(rights.Refusal(adminOrHost: false));
     }
 
+    [Theory]
+    [InlineData(null, (int)CommandRights.MarkerUse.Place)]
+    [InlineData(false, (int)CommandRights.MarkerUse.Change)]
+    [InlineData(true, (int)CommandRights.MarkerUse.Remove)]
+    public void TheHostAndAdminsMayAlwaysPlaceChangeAndRemoveWater(bool? everyone, int use)
+    {
+        var rights = new CommandRights();
+        if (everyone is { } said)
+        {
+            rights.Told(said);
+        }
+
+        Assert.Null(rights.MarkerRefusal(adminOrHost: true, (CommandRights.MarkerUse)use));
+    }
+
+    [Theory]
+    [InlineData((int)CommandRights.MarkerUse.Place)]
+    [InlineData((int)CommandRights.MarkerUse.Change)]
+    [InlineData((int)CommandRights.MarkerUse.Remove)]
+    public void APlayerMayUseTheWaterWhileTheServerSaysEveryoneMay(int use)
+    {
+        var rights = new CommandRights();
+        rights.Told(true);
+
+        Assert.Null(rights.MarkerRefusal(adminOrHost: false, (CommandRights.MarkerUse)use));
+    }
+
+    [Theory]
+    [InlineData((int)CommandRights.MarkerUse.Place, "Only the server's admins may place sources and drains (CommandsForEveryone is off on the server)")]
+    [InlineData((int)CommandRights.MarkerUse.Change, "Only the server's admins may change sources and drains (CommandsForEveryone is off on the server)")]
+    [InlineData((int)CommandRights.MarkerUse.Remove, "Only the server's admins may remove sources and drains (CommandsForEveryone is off on the server)")]
+    public void APlayerIsRefusedTheWaterWhenTheServerSaysOnlyAdmins(int use, string refusal)
+    {
+        var rights = new CommandRights();
+        rights.Told(false);
+
+        Assert.Equal(refusal, rights.MarkerRefusal(adminOrHost: false, (CommandRights.MarkerUse)use));
+    }
+
+    [Fact]
+    public void APlayerIsRefusedTheWaterUntilTheServerHasSaid()
+    {
+        var rights = new CommandRights();
+
+        Assert.Equal(
+            "The server has not said whether everyone may place sources and drains (is FlowingWater on the server?); its admins may",
+            rights.MarkerRefusal(adminOrHost: false, CommandRights.MarkerUse.Place));
+    }
+
+    // The hoe and the command go together: whoever may use one may use the other.
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(null, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void TheWaterAndTheCommandAreRefusedToTheSamePlayers(bool? everyone, bool adminOrHost)
+    {
+        var rights = new CommandRights();
+        if (everyone is { } said)
+        {
+            rights.Told(said);
+        }
+
+        Assert.Equal(rights.Refusal(adminOrHost) == null, rights.MarkerRefusal(adminOrHost, CommandRights.MarkerUse.Place) == null);
+    }
+
     [Fact]
     public void AChangeReachesEveryPlayerWhoHasJoinedOnce()
     {

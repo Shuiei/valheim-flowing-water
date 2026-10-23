@@ -186,6 +186,69 @@ internal static class HoePiecesPatch
 }
 
 /// <summary>
+/// The source and drain are offered (listed in the hoe, learned as pieces) only to a player who may place them: the
+/// game reads whether a piece is enabled each time it lists them.
+/// </summary>
+[HarmonyPatch]
+internal static class OfferPiecesPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static IEnumerable<MethodBase> TargetMethods() =>
+    [
+        AccessTools.Method(typeof(PieceTable), nameof(PieceTable.UpdateAvailable)),
+        AccessTools.Method(typeof(Player), "UpdateKnownRecipesList"),
+    ];
+
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Prefix()
+    {
+        HoePieces.Offer();
+    }
+}
+
+/// <summary>
+/// A player who may not place a source or drain is refused with the game's centre message, whatever offered it (with
+/// building costs off, the game lists every piece, enabled or not).
+/// </summary>
+[HarmonyPatch(typeof(Player), nameof(Player.TryPlacePiece))]
+internal static class PlaceMarkerPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
+    {
+        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Place) is not { } refusal)
+        {
+            return true;
+        }
+
+        __instance.Message(MessageHud.MessageType.Center, refusal);
+        __result = false;
+        return false;
+    }
+}
+
+/// <summary>
+/// A player who may not remove a source or drain is refused with the game's centre message, at the check the game
+/// makes after its own (wards, no-build places) and before it removes the piece.
+/// </summary>
+[HarmonyPatch(typeof(Player), "CheckCanRemovePiece")]
+internal static class RemoveMarkerPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
+    {
+        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Remove) is not { } refusal)
+        {
+            return true;
+        }
+
+        __instance.Message(MessageHud.MessageType.Center, refusal);
+        __result = false;
+        return false;
+    }
+}
+
+/// <summary>
 /// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>

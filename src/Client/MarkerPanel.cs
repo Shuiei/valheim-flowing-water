@@ -182,6 +182,12 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
+        if (Commands.MarkerRefusal(CommandRights.MarkerUse.Change) is { } refusal)
+        {
+            Say(refusal, false);
+            return;
+        }
+
         if (!PrivateArea.CheckAccess(_target.transform.position))
         {
             Say(Localization.instance.Localize("$msg_privatezone"), false);
