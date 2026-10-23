@@ -36,7 +36,8 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 
 The host and the server's admins may always use the command and the hoe's source and drain; other players while
-the **server's** `CommandsForEveryone` is on (their own config does not count). A source gives at most 100 m³/s, and so does a
+the **server's** `CommandsForEveryone` is on (their own config does not count). On a server without FlowingWater the
+hoe offers only the game's own pieces; any character learns the source and drain back where the mod is. A source gives at most 100 m³/s, and so does a
 drain given a rate (a drain of rate 0 still takes everything that reaches it). A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
 `FixedDrains`).
 
