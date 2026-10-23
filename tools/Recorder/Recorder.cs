@@ -159,9 +159,13 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
         StartCoroutine(Run());
     }
 
-    /// <summary>Closes the log and takes the patches off; Unity calls it as the recorder goes (OnDestroy).</summary>
+    /// <summary>
+    /// Stops the run, closes the log and takes the patches off; Unity calls it as the recorder goes (OnDestroy). The run
+    /// is stopped first: it writes to the log to its end.
+    /// </summary>
     public void Dispose()
     {
+        StopAllCoroutines();
         if (Current == this)
         {
             Current = null;
