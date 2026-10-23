@@ -87,12 +87,15 @@ internal sealed class MarkerPanel : MonoBehaviour
     /// </summary>
     public static bool TakesInput => (_panel != null && _panel._editing) || ClosedThisFrame;
 
+    /// <summary>Whether the panel is off, after a fault in it (<see cref="TurnOff"/>): it neither shows nor opens.</summary>
+    public static bool Off { get; private set; }
+
     private bool Placed => _target is not null;
 
     /// <summary>[E] on a placed one: the panel opens to change it.</summary>
     public static void Open(Marker marker)
     {
-        MarkerPanel panel = Made();
+        MarkerPanel panel = Off ? null : Made();
         if (panel == null)
         {
             return;
@@ -143,6 +146,21 @@ internal sealed class MarkerPanel : MonoBehaviour
         }
 
         panel.TickPlacing();
+    }
+
+    /// <summary>
+    /// The panel put away after a fault in it, and left off until the game restarts: it no longer takes the keyboard or
+    /// the mouse, whatever it was doing.
+    /// </summary>
+    public static void TurnOff()
+    {
+        Off = true;
+        if (_panel != null)
+        {
+            Destroy(_panel.gameObject);
+        }
+
+        _panel = null;
     }
 
     // A value typed in a field: taken for the next one or written into the placed one; refused, it is said why and
