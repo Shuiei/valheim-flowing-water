@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using FlowingWater.Volume;
 using UnityEngine;
@@ -42,6 +43,10 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static bool _settingWatched;
 
+    private static bool _flat;
+
+    private static float _lift;
+
     private ZNetView _nview;
 
     // Whether it is drawn: not on a dedicated server.
@@ -65,6 +70,28 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private readonly BackgroundBuild<Shape> _building = new();
 
+    /// <summary>Draw with a plain opaque colour instead of the water's material, for testing (console `flowingwater flat`).</summary>
+    internal static bool Flat
+    {
+        get => _flat;
+        set
+        {
+            _flat = value;
+            DrawAll();
+        }
+    }
+
+    /// <summary>Metres the water is drawn higher than it is, for testing (console `flowingwater lift`).</summary>
+    internal static float Lift
+    {
+        get => _lift;
+        set
+        {
+            _lift = value;
+            DrawAll();
+        }
+    }
+
     // Every brick is drawn again with the other material when the shader setting changes.
     private static void WatchSetting()
     {
@@ -74,16 +101,39 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         _settingWatched = true;
-        FlowingWaterPlugin.Settings.CustomShader.SettingChanged += (_, _) =>
+        FlowingWaterPlugin.Settings.CustomShader.SettingChanged += (_, _) => DrawAll();
+    }
+
+    private static void DrawAll()
+    {
+        foreach (WaterBrick brick in ByKey.Values)
         {
-            foreach (WaterBrick brick in ByKey.Values)
+            if (brick != null)
             {
-                if (brick != null)
-                {
-                    Waiting.Add(brick);
-                }
+                Waiting.Add(brick);
             }
-        };
+        }
+    }
+
+    /// <summary>What the brick at a point draws (else the nearest in the column there), for the console.</summary>
+    public static string DebugInfo(Vector3 point)
+    {
+        WaterBrick found = BrickPick.Nearest(ByKey.Values.Where(b => b != null && b._view != null), b => b._view, point.x, point.y, point.z, out float nearest);
+        if (found == null)
+        {
+            return "no water brick in the column here";
+        }
+
+        BrickView view = found._view;
+        Mesh mesh = found._mesh;
+        var text = new System.Text.StringBuilder();
+        text.Append(FormattableString.Invariant($"brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels at {found.transform.position}, {nearest:0.#} m from you: renderer {found._renderer.enabled}, lift {Lift}, flat {Flat}"));
+        text.Append(FormattableString.Invariant($"; mesh {mesh.vertexCount} vertices, {(mesh.subMeshCount > 0 ? mesh.GetIndexCount(0) / 3 : 0)} triangles, bounds {mesh.bounds.min} to {mesh.bounds.max}; drawn {Time.time - found._drawnAt:0.0} s ago, building {found._building.Busy}"));
+        Material material = found._renderer.sharedMaterial;
+        text.Append(material == null
+            ? "; material none"
+            : FormattableString.Invariant($"; material {material.name} shader {material.shader.name} supported {material.shader.isSupported} queue {material.renderQueue} keywords {string.Join(" ", material.shaderKeywords)}"));
+        return text.ToString();
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -122,7 +172,7 @@ internal sealed class WaterBrick : MonoBehaviour
 
         if (_properties != null)
         {
-            WaterTile.Animate(_renderer, _properties);
+            Materials.Animate(_renderer, _properties);
         }
     }
 
@@ -264,7 +314,8 @@ internal sealed class WaterBrick : MonoBehaviour
 
         BrickView view = _view;
         VoxelField near = VoxelWater.Field.Near(view);
-        Vector3 origin = transform.position;
+        // Lifted, the surface is drawn that much higher over the object.
+        Vector3 origin = transform.position - new Vector3(0f, Lift, 0f);
         if (_building.TryStart(() => Shape.Of(near, view, origin)))
         {
             Built.Add(this);
@@ -289,24 +340,26 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        Material custom = FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
-        Material material = custom ?? Materials.Still();
+        // Plain colours (flat) or the mod's own shader; else the game's material.
+        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
+            : FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        Material material = own ?? Materials.Still();
         if (material == null)
         {
             return;
         }
 
-        UseGameProperties(custom == null);
+        UseGameProperties(own == null);
         _mesh.Clear();
         _mesh.indexFormat = shape.Vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
         _mesh.SetVertices(shape.Vertices);
         _mesh.SetUVs(0, shape.World);
         _mesh.SetUVs(1, shape.Water);
         _mesh.SetUVs(2, shape.Current);
-        _mesh.SetTriangles(shape.Triangles, 0);
-        _mesh.RecalculateNormals();
-        _mesh.RecalculateTangents();
-        _mesh.RecalculateBounds();
+        _mesh.SetNormals(shape.Normals);
+        _mesh.SetTangents(shape.Tangents);
+        _mesh.SetTriangles(shape.Triangles, 0, false);
+        _mesh.bounds = shape.Bounds;
         _renderer.sharedMaterial = material;
     }
 
@@ -316,7 +369,7 @@ internal sealed class WaterBrick : MonoBehaviour
     {
         if (game)
         {
-            _properties ??= WaterTile.GameMaterialProperties();
+            _properties ??= Materials.GameMaterialProperties();
         }
         else if (_properties != null)
         {
@@ -328,10 +381,17 @@ internal sealed class WaterBrick : MonoBehaviour
     private static void Failed(Exception failure, Vector3 at) =>
         FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({failure})");
 
-    // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries.
+    // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries. Its normals,
+    // tangents and bounds are worked out with it, away from the game's frame, as the mesh would.
     private sealed class Shape
     {
         public List<Vector3> Vertices { get; } = [];
+
+        public List<Vector3> Normals { get; } = [];
+
+        public List<Vector4> Tangents { get; } = [];
+
+        public Bounds Bounds { get; private set; }
 
         public List<Vector2> World { get; } = [];
 
@@ -345,15 +405,34 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             SurfaceMesh surface = VoxelSurface.Build(field, view);
             var shape = new Shape { Triangles = surface.Triangles };
+            var uvs = new (float U, float V)[surface.Vertices.Count];
             for (int i = 0; i < surface.Vertices.Count; i++)
             {
                 Vec3 v = surface.Vertices[i];
                 shape.Vertices.Add(new Vector3(v.X, v.Y, v.Z) - origin);
 
                 // Ripples on the sides run up them: their texture shifts with height.
-                shape.World.Add(new Vector2(v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f)));
+                uvs[i] = (v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f));
+                shape.World.Add(new Vector2(uvs[i].U, uvs[i].V));
                 shape.Water.Add(new Vector4(surface.Depths[i], 0f, surface.Shores[i], 0f));
                 shape.Current.Add(new Vector2(surface.Velocities[i].X, surface.Velocities[i].Z));
+            }
+
+            Vec3[] normals = MeshFrames.Normals(surface.Vertices, surface.Triangles);
+            (Vec3 Tangent, float W)[] tangents = MeshFrames.Tangents(surface.Vertices, surface.Triangles, normals, uvs);
+            for (int i = 0; i < normals.Length; i++)
+            {
+                shape.Normals.Add(new Vector3(normals[i].X, normals[i].Y, normals[i].Z));
+                shape.Tangents.Add(new Vector4(tangents[i].Tangent.X, tangents[i].Tangent.Y, tangents[i].Tangent.Z, tangents[i].W));
+            }
+
+            // The bounds of the positions as drawn (from the brick's origin); none with no surface.
+            if (surface.Vertices.Count > 0)
+            {
+                (Vec3 low, Vec3 high) = MeshFrames.Bounds(surface.Vertices);
+                var bounds = new Bounds();
+                bounds.SetMinMax(new Vector3(low.X, low.Y, low.Z) - origin, new Vector3(high.X, high.Y, high.Z) - origin);
+                shape.Bounds = bounds;
             }
 
             return shape;

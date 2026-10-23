@@ -2,6 +2,34 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.11 — 2026-10-23
+
+### Fixed
+- In a big world the server hitched every few seconds while it looked for sources and drains: the looking is now
+  spread over frames.
+- A server kept the ground of every zone its water had ever reached, and checked it again every two seconds, so the
+  water cost more the longer the server ran: zones the water has left are now let go, and a terrain change no longer
+  makes the zone's whole ground again.
+- Switching the water off (`Enabled`) and on again read every piece broken meanwhile in one frame: the pieces are now
+  looked over a zone at a time, as usual.
+- Water that had just reached a new place could ignore a terrain change made there right after, until the next one.
+- A source buried in rock logged "no room" every three seconds, and a source or drain with a rate that is no use
+  logged it as often: each is now told once.
+- Old column water the server could not move into voxels yet was still drawn over the water, where no one could swim,
+  and took the players' frame time: it is kept for the server to move later, no longer drawn.
+- At 0.25 m voxels (`CellSize`), a thin sheet of water could stop moving before it was level.
+- Thin films of water vanished, and the rest shifted a little, at every restart and `CellSize` change: a block of
+  voxels now keeps its volume.
+- A broken terrain change could stop the server's water for good: the ground there is now taken as generated, and a
+  saved block of water holding numbers that are not numbers is refused as unreadable.
+- `flowingwater debug`, `flat` and `lift` did nothing on the 3D water: they work on it now, and `flat` no longer makes
+  a new material each time. `mat stream` is gone: nothing is drawn with the stream material any more (`mat custom`
+  and `mat still` stay).
+- A bright line ran round anything standing in the water (the mod's own shader): the water's light now fades out
+  there.
+- Drawing dense changing water could still take more of the frame than its 2 ms: the last of the surface's work is
+  now done on another core too.
+
 ## v0.15.10 — 2026-10-23
 
 ### Fixed

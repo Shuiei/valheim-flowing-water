@@ -142,6 +142,30 @@ public class MarkerRulesTests
     }
 
     [Fact]
+    public void AMarkerWithARateNotUsableIsToldOfOnceAcrossLooks()
+    {
+        for (int look = 0; look < 3; look++)
+        {
+            Assert.False(_rules.TryRate(float.NaN, false, "(1, 2, 3)", "marker 1", out _));
+            Assert.False(_rules.TryRate(-1.5f, true, "(4, 5, 6)", "marker 2", out _));
+        }
+
+        Assert.Equal(["Source at (1, 2, 3): rate NaN is not usable; ignored", "Drain at (4, 5, 6): rate -1.5 is not usable; ignored"], _warnings);
+    }
+
+    [Fact]
+    public void FixedOnesLeftOutAreToldOfOnceAcrossLooks()
+    {
+        for (int look = 0; look < 3; look++)
+        {
+            Assert.Empty(_rules.Fixed("1,2; 3,4,0", false, 1f));
+            Assert.Empty(_rules.Fixed("1,2,x,4", true, 1f));
+        }
+
+        Assert.Equal(["Fixed source \"1,2\" is not x,z,rate; ignored", "Source at 3,4,0: rate 0 is not usable; ignored", "Fixed drain \"1,2,x,4\" is not x,z,rate or x,z,rate,radius; ignored"], _warnings);
+    }
+
+    [Fact]
     public void FixedOnesAreReadTheSameWhateverTheCulture()
     {
         var culture = CultureInfo.CurrentCulture;

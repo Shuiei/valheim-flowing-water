@@ -76,6 +76,9 @@ internal sealed class GameSolids : ISolids
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>
     public void Forget(Vector2s zone) => _boxesByZone.Remove(TileData.Key(zone));
 
+    /// <summary>Forgets the pieces of the zones not among these (by <see cref="TileData.Key"/>): no brick needs them.</summary>
+    public void Keep(HashSet<long> zones) => ZoneCache.Keep(_boxesByZone, zones);
+
     /// <summary>Forgets every zone's pieces, to read them again (those known to hold far-reaching pieces are still read).</summary>
     public void ForgetAll() => _boxesByZone.Clear();
 

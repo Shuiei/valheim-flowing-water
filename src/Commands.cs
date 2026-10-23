@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
@@ -115,7 +115,7 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "debug":
-                terminal.AddString("flowingwater: " + WaterTile.DebugInfo(player.transform.position));
+                terminal.AddString("flowingwater: " + WaterBrick.DebugInfo(player.transform.position));
                 break;
             case "solids":
                 foreach (string line in SolidsView.Around(player.transform.position, (float)TileData.ZoneMetres / TileData.SizeFor(FlowingWaterPlugin.Settings.CellSize.Value)))
@@ -126,8 +126,8 @@ internal static class Commands
 
                 break;
             case "flat":
-                WaterTile.Flat = !WaterTile.Flat;
-                terminal.AddString("flowingwater: " + (WaterTile.Flat ? "plain colours (blue still, green stream)" : "water materials"));
+                WaterBrick.Flat = !WaterBrick.Flat;
+                terminal.AddString("flowingwater: " + (WaterBrick.Flat ? "a plain colour (blue)" : "the water's material"));
                 break;
             case "mat":
                 terminal.AddString("flowingwater: " + Tune(args));
@@ -135,8 +135,8 @@ internal static class Commands
             case "lift":
                 if (Number(terminal, args, 2, 0f, true, "the lift (m)", out float lift))
                 {
-                    WaterTile.Lift = lift;
-                    terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                    WaterBrick.Lift = lift;
+                    terminal.AddString($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level");
                 }
 
                 break;
@@ -146,12 +146,12 @@ internal static class Commands
         }
     }
 
-    // flowingwater mat still|stream <property> [value | r g b [a]]
+    // flowingwater mat custom|still <property> [value | r g b [a]]
     private static string Tune(Terminal.ConsoleEventArgs args)
     {
         if (args.Length < 4)
         {
-            return "mat custom|still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+            return "mat custom|still <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
         }
 
         string kind = args.Args[2].ToLowerInvariant();

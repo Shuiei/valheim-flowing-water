@@ -13,8 +13,9 @@ version: 2.1
 setup: true
 
 orbs:
-  # CircleCI's orb that hands the pipeline on to another configuration. Any 1.x.
-  continuation: circleci/continuation@1
+  # CircleCI's orb that hands the pipeline on to another configuration. This exact version, as every orb, image and
+  # action of the pipelines is pinned (.circleci/continue.yml): a new one is taken by hand.
+  continuation: circleci/continuation@1.1.0
 
 jobs:
   setup:

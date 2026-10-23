@@ -99,8 +99,8 @@ internal sealed class Brick
     /// <summary>How many voxels the part holds.</summary>
     public int PartCount { get; set; }
 
-    /// <summary>Steps in a row its water has barely moved (every flow under the solver's sleeping flow).</summary>
-    public int Quiet { get; set; }
+    /// <summary>Seconds in a row its water has barely moved (every flow under the solver's sleeping flow).</summary>
+    public float Quiet { get; set; }
 
     /// <summary>Whether it sleeps this step: skipped, and no water crosses its faces.</summary>
     public bool Asleep { get; set; }

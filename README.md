@@ -27,11 +27,11 @@ Console (F5) command `flowingwater`:
 | `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
-| `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
+| `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater flat` | Plain colours instead of water (blue still, green running), to see the shape |
+| `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
-| `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
+| `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
 
 Who may use the command: the host (and a player alone) and the server's admins (its `adminlist.txt`) always;
 other players while the server's `CommandsForEveryone` is on. The server's setting counts, not the player's: the
@@ -58,6 +58,7 @@ everything that reaches it.
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
+| `Server.MarkerScanSeconds` | 3 | How often the server looks for new or removed sources and drains, seconds (1 to 60) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
 | `Server.DebugSeconds` | 0 | Log each zone with water as a map of depths this often (0 = off) |
@@ -116,7 +117,8 @@ there to the new grid (same volume), at the next start or at once with a config 
   heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
   prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
   every `SendSeconds`, and the game sends it to the players near it. The column water of earlier versions is
-  moved into voxels once, when the world opens.
+  moved into voxels once, when the world opens (a zone's that finds no room is kept, not drawn, and tried again at
+  the next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,
@@ -143,8 +145,10 @@ there to the new grid (same volume), at the next start or at once with a config 
   write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
   m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
   where it slows. The server's debug map reports what each zone cut and laid down.
-- **White water.** The running water's sound and spray were made for the column water; they are silent on the
-  3D water until they come back on it in a later version.
+- **White water.** The running water's sound and spray were made for the column water and went with its drawing;
+  the 3D water is silent and sprays nothing until they come back on it in a later version (`Spray` and
+  `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
+  material's, and do nothing on the 3D water.
 - **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
   with no water over it, its corners at the mean level of the tops beside them (a pool lies flat, a stream slopes
   smoothly, the edge fades where fewer columns hold water), and the sides of the water where it borders a voxel

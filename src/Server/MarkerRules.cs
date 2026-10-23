@@ -7,7 +7,8 @@ namespace FlowingWater.Server;
 /// <summary>
 /// What the server takes of a source's or drain's rate and reach, from a marker (whatever a player's game wrote into
 /// it) or from the config's fixed ones, without the game. A rate that is no number, below 0, or 0 for a source, is
-/// refused; one over <see cref="MaxRate"/> is held to it, told of once for each marker; a drain's rate of 0 takes
+/// refused and one over <see cref="MaxRate"/> held to it, each told of once (they are looked for again every few
+/// seconds); a drain's rate of 0 takes
 /// everything that reaches it, and stays 0. A drain reaches <see cref="MaxDrainRadius"/> at most.
 /// </summary>
 internal sealed class MarkerRules
@@ -27,6 +28,9 @@ internal sealed class MarkerRules
     // The markers (by object) and fixed sources and drains (by their text) whose rate was held, each told of once.
     private readonly HashSet<string> _capped = [];
 
+    // Those left out (a rate not usable, a fixed one written wrong), each told of once.
+    private readonly HashSet<string> _ignored = [];
+
     /// <summary>Rules that tell what they refuse or hold.</summary>
     /// <param name="warn">Logs a warning.</param>
     public MarkerRules(Action<string> warn) => _warn = warn;
@@ -37,7 +41,7 @@ internal sealed class MarkerRules
 
     /// <summary>
     /// The rate a source or drain is given: <paramref name="rate"/> held to <see cref="MaxRate"/> (told of once for
-    /// each <paramref name="key"/>), or none when it is not usable (told of each time).
+    /// each <paramref name="key"/>), or none when it is not usable (told of once too).
     /// </summary>
     /// <param name="rate">Cubic metres a second, as written.</param>
     /// <param name="drain">A drain (whose rate may be 0: it takes everything), else a source.</param>
@@ -50,7 +54,11 @@ internal sealed class MarkerRules
         used = 0f;
         if (float.IsNaN(rate) || float.IsInfinity(rate) || (drain ? rate < 0f : rate <= 0f))
         {
-            _warn(FormattableString.Invariant($"{Kind(drain)} at {where}: rate {rate} is not usable; ignored"));
+            if (_ignored.Add(key))
+            {
+                _warn(FormattableString.Invariant($"{Kind(drain)} at {where}: rate {rate} is not usable; ignored"));
+            }
+
             return false;
         }
 
@@ -85,7 +93,10 @@ internal sealed class MarkerRules
 
             if (!Parse(trimmed, drain, defaultRadius, out float x, out float z, out float rate, out float radius))
             {
-                _warn($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
+                if (_ignored.Add(trimmed))
+                {
+                    _warn($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
+                }
             }
             else if (TryRate(rate, drain, trimmed, trimmed, out float used))
             {

@@ -39,11 +39,13 @@ public sealed class Recorder : BaseUnityPlugin
         "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
     };
 
-    private static Recorder _instance;
+    // The recorder running, for the game's camera and console (patched, static); set and cleared by the recorder itself.
+    private static Recorder Current { get; set; }
 
-    private static Vector3? _cameraAt;
+    // Where the camera is held, looking at what (none: the game's own camera).
+    private Vector3? _cameraAt;
 
-    private static Vector3 _cameraLook;
+    private Vector3 _cameraLook;
 
     private string _out;
 
@@ -66,7 +68,7 @@ public sealed class Recorder : BaseUnityPlugin
         _out = Application.platform == RuntimePlatform.WindowsPlayer ? "Z:" + folder.Replace('/', '\\') : folder;
         Directory.CreateDirectory(_out);
         _log = new StreamWriter(Path.Combine(_out, "log.txt"), false) { AutoFlush = true };
-        _instance = this;
+        Current = this;
         _harmony = new Harmony("Tie.FlowingWater.Recorder");
         _harmony.Patch(AccessTools.Method(typeof(GameCamera), "LateUpdate"), postfix: new HarmonyMethod(typeof(Recorder), nameof(CameraPostfix)));
         _harmony.Patch(AccessTools.Method(typeof(Terminal), nameof(Terminal.AddString), [typeof(string)]), postfix: new HarmonyMethod(typeof(Recorder), nameof(ConsolePostfix)));
@@ -75,18 +77,18 @@ public sealed class Recorder : BaseUnityPlugin
 
     private static void CameraPostfix(GameCamera __instance)
     {
-        if (_cameraAt.HasValue)
+        if (Current is { _cameraAt: { } at } recorder)
         {
-            __instance.transform.position = _cameraAt.Value;
-            __instance.transform.rotation = Quaternion.LookRotation(_cameraLook - _cameraAt.Value);
+            __instance.transform.position = at;
+            __instance.transform.rotation = Quaternion.LookRotation(recorder._cameraLook - at);
         }
     }
 
     private static void ConsolePostfix(string text)
     {
-        if (_instance != null && text != null && text.StartsWith("flowingwater", StringComparison.Ordinal))
+        if (Current != null && text != null && text.StartsWith("flowingwater", StringComparison.Ordinal))
         {
-            _instance.Note("  console: " + text);
+            Current.Note("  console: " + text);
         }
     }
 
@@ -155,6 +157,19 @@ public sealed class Recorder : BaseUnityPlugin
 
         _started = true;
         StartCoroutine(Run());
+    }
+
+    // The log closed with the recorder (the game quits, or the plugin is unloaded), the patches taken off.
+    private void OnDestroy()
+    {
+        if (Current == this)
+        {
+            Current = null;
+        }
+
+        _harmony?.UnpatchSelf();
+        _log?.Dispose();
+        _log = null;
     }
 
     private void Note(string text)
@@ -745,7 +760,7 @@ public sealed class Recorder : BaseUnityPlugin
         string[] parts = text.Split(',');
         if (parts.Length != 6)
         {
-            _instance?.Note($"FW_REC_VIEW \"{text}\" is not six numbers (from x,y,z then at x,y,z): left out");
+            Current?.Note($"FW_REC_VIEW \"{text}\" is not six numbers (from x,y,z then at x,y,z): left out");
             return null;
         }
 

@@ -29,6 +29,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private const float TerrainRefreshSeconds = 2f;
 
+    // The most of a frame looking for sources and drains may take, milliseconds (a part at least).
+    private const double MarkerBudget = 0.5;
+
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
@@ -43,6 +46,13 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private readonly List<Source> _markers = [];
 
     private readonly List<ZDO> _zdos = [];
+
+    // The look for sources and drains, over the whole world, spread over frames.
+    private readonly PrefabPass<ZDO> _markerPass;
+
+    private readonly Stopwatch _markerWatch = new();
+
+    private readonly HashSet<ZDOID> _markersSeen = [];
 
     private readonly Stopwatch _stepWatch = new();
 
@@ -90,10 +100,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private float _droppedInAll;
 
-    // The points water was poured at that had no room, each told of once until the markers are looked for again.
-    private readonly HashSet<Vector3> _noRoom = [];
+    // The points water was poured at that had no room, each told of once.
+    private readonly NoRoom<Vector3> _noRoom = new(FlowingWaterPlugin.Log.LogWarning);
 
-    // What a source's or drain's rate and reach may be, each one held told of once.
+    // What a source's or drain's rate and reach may be, each one held or left out told of once.
     private readonly MarkerRules _rates = new(FlowingWaterPlugin.Log.LogWarning);
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
@@ -105,6 +115,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         _solids = new GameSolids(_terrain);
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
+        _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
         _objects = new BrickObjects<ZDOID>(this);
         NewGrid(SettingVoxelSize());
     }
@@ -119,10 +130,16 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         ApplyVoxelSize();
+        // The markers found are swapped in once the look is over the whole world.
         _scanTimer += dt;
-        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value)
+        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
         {
             _scanTimer = 0f;
+        }
+
+        _markerWatch.Restart();
+        if (_markerPass.Run(() => _markerWatch.Elapsed.TotalMilliseconds < MarkerBudget))
+        {
             ScanMarkers();
         }
 
@@ -130,7 +147,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         if (_terrainTimer >= TerrainRefreshSeconds)
         {
             _terrainTimer = 0f;
-            _terrain.Refresh();
+            _terrain.Refresh(_watch.GroundChanged);
         }
 
         // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
@@ -426,41 +443,58 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         float total = 0f;
         foreach (ZDO zdo in All(Prefabs.TileName))
         {
-            var data = new TileData(ZoneSystem.GetZone(zdo.GetPosition()));
             byte[] bytes = zdo.GetByteArray(ZdoKeys.Data);
-            if (bytes != null && data.Decode(bytes))
+            if (bytes == null)
+            {
+                FlowingWaterPlugin.Log.LogInfo($"Water tile {zdo.m_uid}: empty, removed");
+            }
+            else if (TileWater(zdo, bytes) is { } water)
             {
                 // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
-                if (PourAll(TileWater(data)) is not { } poured)
+                if (PourAll(water) is not { } poured)
                 {
-                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); left as it is"));
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); kept, not drawn, to try again at the next start"));
                     continue;
                 }
 
                 total += poured;
             }
 
+            // An unreadable tile (TileWater told of it) is removed too: its water is lost.
             DestroyZdo(zdo);
         }
 
         return total;
     }
 
-    // An old column tile's water: each cell's, at the ground in its middle.
-    private List<(Vector3 Point, float Volume)> TileWater(TileData data)
+    // An old column tile's water: each cell's, at the ground in its middle; null (told of) when its data is unreadable.
+    private List<(Vector3 Point, float Volume)> TileWater(ZDO zdo, byte[] bytes)
     {
-        float area = data.CellSize * data.CellSize;
-        var water = new List<(Vector3 Point, float Volume)>();
-        for (int z = 0; z < data.Size; z++)
+        float[] depths;
+        int side;
+        try
         {
-            for (int x = 0; x < data.Size; x++)
+            depths = ColumnTile.Depths(bytes, out side);
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable ({e.Message}), removed; its water is lost");
+            return null;
+        }
+
+        Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
+        float cell = (float)TileData.ZoneMetres / side;
+        var water = new List<(Vector3 Point, float Volume)>();
+        for (int z = 0; z < side; z++)
+        {
+            for (int x = 0; x < side; x++)
             {
-                float depth = data.Depth[data.Index(x, z)];
+                float depth = depths[(z * side) + x];
                 if (depth > 0f)
                 {
-                    float wx = data.WorldX(x);
-                    float wz = data.WorldZ(z);
-                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * area));
+                    float wx = TileData.OriginX(zone) + (x * cell);
+                    float wz = TileData.OriginZ(zone) + (z * cell);
+                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * cell * cell));
                 }
             }
         }
@@ -536,14 +570,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     {
         if (Room(point, out int x, out int y, out int z))
         {
+            _noRoom.Room(point);
             return _grid.Pour(x, y, z, cubicMetres);
         }
 
-        // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once a
-        // point until the markers are looked for again.
-        if (!_grid.Capped && _noRoom.Add(point))
+        // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once
+        // until it has room again.
+        if (!_grid.Capped)
         {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
+            _noRoom.Add(point);
         }
 
         return false;
@@ -573,7 +608,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return false;
     }
 
-    private bool Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
+    private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
+
+    private static Vector3 PourPoint(Source source) => source.Point + new Vector3(0f, 0.05f, 0f);
 
     // A drain takes from every voxel within its reach (its own voxel at least): all of it with no rate, else at most
     // its rate, from each in proportion to its water. Only bricks there are looked in. False when it took nothing.
@@ -643,15 +680,17 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return _terrain.HeightAt(zone, x - TileData.OriginX(zone), z - TileData.OriginZ(zone));
     }
 
+    // The sources and drains a whole look found, and the config's, in place of the last ones.
     private void ScanMarkers()
     {
-        _noRoom.Clear();
         int before = _markers.Count;
         _markers.Clear();
+        _markersSeen.Clear();
         Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
         CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
+        _noRoom.Pouring(point => _markers.Exists(m => !m.Drain && PourPoint(m) == point));
         if (_markers.Count != before)
         {
             FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
@@ -661,8 +700,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private void Collect(string prefab, bool drain, float defaultRate)
     {
         float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
-        foreach (ZDO zdo in All(prefab))
+        int hash = prefab.GetStableHashCode();
+        foreach (ZDO zdo in _markerPass.Found(prefab))
         {
+            // One gone during the look, or found twice (gone, then made again as another object), is left out.
+            if (!zdo.IsValid() || zdo.GetPrefab() != hash || !_markersSeen.Add(zdo.m_uid))
+            {
+                continue;
+            }
+
             float radius = drain ? MarkerRules.Reach(zdo.GetFloat(ZdoKeys.Radius, defaultRadius)) : 0f;
             if (_rates.TryRate(zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString(), out float rate))
             {
