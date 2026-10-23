@@ -40,11 +40,12 @@ internal sealed class VoxelSolver
     // The deepest water steps are kept stable for, metres: longer steps are split.
     private const float DeepestStable = 10f;
 
-    // A brick whose every flow stayed under this (cubic metres a second) for this many steps sleeps: it is skipped
-    // while the bricks beside it sleep too or are dry (water poured in, a solid changed or a waking neighbour wakes it).
+    // A brick whose every flow stayed under this share of a voxel a second for this many seconds sleeps: it is
+    // skipped while the bricks beside it sleep too or are dry (water poured in, a solid changed or a waking neighbour
+    // wakes it). The same at any voxel size; at 1 m, 24 of the longest steps, as when it was counted in steps.
     private const float SleepingFlow = 1e-3f;
 
-    private const int StepsToSleep = 24;
+    private const float SecondsToSleep = 1.04f;
 
     // Water settling into a voxel wakes its brick when more than this share of a voxel: a still pool's last traces
     // settling do not keep it awake.
@@ -341,14 +342,14 @@ internal sealed class VoxelSolver
     // A brick sleeps when it and every brick beside it with water have been quiet long enough.
     private static bool Sleeps(Brick brick)
     {
-        if (brick.Quiet < StepsToSleep)
+        if (brick.Quiet < SecondsToSleep)
         {
             return false;
         }
 
         foreach (Brick next in brick.Beside)
         {
-            if (next != null && next.WetHigh.X >= 0 && next.Quiet < StepsToSleep)
+            if (next != null && next.WetHigh.X >= 0 && next.Quiet < SecondsToSleep)
             {
                 return false;
             }
@@ -679,7 +680,7 @@ internal sealed class VoxelSolver
         // The wet voxels are all in the part (water only moves into it), so their box is found here.
         brick.WetLow = (lx, ly, lz);
         brick.WetHigh = (hx, hy, hz);
-        brick.Quiet = strongest < SleepingFlow ? brick.Quiet + 1 : 0;
+        brick.Quiet = strongest < SleepingFlow * s * s * s ? brick.Quiet + dt : 0f;
     }
 
     // The flow of the face a voxel shares with the voxel west (under, south) of it, which that one owns (positive:

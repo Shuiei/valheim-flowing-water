@@ -115,15 +115,58 @@ public class VoxelSolverTests
     {
         VoxelGrid grid = StillPool(0, 2f, out _);
         Brick pool = grid.Find(0, 0, 0);
-        Assert.True(pool.Quiet >= 24, $"quiet for {pool.Quiet} steps");
+        Assert.True(pool.Quiet >= 1f, $"quiet for {pool.Quiet} s");
 
         // Water poured in wakes it: the pool rises evenly, the poured water does not stay where it fell.
         grid.Pour(3, 3, 3, 16f);
-        Assert.Equal(0, pool.Quiet);
+        Assert.Equal(0f, pool.Quiet);
         Run(grid, 40f);
         Assert.Equal(1f, grid.WaterAt(0, 1, 0), 2);
         Assert.Equal(0.25f, grid.WaterAt(7, 2, 7), 2);
         Assert.Equal(64f * 2.25f, grid.TotalWater(), 1);
+    }
+
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(0.25f)]
+    public void StillWaterSleepsAfterAboutASecondAtAnyVoxelSize(float voxelSize)
+    {
+        var grid = new VoxelGrid(voxelSize, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        Brick pool = grid.Find(0, 0, 0);
+        float seconds = 0f;
+        int steps = 0;
+        while (!pool.Asleep && seconds < 5f)
+        {
+            float step = solver.MaxStep;
+            solver.Step(step);
+            seconds += step;
+            steps++;
+        }
+
+        Assert.True(seconds is > 1f and < 1.2f, $"asleep after {seconds} s ({steps} steps)");
+        if (voxelSize == 1f)
+        {
+            // As when it was counted in steps: 24 quiet steps, then the step that finds it asleep.
+            Assert.Equal(25, steps);
+        }
+    }
+
+    [Fact]
+    public void AThinSheetOfSmallVoxelsLevelsOutBeforeItSleeps()
+    {
+        // 4 m by 1 m of 0.25 m voxels: a sheet 0.6 voxels deep on one half, 0.2 on the other.
+        var grid = new VoxelGrid(0.25f, new TestSolids(0, TestSolids.Box(0, 15, 0, 3)));
+        Fill(grid, 0, 7, 0, 3, 0.6f);
+        Fill(grid, 8, 15, 0, 3, 0.2f);
+
+        Run(grid, 30f);
+
+        float low = Enumerable.Range(0, 16).Min(x => grid.WaterAt(x, 0, 1));
+        float high = Enumerable.Range(0, 16).Max(x => grid.WaterAt(x, 0, 1));
+        Assert.True(high - low < 0.01f, $"from {low} to {high}");
+        Assert.Equal(16 * 4 * 0.4f * grid.VoxelVolume, grid.TotalWater(), 3);
     }
 
     [Fact]
@@ -133,7 +176,7 @@ public class VoxelSolverTests
         // without that brick counting as wet (it stays awake, the pool beside it sleeps) and settles in.
         VoxelGrid grid = StillPool(13, 2.5f, out VoxelSolver solver);
         Brick pool = grid.Find(0, 0, 0);
-        Assert.True(pool.Asleep, $"quiet for {pool.Quiet} steps");
+        Assert.True(pool.Asleep, $"quiet for {pool.Quiet} s");
         grid.Locate(3, 16, 3, out Brick above, out int i);
         above.Water[i] = 0.5f;
         above.Quiet = 0;
@@ -157,7 +200,7 @@ public class VoxelSolverTests
         Fill(grid, 0, 7, 0, 7, 1.5f, bottom: 16);
         Still(grid);
         Brick pool = grid.Find(0, 1, 0);
-        Assert.True(pool.Asleep, $"quiet for {pool.Quiet} steps");
+        Assert.True(pool.Asleep, $"quiet for {pool.Quiet} s");
 
         // The floor goes: only the brick under it reads its solids again.
         open = true;
@@ -273,7 +316,7 @@ public class VoxelSolverTests
             solver.Step(0.1f);
         }
 
-        Assert.True(grid.Find(0, 0, 0).Asleep || grid.Find(0, 0, 0).Quiet >= 24);
+        Assert.True(grid.Find(0, 0, 0).Asleep || grid.Find(0, 0, 0).Quiet >= 1f);
         Assert.Equal(before + poured, grid.TotalWater(), 3);
     }
 
