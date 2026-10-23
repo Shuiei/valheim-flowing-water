@@ -35,6 +35,14 @@ internal sealed class WaterBrick : MonoBehaviour
     // frame: well under a microsecond.
     private static readonly Stopwatch Spent = new();
 
+    // Where that time went: reading the bricks' data as it comes, starting their surfaces' builds, handing built
+    // surfaces to their meshes (the recorder looks for the frames one of them takes long).
+    private static readonly Stopwatch Reading = new();
+
+    private static readonly Stopwatch Building = new();
+
+    private static readonly Stopwatch Taking = new();
+
     // Bricks to draw again, those waiting longest first: a brick whose water keeps changing does not hold back
     // the others.
     private static readonly TakeTurns<WaterBrick> Waiting = new();
@@ -126,6 +134,9 @@ internal sealed class WaterBrick : MonoBehaviour
     /// </summary>
     internal static double SpentMilliseconds => Spent.Elapsed.TotalMilliseconds;
 
+    /// <summary>The parts of <see cref="SpentMilliseconds"/>: reading data, starting builds, handing meshes over.</summary>
+    internal static double[] SpentParts => [Reading.Elapsed.TotalMilliseconds, Building.Elapsed.TotalMilliseconds, Taking.Elapsed.TotalMilliseconds];
+
     /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices, for measures.</summary>
     internal static int Census(out int drawn, out int vertices)
     {
@@ -205,7 +216,15 @@ internal sealed class WaterBrick : MonoBehaviour
             if (zdo != null && zdo.DataRevision != _revision)
             {
                 _revision = zdo.DataRevision;
-                Read(zdo.GetByteArray(ZdoKeys.Brick));
+                Reading.Start();
+                try
+                {
+                    Read(zdo.GetByteArray(ZdoKeys.Brick));
+                }
+                finally
+                {
+                    Reading.Stop();
+                }
             }
 
             if (_properties != null)
@@ -321,15 +340,31 @@ internal sealed class WaterBrick : MonoBehaviour
     private static void Draw()
     {
         FrameDrawing.Reset();
-        Built.Serve(brick => brick == null || brick._building.Done, InBudget, brick => Timed(brick, b => b.Take()));
+        Taking.Start();
+        try
+        {
+            Built.Serve(brick => brick == null || brick._building.Done, InBudget, brick => Timed(brick, b => b.Take()));
+        }
+        finally
+        {
+            Taking.Stop();
+        }
 
         // A build reads the bricks round it in the frame: none once the meshes took the frame's time.
         if (InBudget())
         {
-            Waiting.Serve(
-                brick => brick == null || (!brick._building.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
-                InBudget,
-                brick => Timed(brick, b => b.Build()));
+            Building.Start();
+            try
+            {
+                Waiting.Serve(
+                    brick => brick == null || (!brick._building.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
+                    InBudget,
+                    brick => Timed(brick, b => b.Build()));
+            }
+            finally
+            {
+                Building.Stop();
+            }
         }
     }
 
