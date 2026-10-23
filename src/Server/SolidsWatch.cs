@@ -19,8 +19,8 @@ internal sealed class SolidsWatch
 
     private const int PartObjects = 64;
 
-    // Zones this close to a brick are looked over, metres, at least (farther when a piece read reaches farther): a
-    // piece standing in one may reach the brick.
+    // Zones this close to a brick are looked over, metres, at least (farther when the game's pieces reach farther): a
+    // piece standing in one may reach the brick. Zones holding pieces scaled to reach farther are looked over too.
     private const float Reach = 4f;
 
     private static readonly int StateHash = "state".GetStableHashCode();
@@ -49,7 +49,7 @@ internal sealed class SolidsWatch
 
     private float _timer;
 
-    // How many times the farthest reach of pieces had grown when last looked at.
+    // How many zones holding far-reaching pieces had been found when last looked at.
     private int _grown;
 
     /// <summary>A watch over these solids and terrain; it listens to the server's destroyed objects at once.</summary>
@@ -74,11 +74,11 @@ internal sealed class SolidsWatch
     /// <returns>How many bricks read their solids again.</returns>
     public int Update(float dt, VoxelGrid grid)
     {
-        // A piece read reached farther than any before: the zones each brick read its solids from may have missed
-        // ones like it, so every brick reads them again, from zones as far as the new reach.
-        if (_solids.Shapes.Grown != _grown)
+        // A zone holding pieces reaching farther than the game's own was found: bricks that read their solids before
+        // may have missed them, so every brick reads them again.
+        if (_solids.Grown != _grown)
         {
-            _grown = _solids.Shapes.Grown;
+            _grown = _solids.Grown;
             _solids.ForgetAll();
             _regions.Add(new Bounds(Vector3.zero, Vector3.one * float.MaxValue));
         }
@@ -87,7 +87,9 @@ internal sealed class SolidsWatch
         if (_timer >= LookSeconds && !_scan.Busy)
         {
             _timer = 0f;
-            _scan.Start(Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest) + grid.VoxelSize));
+            HashSet<Vector2s> zones = Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest) + grid.VoxelSize);
+            zones.UnionWith(_solids.FarZones);
+            _scan.Start(zones);
         }
 
         _lookWatch.Restart();
