@@ -11,6 +11,9 @@ namespace FlowingWater.Volume;
 /// </summary>
 internal static class SolidRaster
 {
+    // Voxels along an axis of a brick and the layer past its far edge (a face there is tested by that layer's share).
+    private const int Edge = Brick.Size + 1;
+
     /// <summary>Fills the brick's voxels up to the ground.</summary>
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
@@ -49,9 +52,29 @@ internal static class SolidRaster
         }
 
         // A voxel's solid share: from the brick, or worked out from the ground and the boxes past its edges (the
-        // brick there may not exist yet).
-        float Share(int x, int y, int z) =>
-            x < Brick.Size && y < Brick.Size && z < Brick.Size ? brick.Solid[Brick.Index(x, y, z)] : Beyond(brick, voxelSize, boxes, groundAt, x, y, z);
+        // brick there may not exist yet), once each: every box near the edge asks for it.
+        float[] beyond = new float[Edge * Edge * Edge];
+        for (int k = 0; k < beyond.Length; k++)
+        {
+            beyond[k] = float.NaN;
+        }
+
+        float Share(int x, int y, int z)
+        {
+            if (x < Brick.Size && y < Brick.Size && z < Brick.Size)
+            {
+                return brick.Solid[Brick.Index(x, y, z)];
+            }
+
+            int k = (((y * Edge) + z) * Edge) + x;
+            if (float.IsNaN(beyond[k]))
+            {
+                beyond[k] = Beyond(brick, voxelSize, boxes, groundAt, x, y, z);
+            }
+
+            return beyond[k];
+        }
+
         foreach (SolidBox box in boxes)
         {
             Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z, Share));
@@ -97,7 +120,13 @@ internal static class SolidRaster
             {
                 for (int x = x0; x <= x1; x++)
                 {
-                    each(x, y, z);
+                    // Every test for a voxel lies between its middle and the next middles east and north, from its
+                    // bottom to the top of the voxel over it: a box that cannot meet that is left out.
+                    Vec3 corner = Corner(brick, s, x, y, z);
+                    if (box.Overlaps(corner + new Vec3(s * 0.5f, 0f, s * 0.5f), corner + new Vec3(s * 1.5f, s * 2f, s * 1.5f)))
+                    {
+                        each(x, y, z);
+                    }
                 }
             }
         }

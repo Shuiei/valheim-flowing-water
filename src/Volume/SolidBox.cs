@@ -105,6 +105,20 @@ internal sealed class SolidBox
             && Slab(start.Dot(AxisZ), along.Dot(AxisZ), Half.Z, ref enter, ref leave);
     }
 
+    /// <summary>
+    /// Whether it may meet the box along the world's axes from <paramref name="min"/> to <paramref name="max"/>: false
+    /// only when one of its own axes, or the world's, separates them.
+    /// </summary>
+    public bool Overlaps(Vec3 min, Vec3 max)
+    {
+        Vec3 half = (max - min) * 0.5f;
+        Vec3 d = ((min + max) * 0.5f) - Centre;
+        return Apart(d, half, AxisX, Half.X) && Apart(d, half, AxisY, Half.Y) && Apart(d, half, AxisZ, Half.Z)
+            && Math.Abs(d.X) <= half.X + Reach(AxisX.X, AxisY.X, AxisZ.X)
+            && Math.Abs(d.Y) <= half.Y + Reach(AxisX.Y, AxisY.Y, AxisZ.Y)
+            && Math.Abs(d.Z) <= half.Z + Reach(AxisX.Z, AxisY.Z, AxisZ.Z);
+    }
+
     /// <summary>The smallest box along the world's axes holding it: its lowest and highest corners.</summary>
     public (Vec3 Min, Vec3 Max) Bounds()
     {
@@ -116,6 +130,11 @@ internal sealed class SolidBox
     }
 
     private float Reach(float x, float y, float z) => (Math.Abs(x) * Half.X) + (Math.Abs(y) * Half.Y) + (Math.Abs(z) * Half.Z);
+
+    // Whether the box along the world's axes (d from this box's centre to its, half its size) and this one overlap
+    // seen along one of this box's axes.
+    private static bool Apart(Vec3 d, Vec3 half, Vec3 axis, float own) =>
+        Math.Abs(d.Dot(axis)) <= own + (Math.Abs(axis.X) * half.X) + (Math.Abs(axis.Y) * half.Y) + (Math.Abs(axis.Z) * half.Z);
 
     // One axis of the slab test: narrows the part of the segment (enter to leave, 0 to 1) inside -half..half.
     private static bool Slab(float start, float along, float half, ref float enter, ref float leave)

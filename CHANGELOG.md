@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.5 — 2026-10-22
+
+### Fixed
+- Water spreading into a new place near buildings made the server hitch while it read which pieces stand there: that
+  reading is now about three times quicker.
+
 ## v0.15.4 — 2026-10-22
 
 ### Fixed
