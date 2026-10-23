@@ -3,11 +3,12 @@
 version: 2
 updates:
   # The plugin (.NET Framework reference assemblies) and the analyzers it builds with
-  # (Directory.Build.props: Roslynator), and the in-game recorder's.
+  # (Directory.Build.props: Roslynator), the in-game recorder's, and the unit tests' (xUnit, code coverage).
   - package-ecosystem: nuget
     directories:
       - /
       - /tools/Recorder
+      - /tests/FlowingWater.Tests
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
