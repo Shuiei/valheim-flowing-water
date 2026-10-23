@@ -106,7 +106,8 @@ internal sealed class VoxelServer
 
     private float _droppedInAll;
 
-    // The points water was poured at that had no room, each told of once until the markers are looked for again.
+    // The points water was poured at that had no room, each told of once, until it has room again or no source pours
+    // there any more.
     private readonly HashSet<Vector3> _noRoom = [];
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
@@ -626,11 +627,16 @@ internal sealed class VoxelServer
     {
         if (Room(point, out int x, out int y, out int z))
         {
+            if (_noRoom.Count > 0)
+            {
+                _noRoom.Remove(point);
+            }
+
             return _grid.Pour(x, y, z, cubicMetres);
         }
 
-        // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once a
-        // point until the markers are looked for again.
+        // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once
+        // until it has room again.
         if (!_grid.Capped && _noRoom.Add(point))
         {
             FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
@@ -663,7 +669,9 @@ internal sealed class VoxelServer
         return false;
     }
 
-    private bool Pour(Source source, float dt) => PourAt(source.Point + new Vector3(0f, 0.05f, 0f), source.Rate * dt);
+    private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
+
+    private static Vector3 PourPoint(Source source) => source.Point + new Vector3(0f, 0.05f, 0f);
 
     // A drain takes from every voxel within its reach (its own voxel at least): all of it with no rate, else at most
     // its rate, from each in proportion to its water. Only bricks there are looked in. False when it took nothing.
@@ -736,7 +744,6 @@ internal sealed class VoxelServer
     // The sources and drains a whole look found, and the config's, in place of the last ones.
     private void ScanMarkers()
     {
-        _noRoom.Clear();
         int before = _markers.Count;
         _markers.Clear();
         _markersSeen.Clear();
@@ -744,6 +751,7 @@ internal sealed class VoxelServer
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
         CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
+        _noRoom.RemoveWhere(point => !_markers.Exists(m => !m.Drain && PourPoint(m) == point));
         if (_markers.Count != before)
         {
             FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
