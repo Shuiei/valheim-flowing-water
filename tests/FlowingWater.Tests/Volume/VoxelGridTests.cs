@@ -325,6 +325,25 @@ public class VoxelGridTests
         Assert.Equal(0f, dry.EmptyFor);
     }
 
+    [Fact]
+    public void ABrickForgottenLeavesItsShutFacesWithTheBrickBesideUntilItsSolidsChange()
+    {
+        // The brick east is solid in its southern half, the brick north open.
+        var grid = new VoxelGrid(1f, new FuncSolids((x, _, z) => x >= 16 && z < 8 ? 1f : 0f));
+        Brick brick = grid.Get(0, 0, 0);
+        grid.Forget(grid.Get(1, 0, 0));
+        grid.Forget(grid.Get(0, 0, 1));
+
+        Assert.True(brick.Shuts(0, Brick.Index(15, 3, 3)));
+        Assert.False(brick.Shuts(0, Brick.Index(15, 3, 12)));
+        Assert.False(brick.Shuts(4, Brick.Index(3, 3, 15)));
+        Assert.False(brick.Shuts(1, Brick.Index(0, 3, 3)));
+
+        grid.Refill(brick);
+
+        Assert.False(brick.Shuts(0, Brick.Index(15, 3, 3)));
+    }
+
     // Solid shares from a function of the voxel (x, y, z).
     private sealed class FuncSolids : ISolids
     {

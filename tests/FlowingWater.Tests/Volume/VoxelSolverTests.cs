@@ -600,6 +600,58 @@ public class VoxelSolverTests
         Assert.Equal(0f, grid.TotalWater(), 3);
     }
 
+    [Fact]
+    public void BricksTheWaterCannotEnterAreNotMadeAgainAndAgain()
+    {
+        // A pool on the ground against the bricks west and south of it, walled off from them, kept moving by a
+        // source: the bricks beside it are made once, found shut, forgotten dry, and not made again.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        int version = 0;
+        for (float t = 0f; t < 100f; t += 0.1f)
+        {
+            grid.Pour(3, 3, 3, 0.02f);
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+            if (t < 40f)
+            {
+                version = grid.Version;
+            }
+        }
+
+        Assert.Equal(version, grid.Version);
+        Assert.Single(grid.Bricks);
+    }
+
+    [Fact]
+    public void ABrickBesideOpenedToTheWaterIsMadeAgain()
+    {
+        // The same pool, its west wall then broken by the voxel (0, 0, 3): the brick there is made and the water runs in.
+        bool broken = false;
+        var grid = new VoxelGrid(Volume, new TestSolids(0, (x, y, z) => TestSolids.Box(0, 7, 0, 7, open: broken ? (0, 0, 3, 1) : null)(x, y, z)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        for (float t = 0f; t < 40f; t += 0.1f)
+        {
+            grid.Pour(3, 3, 3, 0.02f);
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+        }
+
+        Assert.Null(grid.Find(-1, 0, 0));
+        broken = true;
+        grid.Refill(grid.Find(0, 0, 0));
+        for (float t = 0f; t < 5f; t += 0.1f)
+        {
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+        }
+
+        Assert.NotNull(grid.Find(-1, 0, 0));
+        Assert.True(grid.WaterAt(-1, 0, 3) > 0.01f);
+    }
+
     // A pool two voxels deep in a box two bricks long with sixteen voxels of water dropped on it.
     private static VoxelGrid Splash()
     {

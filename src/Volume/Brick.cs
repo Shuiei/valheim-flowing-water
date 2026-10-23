@@ -71,6 +71,10 @@ internal sealed class Brick
     /// <summary>The bricks beside it, east, west, up, down, north and south (null where there is none).</summary>
     public Brick[] Beside { get; } = new Brick[6];
 
+    // Its border voxels' faces water cannot cross into a brick forgotten beside it, as that brick was: a bit per face,
+    // 256 a side (four words), sides as Beside's.
+    private readonly ulong[] _shut = new ulong[6 * 4];
+
     /// <summary>The part of the brick a step works on: its lowest voxel (x, y, z), past its highest when it has none.</summary>
     public (int X, int Y, int Z) Low { get; set; }
 
@@ -194,6 +198,56 @@ internal sealed class Brick
 
         return false;
     }
+
+    /// <summary>
+    /// Whether water in border voxel i cannot cross its face on this side (0 east ... 5 south): the brick closes it, or
+    /// the brick last there (forgotten since) was solid or closed it there.
+    /// </summary>
+    public bool Shuts(int side, int i)
+    {
+        if (side % 2 == 0 && (Closed[i] & (1 << (side / 2))) != 0)
+        {
+            return true;
+        }
+
+        int face = Face(side / 2, i);
+        return (_shut[(side * 4) + (face >> 6)] & (1UL << (face & 63))) != 0;
+    }
+
+    /// <summary>
+    /// Keeps which of its border faces on this side water cannot cross into the brick there, about to be forgotten:
+    /// that voxel is solid, or a piece closes the face.
+    /// </summary>
+    public void ShutBy(int side, Brick next)
+    {
+        int axis = side / 2;
+        bool far = side % 2 == 0;
+        byte bit = (byte)(1 << axis);
+        Array.Clear(_shut, side * 4, 4);
+        for (int face = 0; face < Size * Size; face++)
+        {
+            int a = face >> 4, b = face & (Size - 1);
+            int own = Index(axis, far ? Size - 1 : 0, a, b);
+            int other = Index(axis, far ? 0 : Size - 1, a, b);
+
+            // A face belongs to the voxel west, under or south of it.
+            bool closed = ((far ? Closed[own] : next.Closed[other]) & bit) != 0;
+            if (closed || next.Solid[other] >= 1f)
+            {
+                _shut[(side * 4) + (face >> 6)] |= 1UL << (face & 63);
+            }
+        }
+    }
+
+    /// <summary>Forgets which border faces were shut (its solids are read again: they may have opened).</summary>
+    public void Unshut() => Array.Clear(_shut, 0, _shut.Length);
+
+    // A border face's number on its side: the voxel's place across the axis (y then z across x, z then x across y,
+    // y then x across z).
+    private static int Face(int axis, int i) => axis == 0 ? i >> 4 : axis == 1 ? i & ((Size * Size) - 1) : ((i >> 8) << 4) | (i & (Size - 1));
+
+    // The voxel at this layer along the axis and place (a, b) across it, as Face numbers it.
+    private static int Index(int axis, int layer, int a, int b) => axis == 0 ? Index(layer, a, b) : axis == 1 ? Index(b, layer, a) : Index(b, a, layer);
 
     /// <summary>A voxel's index in the brick's arrays: rows along x, then z, then layers up.</summary>
     public static int Index(int x, int y, int z) => (y * Size * Size) + (z * Size) + x;

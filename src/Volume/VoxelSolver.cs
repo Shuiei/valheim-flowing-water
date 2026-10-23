@@ -534,8 +534,10 @@ internal sealed class VoxelSolver
     // Whether a voxel ahead is dry (or has no brick).
     private static bool Dry(bool has, Brick other, int j) => !has || other.Water[j] <= Brick.Dry;
 
-    // A wet voxel on the brick's edge asks for the bricks its water may go into.
-    // Past the grid's reach there is nothing: that face holds the water as a closed one does.
+    // A wet voxel on the brick's edge asks for the bricks its water may go into: not through a face the brick closes,
+    // nor one into a brick forgotten there that was solid or closed it (it would be made, found dry and forgotten
+    // again for as long as the water moves). Past the grid's reach there is nothing: that face holds the water as a
+    // closed one does.
     private void WantBeside(Brick brick, int x, int y, int z, int i)
     {
         if (brick.Water[i] <= Brick.Dry || (x > 0 && x < Brick.Size - 1 && y > 0 && y < Brick.Size - 1 && z > 0 && z < Brick.Size - 1))
@@ -545,7 +547,7 @@ internal sealed class VoxelSolver
 
         for (int side = 0; side < 6; side++)
         {
-            if (brick.Beside[side] == null && Crosses(x, y, z, side))
+            if (brick.Beside[side] == null && Crosses(x, y, z, side) && !brick.Shuts(side, i))
             {
                 (int dx, int dy, int dz) = Offset(side);
                 if (VoxelGrid.Within(brick.X + dx, brick.Y + dy, brick.Z + dz))

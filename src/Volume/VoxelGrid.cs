@@ -173,6 +173,9 @@ internal sealed class VoxelGrid
         Array.Clear(brick.Closed, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
 
+        // What changed by it may have opened its faces onto a brick forgotten beside it.
+        brick.Unshut();
+
         // Its faces may have opened onto a sleeping brick beside it: they wake together.
         brick.Quiet = 0;
         brick.Changes++;
@@ -327,7 +330,10 @@ internal sealed class VoxelGrid
         _gone.Clear();
     }
 
-    /// <summary>Forgets a brick (and its water): it is unlinked from the bricks beside it.</summary>
+    /// <summary>
+    /// Forgets a brick (and its water): it is unlinked from the bricks beside it, which keep the faces water cannot
+    /// cross into it (no water asks for it again there).
+    /// </summary>
     public void Forget(Brick brick)
     {
         _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
@@ -336,6 +342,7 @@ internal sealed class VoxelGrid
         {
             if (brick.Beside[side] is { } next)
             {
+                next.ShutBy(side ^ 1, brick);
                 next.Beside[side ^ 1] = null;
             }
         }
