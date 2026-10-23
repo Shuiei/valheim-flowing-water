@@ -18,12 +18,14 @@
 // No Nexus Mods yet: the mod has no page there (made by hand on the website). Once it has one, its
 // publishing comes from Moder Warehouse Plus's publish.cs (PublishNexus), with a nexus entry in sites.json.
 #:property PublishAot=false
+#:project ReleaseRules/ReleaseRules.csproj
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using FlowingWater.Release;
 
 const string Repo = "https://github.com/Shuiei/valheim-flowing-water";
 const string SitesFile = "tools/release/sites.json";
@@ -208,12 +210,10 @@ static async Task PublishHexium(HttpClient http, JsonNode site, Release release,
         var result = await Submit(http, Name, url, token, upload, team, community, categories);
         Console.WriteLine($"{Name}: published {result?["package_version"]?["full_name"]} (hidden: unhide it on its Versions page on hexium.gg).");
     }
-    catch (SiteException ex) when (ex.Status is >= 400 and < 500 && Says(ex.Answer, "already") && Says(ex.Answer, "version"))
+    catch (SiteException ex) when (SiteAnswers.SubmittedAlready(ex.Status, ex.Answer))
     {
-        // The site has this zip's name and version already (Thunderstore's words, which Hexium follows: "Package of
-        // the same namespace, name and version already exists"), and NotThereYet did not see it: hidden, submitted by
-        // an earlier run of this job that failed after (setting the metadata). It is this release's: on with the
-        // metadata. The upload just made is not used.
+        // NotThereYet did not see it: hidden, submitted by an earlier run of this job that failed after (setting the
+        // metadata). On with the metadata; the upload just made is not used.
         Console.WriteLine($"{Name}: {team}-{release.Name} {release.Version} was submitted already, by an earlier run (hidden: unhide it on its Versions page on hexium.gg); its metadata is set now. The site said: {ex.Answer}");
         try
         {
@@ -377,8 +377,6 @@ static async Task<JsonNode?> Call(HttpClient http, string site, HttpRequestMessa
 }
 
 static string Shorten(string text) => text.Length > 500 ? text[..500] + "…" : text;
-
-static bool Says(string text, string word) => text.Contains(word, StringComparison.OrdinalIgnoreCase);
 
 static string Token(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } token
     ? token

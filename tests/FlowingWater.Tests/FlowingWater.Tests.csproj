@@ -17,5 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../FlowingWater.Rules/FlowingWater.Rules.csproj" />
+    <!-- The release's decisions (tools/release/publish.cs uses them too). -->
+    <ProjectReference Include="../../tools/release/ReleaseRules/ReleaseRules.csproj" />
   </ItemGroup>
 </Project>
