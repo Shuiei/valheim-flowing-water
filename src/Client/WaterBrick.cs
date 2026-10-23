@@ -343,10 +343,10 @@ internal sealed class WaterBrick : MonoBehaviour
         _mesh.SetUVs(0, shape.World);
         _mesh.SetUVs(1, shape.Water);
         _mesh.SetUVs(2, shape.Current);
-        _mesh.SetTriangles(shape.Triangles, 0);
-        _mesh.RecalculateNormals();
-        _mesh.RecalculateTangents();
-        _mesh.RecalculateBounds();
+        _mesh.SetNormals(shape.Normals);
+        _mesh.SetTangents(shape.Tangents);
+        _mesh.SetTriangles(shape.Triangles, 0, false);
+        _mesh.bounds = shape.Bounds;
         _renderer.sharedMaterial = material;
     }
 
@@ -357,10 +357,17 @@ internal sealed class WaterBrick : MonoBehaviour
         Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
         : FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
 
-    // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries.
+    // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries. Its normals,
+    // tangents and bounds are worked out with it, away from the game's frame, as the mesh would.
     private sealed class Shape
     {
         public List<Vector3> Vertices { get; } = [];
+
+        public List<Vector3> Normals { get; } = [];
+
+        public List<Vector4> Tangents { get; } = [];
+
+        public Bounds Bounds { get; private set; }
 
         public List<Vector2> World { get; } = [];
 
@@ -374,15 +381,34 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             SurfaceMesh surface = VoxelSurface.Build(field, view);
             var shape = new Shape { Triangles = surface.Triangles };
+            var uvs = new (float U, float V)[surface.Vertices.Count];
             for (int i = 0; i < surface.Vertices.Count; i++)
             {
                 Vec3 v = surface.Vertices[i];
                 shape.Vertices.Add(new Vector3(v.X, v.Y, v.Z) - origin);
 
                 // Ripples on the sides run up them: their texture shifts with height.
-                shape.World.Add(new Vector2(v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f)));
+                uvs[i] = (v.X + (v.Y * 0.5f), v.Z + (v.Y * 0.5f));
+                shape.World.Add(new Vector2(uvs[i].U, uvs[i].V));
                 shape.Water.Add(new Vector4(surface.Depths[i], 0f, surface.Shores[i], 0f));
                 shape.Current.Add(new Vector2(surface.Velocities[i].X, surface.Velocities[i].Z));
+            }
+
+            Vec3[] normals = MeshFrames.Normals(surface.Vertices, surface.Triangles);
+            (Vec3 Tangent, float W)[] tangents = MeshFrames.Tangents(surface.Vertices, surface.Triangles, normals, uvs);
+            for (int i = 0; i < normals.Length; i++)
+            {
+                shape.Normals.Add(new Vector3(normals[i].X, normals[i].Y, normals[i].Z));
+                shape.Tangents.Add(new Vector4(tangents[i].Tangent.X, tangents[i].Tangent.Y, tangents[i].Tangent.Z, tangents[i].W));
+            }
+
+            // The bounds of the positions as drawn (from the brick's origin); none with no surface.
+            if (surface.Vertices.Count > 0)
+            {
+                (Vec3 low, Vec3 high) = MeshFrames.Bounds(surface.Vertices);
+                var bounds = new Bounds();
+                bounds.SetMinMax(new Vector3(low.X, low.Y, low.Z) - origin, new Vector3(high.X, high.Y, high.Z) - origin);
+                shape.Bounds = bounds;
             }
 
             return shape;
