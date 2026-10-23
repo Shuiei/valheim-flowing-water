@@ -14,8 +14,9 @@ namespace FlowingWater.Client;
 /// A brick of the 3D water on a player's game: reads the brick's data when the server changes it, keeps it in
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
 /// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
-/// depend on it). The surface is built on another thread, from the bricks it reads as they were then; only handing
-/// it to the mesh is done in the game's frame. On a dedicated server (whose scene holds the bricks round the world's
+/// depend on it). The data is read on another thread, and the surface built on another thread from the bricks it
+/// reads as they were then; only taking the data, handing the water read to the brick and the surface to the mesh
+/// are done in the game's frame, as its time allows. On a dedicated server (whose scene holds the bricks round the world's
 /// zero) it only keeps the water, as the game's own water volumes work there: its trigger and the game's water checks
 /// then see it for the creatures the server simulates; nothing is drawn.
 /// </summary>
@@ -24,9 +25,14 @@ internal sealed class WaterBrick : MonoBehaviour
     // Shortest time between two drawings of a brick, seconds.
     private const float RedrawSeconds = 0.1f;
 
-    // Longest time drawing bricks may take in a frame, milliseconds: the others wait for the next frame (one is
-    // always drawn), so that much water changing at once does not stall a frame.
+    // Longest time handing read water to the bricks and drawing them may take in a frame, milliseconds: the others
+    // wait for the next frame (one of each is always served), so that much water changing at once does not stall a
+    // frame.
     private const double FrameBudget = 2.0;
+
+    // Of it, the time the read water may take, first: what is left is the drawing's, so that a burst of changed bricks
+    // does not hold back the drawing of those already read, nor wait behind it.
+    private const double ReadBudget = FrameBudget / 2;
 
     private static readonly Stopwatch FrameDrawing = new();
 
@@ -35,8 +41,9 @@ internal sealed class WaterBrick : MonoBehaviour
     // frame: well under a microsecond.
     private static readonly Stopwatch Spent = new();
 
-    // Where that time went: reading the bricks' data as it comes, starting their surfaces' builds, handing built
-    // surfaces to their meshes (the recorder looks for the frames one of them takes long).
+    // Where that time went: reading the bricks' data as it comes (taking it, and handing what was read to the brick:
+    // the reading itself is on another thread), starting their surfaces' builds, handing built surfaces to their
+    // meshes (the recorder looks for the frames one of them takes long).
     private static readonly Stopwatch Reading = new();
 
     private static readonly Stopwatch Building = new();
@@ -49,6 +56,9 @@ internal sealed class WaterBrick : MonoBehaviour
 
     // Bricks whose surface is being built, handed to their meshes once built, those waiting longest first.
     private static readonly TakeTurns<WaterBrick> Built = new();
+
+    // Bricks whose data is being read, handed their water once read, those waiting longest first.
+    private static readonly TakeTurns<WaterBrick> Read = new();
 
     private static int _frame = -1;
 
@@ -77,7 +87,9 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private BrickView _view;
 
-    private uint _revision = uint.MaxValue;
+    // The brick's data as the server last changed it, read into its water and the bricks round it whose surface
+    // that changes (none on a dedicated server).
+    private readonly LatestRead<(BrickView View, ICollection<(int X, int Y, int Z)> Touched)> _reading = new();
 
     private float _drawnAt;
 
@@ -213,18 +225,23 @@ internal sealed class WaterBrick : MonoBehaviour
         try
         {
             ZDO zdo = _nview.GetZDO();
-            if (zdo != null && zdo.DataRevision != _revision)
+            if (zdo != null && _reading.Wants(zdo.DataRevision))
             {
-                _revision = zdo.DataRevision;
                 Reading.Start();
                 try
                 {
-                    Read(zdo.GetByteArray(ZdoKeys.Brick));
+                    StartReading(zdo.GetByteArray(ZdoKeys.Brick));
                 }
                 finally
                 {
                     Reading.Stop();
                 }
+            }
+
+            // Its place in the queue is kept: the queue may have been let go (the last water gone) meanwhile.
+            if (_reading.Busy)
+            {
+                Read.Add(this);
             }
 
             if (_properties != null)
@@ -238,15 +255,9 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
-    // After every brick has read its data this frame.
+    // After every brick has taken its data this frame.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
-    private void LateUpdate()
-    {
-        if (_drawn)
-        {
-            DrawWaiting();
-        }
-    }
+    private void LateUpdate() => ServeFrame(_drawn);
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
@@ -270,6 +281,7 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             Waiting.Clear();
             Built.Clear();
+            Read.Clear();
         }
 
         if (_mesh != null)
@@ -277,30 +289,52 @@ internal sealed class WaterBrick : MonoBehaviour
             Destroy(_mesh);
         }
 
-        // A surface still being built is not drawn; a failure to build it is still told, in the game's frame (its log
-        // is the game's), from where the brick was.
+        // A surface still being built is not drawn, nor data still being read kept; a failure to build or read it is
+        // still told, in the game's frame (its log is the game's), from where the brick was.
         Vector3 at = transform.position;
-        _building.Abandon(failure => Failed(failure, at), TaskScheduler.FromCurrentSynchronizationContext());
+        var frame = TaskScheduler.FromCurrentSynchronizationContext();
+        _building.Abandon(failure => Failed(failure, at), frame);
+        _reading.Abandon(failure => ReadFailed(failure, at), frame);
     }
 
-    private void Read(byte[] data)
+    // The brick's data, taken in the frame (the game's objects are the frame's), read on another thread. The bytes are
+    // the object's own, never changed in place (new data comes as new bytes); the water it had is not changed until
+    // this read is handed back, as only one read runs at a time, so what changed is worked out there too.
+    private void StartReading(byte[] data)
     {
-        if (data == null)
-        {
-            return;
-        }
-
         BrickView was = _view;
-        try
+        bool drawn = _drawn;
+        _reading.Start(() => data == null ? default : Decode(data, was, drawn));
+        Read.Add(this);
+    }
+
+    private static (BrickView View, ICollection<(int X, int Y, int Z)> Touched) Decode(byte[] data, BrickView was, bool drawn)
+    {
+        BrickView view = BrickData.Decode(data);
+        return (view, drawn ? VoxelSurface.Touched(was, view) : null);
+    }
+
+    // The water read, handed to the brick: kept, and drawn again with the bricks round it its change touches. A read
+    // whose data changed again meanwhile is dropped (the newer one is read next).
+    private void TakeRead()
+    {
+        if (!_reading.TryTake(out (BrickView View, ICollection<(int X, int Y, int Z)> Touched) read, out Exception failure))
         {
-            _view = BrickData.Decode(data);
-        }
-        catch (InvalidDataException e)
-        {
-            FlowingWaterPlugin.Log.LogWarning($"Water brick at {transform.position}: data unreadable, not drawn ({e.Message})");
             return;
         }
 
+        if (failure != null)
+        {
+            ReadFailed(failure, transform.position);
+            return;
+        }
+
+        if (read.View == null)
+        {
+            return;
+        }
+
+        _view = read.View;
         VoxelWater.Field.Set(_view);
         ByKey[VoxelGrid.Key(_view.X, _view.Y, _view.Z)] = this;
         if (GetComponentInChildren<BoxCollider>() is { } trigger)
@@ -311,14 +345,29 @@ internal sealed class WaterBrick : MonoBehaviour
         if (_drawn)
         {
             Waiting.Add(this);
-            Neighbours(_view, VoxelSurface.Touched(was, _view));
+            Neighbours(_view, read.Touched);
         }
     }
 
-    // Once a frame (from the first brick's LateUpdate), while the frame's drawing time lasts: the surfaces built are
-    // handed to their meshes, then the bricks waiting are built again, longest waiting first. One still building, or
-    // drawn less than RedrawSeconds ago, waits on; one gone is dropped.
-    private static void DrawWaiting()
+    // Unreadable data is the server's (another version of the mod): told, and the brick keeps the water it had. Any
+    // other failure is the mod's own.
+    private static void ReadFailed(Exception failure, Vector3 at)
+    {
+        if (failure is InvalidDataException)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Water brick at {at}: data unreadable, not drawn ({failure.Message})");
+        }
+        else
+        {
+            FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its data could not be read, left as it was ({failure})");
+        }
+    }
+
+    // Once a frame (from the first brick's LateUpdate), while the frame's time lasts: the water read is handed to its
+    // bricks (for at most ReadBudget), then, where the water is drawn, the surfaces built are handed to their meshes,
+    // and the bricks waiting are built again, longest waiting first. One still reading or building, or drawn less than
+    // RedrawSeconds ago, waits on; one gone is dropped.
+    private static void ServeFrame(bool drawn)
     {
         if (Time.frameCount == _frame)
         {
@@ -329,7 +378,12 @@ internal sealed class WaterBrick : MonoBehaviour
         Spent.Start();
         try
         {
-            Draw();
+            FrameDrawing.Reset();
+            TakeReads();
+            if (drawn)
+            {
+                Draw();
+            }
         }
         finally
         {
@@ -337,9 +391,21 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
+    private static void TakeReads()
+    {
+        Reading.Start();
+        try
+        {
+            Read.Serve(brick => brick == null || brick._reading.Done, () => FrameDrawing.Elapsed.TotalMilliseconds < ReadBudget, brick => Timed(brick, b => b.TakeRead()));
+        }
+        finally
+        {
+            Reading.Stop();
+        }
+    }
+
     private static void Draw()
     {
-        FrameDrawing.Reset();
         Taking.Start();
         try
         {
@@ -368,10 +434,10 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
-    // Whether this frame's drawing time has some left.
+    // Whether this frame's time has some left.
     private static bool InBudget() => FrameDrawing.Elapsed.TotalMilliseconds < FrameBudget;
 
-    // Does this for a brick still there, on the frame's drawing time.
+    // Does this for a brick still there, on the frame's time.
     private static void Timed(WaterBrick brick, Action<WaterBrick> work)
     {
         if (brick != null)
