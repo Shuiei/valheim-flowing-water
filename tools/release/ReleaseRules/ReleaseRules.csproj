@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The release's decisions that need no site, for tools/release/publish.cs (its #:project) and the unit tests
+       (tests/FlowingWater.Tests), which check them against what the sites answer. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlowingWater.Release</RootNamespace>
+  </PropertyGroup>
+</Project>

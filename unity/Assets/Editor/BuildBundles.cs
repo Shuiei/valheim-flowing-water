@@ -89,7 +89,8 @@ public static class BuildBundles
 
     // A material asset keeps the values it was first made with; when the shader's defaults change
     // later, the built material would still carry the old ones. Every value is set back to the
-    // shader's own default, so the shader file is the one place the look is defined.
+    // shader's own default, so the shader file is the one place the look is defined (the textures
+    // are set from their files).
     private static void ResetToShaderDefaults(Material material, Shader shader)
     {
         for (int i = 0; i < shader.GetPropertyCount(); i++)
@@ -107,6 +108,13 @@ public static class BuildBundles
                 case ShaderPropertyType.Range:
                     material.SetFloat(name, shader.GetPropertyDefaultFloatValue(i));
                     break;
+                case ShaderPropertyType.Texture:
+                    // Set from their files after (Prepare): a texture's default is only a name ("bump", "white").
+                    break;
+                default:
+                    // A kind of property this does not know how to reset (an integer) would keep the material's old
+                    // value unseen: the build stops instead, to be taught it.
+                    throw new InvalidOperationException($"{ShaderPath}: property {name} is a {shader.GetPropertyType(i)}, which the build cannot reset to its default");
             }
         }
     }

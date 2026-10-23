@@ -31,8 +31,8 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 
 The host and the server's admins may always use the command; other players while the **server's**
-`CommandsForEveryone` is on (their own config does not count). A source or drain gives or takes at most
-100 m³/s. A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
+`CommandsForEveryone` is on (their own config does not count). A source gives at most 100 m³/s, and so does a
+drain given a rate (a drain of rate 0 still takes everything that reaches it). A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
 `FixedDrains`).
 
 ## Settings

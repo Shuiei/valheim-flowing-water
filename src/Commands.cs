@@ -9,15 +9,15 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
 
     private static bool _registered;
 
-    // The server's CommandsForEveryone, as it told this player's game; null until it has.
-    private static bool? _serverSaysEveryone;
+    // Who may use the command: the server's CommandsForEveryone, as it told this player's game.
+    private static readonly CommandRights Rights = new();
 
     public static void Register()
     {
@@ -38,16 +38,12 @@ internal static class Commands
     {
         if (!net.IsServer())
         {
-            _serverSaysEveryone = null;
-            rpc.Register<bool>(EveryoneRpc, (_, everyone) => _serverSaysEveryone = everyone);
+            Rights.Joining();
+            rpc.Register<bool>(EveryoneRpc, (_, everyone) => Rights.Told(everyone));
             return;
         }
 
-        // Refused (a wrong password, a full server...), the peer is not ready.
-        if (net.GetPeers().Find(p => p.m_rpc == rpc) is { } peer && peer.IsReady())
-        {
-            rpc.Invoke(EveryoneRpc, FlowingWaterPlugin.Settings.CommandsForEveryone.Value);
-        }
+        CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
     }
 
     /// <summary>The server's CommandsForEveryone changed: every player's game is told.</summary>
@@ -58,14 +54,10 @@ internal static class Commands
             return;
         }
 
-        foreach (ZNetPeer peer in ZNet.instance.GetPeers())
-        {
-            if (peer.IsReady())
-            {
-                peer.m_rpc.Invoke(EveryoneRpc, FlowingWaterPlugin.Settings.CommandsForEveryone.Value);
-            }
-        }
+        CommandRights.Tell(ZNet.instance.GetPeers(), p => p.IsReady(), TellOne);
     }
+
+    private static void TellOne(ZNetPeer peer) => peer.m_rpc.Invoke(EveryoneRpc, FlowingWaterPlugin.Settings.CommandsForEveryone.Value);
 
     // An exception out of a console command reaches Unity's event system, whose logging of it has
     // crashed the game outright; it is logged here instead, with its message on the console.
@@ -92,13 +84,9 @@ internal static class Commands
             return;
         }
 
-        // The host (or a game alone) and the server's admins always may; other players as the server's
-        // CommandsForEveryone says, not their own.
-        if (!ZNet.instance.LocalPlayerIsAdminOrHost() && _serverSaysEveryone != true)
+        if (Rights.Refusal(ZNet.instance.LocalPlayerIsAdminOrHost()) is { } refusal)
         {
-            terminal.AddString(_serverSaysEveryone == null
-                ? "flowingwater: the server has not said whether everyone may use it (is the mod on the server?); its admins may"
-                : "flowingwater: only the server's admins may use it (CommandsForEveryone is off on the server)");
+            terminal.AddString(refusal);
             return;
         }
 
@@ -158,12 +146,12 @@ internal static class Commands
         }
     }
 
-    // flowingwater mat still|stream <property> [value | r g b [a]]
+    // flowingwater mat custom|still <property> [value | r g b [a]]
     private static string Tune(Terminal.ConsoleEventArgs args)
     {
         if (args.Length < 4)
         {
-            return "mat custom|still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+            return "mat custom|still <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
         }
 
         string kind = args.Args[2].ToLowerInvariant();
@@ -228,7 +216,7 @@ internal static class Commands
         }
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
-            + (rate > VoxelServer.MaxRate ? $" (the server holds it to {VoxelServer.MaxRate:0} m³/s)" : string.Empty)
+            + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
     }
 

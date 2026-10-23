@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,7 +16,7 @@ namespace FlowingWater.Server;
 /// reaches it. Each brick with water is kept in a FlowingWater_Brick object, which the game saves with the world and
 /// sends to the players near it. The water of the column tiles before (FlowingWater_Tile) is moved into voxels once.
 /// </summary>
-internal sealed class VoxelServer
+internal sealed class VoxelServer : IBrickWorld<ZDOID>
 {
     // Longest frame stepped at once, seconds: a hitch is let go rather than stepped in one long go.
     private const float LongestFrame = 0.25f;
@@ -36,25 +35,13 @@ internal sealed class VoxelServer
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
-    // The farthest a drain reaches, metres: as far as the DefaultDrainRadius setting allows.
-    private const float MaxDrainRadius = 16f;
-
-    // The most a source gives or a drain takes, cubic metres a second: fifty springs of the default rate, a big river.
-    // A marker holds whatever rate a player's game wrote into it: a billion filled every brick MaxBricks allows within
-    // a frame, while at this rate a thousand bricks of 1 m voxels take half a day to fill.
-    internal const float MaxRate = 100f;
-
     private readonly ZoneTerrain _terrain = new();
 
     private readonly GameSolids _solids;
 
     private readonly SolidsWatch _watch;
 
-    // Each brick's object, by its id: the game hands a destroyed object's ZDO out again as another object, so a ZDO
-    // kept from frame to frame may be someone else's by now.
-    private readonly Dictionary<long, ZDOID> _objects = [];
-
-    private readonly Dictionary<long, (Brick Brick, int Changes, int Hash)> _sent = [];
+    private readonly BrickObjects<ZDOID> _objects;
 
     private readonly List<Source> _markers = [];
 
@@ -113,17 +100,11 @@ internal sealed class VoxelServer
 
     private float _droppedInAll;
 
-    // The points water was poured at that had no room, each told of once, until it has room again or no source pours
-    // there any more.
-    private readonly HashSet<Vector3> _noRoom = [];
+    // The points water was poured at that had no room, each told of once.
+    private readonly NoRoom<Vector3> _noRoom = new(FlowingWaterPlugin.Log.LogWarning);
 
-    // The markers (by object) and fixed sources and drains (by their text) whose rate was held to MaxRate, each told
-    // of once.
-    private readonly HashSet<string> _rateCapped = [];
-
-    // The markers (by object) and fixed sources and drains (by their text) left out for a rate or a text that is not
-    // usable, each told of once: they are looked for again every MarkerScanSeconds.
-    private readonly HashSet<string> _ignored = [];
+    // What a source's or drain's rate and reach may be, each one held or left out told of once.
+    private readonly MarkerRules _rates = new(FlowingWaterPlugin.Log.LogWarning);
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
@@ -135,6 +116,7 @@ internal sealed class VoxelServer
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
         _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
+        _objects = new BrickObjects<ZDOID>(this);
         NewGrid(SettingVoxelSize());
     }
 
@@ -294,72 +276,8 @@ internal sealed class VoxelServer
     {
         FinishStep();
         _sendWatch.Start();
-        var kept = new HashSet<long>();
-        foreach (Brick brick in _grid.Bricks)
-        {
-            long key = VoxelGrid.Key(brick.X, brick.Y, brick.Z);
-            if (Send(brick, key))
-            {
-                kept.Add(key);
-            }
-        }
-
-        foreach (long key in _objects.Keys.Where(k => !kept.Contains(k)).ToList())
-        {
-            if (Live(_objects[key]) is { } zdo)
-            {
-                DestroyZdo(zdo);
-            }
-
-            _objects.Remove(key);
-            _sent.Remove(key);
-        }
-
+        _sentCount += _objects.Publish(_grid.Bricks, _grid.VoxelSize);
         _sendWatch.Stop();
-    }
-
-    // Sends a brick's water if it changed since last sent; false when it holds none (its object goes). A brick
-    // unchanged since (a still pool asleep) is neither read nor packed again; one made again at the same place since
-    // (forgotten dry, then wet again) is another brick.
-    private bool Send(Brick brick, long key)
-    {
-        bool live = _objects.TryGetValue(key, out ZDOID known) && Live(known) != null;
-        bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash) was) && was.Brick == brick;
-        if (live && sent && was.Changes == brick.Changes)
-        {
-            return true;
-        }
-
-        if (!Array.Exists(brick.Water, w => w > Brick.Dry))
-        {
-            return false;
-        }
-
-        byte[] data = BrickData.Encode(brick, _grid.VoxelSize);
-        int hash = Hash(data);
-        if (!live || !sent || was.Hash != hash)
-        {
-            Object(brick, key).Set(ZdoKeys.Brick, data);
-            _sentCount++;
-        }
-
-        _sent[key] = (brick, brick.Changes, hash);
-        return true;
-    }
-
-    // Every brick's object destroyed and forgotten.
-    private void DropObjects()
-    {
-        foreach (ZDOID id in _objects.Values)
-        {
-            if (Live(id) is { } zdo)
-            {
-                DestroyZdo(zdo);
-            }
-        }
-
-        _objects.Clear();
-        _sent.Clear();
     }
 
     /// <summary>Stops listening to the world (it closes).</summary>
@@ -373,25 +291,24 @@ internal sealed class VoxelServer
         _solver = new VoxelSolver(_grid);
     }
 
-    // The brick's object, made (or made again, if something removed it) where the brick is. The game gives it to a
-    // player near it, as it does every object; it is written as it is: the game sends what the server writes to every
-    // player near, its owner too, by the data's revision, and the brick's owner never writes it. Taking it back each
-    // time made it go to and fro, the whole object sent again each time it changed hands.
-    private ZDO Object(Brick brick, long key)
-    {
-        if (_objects.TryGetValue(key, out ZDOID id) && Live(id) is { } zdo)
-        {
-            return zdo;
-        }
+    // A ZDO kept from frame to frame may be someone else's by now: the game hands a destroyed object's ZDO out again.
+    // Its id is not: the game never gives out an id twice, so a destroyed object's id finds none. Its prefab is looked
+    // at too, should anything have made the object something else.
+    bool IBrickWorld<ZDOID>.IsBrick(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash;
 
+    ZDOID IBrickWorld<ZDOID>.Make(Brick brick)
+    {
         float span = Brick.Size * _grid.VoxelSize;
-        ZDO made = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
-        _objects[key] = made.m_uid;
-        return made;
+        return NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash).m_uid;
     }
 
-    // A brick's object, if it is still there and still a brick (null when something else destroyed it).
-    private static ZDO Live(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash ? zdo : null;
+    // The game gives a brick's object to a player near it, as it does every object; it is written as it is: the game
+    // sends what the server writes to every player near, its owner too, by the data's revision, and the brick's owner
+    // never writes it. Taking it back each time made it go to and fro, the whole object sent again each time it
+    // changed hands.
+    void IBrickWorld<ZDOID>.Write(ZDOID id, byte[] data) => ZDOMan.instance.GetZDO(id).Set(ZdoKeys.Brick, data);
+
+    void IBrickWorld<ZDOID>.Destroy(ZDOID id) => DestroyZdo(ZDOMan.instance.GetZDO(id));
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without one is saved
     // but can never be found again by prefab.
@@ -410,17 +327,6 @@ internal sealed class VoxelServer
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
         ZDOMan.instance.DestroyZDO(zdo);
-    }
-
-    private static int Hash(byte[] data)
-    {
-        int hash = data.Length;
-        foreach (byte b in data)
-        {
-            hash = unchecked((hash * 31) + b);
-        }
-
-        return hash;
     }
 
     // The bricks saved with the world, and the column tiles of before, moved into voxels.
@@ -537,21 +443,15 @@ internal sealed class VoxelServer
         float total = 0f;
         foreach (ZDO zdo in All(Prefabs.TileName))
         {
-            var data = new TileData(ZoneSystem.GetZone(zdo.GetPosition()));
             byte[] bytes = zdo.GetByteArray(ZdoKeys.Data);
             if (bytes == null)
             {
                 FlowingWaterPlugin.Log.LogInfo($"Water tile {zdo.m_uid}: empty, removed");
             }
-            else if (!data.Decode(bytes))
-            {
-                // Decode said why.
-                FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable, removed; its water is lost");
-            }
-            else
+            else if (TileWater(zdo, bytes) is { } water)
             {
                 // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
-                if (PourAll(TileWater(data)) is not { } poured)
+                if (PourAll(water) is not { } poured)
                 {
                     FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); kept, not drawn, to try again at the next start"));
                     continue;
@@ -560,27 +460,41 @@ internal sealed class VoxelServer
                 total += poured;
             }
 
+            // An unreadable tile (TileWater told of it) is removed too: its water is lost.
             DestroyZdo(zdo);
         }
 
         return total;
     }
 
-    // An old column tile's water: each cell's, at the ground in its middle.
-    private List<(Vector3 Point, float Volume)> TileWater(TileData data)
+    // An old column tile's water: each cell's, at the ground in its middle; null (told of) when its data is unreadable.
+    private List<(Vector3 Point, float Volume)> TileWater(ZDO zdo, byte[] bytes)
     {
-        float area = data.CellSize * data.CellSize;
-        var water = new List<(Vector3 Point, float Volume)>();
-        for (int z = 0; z < data.Size; z++)
+        float[] depths;
+        int side;
+        try
         {
-            for (int x = 0; x < data.Size; x++)
+            depths = ColumnTile.Depths(bytes, out side);
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable ({e.Message}), removed; its water is lost");
+            return null;
+        }
+
+        Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
+        float cell = (float)TileData.ZoneMetres / side;
+        var water = new List<(Vector3 Point, float Volume)>();
+        for (int z = 0; z < side; z++)
+        {
+            for (int x = 0; x < side; x++)
             {
-                float depth = data.Depth[data.Index(x, z)];
+                float depth = depths[(z * side) + x];
                 if (depth > 0f)
                 {
-                    float wx = data.WorldX(x);
-                    float wz = data.WorldZ(z);
-                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * area));
+                    float wx = TileData.OriginX(zone) + (x * cell);
+                    float wz = TileData.OriginZ(zone) + (z * cell);
+                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * cell * cell));
                 }
             }
         }
@@ -647,7 +561,7 @@ internal sealed class VoxelServer
 
         // The bricks are cut differently now: a key of the old grid is another place in the new one.
         _refusedSize = 0f;
-        DropObjects();
+        _objects.Drop();
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
     }
 
@@ -656,19 +570,15 @@ internal sealed class VoxelServer
     {
         if (Room(point, out int x, out int y, out int z))
         {
-            if (_noRoom.Count > 0)
-            {
-                _noRoom.Remove(point);
-            }
-
+            _noRoom.Room(point);
             return _grid.Pour(x, y, z, cubicMetres);
         }
 
         // The brick cap is told of once (WarnCapped); a point solid all the way up (or past the grid's reach), once
         // until it has room again.
-        if (!_grid.Capped && _noRoom.Add(point))
+        if (!_grid.Capped)
         {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: no room over {point} (solid all the way up, or past the grid's reach); its water is dropped"));
+            _noRoom.Add(point);
         }
 
         return false;
@@ -780,7 +690,7 @@ internal sealed class VoxelServer
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
         CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
-        _noRoom.RemoveWhere(point => !_markers.Exists(m => !m.Drain && PourPoint(m) == point));
+        _noRoom.Pouring(point => _markers.Exists(m => !m.Drain && PourPoint(m) == point));
         if (_markers.Count != before)
         {
             FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
@@ -799,81 +709,21 @@ internal sealed class VoxelServer
                 continue;
             }
 
-            // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
-            float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
-            float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
-            if (Usable(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()))
+            float radius = drain ? MarkerRules.Reach(zdo.GetFloat(ZdoKeys.Radius, defaultRadius)) : 0f;
+            if (_rates.TryRate(zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString(), out float rate))
             {
-                _markers.Add(new Source(zdo.GetPosition(), Capped(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()), drain, radius));
+                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
             }
         }
     }
 
-    // "x,z,rate; x,z,rate" from the config, drains with an optional radius: "x,z,rate,radius"; on the ground there.
+    // The config's fixed sources or drains, on the ground there.
     private void CollectFixed(string list, bool drain)
     {
-        foreach (string item in list.Split(';'))
+        foreach ((float x, float z, float rate, float radius) in _rates.Fixed(list, drain, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value))
         {
-            string trimmed = item.Trim();
-            if (trimmed.Length == 0)
-            {
-                continue;
-            }
-
-            string[] parts = trimmed.Split(',');
-            float radius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
-            if (parts.Length < 3 || parts.Length > (drain ? 4 : 3)
-                || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
-                || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
-                || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate)
-                || (parts.Length == 4 && (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out radius) || radius <= 0f)))
-            {
-                if (_ignored.Add(trimmed))
-                {
-                    FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
-                }
-
-                continue;
-            }
-
-            if (Usable(rate, drain, trimmed, trimmed))
-            {
-                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), Capped(rate, drain, trimmed, trimmed), drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
-            }
+            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, radius));
         }
-    }
-
-    // A rate held to MaxRate, told of once for each marker (key) held.
-    private float Capped(float rate, bool drain, string where, string key)
-    {
-        if (rate <= MaxRate)
-        {
-            return rate;
-        }
-
-        if (_rateCapped.Add(key))
-        {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} m³/s is more than the most a source or drain may have; {MaxRate} m³/s used"));
-        }
-
-        return MaxRate;
-    }
-
-    // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more. One that is not is
-    // told of once for each marker (key).
-    private bool Usable(float rate, bool drain, string where, string key)
-    {
-        if (!float.IsNaN(rate) && !float.IsInfinity(rate) && (drain ? rate >= 0f : rate > 0f))
-        {
-            return true;
-        }
-
-        if (_ignored.Add(key))
-        {
-            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
-        }
-
-        return false;
     }
 
     // A top-down map per zone, a character per 2 by 2 metres: '.' dry, then deeper and deeper (all the water over

@@ -32,6 +32,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # Main's own tools/github/merge-of-main.jq (this run is main's push): never a pull request's files.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Update the approved pull requests with auto-merge on
         run: |
           prs=$(gh pr list --base main --state open --limit 100 \
@@ -64,15 +69,14 @@ jobs:
                 sleep 2
               done
               # The new head must be that merge: made by GitHub (committed by web-flow and signed by it), the old
-              # head and a commit of main as parents, nothing else. A push by the author meanwhile would be a head
-              # without that review, not to approve: a commit of theirs with those parents can hold any files.
+              # head and a commit of main as parents, nothing else (tools/github/merge-of-main.jq). A push by the
+              # author meanwhile would be a head without that review, not to approve: a commit of theirs with those
+              # parents can hold any files.
               from_main=
               if [ "$head" != "$sha" ]; then
-                commit=$(gh api "repos/$GH_REPO/commits/$head" \
-                  --jq '"\(.commit.verification.verified) \(.committer.login // "-") \([.parents[].sha] | join(" "))"') || commit=
-                read -r verified committer first second extra <<< "$commit"
-                if [ "$verified" = true ] && [ "$committer" = web-flow ] \
-                  && [ "$first" = "$sha" ] && [ -n "$second" ] && [ -z "$extra" ]; then
+                commit=$(gh api "repos/$GH_REPO/commits/$head") || commit=
+                second=$(jq -r --arg old "$sha" -f tools/github/merge-of-main.jq <<< "$commit") || second=
+                if [ -n "$second" ]; then
                   from_main=$(gh api "repos/$GH_REPO/compare/$second...main" --jq '.status | test("^(identical|ahead)$")') || from_main=
                 fi
               fi

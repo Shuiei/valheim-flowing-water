@@ -13,8 +13,8 @@
 #   server-smoke   the package in a real dedicated server with BepInExPack (tools/server-smoke.sh): it
 #                  loads, simulates a fixed source's water with no error, and loads the saved water again
 #                  after a restart
-#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests); on main, with their
-#                  code coverage, kept for the coverage job
+#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests), the release's
+#                  decisions and this file's wiring; on main, with their code coverage, kept for the coverage job
 #   coverage       on main only, once unit-tests has passed: sends the coverage to Codecov (codecov.yml), which
 #                  fails its own check (codecov/project) under 95% line coverage. A failed test run sends
 #                  nothing, so Codecov never shows the coverage of part of the tests. Branches and pull
@@ -155,6 +155,10 @@ jobs:
     executor: dotnet
     steps:
       - checkout
+      # The approved pull requests' check (tools/github/merge-of-main.jq) is run by the tests as the workflow runs it.
+      - run:
+          name: jq
+          command: apt-get update -qq && apt-get install -y -qq jq > /dev/null
       - run:
           name: Unit tests
           command: |
@@ -287,27 +291,10 @@ jobs:
             curl -fsSLO "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_linux_amd64.tar.gz"
             curl -fsSL "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_checksums.txt" | grep "gh_${gh}_linux_amd64.tar.gz" | sha256sum -c -
             tar -xzf "gh_${gh}_linux_amd64.tar.gz" -C /usr/local --strip-components=1
+      # A rerun after the release was made stops here, on to the mod sites (tools/release/still-to-release.sh).
       - run:
           name: Still to be released
-          command: |
-            git fetch -q --tags origin
-            version=$(tr -d '[:space:]' < VERSION)
-            ls /tmp/dist/FlowingWater-$version.zip
-            if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
-              # Released from this commit already, its zip on it: a rerun, on to the mod sites. Tagged elsewhere,
-              # or a release without its zip, is for the maintainer to look at.
-              tagged=$(git rev-parse "v$version^{commit}")
-              if [ "$tagged" != "$CIRCLE_SHA1" ]; then
-                echo "v$version is tagged already, on $tagged, not on $CIRCLE_SHA1 (released from another pipeline?)."; exit 1
-              fi
-              assets=$(GH_TOKEN=$GITHUB_TOKEN gh release view "v$version" --repo "$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" --json assets --jq '.assets[].name') \
-                || { echo "v$version is tagged on this commit but GitHub has no release for it: make it by hand."; exit 1; }
-              if ! printf '%s\n' "$assets" | grep -qxF "FlowingWater-$version.zip"; then
-                echo "The GitHub release v$version has no FlowingWater-$version.zip: add it by hand."; exit 1
-              fi
-              echo "v$version is released on GitHub already, from this commit: nothing more to do here."
-              circleci-agent step halt
-            fi
+          command: tools/release/still-to-release.sh /tmp/dist
       - run:
           name: The release notes
           command: |
@@ -360,7 +347,8 @@ jobs:
 workflows:
   # Side by side once the game's DLLs are there; the smoke test waits for the package. Main's ruleset
   # requires code-analysis, formatting, package, server-smoke and unit-tests of a pull request: it must stay
-  # in step with this list (and with release-pr's below). Every branch runs the whole of the unit tests.
+  # in step with this list (and with release-pr's below; the unit tests' CircleCiTests hold the list too). Every
+  # branch runs the whole of the unit tests.
   test:
     when:
       and:

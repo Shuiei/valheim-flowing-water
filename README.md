@@ -31,7 +31,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
-| `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
+| `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
 
 Who may use the command: the host (and a player alone) and the server's admins (its `adminlist.txt`) always;
 other players while the server's `CommandsForEveryone` is on. The server's setting counts, not the player's: the
@@ -41,7 +41,8 @@ and the drain come later.
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
 add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
-100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once.
+100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once; a drain of rate 0 still takes
+everything that reaches it.
 
 ## Settings
 
@@ -144,8 +145,10 @@ there to the new grid (same volume), at the next start or at once with a config 
   write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
   m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
   where it slows. The server's debug map reports what each zone cut and laid down.
-- **White water.** The running water's sound and spray were made for the column water; they are silent on the
-  3D water until they come back on it in a later version.
+- **White water.** The running water's sound and spray were made for the column water and went with its drawing;
+  the 3D water is silent and sprays nothing until they come back on it in a later version (`Spray` and
+  `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
+  material's, and do nothing on the 3D water.
 - **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
   with no water over it, its corners at the mean level of the tops beside them (a pool lies flat, a stream slopes
   smoothly, the edge fades where fewer columns hold water), and the sides of the water where it borders a voxel
@@ -223,7 +226,9 @@ Thunderstore, with every analyzer warning an error (**code-analysis**); checks t
 `thunderstore/build.sh`); and runs it in a real dedicated server (**server-smoke**,
 `tools/server-smoke.sh`): it loads, a fixed source's water fills a zone with no error, and the saved
 water comes back after a restart. It also runs the whole of the unit tests on every branch (**unit-tests**,
-`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`). On
+`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`; the
+release's decisions, `tools/release/ReleaseRules` and `tools/release/still-to-release.sh`; and this pipeline's wiring,
+read from `.circleci/continue.yml`, which the ruleset's list below must match). On
 main only, the unit tests run with their code coverage, which the **coverage** job sends to
 [Codecov](https://app.codecov.io/gh/Shuiei/valheim-flowing-water) once they pass; Codecov's check fails under
 95% of the rules' lines (`codecov.yml`, `tests/coverage.runsettings`). Main's ruleset requires five checks of a
