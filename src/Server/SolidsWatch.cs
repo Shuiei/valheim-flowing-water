@@ -89,6 +89,7 @@ internal sealed class SolidsWatch
             _timer = 0f;
             HashSet<Vector2s> zones = Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest) + grid.VoxelSize);
             zones.UnionWith(_solids.FarZones);
+            Keep(zones);
             _scan.Start(zones);
         }
 
@@ -118,6 +119,22 @@ internal sealed class SolidsWatch
         _changed.Clear();
         _regions.Clear();
         return refilled;
+    }
+
+    // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their ground, their
+    // solids and heights. A brick there again reads them anew.
+    private void Keep(HashSet<Vector2s> zones)
+    {
+        var keys = new HashSet<long>();
+        foreach (Vector2s zone in zones)
+        {
+            keys.Add(TileData.Key(zone));
+        }
+
+        ZoneCache.Keep(_pieces, keys);
+        ZoneCache.Keep(_ground, keys);
+        _solids.Keep(keys);
+        _terrain.Keep(keys);
     }
 
     private void Destroyed(ZDO zdo)

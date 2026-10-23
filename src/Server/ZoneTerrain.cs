@@ -8,7 +8,8 @@ namespace FlowingWater.Server;
 /// <summary>
 /// Ground heights per zone for the server, anywhere in the world and with no zone loaded: the
 /// world generator's heights as the game's heightmap builder makes them, plus the players' terrain
-/// changes read from the zone's terrain-changes object (the same deltas and limits the game applies).
+/// changes read from the zone's terrain-changes object (the same deltas and limits the game applies). The generated
+/// heights are made once a zone, the changes applied again on them when they move on.
 /// </summary>
 internal sealed class ZoneTerrain
 {
@@ -65,6 +66,9 @@ internal sealed class ZoneTerrain
         return Mathf.Lerp(south, north, fz);
     }
 
+    /// <summary>Forgets the zones not among these (by <see cref="TileData.Key"/>): they are made again when read.</summary>
+    public void Keep(HashSet<long> zones) => ZoneCache.Keep(_zones, zones);
+
     /// <summary>Rebuilds the zones whose terrain changes moved on since they were read.</summary>
     public void Refresh()
     {
@@ -81,7 +85,7 @@ internal sealed class ZoneTerrain
         }
     }
 
-    private static void ApplyChanges(ZDO changes, float[] heights, List<float> baseHeights, Vector2s zone)
+    private static void ApplyChanges(ZDO changes, float[] heights, float[] baseHeights, Vector2s zone)
     {
         byte[] bytes = changes.GetByteArray(ChangesHash);
         if (bytes == null)
@@ -128,26 +132,30 @@ internal sealed class ZoneTerrain
     private void Build(Vector2s zone, Entry entry)
     {
         entry.Zone = zone;
-        Vector3 center = ZoneSystem.GetZonePos(zone);
-        HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
-        List<float> baseHeights = data.m_baseHeights;
-        if (baseHeights.Count != Vertices)
+        // The generated heights never change: the heightmap builder, which waits for its thread, is asked once.
+        if (!entry.Generated)
         {
-            FlowingWaterPlugin.Log.LogError($"Zone {zone}: the heightmap builder gave {baseHeights.Count} vertices, expected {Vertices}");
-            return;
+            Vector3 center = ZoneSystem.GetZonePos(zone);
+            HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
+            List<float> baseHeights = data.m_baseHeights;
+            if (baseHeights.Count != Vertices)
+            {
+                FlowingWaterPlugin.Log.LogError($"Zone {zone}: the heightmap builder gave {baseHeights.Count} vertices, expected {Vertices}");
+                return;
+            }
+
+            baseHeights.CopyTo(entry.Base);
+            entry.Generated = true;
         }
 
-        for (int i = 0; i < Vertices; i++)
-        {
-            entry.Heights[i] = baseHeights[i];
-        }
+        Array.Copy(entry.Base, entry.Heights, Vertices);
 
         ZDO changes = FindChanges(zone);
         entry.Changes = changes == null ? ZDOID.None : changes.m_uid;
         entry.Revision = changes == null ? 0 : changes.DataRevision;
         if (changes != null)
         {
-            ApplyChanges(changes, entry.Heights, baseHeights, zone);
+            ApplyChanges(changes, entry.Heights, entry.Base, zone);
         }
 
         entry.Version++;
@@ -171,6 +179,11 @@ internal sealed class ZoneTerrain
     private sealed class Entry
     {
         public float[] Heights { get; } = new float[Vertices];
+
+        // The generated heights, once made.
+        public float[] Base { get; } = new float[Vertices];
+
+        public bool Generated { get; set; }
 
         public Vector2s Zone { get; set; }
 
