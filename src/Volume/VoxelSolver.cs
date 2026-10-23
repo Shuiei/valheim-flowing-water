@@ -705,6 +705,8 @@ internal sealed class VoxelSolver
         brick.WetLow = (lx, ly, lz);
         brick.WetHigh = (hx, hy, hz);
 
+        // Its water may be sent while the step goes on (a part at a time): the change is counted when it is made too.
+        brick.Changes++;
         brick.Quiet = strongest < SleepingFlow * s * s * s ? brick.Quiet + dt : 0f;
     }
 

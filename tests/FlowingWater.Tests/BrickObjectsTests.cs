@@ -10,7 +10,8 @@ namespace FlowingWater.Tests;
 /// <summary>
 /// The bricks' objects: a changed brick written, an unchanged one left, a dry or gone one's object destroyed; an object
 /// destroyed by something else never written nor destroyed, its brick given a new one; a failure while the
-/// water is packed leaving every object as last sent, and everything sent the next time.
+/// water is packed leaving every object as last sent, and everything sent the next time; a send spread over calls
+/// writing nothing until every brick is packed, and given up for a whole send.
 /// </summary>
 public class BrickObjectsTests
 {
@@ -159,6 +160,77 @@ public class BrickObjectsTests
         // Unchanged, the bricks are still sent: their objects are gone.
         Assert.Equal(2, objects.Publish(bricks, VoxelSize));
         Assert.Equal([3, 4], world.Objects.Keys.Order());
+    }
+
+    [Fact]
+    public void ASendSpreadOverCallsWritesNothingUntilEveryBrickIsPacked()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick[] bricks = [Wet(0, 0, 0, 0.5f), Wet(1, 0, 0, 0.5f), Wet(2, 0, 0, 0.5f)];
+        objects.Publish(bricks, VoxelSize);
+        foreach (Brick brick in bricks)
+        {
+            brick.Water[0] = 0.8f;
+            brick.Changes++;
+        }
+
+        // A brick a call.
+        objects.Start(bricks);
+        Assert.Equal(0, objects.Send(VoxelSize, () => false));
+        Assert.Equal(0, objects.Send(VoxelSize, () => false));
+        Assert.True(objects.Sending);
+        Assert.All(world.Objects.Keys, id => Assert.Equal(0.5f, Water(world, id), 2));
+
+        // The first brick changes again after it was packed: sent as packed now, and again the next time.
+        bricks[0].Water[0] = 0.3f;
+        bricks[0].Changes++;
+        Assert.Equal(3, objects.Send(VoxelSize, () => false));
+        Assert.False(objects.Sending);
+        Assert.All(world.Objects.Keys, id => Assert.Equal(0.8f, Water(world, id), 2));
+
+        Assert.Equal(1, objects.Publish(bricks, VoxelSize));
+        Assert.Equal(0.3f, Water(world, 1), 2);
+    }
+
+    [Fact]
+    public void AWholeSendGivesUpTheOneUnderWay()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick going = Wet(0, 0, 0, 0.5f), staying = Wet(1, 0, 0, 0.5f);
+        objects.Publish([going, staying], VoxelSize);
+
+        // A send of both under way; the world is saved with one gone meanwhile: its object goes, and nothing is left
+        // to the send given up.
+        staying.Water[0] = 0.8f;
+        staying.Changes++;
+        objects.Start([going, staying]);
+        objects.Send(VoxelSize, () => false);
+
+        Assert.Equal(1, objects.Publish([staying], VoxelSize));
+        Assert.False(objects.Sending);
+        Assert.Equal([1], world.Destroyed);
+        Assert.Equal(0, objects.Send(VoxelSize, () => true));
+        Assert.Equal([1], world.Destroyed);
+    }
+
+    [Fact]
+    public void AFailureGivesUpASpreadSend()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick[] bricks = [Wet(0, 0, 0, 0.5f), Wet(1, 0, 0, 0.5f)];
+        objects.Publish(bricks, VoxelSize);
+        bricks[1].Water[0] = 0.8f;
+        bricks[1].Changes++;
+
+        objects.Start(bricks);
+        objects.Send(VoxelSize, () => false);
+        world.Failing = 2;
+        Assert.Throws<InvalidOperationException>(() => objects.Send(VoxelSize, () => false));
+        Assert.False(objects.Sending);
+        Assert.Equal([1, 2], world.Written);
     }
 
     private static Brick Wet(int x, int y, int z, float water)

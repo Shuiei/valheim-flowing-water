@@ -387,6 +387,33 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterChangedByAStepTakenAPartAtATimeCountsAChangeEachTime()
+    {
+        // The water may be sent between two parts: once it changed, so has the count, whichever part changed it.
+        VoxelGrid grid = Box();
+        grid.Pour(3, 6, 3, 20f);
+        var solver = new VoxelSolver(grid);
+        Brick brick = grid.Find(0, 0, 0);
+        float[] seen = [.. brick.Water];
+        int changes = brick.Changes, changed = 0;
+        for (int call = 0; call < 200; call++)
+        {
+            bool once = false;
+            solver.Advance(solver.MaxStep, () => once = !once, 1);
+            if (!brick.Water.SequenceEqual(seen))
+            {
+                changed++;
+                Assert.NotEqual(changes, brick.Changes);
+            }
+
+            seen = [.. brick.Water];
+            changes = brick.Changes;
+        }
+
+        Assert.True(changed > 10, $"{changed} changes");
+    }
+
+    [Fact]
     public void AStepTooLongForTheDeepWaterItFindsIsNotTaken()
     {
         // A pool 24.5 voxels deep, never stepped: a step as long as shallow water allows finds it and is not taken.

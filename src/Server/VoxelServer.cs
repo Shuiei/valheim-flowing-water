@@ -32,6 +32,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     // The most of a frame looking for sources and drains may take, milliseconds (a part at least).
     private const double MarkerBudget = 0.5;
 
+    // The most of a frame packing bricks to send may take, milliseconds (a brick at least).
+    private const double SendBudget = 2.0;
+
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
@@ -81,6 +84,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private readonly Stopwatch _sendWatch = new();
 
+    private readonly Stopwatch _sendClock = new();
+
+    private readonly Func<bool> _sendTimeLeft;
+
     private int _sentCount;
 
     private VoxelGrid _grid;
@@ -119,6 +126,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         _solids = new GameSolids(_terrain, _parts);
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
+        _sendTimeLeft = () => _sendClock.Elapsed.TotalMilliseconds < SendBudget;
         _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
         _objects = new BrickObjects<ZDOID>(this);
         NewGrid(SettingVoxelSize());
@@ -188,17 +196,26 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        // Work that waited for a step under way, or a send due within this frame, gets its end: no new step is begun.
-        // A send due exactly at its end does not count, or frames as long as SendSeconds would never step.
-        Step(dt, _waited > 0f || _sendTimer + dt > FlowingWaterPlugin.Settings.SendSeconds.Value);
+        // Work that waited for a step under way gets its end: no new step is begun.
+        Step(dt, _waited > 0f);
         WarnCapped();
 
+        // A send is spread over frames, a few bricks packed in each, and may go on while a step is under way (a brick
+        // whose water the step changes after it was packed counts a change, and is sent again next time).
         _sendTimer += dt;
-        if (_sendTimer >= FlowingWaterPlugin.Settings.SendSeconds.Value && !_solver.InStep)
+        if (_sendTimer >= FlowingWaterPlugin.Settings.SendSeconds.Value && !_objects.Sending)
         {
             _sendTimer = 0f;
+            _objects.Start(_grid.Bricks);
+        }
+
+        if (_objects.Sending)
+        {
             _parts.Into(WaterPart.Send);
-            Publish();
+            _sendWatch.Start();
+            _sendClock.Restart();
+            _sentCount += _objects.Send(_grid.VoxelSize, _sendTimeLeft);
+            _sendWatch.Stop();
             _parts.Into(WaterPart.Other);
         }
 
@@ -301,7 +318,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
     }
 
-    /// <summary>Sends every changed brick now (the world is about to be saved), and forgets dry ones.</summary>
+    /// <summary>
+    /// Sends every changed brick now, all as they are at once (the world is about to be saved), and forgets dry ones;
+    /// a send spread over frames under way is given up for it.
+    /// </summary>
     public void Publish()
     {
         FinishStep();
