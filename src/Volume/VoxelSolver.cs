@@ -57,6 +57,9 @@ internal sealed class VoxelSolver
 
     private static readonly Func<bool> Always = () => true;
 
+    // Each phase's part of the frame's time.
+    private static readonly WaterPart[] Parts = [WaterPart.Other, WaterPart.Heads, WaterPart.Flows, WaterPart.Shares, WaterPart.Scale, WaterPart.Apply];
+
     // A brick's last index along a row, and the index steps a row and a layer.
     private const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
 
@@ -85,10 +88,14 @@ internal sealed class VoxelSolver
     // What tells the step under way whether the frame has time left (new bricks are made only while it has).
     private Func<bool> _stepTimeLeft = Always;
 
-    /// <summary>A solver for this grid.</summary>
-    public VoxelSolver(VoxelGrid grid)
+    // Where the frame's time goes: the step's beginning, each phase, the bricks made after it.
+    private readonly FrameParts _parts;
+
+    /// <summary>A solver for this grid, its time told apart in <paramref name="parts"/> when given.</summary>
+    public VoxelSolver(VoxelGrid grid, FrameParts parts = null)
     {
         _grid = grid;
+        _parts = parts ?? new FrameParts();
     }
 
     /// <summary>Whether a step is under way (<see cref="Advance"/> stopped in it): the grid must not change.</summary>
@@ -171,6 +178,21 @@ internal sealed class VoxelSolver
     // (everything sleeps or is dry).
     private bool Begin()
     {
+        WaterPart was = _parts.Into(WaterPart.Begin);
+        bool any = Gather();
+        _parts.Into(was);
+        if (!any)
+        {
+            MakeWanted();
+            return false;
+        }
+
+        return true;
+    }
+
+    // The bricks and columns as they are now, and each brick's part; false when every brick sleeps or is dry.
+    private bool Gather()
+    {
         if (_columnsVersion != _grid.Version)
         {
             _columnsVersion = _grid.Version;
@@ -180,13 +202,15 @@ internal sealed class VoxelSolver
         }
 
         Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
-        if (Array.TrueForAll(_bricks, b => b.PartCount == 0))
-        {
-            _grid.MakeWanted(_stepTimeLeft);
-            return false;
-        }
+        return !Array.TrueForAll(_bricks, b => b.PartCount == 0);
+    }
 
-        return true;
+    // The bricks asked for during the step made, while the frame has time.
+    private void MakeWanted()
+    {
+        WaterPart was = _parts.Into(WaterPart.Made);
+        _grid.MakeWanted(_stepTimeLeft);
+        _parts.Into(was);
     }
 
     // One phase of the step under way, over columns (heads) or bricks from..to.
@@ -194,6 +218,7 @@ internal sealed class VoxelSolver
     {
         float s = _grid.VoxelSize;
         float dt = _length;
+        WaterPart was = _parts.Into(Parts[phase]);
         switch (phase)
         {
             case HeadsPhase:
@@ -213,6 +238,8 @@ internal sealed class VoxelSolver
                 Parallel.For(from, to, k => Apply(_bricks[k], dt, s));
                 break;
         }
+
+        _parts.Into(was);
     }
 
     // A phase done: the next one, or the step's end (null while the step goes on).
@@ -228,7 +255,7 @@ internal sealed class VoxelSolver
         if (_phase == ApplyPhase)
         {
             _phase = Idle;
-            _grid.MakeWanted(_stepTimeLeft);
+            MakeWanted();
             return StepState.Done;
         }
 
@@ -672,6 +699,9 @@ internal sealed class VoxelSolver
         // The wet voxels are all in the part (water only moves into it), so their box is found here.
         brick.WetLow = (lx, ly, lz);
         brick.WetHigh = (hx, hy, hz);
+
+        // Its water may be sent while the step goes on (a part at a time): the change is counted when it is made too.
+        brick.Changes++;
         brick.Quiet = strongest < SleepingFlow * s * s * s ? brick.Quiet + dt : 0f;
     }
 

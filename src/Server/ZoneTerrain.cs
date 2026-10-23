@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using FlowingWater.Volume;
 using UnityEngine;
 
 namespace FlowingWater.Server;
@@ -23,9 +24,13 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     private readonly List<ZDO> _found = [];
 
-    /// <summary>The heights of no zone yet.</summary>
-    public ZoneTerrain()
+    // Where the frame's time goes: asking the game for a zone's heights is a part of its own.
+    private readonly FrameParts _parts;
+
+    /// <summary>The heights of no zone yet, asking the game for them timed in these parts.</summary>
+    public ZoneTerrain(FrameParts parts)
     {
+        _parts = parts;
         _heights = new ZoneHeights<Vector2s, (ZDOID Id, uint Revision)>(this, Pitch * Pitch);
     }
 
@@ -54,6 +59,12 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         return Mathf.Lerp(south, north, fz);
     }
 
+    /// <summary>
+    /// Whether the zone's heights can be read now without waiting on the game's heightmap builder; if not, they are
+    /// asked of it, to be ready at a later call.
+    /// </summary>
+    public bool Ready(Vector2s zone) => _heights.Ready(zone);
+
     /// <summary>Forgets the zones not among these (by <see cref="TileData.Key"/>): they are made again when read.</summary>
     public void Keep(HashSet<long> zones) => _heights.Keep(zones);
 
@@ -63,13 +74,20 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     long IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.Key(Vector2s zone) => TileData.Key(zone);
 
-    // The heightmap builder waits for its thread: asked once a zone.
+    // The heightmap builder waits for its thread, which looks for work every 10 ms: asked once a zone, and once ready
+    // (CanGenerate) where it can wait.
     float[] IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.Generated(Vector2s zone)
     {
+        WaterPart was = _parts.Into(WaterPart.Heightmap);
         Vector3 center = ZoneSystem.GetZonePos(zone);
         HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
-        return [.. data.m_baseHeights];
+        float[] heights = [.. data.m_baseHeights];
+        _parts.Into(was);
+        return heights;
     }
+
+    bool IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.CanGenerate(Vector2s zone) =>
+        HeightmapBuilder.instance.IsTerrainReady(ZoneSystem.GetZonePos(zone), TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
 
     ((ZDOID Id, uint Revision) Stamp, byte[] Data) IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.Changes(Vector2s zone)
     {

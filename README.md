@@ -130,9 +130,12 @@ there to the new grid (same volume), at the next start or at once with a config 
   dedicated server and where no player is. Ground heights come from the world generator as the game's
   heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
   prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
-  every `SendSeconds`, and the game sends it to the players near it. The column water of earlier versions is
-  moved into voxels once, when the world opens (the old tile of a zone whose water finds no room is kept, not
-  drawn, and tried again at the next start).
+  every `SendSeconds` (packed a few blocks a frame, written together once all are; all at once before the world
+  is saved), and the game sends it to the players near it. A step of the water is taken a part of the blocks at a
+  time, the frame's budget looked at between parts, spread over the server's processors; a block
+  whose ground is not generated yet waits a frame or two for it rather than holding the frame. The column water
+  of earlier versions is moved into voxels once, when the world opens (the old tile of a zone whose water finds no
+  room is kept, not drawn, and tried again at the next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,

@@ -137,6 +137,27 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void ABrickWhoseSolidsCannotBeReadYetIsMadeLaterAndHoldsUpNoOther()
+    {
+        bool waiting = true;
+        var grid = new VoxelGrid(1f, new TestSolids(0) { Waiting = (x, _, _) => waiting && x == 0 });
+        grid.Want(0, 0, 0);
+        grid.Want(1, 0, 0);
+
+        // The brick that can be made counts as the one made at least, though the time is out.
+        grid.MakeWanted(() => false);
+        Assert.Null(grid.Find(0, 0, 0));
+        Assert.NotNull(grid.Find(1, 0, 0));
+
+        grid.MakeWanted(() => true);
+        Assert.Null(grid.Find(0, 0, 0));
+
+        waiting = false;
+        grid.MakeWanted(() => false);
+        Assert.NotNull(grid.Find(0, 0, 0));
+    }
+
+    [Fact]
     public void WaterOrSolidsChangedFromOutsideAStepCountAChange()
     {
         var grid = new VoxelGrid(1f, new TestSolids(0));
@@ -385,6 +406,8 @@ public class VoxelGridTests
                 brick.Solid[i] = _solid((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z);
             }
         }
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 
     // Nothing solid, until a piece fills the top row of brick 0.
@@ -397,6 +420,8 @@ public class VoxelGridTests
                 brick.Solid[i] = built() && brick.Y == 0 && Brick.Place(i).Y == Brick.Size - 1 ? 1f : 0f;
             }
         }
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 
     // Nothing solid; reading a brick's solids fails when told to.
@@ -409,6 +434,8 @@ public class VoxelGridTests
                 throw new System.InvalidOperationException("solids could not be read");
             }
         }
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 
     // Whole voxels solid where a function says, nothing else.
@@ -424,5 +451,7 @@ public class VoxelGridTests
                 }
             }
         }
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 }

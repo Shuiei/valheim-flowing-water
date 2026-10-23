@@ -11,6 +11,12 @@ internal interface ISolids
     /// <param name="brick">The new brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
     void Fill(Brick brick, float voxelSize);
+
+    /// <summary>
+    /// Whether a new brick at these brick coordinates can read its solids now without waiting on anything; if not,
+    /// what it needs is asked for, to be ready at a later call.
+    /// </summary>
+    bool Ready(int x, int y, int z, float voxelSize);
 }
 
 /// <summary>
@@ -253,7 +259,8 @@ internal sealed class VoxelGrid
 
     /// <summary>
     /// Makes the bricks asked for during the step while <paramref name="timeLeft"/> says so (one at least: making one
-    /// reads the solids there, which can take a while); the others are made at a later call.
+    /// reads the solids there, which can take a while); the others are made at a later call, as are those whose
+    /// solids cannot be read yet without waiting (<see cref="ISolids.Ready"/>).
     /// </summary>
     public void MakeWanted(Func<bool> timeLeft)
     {
@@ -281,12 +288,20 @@ internal sealed class VoxelGrid
                 return;
             }
 
-            made |= Find(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k])) == null;
+            int x = Unpack(wanted[k] >> 42), y = Unpack(wanted[k] >> 21), z = Unpack(wanted[k]);
+            bool missing = Find(x, y, z) == null;
+            if (missing && !_solids.Ready(x, y, z, VoxelSize))
+            {
+                Want(x, y, z);
+                continue;
+            }
+
+            made |= missing;
             // Should reading its solids fail, it and those after it are asked for again; the failure goes on up.
             bool got = false;
             try
             {
-                Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+                Get(x, y, z);
                 got = true;
             }
             finally

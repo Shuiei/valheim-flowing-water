@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 
 namespace FlowingWater;
 
@@ -10,11 +11,18 @@ internal static class Packed
     /// <summary>What <paramref name="write"/> writes, gzipped.</summary>
     public static byte[] Write(Action<BinaryWriter> write)
     {
-        using var packed = new MemoryStream();
-        using (var gzip = new GZipStream(packed, CompressionMode.Compress, leaveOpen: true))
-        using (var writer = new BinaryWriter(gzip))
+        // Written whole first, then gzipped in one go: written straight into the gzip stream, each of a brick's
+        // thousands of small writes went through the compressor on its own, several times slower.
+        using var raw = new MemoryStream();
+        using (var writer = new BinaryWriter(raw, Encoding.UTF8, leaveOpen: true))
         {
             write(writer);
+        }
+
+        using var packed = new MemoryStream();
+        using (var gzip = new GZipStream(packed, CompressionMode.Compress, leaveOpen: true))
+        {
+            gzip.Write(raw.GetBuffer(), 0, (int)raw.Length);
         }
 
         return packed.ToArray();

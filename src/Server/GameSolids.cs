@@ -26,10 +26,14 @@ internal sealed class GameSolids : ISolids
 
     private readonly List<SolidBox> _near = [];
 
-    /// <summary>Solids over this terrain.</summary>
-    public GameSolids(ZoneTerrain terrain)
+    // Where the frame's time goes: a brick reading its solids is a part of its own, whoever asked for it.
+    private readonly FrameParts _parts;
+
+    /// <summary>Solids over this terrain, their reading timed in these parts.</summary>
+    public GameSolids(ZoneTerrain terrain, FrameParts parts)
     {
         _terrain = terrain;
+        _parts = parts;
     }
 
     /// <summary>The piece shapes used.</summary>
@@ -47,6 +51,7 @@ internal sealed class GameSolids : ISolids
     /// <inheritdoc/>
     public void Fill(Brick brick, float voxelSize)
     {
+        WaterPart was = _parts.Into(WaterPart.Solids);
         SolidRaster.Ground(brick, voxelSize, Ground);
         _near.Clear();
         float span = Brick.Size * voxelSize;
@@ -71,6 +76,27 @@ internal sealed class GameSolids : ISolids
         }
 
         SolidRaster.Pieces(brick, voxelSize, _near, Ground);
+        _parts.Into(was);
+    }
+
+    /// <inheritdoc/>
+    public bool Ready(int x, int y, int z, float voxelSize)
+    {
+        // The ground is read under the brick's columns and one past its far edges: the zones under it, a voxel round.
+        float span = Brick.Size * voxelSize;
+        Vector2s first = ZoneSystem.GetZone(new Vector3((x * span) - voxelSize, 0f, (z * span) - voxelSize));
+        Vector2s last = ZoneSystem.GetZone(new Vector3(((x + 1) * span) + (2f * voxelSize), 0f, ((z + 1) * span) + (2f * voxelSize)));
+        bool ready = true;
+        for (int zz = first.y; zz <= last.y; zz++)
+        {
+            for (int zx = first.x; zx <= last.x; zx++)
+            {
+                // Each is asked for, not only the first missing: they are generated side by side.
+                ready &= _terrain.Ready(new Vector2s(zx, zz));
+            }
+        }
+
+        return ready;
     }
 
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>
