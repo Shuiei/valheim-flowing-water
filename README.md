@@ -19,6 +19,17 @@ waves or splashes. Buildings do not hold water yet: only the terrain does.
 
 ## Placing water
 
+With the **hoe**: among its pieces are a **Water source** and a **Water drain**, free to build. Each goes exactly
+where you aim, on the ground or on anything built (a floor, a wall's top). While one of them is the hoe's piece, a
+panel on the right of the screen shows the rate (m³/s), and for a drain the radius (m), that the next one placed
+takes: **E** lets you change them (the mouse is free and the game takes no keys while you type; **Enter** applies,
+**Esc** or **E** is done). They start from `DefaultSourceRate`, `DefaultDrainRate` and `DefaultDrainRadius` and stay
+as you set them until you quit the game. Looking at a placed one tells what it does; **E** on it (the hoe put away)
+opens the panel to change it. Remove one as any piece, with the hammer's remove.
+
+A source's rate is above 0 and a drain's 0 or more (0 takes everything that reaches it), each 100 m³/s at most: the
+panel holds a higher rate to 100, as the server does, and says so. A drain's radius is 0.25 to 16 m.
+
 Console (F5) command `flowingwater`:
 
 | Command | Does |
@@ -33,10 +44,12 @@ Console (F5) command `flowingwater`:
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
 
-Who may use the command: the host (and a player alone) and the server's admins (its `adminlist.txt`) always;
-other players while the server's `CommandsForEveryone` is on. The server's setting counts, not the player's: the
-server tells each player's game its value when they join, and again when it changes. Hammer pieces for the spring
-and the drain come later.
+Who may use the command, and place, change or remove sources and drains with the hoe: the host (and a player
+alone) and the server's admins (its `adminlist.txt`) always; other players while the server's `CommandsForEveryone`
+is on. The server's setting counts, not the player's: the server tells each player's game its value when they join,
+and again when it changes. The hoe offers the source and the drain only to a player who may; one who may not (where
+the game offers every piece, building costs off) is told why in the middle of the screen, as when changing or
+removing one.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
@@ -62,10 +75,10 @@ everything that reaches it.
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
 | `Server.DebugSeconds` | 0 | Log each zone with water as a map of depths this often (0 = off) |
-| `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
-| `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
-| `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
-| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command (the server's setting counts; the host and admins always may) |
+| `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate (the hoe's panel starts from it) |
+| `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all (the hoe's panel starts from it) |
+| `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres (the hoe's panel starts from it) |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place, change and remove sources and drains (the server's setting counts; the host and admins always may) |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
@@ -215,7 +228,14 @@ waits for it to land. Remove the dll from the client afterwards.
 `FW_REC_AT` (`x,z[,y]|command;...`, standing at `y` when given: on a floor, in a box) and runs the command there;
 `pools` fills and films the pools of a test world (`FW_REC_POOLS`, `x,z,radius,depth;...`) in each look of
 `FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground
-dug once).
+dug once). `hoe` places a source and a drain with the hoe on the gentle slope near the spawn, as a player would
+(keys pressed through the game's input system, values typed into the panel), a drain on a floor it builds, changes
+the source through **E**, removes the drain, and logs each check as a `PASS` or `FAIL` line with shots of each step.
+`perf` measures the water's cost to the game: frame rate, 1 % low, worst frame, the water's own time in the frame,
+its bricks and vertices, garbage collections and memory, with no water, then a stream, a fountain, a cascade and a
+lake filling (each added in turn), then all of them in view; a table in `log.txt` and `perf.csv`. Its places are
+found near the spawn, or given as `FW_REC_PERF` (`x,z,stream|fountain|cascade|lake;...`); each case is measured for
+`FW_REC_PERF_SECONDS` (20) after the water has run `FW_REC_PERF_SPREAD` (30) seconds.
 
 ## Checks
 
