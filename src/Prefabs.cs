@@ -8,7 +8,7 @@ namespace FlowingWater;
 /// <summary>
 /// The plugin's networked objects, made in code (no asset bundle) and added to the game's prefab
 /// list each time a world opens: a water brick per 16-voxel cube with water (and the zone tiles of the column
-/// water before it, read once to move their water over), the source and drain markers, erosion's ground.
+/// water before it, read once to move their water over, never drawn), the source and drain markers, erosion's ground.
 /// </summary>
 internal static class Prefabs
 {
@@ -60,13 +60,9 @@ internal static class Prefabs
         _root.SetActive(false);
         Object.DontDestroyOnLoad(_root);
 
-        GameObject tile = Networked(TileName);
-        tile.AddComponent<MeshFilter>();
-        MeshRenderer renderer = tile.AddComponent<MeshRenderer>();
-        renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = true;
-        tile.AddComponent<WaterTile>();
-        Trigger(tile, new Vector3(TileData.ZoneMetres, 1f, TileData.ZoneMetres));
+        // A column tile left in the world holds water the server could not move into voxels yet (it tries again at
+        // each start): it is kept, not drawn. Drawn, it showed water no one could swim in over the bricks.
+        Networked(TileName);
 
         Networked(SourceName).AddComponent<Marker>().IsDrain = false;
         Networked(DrainName).AddComponent<Marker>().IsDrain = true;

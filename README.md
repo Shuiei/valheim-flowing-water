@@ -112,7 +112,8 @@ there to the new grid (same volume), at the next start or at once with a config 
   heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
   prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
   every `SendSeconds`, and the game sends it to the players near it. The column water of earlier versions is
-  moved into voxels once, when the world opens.
+  moved into voxels once, when the world opens (a zone's that finds no room is kept, not drawn, and tried again at
+  the next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,

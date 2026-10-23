@@ -519,12 +519,21 @@ internal sealed class VoxelServer
         {
             var data = new TileData(ZoneSystem.GetZone(zdo.GetPosition()));
             byte[] bytes = zdo.GetByteArray(ZdoKeys.Data);
-            if (bytes != null && data.Decode(bytes))
+            if (bytes == null)
+            {
+                FlowingWaterPlugin.Log.LogInfo($"Water tile {zdo.m_uid}: empty, removed");
+            }
+            else if (!data.Decode(bytes))
+            {
+                // Decode said why.
+                FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable, removed; its water is lost");
+            }
+            else
             {
                 // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
                 if (PourAll(TileWater(data)) is not { } poured)
                 {
-                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); left as it is"));
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); kept, not drawn, to try again at the next start"));
                     continue;
                 }
 
