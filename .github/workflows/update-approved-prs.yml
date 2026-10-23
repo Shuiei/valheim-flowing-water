@@ -63,20 +63,23 @@ jobs:
                 [ "$head" != "$sha" ] && break
                 sleep 2
               done
-              # The new head must be that merge: the old head and a commit of main as parents, nothing else.
-              # A push by the author meanwhile would be a head without that review, not to approve.
+              # The new head must be that merge: made by GitHub (committed by web-flow and signed by it), the old
+              # head and a commit of main as parents, nothing else. A push by the author meanwhile would be a head
+              # without that review, not to approve: a commit of theirs with those parents can hold any files.
               from_main=
               if [ "$head" != "$sha" ]; then
-                parents=$(gh api "repos/$GH_REPO/commits/$head" --jq '[.parents[].sha] | join(" ")') || parents=
-                read -r first second extra <<< "$parents"
-                if [ "$first" = "$sha" ] && [ -n "$second" ] && [ -z "$extra" ]; then
+                commit=$(gh api "repos/$GH_REPO/commits/$head" \
+                  --jq '"\(.commit.verification.verified) \(.committer.login // "-") \([.parents[].sha] | join(" "))"') || commit=
+                read -r verified committer first second extra <<< "$commit"
+                if [ "$verified" = true ] && [ "$committer" = web-flow ] \
+                  && [ "$first" = "$sha" ] && [ -n "$second" ] && [ -z "$extra" ]; then
                   from_main=$(gh api "repos/$GH_REPO/compare/$second...main" --jq '.status | test("^(identical|ahead)$")') || from_main=
                 fi
               fi
               if [ "$head" = "$sha" ]; then
                 echo "::warning::#$pr: the merge commit did not show within a minute; CodeRabbit was not asked to approve"
               elif [ "$from_main" != true ]; then
-                echo "::warning::#$pr: its new head $head is not only main merged in; CodeRabbit was not asked to approve"
+                echo "::warning::#$pr: its new head $head is not only main merged in by GitHub; CodeRabbit was not asked to approve"
               elif ! gh pr comment "$pr" --body "@coderabbitai approve" > /dev/null; then
                 echo "::warning::#$pr was updated but CodeRabbit could not be asked to approve it again"
               fi
