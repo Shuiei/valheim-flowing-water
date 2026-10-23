@@ -44,8 +44,9 @@ internal static class BrickData
         float carried = 0f;
         for (int i = 0; i < Brick.Count; i++)
         {
-            // A dry voxel takes nothing carried: water rounded off elsewhere does not wet it.
-            if (brick.Water[i] <= 0f)
+            // A dry voxel takes nothing carried: water rounded off elsewhere does not wet it. Nor does one whose water is
+            // not a number: it is kept as none, as it always was.
+            if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
             {
                 continue;
             }
@@ -76,7 +77,10 @@ internal static class BrickData
     });
 
     /// <summary>The brick kept by <see cref="Encode"/>.</summary>
-    /// <exception cref="InvalidDataException">The bytes are not that (or of another version).</exception>
+    /// <exception cref="InvalidDataException">
+    /// The bytes are not that (or of another version), or hold a voxel size or a share of water that is not a number,
+    /// endless, or below 0.
+    /// </exception>
     public static BrickView Decode(byte[] data) => Packed.Read(data, "brick data", reader =>
     {
         byte version = reader.ReadByte();
@@ -86,6 +90,11 @@ internal static class BrickData
         }
 
         var view = new BrickView(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadSingle());
+        if (!(view.VoxelSize > 0f) || float.IsInfinity(view.VoxelSize))
+        {
+            throw new InvalidDataException($"brick data voxel size {view.VoxelSize}");
+        }
+
         byte[] water = reader.ReadBytes(Brick.Count);
         if (water.Length < Brick.Count)
         {
@@ -103,7 +112,13 @@ internal static class BrickData
                 view.VelocityZ[i] = Speed(reader.ReadSByte());
                 if (water[i] == More && version >= FormatVersion)
                 {
-                    view.Water[i] = reader.ReadSingle();
+                    float share = reader.ReadSingle();
+                    if (!(share >= 0f) || float.IsInfinity(share))
+                    {
+                        throw new InvalidDataException($"brick data water {share} in voxel {i}");
+                    }
+
+                    view.Water[i] = share;
                 }
             }
         }

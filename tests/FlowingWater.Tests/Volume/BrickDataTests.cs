@@ -146,6 +146,59 @@ public class BrickDataTests
         Assert.Equal(0.2f, view.Solid[1], 3);
     }
 
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(-2f)]
+    public void WaterThatIsNotANumberOrBelowNothingIsRefused(float share)
+    {
+        // A brick whose first voxel is pressed past the byte's reach, its exact share then made bad.
+        var brick = new Brick(0, 0, 0);
+        brick.Water[0] = 1.5f;
+        BrickView good = BrickData.Decode(BrickData.Encode(brick, 1f));
+        Assert.Equal(1.5f, good.Water[0]);
+
+        byte[] stored = Packed.Write(writer =>
+        {
+            writer.Write((byte)2);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(1f);
+            byte[] water = new byte[Brick.Count];
+            water[0] = 255;
+            writer.Write(water);
+            writer.Write(new byte[4]);
+            writer.Write(share);
+        });
+
+        Assert.Throws<InvalidDataException>(() => BrickData.Decode(stored));
+    }
+
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.NegativeInfinity)]
+    [InlineData(0f)]
+    public void AVoxelSizeThatIsNotOneIsRefused(float size)
+    {
+        Assert.Throws<InvalidDataException>(() => BrickData.Decode(BrickData.Encode(new Brick(0, 0, 0), size)));
+    }
+
+    [Fact]
+    public void WaterThatIsNotANumberIsKeptAsNoneWithoutSpoilingTheRest()
+    {
+        var brick = new Brick(0, 0, 0);
+        brick.Water[0] = float.NaN;
+        brick.Water[1] = float.PositiveInfinity;
+        brick.Water[2] = 0.5f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.Equal(0f, view.Water[0]);
+        Assert.Equal(0f, view.Water[1]);
+        Assert.Equal(0.5f, view.Water[2]);
+    }
+
     [Fact]
     public void BytesThatAreNotABrickAreRefused()
     {

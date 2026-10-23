@@ -116,6 +116,9 @@ internal sealed class ZoneTerrain
             return;
         }
 
+        // A change that is not a number would make the water's solids none too, and the water with them: the generated
+        // height is kept there.
+        int bad = 0;
         for (int i = 0; i < count; i++)
         {
             if (!pkg.ReadBool())
@@ -125,10 +128,23 @@ internal sealed class ZoneTerrain
 
             float level = pkg.ReadSingle();
             float smooth = pkg.ReadSingle();
+            if (!IsFinite(level + smooth))
+            {
+                bad++;
+                continue;
+            }
+
             float baseHeight = baseHeights[i];
             heights[i] = Mathf.Clamp(baseHeight + level + smooth, baseHeight - MaxChange, baseHeight + MaxChange);
         }
+
+        if (bad > 0)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Zone {zone}: {bad} terrain changes are not numbers; the generated ground is kept there");
+        }
     }
+
+    private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
 
     private void Build(Vector2s zone, Entry entry)
     {
@@ -146,6 +162,21 @@ internal sealed class ZoneTerrain
             }
 
             baseHeights.CopyTo(entry.Base);
+            int bad = 0;
+            for (int i = 0; i < Vertices; i++)
+            {
+                if (!IsFinite(entry.Base[i]))
+                {
+                    entry.Base[i] = 0f;
+                    bad++;
+                }
+            }
+
+            if (bad > 0)
+            {
+                FlowingWaterPlugin.Log.LogError($"Zone {zone}: the heightmap builder gave {bad} heights that are not numbers; the water takes the ground there at 0 m");
+            }
+
             entry.Generated = true;
         }
 
