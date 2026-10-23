@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.2 — 2026-10-22
+
+### Fixed
+- The server no longer re-reads and re-packs still water every second to check whether it changed: a big calm lake
+  costs almost nothing to keep in step with the players.
+
 ## v0.14.1 — 2026-10-21
 
 ### Fixed

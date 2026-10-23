@@ -38,13 +38,17 @@ internal sealed class VoxelServer
 
     private readonly Dictionary<long, ZDO> _objects = [];
 
-    private readonly Dictionary<long, int> _sent = [];
+    private readonly Dictionary<long, (Brick Brick, int Changes, int Hash)> _sent = [];
 
     private readonly List<Source> _markers = [];
 
     private readonly List<ZDO> _zdos = [];
 
     private readonly Stopwatch _stepWatch = new();
+
+    private readonly Stopwatch _sendWatch = new();
+
+    private int _sentCount;
 
     private VoxelGrid _grid;
 
@@ -144,26 +148,15 @@ internal sealed class VoxelServer
     /// <summary>Sends every changed brick now (the world is about to be saved), and forgets dry ones.</summary>
     public void Publish()
     {
+        _sendWatch.Start();
         var kept = new HashSet<long>();
         foreach (Brick brick in _grid.Bricks)
         {
-            if (!Array.Exists(brick.Water, w => w > Brick.Dry))
-            {
-                continue;
-            }
-
             long key = VoxelGrid.Key(brick.X, brick.Y, brick.Z);
-            kept.Add(key);
-            byte[] data = BrickData.Encode(brick, _grid.VoxelSize);
-            int hash = Hash(data);
-            if (_sent.TryGetValue(key, out int was) && was == hash && _objects.TryGetValue(key, out ZDO known) && ZDOMan.instance.GetZDO(known.m_uid) != null)
+            if (Send(brick, key))
             {
-                continue;
+                kept.Add(key);
             }
-
-            ZDO zdo = Object(brick, key);
-            zdo.Set(ZdoKeys.Brick, data);
-            _sent[key] = hash;
         }
 
         foreach (long key in _objects.Keys.Where(k => !kept.Contains(k)).ToList())
@@ -176,6 +169,37 @@ internal sealed class VoxelServer
             _objects.Remove(key);
             _sent.Remove(key);
         }
+
+        _sendWatch.Stop();
+    }
+
+    // Sends a brick's water if it changed since last sent; false when it holds none (its object goes). A brick
+    // unchanged since (a still pool asleep) is neither read nor packed again; one made again at the same place since
+    // (forgotten dry, then wet again) is another brick.
+    private bool Send(Brick brick, long key)
+    {
+        bool live = _objects.TryGetValue(key, out ZDO known) && ZDOMan.instance.GetZDO(known.m_uid) != null;
+        bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash) was) && was.Brick == brick;
+        if (live && sent && was.Changes == brick.Changes)
+        {
+            return true;
+        }
+
+        if (!Array.Exists(brick.Water, w => w > Brick.Dry))
+        {
+            return false;
+        }
+
+        byte[] data = BrickData.Encode(brick, _grid.VoxelSize);
+        int hash = Hash(data);
+        if (!live || !sent || was.Hash != hash)
+        {
+            Object(brick, key).Set(ZdoKeys.Brick, data);
+            _sentCount++;
+        }
+
+        _sent[key] = (brick, brick.Changes, hash);
+        return true;
     }
 
     // Every brick's object destroyed and forgotten.
@@ -679,8 +703,10 @@ internal sealed class VoxelServer
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms, sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent)"));
         _stepWatch.Reset();
+        _sendWatch.Reset();
+        _sentCount = 0;
         int cells = (int)(TileData.ZoneMetres / MapMetres);
         foreach (KeyValuePair<long, Dictionary<(int X, int Z), float>> zone in depths)
         {

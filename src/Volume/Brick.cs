@@ -95,9 +95,16 @@ internal sealed class Brick
     /// <summary>Whether it sleeps this step: skipped, and no water crosses its faces.</summary>
     public bool Asleep { get; set; }
 
+    /// <summary>
+    /// Counts the changes to its water: each step that works on it (or lets its flows go as it falls asleep), and
+    /// water or solids put in from outside a step. While it stays the same, so does the brick's data.
+    /// </summary>
+    public int Changes { get; set; }
+
     /// <summary>Takes voxel i into the box of the wet voxels (water was put there from outside a step).</summary>
     public void Wets(int i)
     {
+        Changes++;
         (int x, int y, int z) = Place(i);
         bool none = WetHigh.X < 0;
         WetLow = none ? (x, y, z) : (Math.Min(WetLow.X, x), Math.Min(WetLow.Y, y), Math.Min(WetLow.Z, z));

@@ -172,6 +172,7 @@ internal sealed class VoxelGrid
 
         // Its faces may have opened onto a sleeping brick beside it: they wake together.
         brick.Quiet = 0;
+        brick.Changes++;
         foreach (Brick next in brick.Beside.Where(b => b != null))
         {
             next.Quiet = 0;

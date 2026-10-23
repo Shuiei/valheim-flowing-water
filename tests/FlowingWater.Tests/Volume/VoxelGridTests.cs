@@ -122,6 +122,23 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void WaterOrSolidsChangedFromOutsideAStepCountAChange()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(0));
+        grid.Pour(3, 3, 3, 1f);
+        Brick brick = grid.Find(0, 0, 0);
+        int poured = brick.Changes;
+
+        grid.Refill(brick);
+        int refilled = brick.Changes;
+        grid.Pour(3, 4, 3, 1f);
+
+        Assert.True(poured > 0);
+        Assert.True(refilled > poured);
+        Assert.True(brick.Changes > refilled);
+    }
+
+    [Fact]
     public void WaterPouredWhereNoMoreBricksAreAllowedIsRefused()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 1 };
