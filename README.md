@@ -41,7 +41,8 @@ and the drain come later.
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
 add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
-100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once.
+100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once; a drain of rate 0 still takes
+everything that reaches it.
 
 ## Settings
 

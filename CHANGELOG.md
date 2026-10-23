@@ -17,8 +17,8 @@ All notable changes to FlowingWater. Newest first.
 - The water's traffic to players was about twice what it needed: the server no longer takes each block of water back
   from the player near it before sending it.
 - Any player could turn `CommandsForEveryone` on in their own config, and with it off even a server's admins could not
-  use the command: the server's setting counts now, and the host and admins always may. A source or drain gives or
-  takes at most 100 m³/s: a huge rate no longer floods the world at once.
+  use the command: the server's setting counts now, and the host and admins always may. A source gives, and a drain
+  given a rate takes, at most 100 m³/s: a huge rate no longer floods the world at once.
 - A release whose upload failed on one mod site could not be finished: both sites are checked before anything is
   tagged, and a failed release can be run again.
 
