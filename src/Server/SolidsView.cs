@@ -16,7 +16,9 @@ internal static class SolidsView
     /// <summary>The two maps round a point, line by line, with the counts of what they show.</summary>
     public static IEnumerable<string> Around(Vector3 point, float voxelSize)
     {
-        var solids = new GameSolids(new ZoneTerrain());
+        // Nothing here is a frame of the water's: its parts are not timed.
+        var parts = new FrameParts();
+        var solids = new GameSolids(new ZoneTerrain(parts), parts);
         var grid = new VoxelGrid(voxelSize, solids);
         int cx = Mathf.FloorToInt(point.x / voxelSize);
         int cy = Mathf.FloorToInt((point.y + 0.1f) / voxelSize);

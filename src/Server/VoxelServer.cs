@@ -35,7 +35,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
-    private readonly ZoneTerrain _terrain = new();
+    // Where each frame's time goes, told in the debug log.
+    private readonly FrameParts _parts = new();
+
+    private readonly ZoneTerrain _terrain;
 
     private readonly GameSolids _solids;
 
@@ -112,7 +115,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     /// <summary>A server with an empty grid; the world's water is read on the first update.</summary>
     public VoxelServer()
     {
-        _solids = new GameSolids(_terrain);
+        _terrain = new ZoneTerrain(_parts);
+        _solids = new GameSolids(_terrain, _parts);
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
         _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
@@ -122,6 +126,20 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     /// <summary>One frame: sources and drains, the solids' changes, the water moved, the bricks sent.</summary>
     public void Update(float dt)
+    {
+        _parts.Begin(WaterPart.Other);
+        try
+        {
+            Frame(dt);
+        }
+        finally
+        {
+            _parts.End();
+        }
+    }
+
+    // The frame's work, each part timed.
+    private void Frame(float dt)
     {
         if (!_loaded)
         {
@@ -137,12 +155,14 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             _scanTimer = 0f;
         }
 
+        _parts.Into(WaterPart.Markers);
         _markerWatch.Restart();
         if (_markerPass.Run(() => _markerWatch.Elapsed.TotalMilliseconds < MarkerBudget))
         {
             ScanMarkers();
         }
 
+        _parts.Into(WaterPart.Terrain);
         _terrainTimer += dt;
         if (_terrainTimer >= TerrainRefreshSeconds)
         {
@@ -150,14 +170,19 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             _terrain.Refresh(_watch.GroundChanged);
         }
 
+        _parts.Into(WaterPart.Other);
+
         // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
         dt = Mathf.Min(dt, LongestFrame);
         // Their time waits with them.
         _waited += dt;
         if (!_solver.InStep)
         {
+            _parts.Into(WaterPart.Watch);
             _refilled += _watch.Update(_waited, _grid);
+            _parts.Into(WaterPart.ForgetDry);
             _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
+            _parts.Into(WaterPart.Other);
             _waited = 0f;
         }
 
@@ -172,7 +197,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         if (_sendTimer >= FlowingWaterPlugin.Settings.SendSeconds.Value && !_solver.InStep)
         {
             _sendTimer = 0f;
+            _parts.Into(WaterPart.Send);
             Publish();
+            _parts.Into(WaterPart.Other);
         }
 
         float debug = FlowingWaterPlugin.Settings.DebugSeconds.Value;
@@ -182,6 +209,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             if (_debugTimer >= debug && !_solver.InStep)
             {
                 _debugTimer = 0f;
+                _parts.Into(WaterPart.Log);
                 LogMaps();
             }
         }
@@ -194,7 +222,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         bool acted = false;
         foreach (Source marker in _markers)
         {
+            WaterPart was = _parts.Into(marker.Drain ? WaterPart.Drain : WaterPart.Pour);
             acted |= marker.Drain ? Drain(marker, dt) : Pour(marker, dt);
+            _parts.Into(was);
         }
 
         return acted;
@@ -288,7 +318,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private void NewGrid(float voxelSize)
     {
         _grid = new VoxelGrid(voxelSize, _solids) { MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value };
-        _solver = new VoxelSolver(_grid);
+        _solver = new VoxelSolver(_grid, _parts);
     }
 
     // A ZDO kept from frame to frame may be someone else's by now: the game hands a destroyed object's ZDO out again.
@@ -761,6 +791,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
         var text = new StringBuilder();
         text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
+        text.Append('\n').Append(_parts.Report());
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;

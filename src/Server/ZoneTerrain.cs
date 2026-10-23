@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using FlowingWater.Volume;
 using UnityEngine;
 
 namespace FlowingWater.Server;
@@ -23,9 +24,13 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     private readonly List<ZDO> _found = [];
 
-    /// <summary>The heights of no zone yet.</summary>
-    public ZoneTerrain()
+    // Where the frame's time goes: asking the game for a zone's heights is a part of its own.
+    private readonly FrameParts _parts;
+
+    /// <summary>The heights of no zone yet, asking the game for them timed in these parts.</summary>
+    public ZoneTerrain(FrameParts parts)
     {
+        _parts = parts;
         _heights = new ZoneHeights<Vector2s, (ZDOID Id, uint Revision)>(this, Pitch * Pitch);
     }
 
@@ -66,9 +71,12 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
     // The heightmap builder waits for its thread: asked once a zone.
     float[] IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.Generated(Vector2s zone)
     {
+        WaterPart was = _parts.Into(WaterPart.Heightmap);
         Vector3 center = ZoneSystem.GetZonePos(zone);
         HeightmapBuilder.HMBuildData data = HeightmapBuilder.instance.RequestTerrainSync(center, TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
-        return [.. data.m_baseHeights];
+        float[] heights = [.. data.m_baseHeights];
+        _parts.Into(was);
+        return heights;
     }
 
     ((ZDOID Id, uint Revision) Stamp, byte[] Data) IZoneGround<Vector2s, (ZDOID Id, uint Revision)>.Changes(Vector2s zone)

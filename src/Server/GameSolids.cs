@@ -26,10 +26,14 @@ internal sealed class GameSolids : ISolids
 
     private readonly List<SolidBox> _near = [];
 
-    /// <summary>Solids over this terrain.</summary>
-    public GameSolids(ZoneTerrain terrain)
+    // Where the frame's time goes: a brick reading its solids is a part of its own, whoever asked for it.
+    private readonly FrameParts _parts;
+
+    /// <summary>Solids over this terrain, their reading timed in these parts.</summary>
+    public GameSolids(ZoneTerrain terrain, FrameParts parts)
     {
         _terrain = terrain;
+        _parts = parts;
     }
 
     /// <summary>The piece shapes used.</summary>
@@ -47,6 +51,7 @@ internal sealed class GameSolids : ISolids
     /// <inheritdoc/>
     public void Fill(Brick brick, float voxelSize)
     {
+        WaterPart was = _parts.Into(WaterPart.Solids);
         SolidRaster.Ground(brick, voxelSize, Ground);
         _near.Clear();
         float span = Brick.Size * voxelSize;
@@ -71,6 +76,7 @@ internal sealed class GameSolids : ISolids
         }
 
         SolidRaster.Pieces(brick, voxelSize, _near, Ground);
+        _parts.Into(was);
     }
 
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>
