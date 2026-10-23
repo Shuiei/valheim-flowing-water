@@ -42,6 +42,12 @@ internal sealed class SolidsWatch
     // How many zones holding far-reaching pieces had been found when last looked at.
     private int _grown;
 
+    /// <summary>
+    /// Zones whose ground is read with no brick near them (the config's fixed sources and drains stand on it): their
+    /// heights are kept, not let go and made again at each look for markers. Not looked over for pieces.
+    /// </summary>
+    public HashSet<Vector2s> Pinned { get; } = [];
+
     /// <summary>A watch over these solids and terrain; it listens to the server's destroyed objects at once.</summary>
     public SolidsWatch(GameSolids solids, ZoneTerrain terrain)
     {
@@ -89,7 +95,7 @@ internal sealed class SolidsWatch
     }
 
     // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their solids and
-    // heights. A brick there again reads them anew.
+    // heights (but the heights of the pinned zones). A brick there again reads them anew.
     private void Keep(HashSet<Vector2s> zones)
     {
         var keys = new HashSet<long>();
@@ -100,6 +106,11 @@ internal sealed class SolidsWatch
 
         _changes.Keep(keys);
         _solids.Keep(keys);
+        foreach (Vector2s zone in Pinned)
+        {
+            keys.Add(TileData.Key(zone));
+        }
+
         _terrain.Keep(keys);
     }
 
