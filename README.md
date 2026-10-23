@@ -54,6 +54,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
+| `Server.MarkerScanSeconds` | 3 | How often the server looks for new or removed sources and drains, seconds (1 to 60) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
 | `Server.DebugSeconds` | 0 | Log each zone with water as a map of depths this often (0 = off) |
