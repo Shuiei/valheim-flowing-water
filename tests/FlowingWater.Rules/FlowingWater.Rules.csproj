@@ -22,6 +22,7 @@
     <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
     <Compile Include="../../src/Server/ZoneScan.cs" Link="Mod/ZoneScan.cs" />
     <Compile Include="../../src/Server/MarkerRules.cs" Link="Mod/MarkerRules.cs" />
+    <Compile Include="../../src/Server/BrickObjects.cs" Link="Mod/BrickObjects.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/CommandRights.cs" Link="Mod/CommandRights.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
