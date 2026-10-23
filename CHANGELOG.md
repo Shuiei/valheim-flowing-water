@@ -2,6 +2,26 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.10 — 2026-10-23
+
+### Fixed
+- Still water cost the server a few milliseconds every frame (more on a big world) just to find which blocks of water
+  had dried: only blocks whose water changed are looked at now.
+- A pool against a wall or on the ground kept making and dropping the block of water past it, each time reading the
+  pieces there again (a hitch near big bases) and taking room from real water under `MaxBricks`: a block the water
+  cannot enter is no longer made again.
+- With `CustomShader` off (or no shader for the platform), water drawn with the game's own material stood still and
+  could vanish at a distance: it now moves and is drawn as far as the game's own water.
+- A dedicated server built the water's surface for the blocks round the world's zero, for no one, and warned it had
+  no shader: it no longer draws them (creatures it simulates there still swim in the water).
+- The water's traffic to players was about twice what it needed: the server no longer takes each block of water back
+  from the player near it before sending it.
+- Any player could turn `CommandsForEveryone` on in their own config, and with it off even a server's admins could not
+  use the command: the server's setting counts now, and the host and admins always may. A source or drain gives or
+  takes at most 100 m³/s: a huge rate no longer floods the world at once.
+- A release whose upload failed on one mod site could not be finished: both sites are checked before anything is
+  tagged, and a failed release can be run again.
+
 ## v0.15.8 — 2026-10-22
 
 ### Fixed
