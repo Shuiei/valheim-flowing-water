@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.4 — 2026-10-22
+
+### Fixed
+- The `CellSize` setting's description overstated the cost of smaller voxels (8 and 64 times): measured, moving water
+  costs about 3 times as much at 0.5 m and 15 times at 0.25 m, and still water stays cheap at any size.
+
 ## v0.14.3 — 2026-10-22
 
 ### Fixed
