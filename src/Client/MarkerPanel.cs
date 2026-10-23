@@ -24,11 +24,16 @@ internal sealed class MarkerPanel : MonoBehaviour
     /// <summary>The radius's field (a child of the panel).</summary>
     public const string RadiusName = "Radius";
 
+    /// <summary>The button that removes a placed one (a child of the panel).</summary>
+    public const string RemoveName = "Remove";
+
     private const float Width = 360f;
 
     private const float Gutter = 18f;
 
     private const float FieldWidth = 110f;
+
+    private const float ButtonWidth = 140f;
 
     // How far a player may walk from the placed one they change before the panel closes, metres.
     private const float ChangeReach = 10f;
@@ -68,6 +73,8 @@ internal sealed class MarkerPanel : MonoBehaviour
     private TMP_InputField _rate;
 
     private TMP_InputField _radius;
+
+    private Button _remove;
 
     private RectTransform _frame;
 
@@ -261,10 +268,12 @@ internal sealed class MarkerPanel : MonoBehaviour
         _radiusLabel.gameObject.SetActive(drain);
         _radius.gameObject.SetActive(drain);
         _radiusHint.gameObject.SetActive(drain);
+        // A placed one's Remove button goes under the keys, away from the fields.
         float bottom = drain ? 196f : 132f;
         Place(_status.rectTransform, bottom, Width - (2f * Gutter), 40f);
         Place(_keys.rectTransform, bottom + 44f, Width - (2f * Gutter), 24f);
-        _frame.sizeDelta = new Vector2(Width, bottom + 80f);
+        Place((RectTransform)_remove.transform, bottom + 76f, ButtonWidth, 34f);
+        _frame.sizeDelta = new Vector2(Width, bottom + (Placed ? 126f : 80f));
         Say(null, true);
         ShowValues();
         UpdateKeys();
@@ -345,7 +354,43 @@ internal sealed class MarkerPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    private void UpdateKeys() => _keys.text = MarkerValues.Keys(_editing, Placed);
+    // The keys, and the Remove button while a placed one is changed (the mouse free to click it).
+    private void UpdateKeys()
+    {
+        _keys.text = MarkerValues.Keys(_editing, Placed);
+        _remove.gameObject.SetActive(_editing && Placed);
+    }
+
+    // The Remove button clicked: the placed one removed as the console's remove does, for a player who may (others,
+    // or a ward not theirs, told why in the centre of the screen as the game's own removal does), and the panel closed.
+    // The game takes no click while the panel has the mouse: nothing is hit or built with it.
+    private void RemoveTarget()
+    {
+        if (!Placed || !_target.IsValid)
+        {
+            Close();
+            return;
+        }
+
+        Player player = Player.m_localPlayer;
+        if (Commands.MarkerRefusal(CommandRights.MarkerUse.Remove) is { } refusal)
+        {
+            player?.Message(MessageHud.MessageType.Center, refusal);
+            return;
+        }
+
+        if (!PrivateArea.CheckAccess(_target.transform.position))
+        {
+            player?.Message(MessageHud.MessageType.Center, "$msg_privatezone");
+            return;
+        }
+
+        // The click is the panel's: the game's attack does not see it on the frame the panel closes.
+        ZInput.ResetButtonStatus("Attack");
+        Marker target = _target;
+        Close();
+        target.Remove();
+    }
 
     private void Say(string text, bool taken)
     {
@@ -409,6 +454,8 @@ internal sealed class MarkerPanel : MonoBehaviour
         panel._status = Text(root.transform, "Status", style, 16f, Plain, 196f, 40f);
         panel._status.textWrappingMode = TextWrappingModes.Normal;
         panel._keys = Text(root.transform, "Keys", style, 16f, style.Title, 240f, 24f);
+        panel._remove = RemoveButton(root.transform, style);
+        panel._remove.onClick.AddListener(panel.RemoveTarget);
         panel._rate.onSubmit.AddListener(text => panel.Typed(false, text));
         panel._rate.onEndEdit.AddListener(text => panel.Typed(false, text));
         panel._radius.onSubmit.AddListener(text => panel.Typed(true, text));
@@ -500,6 +547,27 @@ internal sealed class MarkerPanel : MonoBehaviour
         return field;
     }
 
+    // The button that removes a placed one: the game's button sprite and font, hidden until a placed one is changed.
+    private static Button RemoveButton(Transform parent, Style style)
+    {
+        var go = new GameObject(RemoveName, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Image back = go.AddComponent<Image>();
+        Sprite(back, style.Button ?? style.Field, new Color(0.35f, 0.12f, 0.08f, 0.9f));
+        Button button = go.AddComponent<Button>();
+        button.targetGraphic = back;
+        TextMeshProUGUI label = Text(go.transform, "Label", style, 20f, style.ButtonText, 0f, 34f);
+        label.text = MarkerValues.RemoveLabel;
+        label.alignment = TextAlignmentOptions.Center;
+        RectTransform labelRect = label.rectTransform;
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = Vector2.zero;
+        labelRect.offsetMax = Vector2.zero;
+        go.SetActive(false);
+        return button;
+    }
+
     // Placed from the panel's top left.
     private static void Place(RectTransform rect, float top, float width, float height)
     {
@@ -542,6 +610,10 @@ internal sealed class MarkerPanel : MonoBehaviour
 
         public Sprite Field { get; private set; }
 
+        public Sprite Button { get; private set; }
+
+        public Color ButtonText { get; private set; } = Color.white;
+
         public static Style From(TextInput dialog)
         {
             var style = new Style();
@@ -564,6 +636,16 @@ internal sealed class MarkerPanel : MonoBehaviour
             if (dialog.m_inputField != null && dialog.m_inputField.GetComponent<Image>() is { } field)
             {
                 style.Field = field.sprite;
+            }
+
+            // The dialog's own button (its OK), with its label's colour.
+            if (dialog.m_panel != null && dialog.m_panel.GetComponentInChildren<Button>(true) is { } button)
+            {
+                style.Button = (button.targetGraphic as Image)?.sprite;
+                if (button.GetComponentInChildren<TMP_Text>(true) is { } text)
+                {
+                    style.ButtonText = text.color;
+                }
             }
 
             return style;

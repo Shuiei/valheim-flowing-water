@@ -143,8 +143,8 @@ internal static class MarkerValues
     /// <summary>The piece's description in the hoe.</summary>
     /// <param name="drain">A drain, else a source.</param>
     public static string Description(bool drain) => drain
-        ? "Takes the water that reaches it. Its rate and radius are set in the panel on the right; [E] on a placed one changes them."
-        : "Water springs from it. Its rate is set in the panel on the right; [E] on a placed one changes it.";
+        ? "Takes the water that reaches it. Its rate and radius are set in the panel on the right; [E] on a placed one changes or removes it."
+        : "Water springs from it. Its rate is set in the panel on the right; [E] on a placed one changes or removes it.";
 
     /// <summary>
     /// What a source or drain does, as the server takes it: its rate held to the most (or "no water" when it is not
@@ -186,10 +186,13 @@ internal static class MarkerValues
     /// <param name="placed">A placed one's, else those the next one placed takes.</param>
     public static string Title(bool drain, bool placed) => (placed ? "This " : "Next ") + (drain ? "drain" : "source");
 
-    /// <summary>The panel's keys, at its foot.</summary>
+    /// <summary>The label of the button that removes a placed one, under the panel's keys.</summary>
+    public const string RemoveLabel = "Remove";
+
+    /// <summary>The panel's keys, at its foot (a placed one's says it may be removed with the button under them).</summary>
     /// <param name="editing">Whether its values are being changed (the mouse free, the fields open).</param>
     /// <param name="placed">A placed one's, else those the next one placed takes.</param>
     public static string Keys(bool editing, bool placed) => editing
-        ? "[Enter] Apply   [Esc] or [E] " + (placed ? "Close" : "Done")
+        ? placed ? $"[Enter] Apply   [Esc] or [E] Close   or {RemoveLabel} it below" : "[Enter] Apply   [Esc] or [E] Done"
         : "[E] Change";
 }

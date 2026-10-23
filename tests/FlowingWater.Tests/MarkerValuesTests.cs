@@ -225,10 +225,20 @@ public class MarkerValuesTests
     [Theory]
     [InlineData(false, false, "[E] Change")]
     [InlineData(true, false, "[Enter] Apply   [Esc] or [E] Done")]
-    [InlineData(true, true, "[Enter] Apply   [Esc] or [E] Close")]
+    [InlineData(true, true, "[Enter] Apply   [Esc] or [E] Close   or Remove it below")]
     public void ThePanelsKeysSayHowToChangeAndLeave(bool editing, bool placed, string keys)
     {
         Assert.Equal(keys, MarkerValues.Keys(editing, placed));
+    }
+
+    // The keys of a placed one's panel name the button under them by its own label.
+    [Fact]
+    public void APlacedOnesKeysPointToItsRemoveButton()
+    {
+        Assert.Equal("Remove", MarkerValues.RemoveLabel);
+        Assert.Contains(MarkerValues.RemoveLabel, MarkerValues.Keys(editing: true, placed: true));
+        Assert.DoesNotContain(MarkerValues.RemoveLabel, MarkerValues.Keys(editing: true, placed: false));
+        Assert.DoesNotContain(MarkerValues.RemoveLabel, MarkerValues.Keys(editing: false, placed: false));
     }
 
     [Fact]
@@ -238,5 +248,6 @@ public class MarkerValuesTests
         Assert.Equal("Water drain", MarkerValues.Name(drain: true));
         Assert.Contains("rate is set in the panel", MarkerValues.Description(drain: false));
         Assert.Contains("rate and radius are set in the panel", MarkerValues.Description(drain: true));
+        Assert.All([MarkerValues.Description(drain: false), MarkerValues.Description(drain: true)], d => Assert.Contains("changes or removes it", d));
     }
 }
