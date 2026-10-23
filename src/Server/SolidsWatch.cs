@@ -5,15 +5,16 @@ using UnityEngine;
 namespace FlowingWater.Server;
 
 /// <summary>
-/// Keeps the water's solids up to date: a piece destroyed (the server hears of each) or built, moved, opened or
-/// closed (each zone holding water is looked over every few seconds), or the ground changed by a player, and the
-/// bricks over that zone read their solids again.
+/// Keeps the water's solids up to date: a piece destroyed (the server hears of each) or built, moved, turned, opened
+/// or closed (each zone holding water is looked over every few seconds), and the bricks within its reach read their
+/// solids again; the ground changed by a player, and the bricks over that zone do.
 /// </summary>
 internal sealed class SolidsWatch
 {
     private const float LookSeconds = 2f;
 
-    // A piece reaches this far past its own zone at most, metres: bricks this close to a changed zone are read again.
+    // Zones this close to a brick are looked over, metres, at least (farther when the game's pieces reach farther): a
+    // piece standing in one may reach the brick. Zones holding pieces scaled to reach farther are looked over too.
     private const float Reach = 4f;
 
     private static readonly int StateHash = "state".GetStableHashCode();
@@ -22,15 +23,22 @@ internal sealed class SolidsWatch
 
     private readonly ZoneTerrain _terrain;
 
-    private readonly Dictionary<long, int> _pieces = [];
+    // Each zone's pieces as last looked at: where each stands, and its turn and state.
+    private readonly Dictionary<long, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)>> _pieces = [];
 
     private readonly Dictionary<long, int> _ground = [];
 
+    // The zones whose pieces are read again, and the places whose bricks read their solids again.
     private readonly HashSet<Vector2s> _changed = [];
+
+    private readonly List<Bounds> _regions = [];
 
     private readonly List<ZDO> _found = [];
 
     private float _timer;
+
+    // How many zones holding far-reaching pieces had been found when last looked at.
+    private int _grown;
 
     /// <summary>A watch over these solids and terrain; it listens to the server's destroyed objects at once.</summary>
     public SolidsWatch(GameSolids solids, ZoneTerrain terrain)
@@ -53,17 +61,28 @@ internal sealed class SolidsWatch
     /// <returns>How many bricks read their solids again.</returns>
     public int Update(float dt, VoxelGrid grid)
     {
+        // A zone holding pieces reaching farther than the game's own was found: bricks that read their solids before
+        // may have missed them, so every brick reads them again.
+        if (_solids.Grown != _grown)
+        {
+            _grown = _solids.Grown;
+            _solids.ForgetAll();
+            _regions.Add(new Bounds(Vector3.zero, Vector3.one * float.MaxValue));
+        }
+
         _timer += dt;
         if (_timer >= LookSeconds)
         {
             _timer = 0f;
-            foreach (Vector2s zone in Zones(grid))
+            HashSet<Vector2s> zones = Zones(grid, Mathf.Max(Reach, _solids.Shapes.Farthest) + grid.VoxelSize);
+            zones.UnionWith(_solids.FarZones);
+            foreach (Vector2s zone in zones)
             {
                 Look(zone);
             }
         }
 
-        if (_changed.Count == 0)
+        if (_regions.Count == 0)
         {
             return 0;
         }
@@ -84,6 +103,7 @@ internal sealed class SolidsWatch
         }
 
         _changed.Clear();
+        _regions.Clear();
         return refilled;
     }
 
@@ -91,45 +111,90 @@ internal sealed class SolidsWatch
     {
         if (_solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
-            _changed.Add(ZoneSystem.GetZone(zdo.GetPosition()));
+            Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
+            PieceChanged(zone, zdo.GetPosition(), _solids.Shapes.Reach(zdo));
+
+            // Heard of already: the next look does not find it gone again, so where it stood when last looked at
+            // (it may have moved since) is read again now.
+            if (_pieces.TryGetValue(TileData.Key(zone), out Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> pieces)
+                && pieces.TryGetValue(zdo.m_uid, out (Vector3 At, float Reach, int Look) was))
+            {
+                PieceChanged(zone, was.At, was.Reach);
+                pieces.Remove(zdo.m_uid);
+            }
         }
     }
 
-    // A zone changed when its pieces (which, where, open or not) or its ground did since last looked at.
+    // What changed in a zone since last looked at: each piece built, gone, moved, turned, opened or closed, and the
+    // ground.
     private void Look(Vector2s zone)
     {
         long key = TileData.Key(zone);
         _found.Clear();
         ZDOMan.instance.FindSectorObjects(zone, new SimulationDistance(0, 0), _found);
-        int pieces = 17;
+        var pieces = new Dictionary<ZDOID, (Vector3 At, float Reach, int Look)>();
         foreach (ZDO zdo in _found)
         {
             if (_solids.Shapes.Count(zdo.GetPrefab()) > 0)
             {
-                pieces = unchecked((pieces * 31) + zdo.m_uid.GetHashCode() + zdo.GetPosition().GetHashCode() + zdo.GetInt(StateHash));
+                pieces[zdo.m_uid] = (zdo.GetPosition(), _solids.Shapes.Reach(zdo), unchecked((((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)) * 31) + PieceShapes.Scale(zdo).GetHashCode()));
             }
         }
 
-        _terrain.Heights(zone, out int ground);
-        bool known = _pieces.TryGetValue(key, out int was);
-        if ((known && was != pieces) || (_ground.TryGetValue(key, out int wasGround) && wasGround != ground))
+        if (_pieces.TryGetValue(key, out Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> was))
         {
-            _changed.Add(zone);
+            Compare(zone, was, pieces);
         }
 
         _pieces[key] = pieces;
+        _terrain.Heights(zone, out int ground);
+        if (_ground.TryGetValue(key, out int wasGround) && wasGround != ground)
+        {
+            // The ground does not say where it changed: the whole zone, from the bottom to the top of the world.
+            _changed.Add(zone);
+            _regions.Add(new Bounds(new Vector3(TileData.OriginX(zone) + (TileData.ZoneMetres / 2f), 0f, TileData.OriginZ(zone) + (TileData.ZoneMetres / 2f)), new Vector3(TileData.ZoneMetres, 1e5f, TileData.ZoneMetres)));
+        }
+
         _ground[key] = ground;
     }
 
-    // The zones a piece of which may reach a brick: those under each brick, or within a piece's reach of it.
-    private static HashSet<Vector2s> Zones(VoxelGrid grid)
+    // The pieces that differ between two looks at a zone: where each was, and where it is.
+    private void Compare(Vector2s zone, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> was, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)> now)
+    {
+        foreach (KeyValuePair<ZDOID, (Vector3 At, float Reach, int Look)> piece in now)
+        {
+            if (!was.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) old) || old != piece.Value)
+            {
+                PieceChanged(zone, piece.Value.At, piece.Value.Reach);
+            }
+        }
+
+        foreach (KeyValuePair<ZDOID, (Vector3 At, float Reach, int Look)> piece in was)
+        {
+            if (!now.TryGetValue(piece.Key, out (Vector3 At, float Reach, int Look) then) || then.At != piece.Value.At || !Mathf.Approximately(then.Reach, piece.Value.Reach))
+            {
+                PieceChanged(zone, piece.Value.At, piece.Value.Reach);
+            }
+        }
+    }
+
+    // A piece changed at a place: the bricks its solid boxes reach (as far as they go from it) read their solids again.
+    private void PieceChanged(Vector2s zone, Vector3 at, float reach)
+    {
+        _changed.Add(zone);
+        _regions.Add(new Bounds(at, Vector3.one * (2f * reach)));
+    }
+
+    // The zones a piece of which may reach a brick or the voxel round it: those under each brick, or within that far
+    // of it.
+    private static HashSet<Vector2s> Zones(VoxelGrid grid, float reach)
     {
         var zones = new HashSet<Vector2s>();
         float span = Brick.Size * grid.VoxelSize;
         foreach (Brick brick in grid.Bricks)
         {
-            Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - Reach, 0f, (brick.Z * span) - Reach));
-            Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + Reach, 0f, ((brick.Z + 1) * span) + Reach));
+            Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - reach, 0f, (brick.Z * span) - reach));
+            Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + reach, 0f, ((brick.Z + 1) * span) + reach));
             for (int z = first.y; z <= last.y; z++)
             {
                 for (int x = first.x; x <= last.x; x++)
@@ -142,24 +207,11 @@ internal sealed class SolidsWatch
         return zones;
     }
 
-    // Whether a brick lies within a changed zone, or close enough to it for a piece there to reach it.
+    // Whether a brick, or the voxel round it (its faces take its neighbours' shares), meets a changed place.
     private bool Near(Brick brick, float voxelSize)
     {
         float span = Brick.Size * voxelSize;
-        float x0 = (brick.X * span) - Reach;
-        float z0 = (brick.Z * span) - Reach;
-        float x1 = ((brick.X + 1) * span) + Reach;
-        float z1 = ((brick.Z + 1) * span) + Reach;
-        foreach (Vector2s zone in _changed)
-        {
-            float zx = TileData.OriginX(zone);
-            float zz = TileData.OriginZ(zone);
-            if (x1 >= zx && x0 <= zx + TileData.ZoneMetres && z1 >= zz && z0 <= zz + TileData.ZoneMetres)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var bounds = new Bounds(new Vector3(brick.X + 0.5f, brick.Y + 0.5f, brick.Z + 0.5f) * span, Vector3.one * (span + (2f * voxelSize)));
+        return _regions.Exists(r => r.Intersects(bounds));
     }
 }

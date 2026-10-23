@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FlowingWater.Volume;
 using UnityEngine;
@@ -18,6 +19,10 @@ internal sealed class PieceShapes
     private readonly Dictionary<int, Shape> _byPrefab = [];
 
     private readonly int _pieceLayer = LayerMask.NameToLayer("piece");
+
+    private float _farthest;
+
+    private bool _prefabsMeasured;
 
     /// <summary>Adds the solid boxes of the piece this ZDO is (none if it is no solid piece) to the list.</summary>
     public void AddBoxes(ZDO zdo, List<SolidBox> boxes)
@@ -43,6 +48,43 @@ internal sealed class PieceShapes
                 ToVec(z.normalized),
                 new Vec3(box.Half.x * x.magnitude, box.Half.y * y.magnitude, box.Half.z * z.magnitude)));
         }
+    }
+
+    /// <summary>
+    /// How far the solid boxes of the game's pieces reach from their place, metres: the farthest of its piece prefabs,
+    /// unscaled (measured the first time this is asked). Known before a zone's pieces are read, so that a zone holding
+    /// a long piece is never left out; a piece scaled to reach farther is told by <see cref="Reach"/>.
+    /// </summary>
+    public float Farthest
+    {
+        get
+        {
+            if (!_prefabsMeasured && ZNetScene.instance != null)
+            {
+                _prefabsMeasured = true;
+                foreach (GameObject prefab in ZNetScene.instance.m_prefabs)
+                {
+                    if (prefab != null && prefab.GetComponent<Piece>() != null)
+                    {
+                        _farthest = Mathf.Max(_farthest, Of(prefab.name.GetStableHashCode()).Reach);
+                    }
+                }
+
+                FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: building pieces reach up to {_farthest:0.0} m from their place"));
+            }
+
+            return _farthest;
+        }
+    }
+
+    /// <summary>A piece's scale (one where it was not scaled).</summary>
+    public static Vector3 Scale(ZDO zdo) => zdo.GetVec3(ScaleHash, Vector3.one);
+
+    /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
+    public float Reach(ZDO zdo)
+    {
+        Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
+        return Of(zdo.GetPrefab()).Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
     }
 
     /// <summary>How many solid boxes a prefab has (0: water ignores it).</summary>
@@ -139,10 +181,18 @@ internal sealed class PieceShapes
         {
             Boxes = boxes;
             Door = door;
+            foreach (Box box in boxes)
+            {
+                float corner = (box.AxisX.magnitude * box.Half.x) + (box.AxisY.magnitude * box.Half.y) + (box.AxisZ.magnitude * box.Half.z);
+                Reach = Mathf.Max(Reach, box.Centre.magnitude + corner);
+            }
         }
 
         public Box[] Boxes { get; }
 
         public bool Door { get; }
+
+        // How far its boxes reach from the prefab's origin at most, unscaled.
+        public float Reach { get; }
     }
 }

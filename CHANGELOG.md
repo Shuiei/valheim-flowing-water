@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.3 — 2026-10-22
+
+### Fixed
+- Building or breaking a piece near water made the server re-read every piece and the ground for the whole 64 m
+  area around it, a hitch when building beside a lake: only the water within a few metres of the piece is read
+  again now.
+
 ## v0.14.2 — 2026-10-22
 
 ### Fixed
