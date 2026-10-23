@@ -14,7 +14,9 @@ namespace FlowingWater.Client;
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
 /// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
 /// depend on it). The surface is built on another thread, from the bricks it reads as they were then; only handing
-/// it to the mesh is done in the game's frame.
+/// it to the mesh is done in the game's frame. On a dedicated server (whose scene holds the bricks round the world's
+/// zero) it only keeps the water, as the game's own water volumes work there: its trigger and the game's water checks
+/// then see it for the creatures the server simulates; nothing is drawn.
 /// </summary>
 internal sealed class WaterBrick : MonoBehaviour
 {
@@ -41,6 +43,9 @@ internal sealed class WaterBrick : MonoBehaviour
     private static bool _settingWatched;
 
     private ZNetView _nview;
+
+    // Whether it is drawn: not on a dedicated server.
+    private bool _drawn;
 
     private MeshFilter _filter;
 
@@ -94,6 +99,12 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
+        _drawn = ZNet.instance == null || !ZNet.instance.IsDedicated();
+        if (!_drawn)
+        {
+            return;
+        }
+
         _mesh = new Mesh { name = "FlowingWater brick" };
         _mesh.MarkDynamic();
         _filter.sharedMesh = _mesh;
@@ -117,8 +128,13 @@ internal sealed class WaterBrick : MonoBehaviour
 
     // After every brick has read its data this frame.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
-    [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls only instance methods.")]
-    private void LateUpdate() => DrawWaiting();
+    private void LateUpdate()
+    {
+        if (_drawn)
+        {
+            DrawWaiting();
+        }
+    }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
@@ -130,7 +146,10 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
             ByKey.Remove(key);
-            Neighbours(_view, VoxelSurface.Round);
+            if (_drawn)
+            {
+                Neighbours(_view, VoxelSurface.Round);
+            }
         }
 
         // The last water gone (the world left): no brick is left to serve the queue, which would keep the bricks
@@ -177,8 +196,11 @@ internal sealed class WaterBrick : MonoBehaviour
             trigger.size = Vector3.one * (Brick.Size * _view.VoxelSize);
         }
 
-        Waiting.Add(this);
-        Neighbours(_view, VoxelSurface.Touched(was, _view));
+        if (_drawn)
+        {
+            Waiting.Add(this);
+            Neighbours(_view, VoxelSurface.Touched(was, _view));
+        }
     }
 
     // Once a frame (from the first brick's LateUpdate), while the frame's drawing time lasts: the surfaces built are
