@@ -132,7 +132,7 @@ there to the new grid (same volume), at the next start or at once with a config 
   prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
   every `SendSeconds` (packed a few blocks a frame, written together once all are; all at once before the world
   is saved), and the game sends it to the players near it. A step of the water is taken a part of the blocks at a
-  time, the frame's budget looked at between parts, on the server's thread and up to three of its own; a block
+  time, the frame's budget looked at between parts, spread over the server's processors; a block
   whose ground is not generated yet waits a frame or two for it rather than holding the frame. The column water
   of earlier versions is moved into voxels once, when the world opens (the old tile of a zone whose water finds no
   room is kept, not drawn, and tried again at the next start).
