@@ -39,13 +39,20 @@ internal sealed class VoxelServer
     // The farthest a drain reaches, metres: as far as the DefaultDrainRadius setting allows.
     private const float MaxDrainRadius = 16f;
 
+    // The most a source gives or a drain takes, cubic metres a second: fifty springs of the default rate, a big river.
+    // A marker holds whatever rate a player's game wrote into it: a billion filled every brick MaxBricks allows within
+    // a frame, while at this rate a thousand bricks of 1 m voxels take half a day to fill.
+    internal const float MaxRate = 100f;
+
     private readonly ZoneTerrain _terrain = new();
 
     private readonly GameSolids _solids;
 
     private readonly SolidsWatch _watch;
 
-    private readonly Dictionary<long, ZDO> _objects = [];
+    // Each brick's object, by its id: the game hands a destroyed object's ZDO out again as another object, so a ZDO
+    // kept from frame to frame may be someone else's by now.
+    private readonly Dictionary<long, ZDOID> _objects = [];
 
     private readonly Dictionary<long, (Brick Brick, int Changes, int Hash)> _sent = [];
 
@@ -109,6 +116,10 @@ internal sealed class VoxelServer
     // The points water was poured at that had no room, each told of once, until it has room again or no source pours
     // there any more.
     private readonly HashSet<Vector3> _noRoom = [];
+
+    // The markers (by object) and fixed sources and drains (by their text) whose rate was held to MaxRate, each told
+    // of once.
+    private readonly HashSet<string> _rateCapped = [];
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
@@ -291,9 +302,9 @@ internal sealed class VoxelServer
 
         foreach (long key in _objects.Keys.Where(k => !kept.Contains(k)).ToList())
         {
-            if (ZDOMan.instance.GetZDO(_objects[key].m_uid) != null)
+            if (Live(_objects[key]) is { } zdo)
             {
-                DestroyZdo(_objects[key]);
+                DestroyZdo(zdo);
             }
 
             _objects.Remove(key);
@@ -308,7 +319,7 @@ internal sealed class VoxelServer
     // (forgotten dry, then wet again) is another brick.
     private bool Send(Brick brick, long key)
     {
-        bool live = _objects.TryGetValue(key, out ZDO known) && ZDOMan.instance.GetZDO(known.m_uid) != null;
+        bool live = _objects.TryGetValue(key, out ZDOID known) && Live(known) != null;
         bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash) was) && was.Brick == brick;
         if (live && sent && was.Changes == brick.Changes)
         {
@@ -335,9 +346,12 @@ internal sealed class VoxelServer
     // Every brick's object destroyed and forgotten.
     private void DropObjects()
     {
-        foreach (ZDO zdo in _objects.Values.Where(z => ZDOMan.instance.GetZDO(z.m_uid) != null))
+        foreach (ZDOID id in _objects.Values)
         {
-            DestroyZdo(zdo);
+            if (Live(id) is { } zdo)
+            {
+                DestroyZdo(zdo);
+            }
         }
 
         _objects.Clear();
@@ -355,24 +369,25 @@ internal sealed class VoxelServer
         _solver = new VoxelSolver(_grid);
     }
 
-    // The brick's object, made (or made again, if something removed it) where the brick is.
+    // The brick's object, made (or made again, if something removed it) where the brick is. The game gives it to a
+    // player near it, as it does every object; it is written as it is: the game sends what the server writes to every
+    // player near, its owner too, by the data's revision, and the brick's owner never writes it. Taking it back each
+    // time made it go to and fro, the whole object sent again each time it changed hands.
     private ZDO Object(Brick brick, long key)
     {
-        if (_objects.TryGetValue(key, out ZDO zdo) && ZDOMan.instance.GetZDO(zdo.m_uid) != null)
+        if (_objects.TryGetValue(key, out ZDOID id) && Live(id) is { } zdo)
         {
-            if (!zdo.IsOwner())
-            {
-                zdo.SetOwner(ZDOMan.GetSessionID());
-            }
-
             return zdo;
         }
 
         float span = Brick.Size * _grid.VoxelSize;
-        zdo = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
-        _objects[key] = zdo;
-        return zdo;
+        ZDO made = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
+        _objects[key] = made.m_uid;
+        return made;
     }
+
+    // A brick's object, if it is still there and still a brick (null when something else destroyed it).
+    private static ZDO Live(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash ? zdo : null;
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without one is saved
     // but can never be found again by prefab.
@@ -386,6 +401,7 @@ internal sealed class VoxelServer
         return zdo;
     }
 
+    // Only the owner can destroy an object.
     private static void DestroyZdo(ZDO zdo)
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
@@ -784,7 +800,7 @@ internal sealed class VoxelServer
             float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
             if (Usable(rate, drain, zdo.GetPosition().ToString()))
             {
-                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
+                _markers.Add(new Source(zdo.GetPosition(), Capped(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()), drain, radius));
             }
         }
     }
@@ -814,9 +830,25 @@ internal sealed class VoxelServer
 
             if (Usable(rate, drain, trimmed))
             {
-                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
+                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), Capped(rate, drain, trimmed, trimmed), drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
             }
         }
+    }
+
+    // A rate held to MaxRate, told of once for each marker (key) held.
+    private float Capped(float rate, bool drain, string where, string key)
+    {
+        if (rate <= MaxRate)
+        {
+            return rate;
+        }
+
+        if (_rateCapped.Add(key))
+        {
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} m³/s is more than the most a source or drain may have; {MaxRate} m³/s used"));
+        }
+
+        return MaxRate;
     }
 
     // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more.

@@ -14,7 +14,9 @@ namespace FlowingWater.Client;
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
 /// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
 /// depend on it). The surface is built on another thread, from the bricks it reads as they were then; only handing
-/// it to the mesh is done in the game's frame.
+/// it to the mesh is done in the game's frame. On a dedicated server (whose scene holds the bricks round the world's
+/// zero) it only keeps the water, as the game's own water volumes work there: its trigger and the game's water checks
+/// then see it for the creatures the server simulates; nothing is drawn.
 /// </summary>
 internal sealed class WaterBrick : MonoBehaviour
 {
@@ -46,11 +48,18 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private ZNetView _nview;
 
+    // Whether it is drawn: not on a dedicated server.
+    private bool _drawn;
+
     private MeshFilter _filter;
 
     private MeshRenderer _renderer;
 
     private Mesh _mesh;
+
+    // What the game's water material reads from each renderer (its waves' time, how far it is drawn); none with the
+    // mod's own.
+    private MaterialPropertyBlock _properties;
 
     private BrickView _view;
 
@@ -162,6 +171,12 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
+        _drawn = ZNet.instance == null || !ZNet.instance.IsDedicated();
+        if (!_drawn)
+        {
+            return;
+        }
+
         _mesh = new Mesh { name = "FlowingWater brick" };
         _mesh.MarkDynamic();
         _filter.sharedMesh = _mesh;
@@ -176,12 +191,22 @@ internal sealed class WaterBrick : MonoBehaviour
             _revision = zdo.DataRevision;
             Read(zdo.GetByteArray(ZdoKeys.Brick));
         }
+
+        if (_properties != null)
+        {
+            WaterTile.Animate(_renderer, _properties);
+        }
     }
 
     // After every brick has read its data this frame.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
-    [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls only instance methods.")]
-    private void LateUpdate() => DrawWaiting();
+    private void LateUpdate()
+    {
+        if (_drawn)
+        {
+            DrawWaiting();
+        }
+    }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
@@ -193,7 +218,10 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
             ByKey.Remove(key);
-            Neighbours(_view, VoxelSurface.Round);
+            if (_drawn)
+            {
+                Neighbours(_view, VoxelSurface.Round);
+            }
         }
 
         // The last water gone (the world left): no brick is left to serve the queue, which would keep the bricks
@@ -240,8 +268,11 @@ internal sealed class WaterBrick : MonoBehaviour
             trigger.size = Vector3.one * (Brick.Size * _view.VoxelSize);
         }
 
-        Waiting.Add(this);
-        Neighbours(_view, VoxelSurface.Touched(was, _view));
+        if (_drawn)
+        {
+            Waiting.Add(this);
+            Neighbours(_view, VoxelSurface.Touched(was, _view));
+        }
     }
 
     // Once a frame (from the first brick's LateUpdate), while the frame's drawing time lasts: the surfaces built are
@@ -331,10 +362,24 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        Material material = Material();
+        // Plain colours (flat) or the mod's own shader; else the game's material.
+        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
+            : FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        Material material = own ?? Materials.Still();
         if (material == null)
         {
             return;
+        }
+
+        // The game's material is animated and drawn only as far as each renderer says, as the game's own water does.
+        if (own == null)
+        {
+            _properties ??= WaterTile.GameMaterialProperties();
+        }
+        else if (_properties != null)
+        {
+            _properties = null;
+            _renderer.SetPropertyBlock(null);
         }
 
         _mesh.Clear();
@@ -352,10 +397,6 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static void Failed(Exception failure, Vector3 at) =>
         FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({failure})");
-
-    private static Material Material() =>
-        Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
-        : FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
 
     // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries. Its normals,
     // tangents and bounds are worked out with it, away from the game's frame, as the mesh would.

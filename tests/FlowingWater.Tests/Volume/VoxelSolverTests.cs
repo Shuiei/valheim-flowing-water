@@ -148,8 +148,9 @@ public class VoxelSolverTests
         Assert.True(seconds is > 1f and < 1.2f, $"asleep after {seconds} s ({steps} steps)");
         if (voxelSize == 1f)
         {
-            // As when it was counted in steps: 24 quiet steps, then the step that finds it asleep.
-            Assert.Equal(25, steps);
+            // As when it was counted in steps: the first step makes the bricks under and beside the pool (walled: never
+            // made again), which wakes it once; then 24 quiet steps, then the step that finds it asleep.
+            Assert.Equal(26, steps);
         }
     }
 
@@ -600,6 +601,32 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterAsleepAtABricksEdgeRunsOnWhenTheBrickBesideIsMadeAtLast()
+    {
+        // A pool fills a brick, its east face open onto the next brick, which the cap keeps from being made: the water
+        // is held at the edge and sleeps there. Once the cap is raised the brick beside is made, and the water runs on.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 31, 0, 15))) { MaxBricks = 1 };
+        Fill(grid, 0, 15, 0, 15, 0.8f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 40; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.True(grid.Find(0, 0, 0).Asleep);
+
+        grid.MaxBricks = 10;
+        for (int k = 0; k < 100; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.NotNull(grid.Find(1, 0, 0));
+        Assert.True(grid.WaterAt(28, 0, 7) > 0.2f, $"{grid.WaterAt(28, 0, 7)} in the brick made");
+        Assert.Equal(256f * 0.8f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void OneLongStepIsTakenInStableShortOnes()
     {
         // Forty seconds asked for at once: the water settles level and still as it does a tenth at a time.
@@ -641,6 +668,58 @@ public class VoxelSolverTests
         }
 
         Assert.Equal(0f, grid.TotalWater(), 3);
+    }
+
+    [Fact]
+    public void BricksTheWaterCannotEnterAreNotMadeAgainAndAgain()
+    {
+        // A pool on the ground against the bricks west and south of it, walled off from them, kept moving by a
+        // source: the bricks beside it are made once, found shut, forgotten dry, and not made again.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        int version = 0;
+        for (float t = 0f; t < 100f; t += 0.1f)
+        {
+            grid.Pour(3, 3, 3, 0.02f);
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+            if (t < 40f)
+            {
+                version = grid.Version;
+            }
+        }
+
+        Assert.Equal(version, grid.Version);
+        Assert.Single(grid.Bricks);
+    }
+
+    [Fact]
+    public void ABrickBesideOpenedToTheWaterIsMadeAgain()
+    {
+        // The same pool, its west wall then broken by the voxel (0, 0, 3): the brick there is made and the water runs in.
+        bool broken = false;
+        var grid = new VoxelGrid(Volume, new TestSolids(0, (x, y, z) => TestSolids.Box(0, 7, 0, 7, open: broken ? (0, 0, 3, 1) : null)(x, y, z)));
+        Fill(grid, 0, 7, 0, 7, 2f);
+        var solver = new VoxelSolver(grid);
+        for (float t = 0f; t < 40f; t += 0.1f)
+        {
+            grid.Pour(3, 3, 3, 0.02f);
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+        }
+
+        Assert.Null(grid.Find(-1, 0, 0));
+        broken = true;
+        grid.Refill(grid.Find(0, 0, 0));
+        for (float t = 0f; t < 5f; t += 0.1f)
+        {
+            solver.Step(0.1f);
+            grid.ForgetDry(0.1f, 30f);
+        }
+
+        Assert.NotNull(grid.Find(-1, 0, 0));
+        Assert.True(grid.WaterAt(-1, 0, 3) > 0.01f);
     }
 
     // A pool two voxels deep in a box two bricks long with sixteen voxels of water dropped on it.

@@ -24,7 +24,7 @@ internal sealed class Settings
         DefaultSourceRate = config.Bind("Markers", "DefaultSourceRate", 2f, "Cubic metres per second a source gives when placed without a rate.");
         DefaultDrainRate = config.Bind("Markers", "DefaultDrainRate", 0f, "Cubic metres per second a drain takes when placed without a rate; 0 takes everything that reaches it.");
         DefaultDrainRadius = config.Bind("Markers", "DefaultDrainRadius", 1f, new ConfigDescription("How far around it a drain takes water, in metres, when placed without a radius.", new AcceptableValueRange<float>(0.25f, 16f)));
-        CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether the flowingwater console command works without cheats on.");
+        CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether players who are not admins may use the flowingwater console command. On a server, the server's setting counts (it tells each player); the host and the server's admins always may.");
         CustomShader = config.Bind("Client", "CustomShader", true, "Draw the water with the mod's own shader (ripples that run with the current, colour by depth, foam, a shore that fades out). Off: the game's own sea and stream materials.");
         WaterClarity = config.Bind("Client", "WaterClarity", WaterLook.DefaultClarity, new ConfigDescription("How far one sees into the water, in metres: shallow water stays clear, deeper water takes the water's colour and hides its bed (custom shader only).", new AcceptableValueRange<float>(0.2f, 50f)));
         WaterColour = config.Bind("Client", "WaterColour", new Color(0.03f, 0.11f, 0.14f, 1f), "The colour deep water takes, as RGBA hex RRGGBBAA (custom shader only).");

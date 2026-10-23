@@ -30,6 +30,9 @@ internal sealed class VoxelGrid
 
     private readonly HashSet<long> _wanted = [];
 
+    // The bricks ForgetDry forgets, kept from call to call.
+    private readonly List<Brick> _gone = [];
+
     private readonly ISolids _solids;
 
     /// <summary>A grid of voxels this many metres along a side.</summary>
@@ -89,6 +92,13 @@ internal sealed class VoxelGrid
             if (next is { } linked)
             {
                 linked.Beside[side ^ 1] = brick;
+
+                // Water beside that went still against the face, held there while no brick was (MaxBricks, or the
+                // brick made a few frames after it asked), wakes to run into it: a dry brick beside it never would.
+                if (linked.WetTo(side ^ 1))
+                {
+                    linked.Quiet = 0;
+                }
             }
         }
 
@@ -169,6 +179,9 @@ internal sealed class VoxelGrid
         Array.Clear(brick.Solid, 0, Brick.Count);
         Array.Clear(brick.Closed, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
+
+        // What changed by it may have opened its faces onto a brick forgotten beside it.
+        brick.Unshut();
 
         // Its faces may have opened onto a sleeping brick beside it: they wake together.
         brick.Quiet = 0;
@@ -298,28 +311,36 @@ internal sealed class VoxelGrid
         }
     }
 
-    /// <summary>Forgets the bricks dry for longer than this, with the time since the last call.</summary>
+    /// <summary>
+    /// Forgets the bricks dry for longer than this, with the time since the last call. Called every frame: a brick
+    /// whose water did not change since it was last looked at (asleep) is not looked over again.
+    /// </summary>
     /// <param name="dt">Seconds since the last call.</param>
     /// <param name="after">Seconds dry before a brick is forgotten.</param>
     public void ForgetDry(float dt, float after)
     {
-        var gone = new List<Brick>();
+        _gone.Clear();
         foreach (Brick brick in _bricks.Values)
         {
-            brick.EmptyFor = Array.Exists(brick.Water, w => w > Brick.Dry) ? 0f : brick.EmptyFor + dt;
+            brick.EmptyFor = brick.HoldsWater() ? 0f : brick.EmptyFor + dt;
             if (brick.EmptyFor > after)
             {
-                gone.Add(brick);
+                _gone.Add(brick);
             }
         }
 
-        foreach (Brick brick in gone)
+        foreach (Brick brick in _gone)
         {
             Forget(brick);
         }
+
+        _gone.Clear();
     }
 
-    /// <summary>Forgets a brick (and its water): it is unlinked from the bricks beside it.</summary>
+    /// <summary>
+    /// Forgets a brick (and its water): it is unlinked from the bricks beside it, which keep the faces water cannot
+    /// cross into it (no water asks for it again there).
+    /// </summary>
     public void Forget(Brick brick)
     {
         _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
@@ -328,6 +349,7 @@ internal sealed class VoxelGrid
         {
             if (brick.Beside[side] is { } next)
             {
+                next.ShutBy(side ^ 1, brick);
                 next.Beside[side ^ 1] = null;
             }
         }

@@ -33,12 +33,15 @@ Console (F5) command `flowingwater`:
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
 
-The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must
-be on). Hammer pieces for the spring and the drain come later.
+Who may use the command: the host (and a player alone) and the server's admins (its `adminlist.txt`) always;
+other players while the server's `CommandsForEveryone` is on. The server's setting counts, not the player's: the
+server tells each player's game its value when they join, and again when it changes. Hammer pieces for the spring
+and the drain come later.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
-add its radius in metres, `x,z,rate,radius`.
+add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
+100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once.
 
 ## Settings
 
@@ -61,7 +64,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
-| `Commands.CommandsForEveryone` | true | The command without cheats |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command (the server's setting counts; the host and admins always may) |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
@@ -219,13 +222,15 @@ Thunderstore, with every analyzer warning an error (**code-analysis**); checks t
 (**formatting**, `tools/format-check.sh`); builds the Thunderstore package (**package**,
 `thunderstore/build.sh`); and runs it in a real dedicated server (**server-smoke**,
 `tools/server-smoke.sh`): it loads, a fixed source's water fills a zone with no error, and the saved
-water comes back after a restart. It also runs the unit tests (**unit-tests**, `tests/FlowingWater.Tests`: the
-mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`). On main only, the unit tests run
-with their code coverage, which the **coverage** job sends to
+water comes back after a restart. It also runs the whole of the unit tests on every branch (**unit-tests**,
+`tests/FlowingWater.Tests`: the mod's rules that need no game, compiled for .NET in `tests/FlowingWater.Rules`). On
+main only, the unit tests run with their code coverage, which the **coverage** job sends to
 [Codecov](https://app.codecov.io/gh/Shuiei/valheim-flowing-water) once they pass; Codecov's check fails under
-95% of the rules' lines (`codecov.yml`, `tests/coverage.runsettings`). Main's ruleset requires those four checks, CodeRabbit's approval
-(`.coderabbit.yaml`), Codacy's analysis (`.codacy/codacy.yaml`) and CodeQL's code scanning. What CI
-cannot check is the water as players see it: try that in the game.
+95% of the rules' lines (`codecov.yml`, `tests/coverage.runsettings`). Main's ruleset requires five checks of a
+pull request: code-analysis, formatting, package, server-smoke and unit-tests, on the branch up to date with main;
+with an approving review (CodeRabbit's, `.coderabbit.yaml`) and CodeQL's code scanning. Codacy's analysis
+(`.codacy/codacy.yaml`) reports on each pull request but is not required. What CI cannot check is the water as
+players see it: try that in the game.
 
 GitHub Actions add Scorecard, a dependency review of each pull request, Sigstore signatures on each
 release's files (`SECURITY.md`) and, when main moves, main merged into every approved pull request with
@@ -243,14 +248,20 @@ CircleCI makes the release once you approve it:
    Its checks report at once: its code is main's, checked already.
 3. Once it is merged, main's pipeline is a release one: open its `release` workflow in CircleCI and
    approve **hold-release**. Then the package is built and smoke-tested again, and:
+   - **check-thunderstore** and **check-hexium** check all that publishing needs without publishing (the
+     tokens, the version not on the site yet, the categories, the files): a site that would refuse the
+     package stops the release before anything is tagged;
    - **github-release** tags the commit `v<VERSION>` and makes the GitHub release with
      `FlowingWater-<VERSION>.zip` and the notes (the Sign release workflow then signs the zip);
    - **publish-thunderstore** and **publish-hexium** publish it side by side
      (`tools/release/publish.cs`, the sites' settings in `tools/release/sites.json`, team `Tie`).
 
 A version already on a site fails its job: no site takes a version twice. A failed job can be rerun
-from CircleCI (Rerun from failed). Still by hand: **unhide** the new version on Hexium (uploads arrive
-hidden). Nexus Mods comes once the mod has a page there (made on the website: the API cannot): then a
+from CircleCI (Rerun from failed, not from start: the checks would then find the version on a site that
+took it). Rerun, github-release goes on when this commit has its release and zip on GitHub already (it
+fails when the tag is on another commit, or the release has no zip), and publish-hexium takes a version
+an earlier run submitted (hidden) as submitted and sets its metadata. Still by hand: **unhide** the new
+version on Hexium (uploads arrive hidden). Nexus Mods comes once the mod has a page there (made on the website: the API cannot): then a
 `nexus` entry in `sites.json` (its mod and file ids), Moder Warehouse Plus's Nexus publishing in
 `publish.cs`, and a `publish-nexus` job.
 

@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
 using BepInEx;
 using BepInEx.Logging;
@@ -41,6 +42,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _harmony = new Harmony(PluginId);
         _harmony.PatchAll(typeof(FlowingWaterPlugin).Assembly);
         ZNet.WorldSaveStarted += OnWorldSave;
+        Settings.CommandsForEveryone.SettingChanged += (_, _) => Commands.TellEveryone();
         Logger.LogInfo($"{Name} {BuildInfo.Version} loaded");
     }
 
@@ -88,5 +90,18 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     }
 
     // The water's latest state goes into the world before it is saved (it is otherwise sent every SendSeconds).
-    private void OnWorldSave() => _server?.Publish();
+    // The game runs this inside its save with nothing to catch: a failure here would stop the world being saved at all.
+    // So it is logged in full and the save goes on, with the water as last sent; this is the one place where going on
+    // past an error is right.
+    private void OnWorldSave()
+    {
+        try
+        {
+            _server?.Publish();
+        }
+        catch (Exception e)
+        {
+            Logger.LogError($"Water: could not send the water before the world was saved; it is saved as last sent: {e}");
+        }
+    }
 }
