@@ -48,6 +48,10 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private Mesh _mesh;
 
+    // What the game's water material reads from each renderer (its waves' time, how far it is drawn); none with the
+    // mod's own.
+    private MaterialPropertyBlock _properties;
+
     private BrickView _view;
 
     private uint _revision = uint.MaxValue;
@@ -103,6 +107,11 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             _revision = zdo.DataRevision;
             Read(zdo.GetByteArray(ZdoKeys.Brick));
+        }
+
+        if (_properties != null)
+        {
+            WaterTile.Animate(_renderer, _properties);
         }
     }
 
@@ -258,10 +267,22 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        Material material = Material();
+        Material custom = FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        Material material = custom ?? Materials.Still();
         if (material == null)
         {
             return;
+        }
+
+        // The game's material is animated and drawn only as far as each renderer says, as the game's own water does.
+        if (custom == null)
+        {
+            _properties ??= WaterTile.GameMaterialProperties();
+        }
+        else if (_properties != null)
+        {
+            _properties = null;
+            _renderer.SetPropertyBlock(null);
         }
 
         _mesh.Clear();
@@ -279,9 +300,6 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static void Failed(Exception failure, Vector3 at) =>
         FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({failure})");
-
-    private static Material Material() =>
-        FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
 
     // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries.
     private sealed class Shape
