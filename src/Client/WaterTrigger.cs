@@ -7,7 +7,9 @@ namespace FlowingWater.Client;
 /// <summary>
 /// The tile's trigger box on the game's water layer: tells characters, items and ships inside it
 /// the water level over them, as the game's own water volumes do, and lets the current carry
-/// floating things (swimmers are carried by the character patch).
+/// floating things (swimmers are carried by the character patch). The level told is the higher of the
+/// flowing water and the game's own (the sea at a river's mouth): what is told last is what an object has, so
+/// telling the flowing water's alone would take the sea from a swimmer or a fish between the sea's own tellings.
 /// </summary>
 internal sealed class WaterTrigger : MonoBehaviour
 {
@@ -113,11 +115,14 @@ internal sealed class WaterTrigger : MonoBehaviour
 
             Vector3 position = target.position;
             float surface = VoxelWater.SurfaceAt(position);
-            interactable.SetLiquidLevel(surface, LiquidType.Water, this);
+            // Out of the flowing water but still in the box, an object is told the game's water there, or none.
+            interactable.SetLiquidLevel(Mathf.Max(surface, Floating.GetLiquidLevel(position, 1f, LiquidType.Water)), LiquidType.Water, this);
             Carry(interactable, target, position, surface);
         }
     }
 
+    // As a game water volume does: the count of waters an object is in is the game's, shared with the sea and every
+    // other box, so only the last one it leaves says it has no water; any other still holding it tells its own level.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
     {
