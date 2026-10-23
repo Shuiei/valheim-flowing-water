@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -21,6 +22,9 @@ internal static class Materials
     private static readonly int AbsorptionId = Shader.PropertyToID("_Absorption");
 
     private static readonly int DeepColourId = Shader.PropertyToID("_DeepColor");
+
+    // The plain materials made, by name: each is made once.
+    private static readonly Dictionary<string, Material> PlainByName = [];
 
     private static Material _still;
 
@@ -199,9 +203,17 @@ internal static class Materials
         return material;
     }
 
-    /// <summary>An opaque coloured copy of the game's piece material (its own shaders draw; a Standard one shows pink). Null when none is loaded.</summary>
+    /// <summary>
+    /// An opaque coloured copy of the game's piece material (its own shaders draw; a Standard one shows pink), made
+    /// once for each name. Null when none is loaded.
+    /// </summary>
     public static Material Plain(string name, Color colour)
     {
+        if (PlainByName.TryGetValue(name, out Material made) && made != null)
+        {
+            return made;
+        }
+
         Material source = null;
         foreach (Material material in Resources.FindObjectsOfTypeAll<Material>())
         {
@@ -226,6 +238,7 @@ internal static class Materials
             plain.SetTexture(texture, texture.Contains("Bump") || texture.Contains("Normal") ? null : Texture2D.whiteTexture);
         }
 
+        PlainByName[name] = plain;
         return plain;
     }
 
