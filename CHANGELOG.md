@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.13 — 2026-10-23
+
+### Fixed
+- A zone whose generated ground the game could not give, with terrain changes in it, made the server build it again
+  and refill all the water over it every two seconds: it is now tried again only when the terrain there changes.
+- A fixed source or drain (`FixedSources`, `FixedDrains`) with no water near it made the server wait on the game's
+  ground every few seconds: its ground is now kept.
+
 ## v0.15.12 — 2026-10-23
 
 ### Fixed
@@ -15,7 +23,7 @@ All notable changes to FlowingWater. Newest first.
   spread over frames.
 - A server kept the ground of every zone its water had ever reached, and checked it again every two seconds, so the
   water cost more the longer the server ran: zones the water has left are now let go, and a terrain change no longer
-  makes the zone's whole ground again.
+  rebuilds the zone's whole ground.
 - Switching the water off (`Enabled`) and on again read every piece broken meanwhile in one frame: the pieces are now
   looked over a zone at a time, as usual.
 - Water that had just reached a new place could ignore a terrain change made there right after, until the next one.

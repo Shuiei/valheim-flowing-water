@@ -10,11 +10,14 @@ namespace FlowingWater.Tests;
 /// The github-release job's first look (tools/release/still-to-release.sh), run in a git repository of its own with
 /// stand-ins for GitHub's CLI and CircleCI's agent: a version not tagged yet is released; a rerun of a release made
 /// from this commit, its zip on GitHub, stops the job there and goes on to the mod sites; the tag on another commit,
-/// no release on GitHub, a release without its zip, or no zip to release, fail. Bash's, as in CI: not on Windows.
+/// no release on GitHub, a release without its zip, or no zip to release, fail. Bash's, as in CI: skipped on Windows.
 /// </summary>
 [UnsupportedOSPlatform("windows")]
 public sealed class StillToReleaseTests : IDisposable
 {
+    // The step is bash, as CI runs it; Windows has none to rely on (and no Unix file modes for the stand-ins).
+    private const string NoBash = "Needs bash and Unix file modes: not on Windows";
+
     private const string Version = "1.2.3";
 
     private const string Zip = "FlowingWater-1.2.3.zip";
@@ -31,6 +34,9 @@ public sealed class StillToReleaseTests : IDisposable
     private readonly string _asked;
 
     private readonly string _head;
+
+    /// <summary>Whether bash runs the step here: not on Windows (the tests are skipped there, as it is not CI's).</summary>
+    public static bool HasBash => !OperatingSystem.IsWindows();
 
     public StillToReleaseTests()
     {
@@ -53,7 +59,7 @@ public sealed class StillToReleaseTests : IDisposable
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 
-    [Fact]
+    [Fact(Skip = NoBash, SkipUnless = nameof(HasBash))]
     public void AVersionNotTaggedYetIsReleased()
     {
         (int exit, string output) = Run();
@@ -62,7 +68,7 @@ public sealed class StillToReleaseTests : IDisposable
         Assert.False(File.Exists(_asked), "GitHub and the agent were asked nothing");
     }
 
-    [Theory]
+    [Theory(Skip = NoBash, SkipUnless = nameof(HasBash))]
     [InlineData(false)]
     [InlineData(true)]
     public void ARerunOfAReleaseMadeFromThisCommitGoesOnToTheSites(bool annotated)
@@ -78,7 +84,7 @@ public sealed class StillToReleaseTests : IDisposable
         Assert.EndsWith("circleci-agent step halt\n", asked);
     }
 
-    [Fact]
+    [Fact(Skip = NoBash, SkipUnless = nameof(HasBash))]
     public void TheTagOnAnotherCommitFails()
     {
         Tag(annotated: false);
@@ -92,7 +98,7 @@ public sealed class StillToReleaseTests : IDisposable
         Assert.False(File.Exists(_asked), "GitHub and the agent were asked nothing");
     }
 
-    [Fact]
+    [Fact(Skip = NoBash, SkipUnless = nameof(HasBash))]
     public void TheTagWithNoReleaseOnGitHubFails()
     {
         Tag(annotated: false);
@@ -104,7 +110,7 @@ public sealed class StillToReleaseTests : IDisposable
         Assert.DoesNotContain("circleci-agent", File.ReadAllText(_asked));
     }
 
-    [Fact]
+    [Fact(Skip = NoBash, SkipUnless = nameof(HasBash))]
     public void AReleaseWithoutItsZipFails()
     {
         Tag(annotated: false);
@@ -116,7 +122,7 @@ public sealed class StillToReleaseTests : IDisposable
         Assert.DoesNotContain("circleci-agent", File.ReadAllText(_asked));
     }
 
-    [Fact]
+    [Fact(Skip = NoBash, SkipUnless = nameof(HasBash))]
     public void NoZipToReleaseFails()
     {
         File.Delete(Path.Combine(_dist, Zip));

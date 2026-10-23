@@ -78,16 +78,17 @@ internal sealed class ZoneHeights<TZone, TStamp>
     }
 
     // The zone's heights: generated (once), and the changes over them. While the game's generated heights are not
-    // usable the ground is taken at 0 m, and they are asked for again once the changes move on.
+    // usable the ground is taken at 0 m, and they are asked for again once the changes move on (the changes are
+    // taken as read either way: not asked for, and told of, at every look).
     private void Build(Entry entry, (TStamp Stamp, byte[] Data) changes)
     {
+        entry.Stamp = changes.Stamp;
         if (!entry.Generated && !Generate(entry))
         {
             Array.Clear(entry.Heights, 0, _vertices);
             return;
         }
 
-        entry.Stamp = changes.Stamp;
         if (changes.Data == null)
         {
             Array.Copy(entry.Base, entry.Heights, _vertices);

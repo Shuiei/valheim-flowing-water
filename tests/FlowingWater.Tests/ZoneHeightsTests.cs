@@ -121,6 +121,31 @@ public class ZoneHeightsTests
         Assert.Equal(11f, heights.Heights(1)[0], 4);
     }
 
+    [Fact]
+    public void AZoneWithChangesWhoseHeightsCannotBeGeneratedIsAskedForAgainOnlyOnceTheChangesMoveOn()
+    {
+        var ground = new Ground { Count = 10 };
+        ground.Raise(1, 0, 1f, revision: 1);
+        var heights = new ZoneHeights<int, (int, int)>(ground, Vertices);
+        heights.Heights(1);
+        var told = new List<int>();
+
+        // The changes as they were: the zone is neither made again nor told of, look after look.
+        heights.Refresh(told.Add);
+        heights.Refresh(told.Add);
+
+        Assert.Empty(told);
+        Assert.Equal([1], ground.Generations);
+        Assert.Single(ground.Warnings);
+
+        // Once they move on, it is asked for again.
+        ground.Raise(1, 0, 1f, revision: 2);
+        heights.Refresh(told.Add);
+
+        Assert.Equal([1], told);
+        Assert.Equal([1, 1], ground.Generations);
+    }
+
     // Zones whose generated ground is flat at ten times their number, with changes by zone.
     private sealed class Ground : IZoneGround<int, (int, int)>
     {

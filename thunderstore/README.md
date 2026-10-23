@@ -7,8 +7,8 @@ the river follows it.
 - The **server** simulates every river whole, players nearby or not: the spring on the mountain fills
   the lake at its foot while everyone is elsewhere. Rivers are saved with the world.
 - **Players** see the water, swim in it, float on it, get wet, and are carried by its current. The
-  game's own water checks (fishing, building, creatures) see it too. Fast streams babble, falls roar, and
-  water rushing down steep ground throws spray.
+  game's own water checks (fishing, building, creatures) see it too. Running water is silent and throws
+  no spray for now: its sound and spray come back in a later version.
 
 **A prototype.** The flow is tuned for rivers and ponds, not for waves. Buildings do not
 hold water yet: only the terrain does.
@@ -50,8 +50,8 @@ drain given a rate (a drain of rate 0 still takes everything that reaches it). A
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
-| `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
-| `Client.Spray` | true | Spray where the water rushes down steep ground |
+| `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
+| `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water rushes down steep ground |
 
 Every setting, how the simulation works and how to build it:
 [the project's page](https://github.com/Shuiei/valheim-flowing-water#readme).

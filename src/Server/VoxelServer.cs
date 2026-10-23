@@ -686,6 +686,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         int before = _markers.Count;
         _markers.Clear();
         _markersSeen.Clear();
+        _watch.Pinned.Clear();
         Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
@@ -717,11 +718,13 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
     }
 
-    // The config's fixed sources or drains, on the ground there.
+    // The config's fixed sources or drains, on the ground there: its zone's heights are kept for the next look, though
+    // no brick may be near (an idle drain).
     private void CollectFixed(string list, bool drain)
     {
         foreach ((float x, float z, float rate, float radius) in _rates.Fixed(list, drain, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value))
         {
+            _watch.Pinned.Add(ZoneSystem.GetZone(new Vector3(x, 0f, z)));
             _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, radius));
         }
     }
