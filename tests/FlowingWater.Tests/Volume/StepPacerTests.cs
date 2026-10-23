@@ -5,8 +5,8 @@ namespace FlowingWater.Tests.Volume;
 
 /// <summary>
 /// The water's steps paced over the server's frames: as many fixed steps as the frames owe while the budget's credit
-/// lasts, the rest kept for later; a step dearer than the budget makes the next frames wait; owed time past the limit
-/// is given up.
+/// lasts, the rest kept for later; a step dearer than the budget makes the next frames wait; a step not done is owed
+/// again; owed time past the limit is given up.
 /// </summary>
 public class StepPacerTests
 {
@@ -60,16 +60,46 @@ public class StepPacerTests
         Assert.Equal(0f, pacer.TakeDropped());
     }
 
-    // Steps taken in one frame, each costing this many milliseconds.
+    [Fact]
+    public void AStepNotDoneIsOwedAgain()
+    {
+        var pacer = new StepPacer(0.5f);
+        pacer.Add(0.1f, 8.0);
+
+        Assert.True(pacer.Take(0.04f));
+        pacer.Return(0.04f);
+        Assert.Equal(0.1f, pacer.Owed, 4);
+    }
+
+    [Fact]
+    public void AStepReturnedWhileTheLimitIsOwedStaysWithinIt()
+    {
+        // A step taken spans frames that owe the limit again, then is not done: owed time stays at the limit, and
+        // what went past is counted as given up.
+        var pacer = new StepPacer(0.5f);
+        pacer.Add(0.5f, 8.0);
+        Assert.True(pacer.Take(0.04f));
+        pacer.Add(0.04f, 8.0);
+        Assert.Equal(0f, pacer.TakeDropped(), 4);
+
+        pacer.Return(0.04f);
+
+        Assert.Equal(0.5f, pacer.Owed, 4);
+        Assert.Equal(0.04f, pacer.TakeDropped(), 4);
+    }
+
+    // Steps taken in one frame, each costing this many milliseconds, while credit is left (as the server does).
     private static int Steps(StepPacer pacer, float step, double cost)
     {
         int steps = 0;
-        while (pacer.Next(step))
+        double spent = 0.0;
+        while (pacer.Left(spent) > 0.0 && pacer.Take(step))
         {
-            pacer.Spent(cost);
+            spent += cost;
             steps++;
         }
 
+        pacer.Spent(spent);
         return steps;
     }
 }

@@ -236,7 +236,13 @@ internal sealed class VoxelGrid
     }
 
     /// <summary>Makes the bricks asked for during the step.</summary>
-    public void MakeWanted()
+    public void MakeWanted() => MakeWanted(static () => true);
+
+    /// <summary>
+    /// Makes the bricks asked for during the step while <paramref name="timeLeft"/> says so (one at least: making one
+    /// reads the solids there, which can take a while); the others are made at a later call.
+    /// </summary>
+    public void MakeWanted(Func<bool> timeLeft)
     {
         long[] wanted;
         lock (_wanted)
@@ -245,6 +251,7 @@ internal sealed class VoxelGrid
             _wanted.Clear();
         }
 
+        bool made = false;
         for (int k = 0; k < wanted.Length; k++)
         {
             if (_bricks.Count >= MaxBricks)
@@ -255,7 +262,27 @@ internal sealed class VoxelGrid
                 return;
             }
 
-            Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+            if (made && !timeLeft())
+            {
+                Want(wanted, k);
+                return;
+            }
+
+            made |= Find(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k])) == null;
+            // Should reading its solids fail, it and those after it are asked for again; the failure goes on up.
+            bool got = false;
+            try
+            {
+                Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+                got = true;
+            }
+            finally
+            {
+                if (!got)
+                {
+                    Want(wanted, k);
+                }
+            }
         }
     }
 

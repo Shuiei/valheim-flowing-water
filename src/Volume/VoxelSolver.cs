@@ -50,6 +50,11 @@ internal sealed class VoxelSolver
     // settling do not keep it awake.
     private const float WakingDrop = 1e-4f;
 
+    // A step's phases, in order.
+    private const int Idle = 0, HeadsPhase = 1, FlowsPhase = 2, SharesPhase = 3, ScalePhase = 4, ApplyPhase = 5;
+
+    private static readonly Func<bool> Always = () => true;
+
     // A brick's last index along a row, and the index steps a row and a layer.
     private const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
 
@@ -66,11 +71,26 @@ internal sealed class VoxelSolver
 
     private float _stiffness = Stiffness;
 
+    // The step under way: its length, its phase (Idle when none) and how far through it, the stiffness its heads use.
+    private float _length;
+
+    private int _phase = Idle;
+
+    private int _cursor;
+
+    private float _headsStiffness;
+
+    // What tells the step under way whether the frame has time left (new bricks are made only while it has).
+    private Func<bool> _stepTimeLeft = Always;
+
     /// <summary>A solver for this grid.</summary>
     public VoxelSolver(VoxelGrid grid)
     {
         _grid = grid;
     }
+
+    /// <summary>Whether a step is under way (<see cref="Advance"/> stopped in it): the grid must not change.</summary>
+    public bool InStep => _phase != Idle;
 
     /// <summary>Water whose voxel's top is at or below this level (metres) is gone: the sea takes it.</summary>
     public float SeaLevel { get; set; } = float.NegativeInfinity;
@@ -91,16 +111,53 @@ internal sealed class VoxelSolver
         {
             int steps = Math.Max(1, (int)Math.Ceiling(left / MaxStep));
             float step = left / steps;
-            if (StepOnce(step))
+            if (Advance(step, Always, int.MaxValue) == StepState.Done)
             {
                 left = steps == 1 ? 0f : left - step;
             }
         }
     }
 
-    // One step, on each brick's wet part only (with the voxels round it): a still pool's air costs nothing.
-    // False when the step was not taken: the water is deeper than its length was chosen for.
-    private bool StepOnce(float dt)
+    /// <summary>
+    /// Takes one step of <paramref name="dt"/> seconds, or goes on with the one under way (whose length is kept), a
+    /// part at a time: between parts of <paramref name="chunk"/> bricks it stops once <paramref name="timeLeft"/> says
+    /// so, to go on at the next call. Nothing else may change the grid while a step is under way.
+    /// </summary>
+    /// <returns>Whether the step is done, under way, or to be taken again shorter (it found deeper water).</returns>
+    public StepState Advance(float dt, Func<bool> timeLeft, int chunk)
+    {
+        _stepTimeLeft = timeLeft;
+        if (_phase == Idle)
+        {
+            if (!Begin())
+            {
+                return StepState.Done;
+            }
+
+            _length = dt;
+            _phase = HeadsPhase;
+            _cursor = 0;
+            _headsStiffness = _stiffness;
+        }
+
+        while (timeLeft())
+        {
+            int count = _phase == HeadsPhase ? _columns.Length : _bricks.Length;
+            int end = (int)Math.Min(count, (long)_cursor + chunk);
+            Run(_phase, _cursor, end);
+            _cursor = end;
+            if (_cursor == count && EndPhase() is { } state)
+            {
+                return state;
+            }
+        }
+
+        return StepState.Pending;
+    }
+
+    // A step begins: the bricks and columns as they are now, and each brick's part. False when nothing is to step
+    // (everything sleeps or is dry).
+    private bool Begin()
     {
         if (_columnsVersion != _grid.Version)
         {
@@ -110,34 +167,89 @@ internal sealed class VoxelSolver
             _deepest = new float[_columns.Length];
         }
 
-        float s = _grid.VoxelSize;
         Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
         if (Array.TrueForAll(_bricks, b => b.PartCount == 0))
         {
-            // Everything sleeps (or is dry): nothing to step.
-            _grid.MakeWanted();
-            return true;
+            _grid.MakeWanted(_stepTimeLeft);
+            return false;
         }
 
-        // Water deeper than the stiffness was for (just loaded, or filled up) has its heads worked out again at once.
-        float was = _stiffness;
-        HeadsAll(s, was);
-        if (_stiffness > was)
-        {
-            if (dt > MaxStep)
-            {
-                return false;
-            }
-
-            HeadsAll(s, _stiffness);
-        }
-
-        Parallel.For(0, _bricks.Length, k => Flows(_bricks[k], dt, s));
-        Parallel.For(0, _bricks.Length, k => Shares(_bricks[k], dt, s));
-        Parallel.For(0, _bricks.Length, k => Scale(_bricks[k]));
-        Parallel.For(0, _bricks.Length, k => Apply(_bricks[k], dt, s));
-        _grid.MakeWanted();
         return true;
+    }
+
+    // One phase of the step under way, over columns (heads) or bricks from..to.
+    private void Run(int phase, int from, int to)
+    {
+        float s = _grid.VoxelSize;
+        float dt = _length;
+        switch (phase)
+        {
+            case HeadsPhase:
+                float stiffness = _headsStiffness;
+                Parallel.For(from, to, k => _deepest[k] = Heads(_columns[k], s, stiffness));
+                break;
+            case FlowsPhase:
+                Parallel.For(from, to, k => Flows(_bricks[k], dt, s));
+                break;
+            case SharesPhase:
+                Parallel.For(from, to, k => Shares(_bricks[k], dt, s));
+                break;
+            case ScalePhase:
+                Parallel.For(from, to, k => Scale(_bricks[k]));
+                break;
+            default:
+                Parallel.For(from, to, k => Apply(_bricks[k], dt, s));
+                break;
+        }
+    }
+
+    // A phase done: the next one, or the step's end (null while the step goes on).
+    private StepState? EndPhase()
+    {
+        _cursor = 0;
+        if (_phase == HeadsPhase)
+        {
+            return Stiffened();
+        }
+
+        // The step is over before new bricks are made: should making one fail, the step is not applied again.
+        if (_phase == ApplyPhase)
+        {
+            _phase = Idle;
+            _grid.MakeWanted(_stepTimeLeft);
+            return StepState.Done;
+        }
+
+        _phase++;
+        return null;
+    }
+
+    // After the heads: the stiffness follows the deepest water found, and the flows come next. Water deeper than the
+    // heads' stiffness was for (just loaded, or filled up) has its heads worked out again at once instead, or, when
+    // the step is now too long for it, the step is not taken (null while the step goes on).
+    private StepState? Stiffened()
+    {
+        float deepest = 0f;
+        foreach (float column in _deepest)
+        {
+            deepest = Math.Max(deepest, column);
+        }
+
+        _stiffness = Math.Max(Math.Max(Stiffness, StiffnessPerDepth * deepest), _stiffness * StiffnessEasing);
+        if (_stiffness <= _headsStiffness)
+        {
+            _phase = FlowsPhase;
+            return null;
+        }
+
+        if (_length > MaxStep)
+        {
+            _phase = Idle;
+            return StepState.Again;
+        }
+
+        _headsStiffness = _stiffness;
+        return null;
     }
 
     // The part a step works on: the wet voxels and those round them, the border layers facing a brick wet at that
@@ -246,19 +358,6 @@ internal sealed class VoxelSolver
         4 => brick.WetHigh.Z == Brick.Size - 1,
         _ => brick.WetLow.Z == 0,
     };
-
-    // Every column's heads with this stiffness; the stiffness then follows the deepest water found.
-    private void HeadsAll(float s, float stiffness)
-    {
-        Parallel.For(0, _columns.Length, k => _deepest[k] = Heads(_columns[k], s, stiffness));
-        float deepest = 0f;
-        foreach (float column in _deepest)
-        {
-            deepest = Math.Max(deepest, column);
-        }
-
-        _stiffness = Math.Max(Math.Max(Stiffness, StiffnessPerDepth * deepest), _stiffness * StiffnessEasing);
-    }
 
     // The heads of a column of bricks, top down: a voxel's floor, plus all the water resting on it (its own and that
     // of the wet voxels over it, up to air, a solid or a closed face), plus the push of what is pressed in. Returns
@@ -646,4 +745,17 @@ internal sealed class VoxelSolver
         4 => (0, 0, 1),
         _ => (0, 0, -1),
     };
+}
+
+/// <summary>How a step taken a part at a time (<see cref="VoxelSolver.Advance"/>) stands.</summary>
+internal enum StepState
+{
+    /// <summary>Done (or nothing was to step).</summary>
+    Done,
+
+    /// <summary>Under way: the next call goes on with it.</summary>
+    Pending,
+
+    /// <summary>Not taken: the water is deeper than its length was chosen for; take a shorter one.</summary>
+    Again,
 }

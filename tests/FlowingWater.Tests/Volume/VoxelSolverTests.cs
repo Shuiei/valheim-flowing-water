@@ -273,6 +273,54 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AStepTakenAPartAtATimeEndsTheSameAsAWholeOne()
+    {
+        // The same splash, stepped whole in one grid and a brick at a time (stopping after each) in another.
+        VoxelGrid whole = Splash(), parts = Splash();
+        var wholeSolver = new VoxelSolver(whole);
+        var partsSolver = new VoxelSolver(parts);
+        int calls = 0;
+        for (int k = 0; k < 40; k++)
+        {
+            float step = wholeSolver.MaxStep;
+            wholeSolver.Step(step);
+            bool more = true;
+            StepState state;
+            do
+            {
+                calls++;
+                more = !more;
+                bool once = more;
+                state = partsSolver.Advance(step, () => once = !once, 1);
+                Assert.Equal(state == StepState.Pending, partsSolver.InStep);
+            }
+            while (state == StepState.Pending);
+        }
+
+        Assert.True(calls > 40 * 10, $"{calls} calls");
+        Assert.Equal(Volumes(whole), Volumes(parts));
+    }
+
+    [Fact]
+    public void AStepTooLongForTheDeepWaterItFindsIsNotTaken()
+    {
+        // A pool 24.5 voxels deep, never stepped: a step as long as shallow water allows finds it and is not taken.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7)));
+        Fill(grid, 0, 7, 0, 7, 24.5f);
+        var solver = new VoxelSolver(grid);
+        float shallow = solver.MaxStep;
+        float before = grid.TotalWater();
+
+        StepState state = solver.Advance(shallow, () => true, int.MaxValue);
+
+        Assert.Equal(StepState.Again, state);
+        Assert.False(solver.InStep);
+        Assert.True(solver.MaxStep < shallow);
+        Assert.Equal(StepState.Done, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        Assert.Equal(before, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void AStepFindsTheBoxOfTheWetVoxels()
     {
         // Water poured in two corners of a closed box falls to its floor: the wet box spans both, one row high.
@@ -499,6 +547,18 @@ public class VoxelSolverTests
 
         Assert.Equal(0f, grid.TotalWater(), 3);
     }
+
+    // A pool two voxels deep in a box two bricks long with sixteen voxels of water dropped on it.
+    private static VoxelGrid Splash()
+    {
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 23, 0, 7)));
+        Fill(grid, 0, 23, 0, 7, 2f);
+        grid.Pour(12, 5, 3, 16f);
+        return grid;
+    }
+
+    private static float[] Volumes(VoxelGrid grid) =>
+        [.. grid.Bricks.OrderBy(b => VoxelGrid.Key(b.X, b.Y, b.Z)).SelectMany(b => b.Water.Concat(b.FlowX).Concat(b.FlowY).Concat(b.FlowZ))];
 
     private static float OutAfter(float depth, float seconds)
     {

@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.4 — 2026-10-22
+
+### Fixed
+- A big flood could still stall single server frames: the water's work and the making of new blocks of water are
+  now spread over several frames within `StepBudget`.
+
 ## v0.15.3 — 2026-10-22
 
 ### Fixed

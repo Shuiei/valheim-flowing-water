@@ -22,6 +22,9 @@ internal sealed class VoxelServer
     // Longest frame stepped at once, seconds: a hitch is let go rather than stepped in one long go.
     private const float LongestFrame = 0.25f;
 
+    // Bricks a step works through between two looks at the frame's budget.
+    private const int Chunk = 32;
+
     // Most water time owed to the water while the server cannot keep up, seconds: past it, time is given up.
     private const float MostOwed = 0.5f;
 
@@ -49,11 +52,22 @@ internal sealed class VoxelServer
 
     private readonly Stopwatch _stepWatch = new();
 
-    private readonly Stopwatch _oneStep = new();
+    private readonly Stopwatch _frameWatch = new();
+
+    private readonly Func<bool> _timeLeft;
+
+    // The length of the step under way, seconds.
+    private float _length;
+
+    // Seconds the solids watch and forgetting dry bricks have waited for a step under way.
+    private float _waited;
 
     private readonly StepPacer _pacer = new(MostOwed);
 
     private float _dropped;
+
+    // The most a frame spent on the water's steps since last logged, milliseconds.
+    private double _longestFrame;
 
     private readonly Stopwatch _sendWatch = new();
 
@@ -90,6 +104,7 @@ internal sealed class VoxelServer
     {
         _solids = new GameSolids(_terrain);
         _watch = new SolidsWatch(_solids, _terrain);
+        _timeLeft = TimeLeft;
         NewGrid(SettingVoxelSize());
     }
 
@@ -117,17 +132,26 @@ internal sealed class VoxelServer
             _terrain.Refresh();
         }
 
-        _watch.Update(dt, _grid);
+        // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
         dt = Mathf.Min(dt, LongestFrame);
+        // Their time waits with them.
+        _waited += dt;
+        if (!_solver.InStep)
+        {
+            _watch.Update(_waited, _grid);
+            _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
+            _waited = 0f;
+        }
 
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        Step(dt);
+        // Work that waited for a step under way, or a send due within this frame, gets its end: no new step is begun.
+        // A send due exactly at its end does not count, or frames as long as SendSeconds would never step.
+        Step(dt, _waited > 0f || _sendTimer + dt > FlowingWaterPlugin.Settings.SendSeconds.Value);
         WarnCapped();
-        _grid.ForgetDry(dt, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
 
         _sendTimer += dt;
-        if (_sendTimer >= FlowingWaterPlugin.Settings.SendSeconds.Value)
+        if (_sendTimer >= FlowingWaterPlugin.Settings.SendSeconds.Value && !_solver.InStep)
         {
             _sendTimer = 0f;
             Publish();
@@ -137,7 +161,7 @@ internal sealed class VoxelServer
         if (debug > 0f)
         {
             _debugTimer += dt;
-            if (_debugTimer >= debug)
+            if (_debugTimer >= debug && !_solver.InStep)
             {
                 _debugTimer = 0f;
                 LogMaps();
@@ -162,20 +186,57 @@ internal sealed class VoxelServer
         }
     }
 
-    // The water's steps this frame: as many as the frame owes, while the budget's credit lasts.
-    private void Step(float dt)
+    private bool TimeLeft() => _pacer.Left(_frameWatch.Elapsed.TotalMilliseconds) > 0.0;
+
+    // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again.
+    private void Ended(StepState state)
+    {
+        if (state == StepState.Done)
+        {
+            Markers(_length);
+        }
+        else if (state == StepState.Again)
+        {
+            _pacer.Return(_length);
+        }
+    }
+
+    // The step under way finished now, whatever the budget (the world is saved, or the grid made again).
+    private void FinishStep()
+    {
+        while (_solver.InStep)
+        {
+            Ended(_solver.Advance(_length, () => true, int.MaxValue));
+        }
+    }
+
+    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts; with
+    // noNewStep, only the one under way is gone on with.
+    private void Step(float dt, bool noNewStep)
     {
         double budget = FlowingWaterPlugin.Settings.StepBudget.Value;
         _pacer.Add(dt, budget);
         _stepWatch.Start();
-        while (_pacer.Next(_solver.MaxStep))
+        _frameWatch.Restart();
+        while (TimeLeft())
         {
-            _oneStep.Restart();
-            Markers(_solver.MaxStep);
-            _solver.Step(_solver.MaxStep);
-            _pacer.Spent(_oneStep.Elapsed.TotalMilliseconds);
+            if (!_solver.InStep)
+            {
+                float step = _solver.MaxStep;
+                if (noNewStep || !_pacer.Take(step))
+                {
+                    break;
+                }
+
+                _length = step;
+            }
+
+            Ended(_solver.Advance(_length, _timeLeft, Chunk));
         }
 
+        double spent = _frameWatch.Elapsed.TotalMilliseconds;
+        _pacer.Spent(spent);
+        _longestFrame = Math.Max(_longestFrame, spent);
         _stepWatch.Stop();
         // A hitch gives up a little time now and then; a second of it in all is the water needing more than its
         // budget.
@@ -192,6 +253,7 @@ internal sealed class VoxelServer
     /// <summary>Sends every changed brick now (the world is about to be saved), and forgets dry ones.</summary>
     public void Publish()
     {
+        FinishStep();
         _sendWatch.Start();
         var kept = new HashSet<long>();
         foreach (Brick brick in _grid.Bricks)
@@ -500,6 +562,7 @@ internal sealed class VoxelServer
             return;
         }
 
+        FinishStep();
         float s = _grid.VoxelSize;
         List<BrickView> views = [.. _grid.Bricks.Select(b => BrickData.Decode(BrickData.Encode(b, s)))];
         VoxelGrid oldGrid = _grid;
@@ -747,11 +810,12 @@ internal sealed class VoxelServer
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms, sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;
         _dropped = 0f;
+        _longestFrame = 0.0;
         int cells = (int)(TileData.ZoneMetres / MapMetres);
         foreach (KeyValuePair<long, Dictionary<(int X, int Z), float>> zone in depths)
         {

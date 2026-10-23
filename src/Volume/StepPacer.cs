@@ -1,11 +1,11 @@
 namespace FlowingWater.Volume;
 
 /// <summary>
-/// Paces the water's steps over the server's frames so that, on average, they take at most a budget of each frame.
-/// Each frame owes the water its time and brings the budget's worth of credit; fixed steps are taken while time is
-/// owed and credit is left, each step paying what it cost. A step dearer than the budget leaves the credit short,
-/// and the next frames take none until it is made up. Owed time past a limit is given up, so that water too heavy
-/// for the server slows down instead of slowing the server.
+/// Paces the water's steps over the server's frames so that they take at most a budget of each frame. Each frame
+/// owes the water its time and brings the budget's worth of credit; steps are taken (a part at a time) while time is
+/// owed and credit is left, and the frame pays what they cost. A frame that went over leaves the credit short, and
+/// the next frames take none until it is made up. Owed time past a limit is given up, so that water too heavy for
+/// the server slows down instead of slowing the server.
 /// </summary>
 internal sealed class StepPacer
 {
@@ -32,19 +32,14 @@ internal sealed class StepPacer
     public void Add(float seconds, double budget)
     {
         Owed += seconds;
-        if (Owed > _mostOwed)
-        {
-            Dropped += Owed - _mostOwed;
-            Owed = _mostOwed;
-        }
-
+        GiveUpPastTheLimit();
         _credit = System.Math.Min(_credit + budget, budget);
     }
 
-    /// <summary>Whether to take one more step of <paramref name="step"/> seconds now: time owed and credit left.</summary>
-    public bool Next(float step)
+    /// <summary>Takes a step of <paramref name="step"/> seconds out of the owed time; false when less is owed.</summary>
+    public bool Take(float step)
     {
-        if (Owed < step || _credit <= 0.0)
+        if (Owed < step)
         {
             return false;
         }
@@ -53,8 +48,28 @@ internal sealed class StepPacer
         return true;
     }
 
-    /// <summary>The step just taken cost this many milliseconds.</summary>
+    /// <summary>A step taken was not done (to be taken shorter): its time is owed again, within the limit.</summary>
+    public void Return(float step)
+    {
+        Owed += step;
+        GiveUpPastTheLimit();
+    }
+
+    /// <summary>Milliseconds of credit left once the frame has spent <paramref name="spent"/> on the water.</summary>
+    public double Left(double spent) => _credit - spent;
+
+    /// <summary>The frame spent this many milliseconds on the water.</summary>
     public void Spent(double milliseconds) => _credit -= milliseconds;
+
+    // Owed time past the limit is given up (and counted).
+    private void GiveUpPastTheLimit()
+    {
+        if (Owed > _mostOwed)
+        {
+            Dropped += Owed - _mostOwed;
+            Owed = _mostOwed;
+        }
+    }
 
     /// <summary>The seconds given up since last asked, and forgets them.</summary>
     public float TakeDropped()
