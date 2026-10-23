@@ -42,21 +42,13 @@ public class VoxelFieldTests
         Assert.Equal(8.5f, field.SurfaceAt(3.5f, 7.8f, 3.5f), 4);
 
         // Both are drawn: a top for the water under the floor, and one for the pool.
-        SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
-        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7f) < 0.01f);
-        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 8.5f) < 0.01f);
+        AssertDrawnAt(VoxelSurface.Build(field, field.Find(0, 0, 0)), 7f, 8.5f);
     }
 
     [Fact]
     public void TheVelocityIsTheVoxelsTheSwimmerIsIn()
     {
-        var view = new BrickView(0, 0, 0, 1f);
-        int i = Brick.Index(2, 0, 2);
-        view.Water[i] = 1f;
-        view.VelocityX[i] = 1.5f;
-        view.VelocityZ[i] = -0.5f;
-        var field = new VoxelField();
-        field.Set(view);
+        VoxelField field = Current(1.5f, -0.5f);
 
         Assert.True(field.VelocityAt(2.5f, 0.5f, 2.5f, out float vx, out _, out float vz));
         Assert.Equal((1.5f, -0.5f), (vx, vz));
@@ -77,12 +69,7 @@ public class VoxelFieldTests
     public void NoCurrentCarriesAPointOverTheWater()
     {
         // A voxel of water with a current: a point a third of a voxel over its surface floats there, unmoved.
-        var view = new BrickView(0, 0, 0, 1f);
-        int i = Brick.Index(2, 0, 2);
-        view.Water[i] = 1f;
-        view.VelocityX[i] = 1.5f;
-        var field = new VoxelField();
-        field.Set(view);
+        VoxelField field = Current(1.5f, 0f);
 
         Assert.Equal(1f, field.SurfaceAt(2.5f, 1.3f, 2.5f), 4);
         Assert.False(field.VelocityAt(2.5f, 1.3f, 2.5f, out _, out _, out _));
@@ -97,10 +84,7 @@ public class VoxelFieldTests
         var cells = (from x in Enumerable.Range(3, 2) from z in Enumerable.Range(3, 2) from c in new[] { (x, 6, z, 1f, 0f), (x, 7, z, 0.3f, 0.5f) } select c).ToArray();
         VoxelField field = Field(cells);
 
-        SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
-
-        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7f) < 0.01f);
-        Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - 7.8f) < 0.01f);
+        AssertDrawnAt(VoxelSurface.Build(field, field.Find(0, 0, 0)), 7f, 7.8f);
     }
 
     [Fact]
@@ -154,6 +138,28 @@ public class VoxelFieldTests
         Assert.Equal((1 + 8) * 6, mesh.Triangles.Count);
         Assert.Equal(3f, mesh.Vertices.Min(v => v.Y), 4);
         Assert.Equal(5f, mesh.Vertices.Max(v => v.Y), 4);
+    }
+
+    // Some vertex of the surface lies at each of these heights.
+    private static void AssertDrawnAt(SurfaceMesh mesh, params float[] heights)
+    {
+        foreach (float height in heights)
+        {
+            Assert.Contains(mesh.Vertices, v => System.Math.Abs(v.Y - height) < 0.01f);
+        }
+    }
+
+    // A full voxel at (2, 0, 2) running this fast east and north.
+    private static VoxelField Current(float vx, float vz)
+    {
+        var view = new BrickView(0, 0, 0, 1f);
+        int i = Brick.Index(2, 0, 2);
+        view.Water[i] = 1f;
+        view.VelocityX[i] = vx;
+        view.VelocityZ[i] = vz;
+        var field = new VoxelField();
+        field.Set(view);
+        return field;
     }
 
     private static VoxelField Field(params (int X, int Y, int Z, float Water, float Solid)[] voxels)
