@@ -199,8 +199,19 @@ public sealed partial class Recorder
         {
             Vector3 drainAt = drain.transform.position;
 
-            // On the floor beside the drain: the source's water has had a minute to run down round it by now.
-            yield return Go(floorSpot + (site.Across * 0.7f), top);
+            // On the floor beside the drain: the source's water has had a minute to run down round it by now. A place
+            // the floor is under, as a ray down finds it (the floor's own origin is not its middle).
+            Vector3 stand = floorSpot;
+            foreach (Vector3 offset in new[] { site.Across * 0.6f, -site.Across * 0.6f, site.Down * 0.6f, -site.Down * 0.6f })
+            {
+                if (Physics.Raycast(floorSpot + offset + (Vector3.up * 5f), Vector3.down, out RaycastHit under, 10f, LayerMask.GetMask("piece")) && under.collider.GetComponentInParent<Piece>()?.gameObject == floor)
+                {
+                    stand = floorSpot + offset;
+                    break;
+                }
+            }
+
+            yield return Go(stand, top);
             ItemDrop.ItemData tool = Tool(player, remover);
             player.EquipItem(tool);
             yield return new WaitForSeconds(1f);
