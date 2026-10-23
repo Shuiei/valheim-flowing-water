@@ -33,12 +33,15 @@ Console (F5) command `flowingwater`:
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
 
-The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must
-be on). Hammer pieces for the spring and the drain come later.
+Who may use the command: the host (and a player alone) and the server's admins (its `adminlist.txt`) always;
+other players while the server's `CommandsForEveryone` is on. The server's setting counts, not the player's: the
+server tells each player's game its value when they join, and again when it changes. Hammer pieces for the spring
+and the drain come later.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
-add its radius in metres, `x,z,rate,radius`.
+add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
+100 m³/s at most (and a drain's radius to 16 m), and logs each one it holds once.
 
 ## Settings
 
@@ -60,7 +63,7 @@ add its radius in metres, `x,z,rate,radius`.
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all |
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres |
-| `Commands.CommandsForEveryone` | true | The command without cheats |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command (the server's setting counts; the host and admins always may) |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |

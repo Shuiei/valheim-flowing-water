@@ -41,6 +41,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _harmony = new Harmony(PluginId);
         _harmony.PatchAll(typeof(FlowingWaterPlugin).Assembly);
         ZNet.WorldSaveStarted += OnWorldSave;
+        Settings.CommandsForEveryone.SettingChanged += (_, _) => Commands.TellEveryone();
         Logger.LogInfo($"{Name} {BuildInfo.Version} loaded");
     }
 

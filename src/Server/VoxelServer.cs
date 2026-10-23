@@ -36,6 +36,11 @@ internal sealed class VoxelServer
     // The farthest a drain reaches, metres: as far as the DefaultDrainRadius setting allows.
     private const float MaxDrainRadius = 16f;
 
+    // The most a source gives or a drain takes, cubic metres a second: fifty springs of the default rate, a big river.
+    // A marker holds whatever rate a player's game wrote into it: a billion filled every brick MaxBricks allows within
+    // a frame, while at this rate a thousand bricks of 1 m voxels take half a day to fill.
+    internal const float MaxRate = 100f;
+
     private readonly ZoneTerrain _terrain = new();
 
     private readonly GameSolids _solids;
@@ -98,6 +103,10 @@ internal sealed class VoxelServer
 
     // The points water was poured at that had no room, each told of once until the markers are looked for again.
     private readonly HashSet<Vector3> _noRoom = [];
+
+    // The markers (by object) and fixed sources and drains (by their text) whose rate was held to MaxRate, each told
+    // of once.
+    private readonly HashSet<string> _rateCapped = [];
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
@@ -740,7 +749,7 @@ internal sealed class VoxelServer
             float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
             if (Usable(rate, drain, zdo.GetPosition().ToString()))
             {
-                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
+                _markers.Add(new Source(zdo.GetPosition(), Capped(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()), drain, radius));
             }
         }
     }
@@ -770,9 +779,25 @@ internal sealed class VoxelServer
 
             if (Usable(rate, drain, trimmed))
             {
-                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
+                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), Capped(rate, drain, trimmed, trimmed), drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
             }
         }
+    }
+
+    // A rate held to MaxRate, told of once for each marker (key) held.
+    private float Capped(float rate, bool drain, string where, string key)
+    {
+        if (rate <= MaxRate)
+        {
+            return rate;
+        }
+
+        if (_rateCapped.Add(key))
+        {
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} m³/s is more than the most a source or drain may have; {MaxRate} m³/s used"));
+        }
+
+        return MaxRate;
     }
 
     // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more.

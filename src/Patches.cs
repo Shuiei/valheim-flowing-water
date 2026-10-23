@@ -57,6 +57,17 @@ internal static class CommandPatch
     }
 }
 
+/// <summary>A player joins a server: the server tells the player's game its CommandsForEveryone.</summary>
+[HarmonyPatch(typeof(ZNet), "RPC_PeerInfo")]
+internal static class CommandRightsPatch
+{
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static void Postfix(ZNet __instance, ZRpc rpc)
+    {
+        Commands.Joined(__instance, rpc);
+    }
+}
+
 /// <summary>The game's point-in-water checks (fishing, AI, building, effects) also see flowing water.</summary>
 [HarmonyPatch(typeof(Floating), nameof(Floating.GetLiquidLevel))]
 internal static class LiquidLevelPatch
