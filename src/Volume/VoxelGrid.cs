@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace FlowingWater.Volume;
 
@@ -50,6 +51,9 @@ internal sealed class VoxelGrid
     /// <summary>Whether water has asked for a brick beyond <see cref="MaxBricks"/> (it stopped spreading).</summary>
     public bool Capped { get; private set; }
 
+    /// <summary>A number that changes each time a brick is made or forgotten.</summary>
+    public int Version { get; private set; }
+
     /// <summary>The bricks there are.</summary>
     public IReadOnlyCollection<Brick> Bricks => _bricks.Values;
 
@@ -77,6 +81,7 @@ internal sealed class VoxelGrid
         var brick = new Brick(x, y, z);
         _solids.Fill(brick, VoxelSize);
         _bricks[Key(x, y, z)] = brick;
+        Version++;
         for (int side = 0; side < Sides.Length; side++)
         {
             Brick next = Find(x + Sides[side].X, y + Sides[side].Y, z + Sides[side].Z);
@@ -128,8 +133,10 @@ internal sealed class VoxelGrid
             return false;
         }
 
-        brick.Water[Brick.Index(x & 15, y & 15, z & 15)] += cubicMetres / VoxelVolume;
+        int i = Brick.Index(x & 15, y & 15, z & 15);
+        brick.Water[i] += cubicMetres / VoxelVolume;
         brick.EmptyFor = 0f;
+        brick.Wets(i);
         return true;
     }
 
@@ -162,6 +169,14 @@ internal sealed class VoxelGrid
         Array.Clear(brick.Solid, 0, Brick.Count);
         Array.Clear(brick.Closed, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
+
+        // Its faces may have opened onto a sleeping brick beside it: they wake together.
+        brick.Quiet = 0;
+        foreach (Brick next in brick.Beside.Where(b => b != null))
+        {
+            next.Quiet = 0;
+        }
+
         for (int i = 0; i < Brick.Count; i++)
         {
             if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)
@@ -185,6 +200,7 @@ internal sealed class VoxelGrid
             {
                 to.Brick.Water[to.Index] += water;
                 to.Brick.EmptyFor = 0f;
+                to.Brick.Wets(to.Index);
                 return true;
             }
         }
@@ -228,15 +244,29 @@ internal sealed class VoxelGrid
             _wanted.Clear();
         }
 
-        foreach (long key in wanted)
+        for (int k = 0; k < wanted.Length; k++)
         {
             if (_bricks.Count >= MaxBricks)
             {
+                // Asked for again, to be made once room is freed: the water that asked may sleep and ask no more.
+                Want(wanted, k);
                 Capped = true;
                 return;
             }
 
-            Get(Unpack(key >> 42), Unpack(key >> 21), Unpack(key));
+            Get(Unpack(wanted[k] >> 42), Unpack(wanted[k] >> 21), Unpack(wanted[k]));
+        }
+    }
+
+    // The bricks still wanted, from the k-th on, asked for again.
+    private void Want(long[] wanted, int k)
+    {
+        lock (_wanted)
+        {
+            for (; k < wanted.Length; k++)
+            {
+                _wanted.Add(wanted[k]);
+            }
         }
     }
 
@@ -265,6 +295,7 @@ internal sealed class VoxelGrid
     public void Forget(Brick brick)
     {
         _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
+        Version++;
         for (int side = 0; side < Sides.Length; side++)
         {
             if (brick.Beside[side] is { } next)

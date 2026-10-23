@@ -548,9 +548,16 @@ internal sealed class VoxelServer
 
         float volume = s * s * s;
         float share = there <= 0f ? 0f : drain.Rate <= 0f ? 1f : Mathf.Min(1f, drain.Rate * dt / (there * volume));
+        if (share <= 0f)
+        {
+            return;
+        }
+
+        // Drained, a sleeping brick wakes: the water round the drain flows in.
         foreach ((Brick brick, int i) in found)
         {
             brick.Water[i] -= brick.Water[i] * share;
+            brick.Wets(i);
         }
     }
 
