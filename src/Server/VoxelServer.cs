@@ -191,12 +191,17 @@ internal sealed class VoxelServer
 
     private bool TimeLeft() => _pacer.Left(_frameWatch.Elapsed.TotalMilliseconds) > 0.0;
 
-    // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again.
+    // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again;
+    // nothing to step, the time owed passes at once (not a short step at a time, each looking over every brick).
     private void Ended(StepState state)
     {
         if (state == StepState.Done)
         {
             Markers(_length);
+        }
+        else if (state == StepState.Idle)
+        {
+            Markers(_length + _pacer.TakeAll());
         }
         else if (state == StepState.Again)
         {
