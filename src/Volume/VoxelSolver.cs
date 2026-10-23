@@ -34,7 +34,7 @@ internal sealed class VoxelSolver
     // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
     private const float Damping = 0.3f, Drag = 0.05f;
 
-    // The share of a voxel's room over which the weight of the water over it comes on as it fills.
+    // The share of a voxel over which the weight of the water over it comes on as it fills (the last of its room).
     private const float Contact = 0.1f;
 
     // The deepest water steps are kept stable for, metres: longer steps are split.
@@ -442,9 +442,12 @@ internal sealed class VoxelSolver
                         }
 
                         // What is over the voxel presses on it only as it fills: water over a voxel not full hangs over
-                        // air and falls, its weight carried by nothing; the weight comes on over the last tenth of the
-                        // voxel's room, so that no head jumps (a jump feeds the water energy and it never settles).
-                        float carried = Math.Min(1f, Math.Max(0f, ((water / room) - (1f - Contact)) / Contact)) * above;
+                        // air and falls, its weight carried by nothing; the weight comes on over the last tenth of a
+                        // voxel under the top of its room, so that no head jumps (a jump feeds the water energy and it
+                        // never settles). A voxel with less room than that (ground just under its top) carries as much
+                        // of the weight as its water reaches, and is pressed fuller for the rest: the weight coming on
+                        // over a tenth of its sliver of room was such a jump, and kept the water over it astir for ever.
+                        float carried = Math.Min(1f, Math.Max(0f, (water - Math.Max(0f, room - Contact)) / Contact)) * above;
                         if (!brick.Asleep)
                         {
                             brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * stiffness * s);

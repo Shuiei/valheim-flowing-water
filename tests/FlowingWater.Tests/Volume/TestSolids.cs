@@ -3,18 +3,27 @@ using FlowingWater.Volume;
 
 namespace FlowingWater.Tests.Volume;
 
-/// <summary>Solids for tests: voxels below a level are ground, and faces a function says a piece closes.</summary>
+/// <summary>
+/// Solids for tests: voxels below a level are ground (or the ground stands as high as a function says), and faces a
+/// function says a piece closes.
+/// </summary>
 internal sealed class TestSolids : ISolids
 {
     private readonly int _groundBelow;
 
     private readonly Func<int, int, int, byte> _closed;
 
-    /// <summary>Ground under voxel row <paramref name="groundBelow"/>; faces closed by <paramref name="closed"/> (x, y, z → bits).</summary>
-    public TestSolids(int groundBelow, Func<int, int, int, byte> closed = null)
+    private readonly Func<int, int, float> _ground;
+
+    /// <summary>
+    /// Ground under voxel row <paramref name="groundBelow"/>, or up to <paramref name="ground"/> (x, z → its height in
+    /// voxels, the voxel it ends in solid up to there); faces closed by <paramref name="closed"/> (x, y, z → bits).
+    /// </summary>
+    public TestSolids(int groundBelow, Func<int, int, int, byte> closed = null, Func<int, int, float> ground = null)
     {
         _groundBelow = groundBelow;
         _closed = closed ?? ((_, _, _) => 0);
+        _ground = ground;
     }
 
     public void Fill(Brick brick, float voxelSize)
@@ -22,9 +31,9 @@ internal sealed class TestSolids : ISolids
         for (int i = 0; i < Brick.Count; i++)
         {
             (int x, int y, int z) = Brick.Place(i);
-            int gy = (brick.Y * Brick.Size) + y;
-            brick.Solid[i] = gy < _groundBelow ? 1f : 0f;
-            brick.Closed[i] = _closed((brick.X * Brick.Size) + x, gy, (brick.Z * Brick.Size) + z);
+            int gx = (brick.X * Brick.Size) + x, gy = (brick.Y * Brick.Size) + y, gz = (brick.Z * Brick.Size) + z;
+            brick.Solid[i] = _ground == null ? (gy < _groundBelow ? 1f : 0f) : Math.Min(1f, Math.Max(0f, _ground(gx, gz) - gy));
+            brick.Closed[i] = _closed(gx, gy, gz);
         }
     }
 

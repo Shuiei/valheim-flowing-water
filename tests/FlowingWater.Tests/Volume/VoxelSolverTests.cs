@@ -125,6 +125,22 @@ public class VoxelSolverTests
         Assert.Equal(64f * 2.25f, grid.TotalWater(), 1);
     }
 
+    [Fact]
+    public void APoolOnGroundJustUnderAVoxelsTopSettlesAndSleeps()
+    {
+        // Ground ending a hundredth of a voxel or less under its voxel's top (a little more or less column by column):
+        // each column has a sliver of room under the pool. A pool deeper on one half levels out over them and sleeps.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 7, 0, 7), (x, z) => 0.99f + (0.001f * (((3 * x) + (5 * z)) % 9))));
+        Fill(grid, 0, 3, 0, 7, 2f, bottom: 1);
+        Fill(grid, 4, 7, 0, 7, 1.5f, bottom: 1);
+        float before = grid.TotalWater();
+
+        Run(grid, 60f);
+
+        Assert.All(grid.Bricks, b => Assert.True(b.Asleep, $"brick {b.X},{b.Y},{b.Z} quiet for {b.Quiet} s"));
+        Assert.Equal(before, grid.TotalWater(), 2);
+    }
+
     [Theory]
     [InlineData(1f)]
     [InlineData(0.25f)]
