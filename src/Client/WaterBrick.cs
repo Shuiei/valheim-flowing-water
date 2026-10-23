@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using FlowingWater.Volume;
 using UnityEngine;
@@ -117,30 +118,7 @@ internal sealed class WaterBrick : MonoBehaviour
     /// <summary>What the brick at a point draws (else the nearest in the column there), for the console.</summary>
     public static string DebugInfo(Vector3 point)
     {
-        WaterBrick found = null;
-        float nearest = float.MaxValue;
-        foreach (WaterBrick brick in ByKey.Values)
-        {
-            if (brick == null || brick._view == null)
-            {
-                continue;
-            }
-
-            float span = Brick.Size * brick._view.VoxelSize;
-            Vector3 low = new Vector3(brick._view.X, brick._view.Y, brick._view.Z) * span;
-            if (point.x < low.x || point.x >= low.x + span || point.z < low.z || point.z >= low.z + span)
-            {
-                continue;
-            }
-
-            float off = point.y < low.y ? low.y - point.y : Mathf.Max(0f, point.y - (low.y + span));
-            if (off < nearest)
-            {
-                nearest = off;
-                found = brick;
-            }
-        }
-
+        WaterBrick found = BrickPick.Nearest(ByKey.Values.Where(b => b != null && b._view != null), b => b._view, point.x, point.y, point.z, out float nearest);
         if (found == null)
         {
             return "no water brick in the column here";

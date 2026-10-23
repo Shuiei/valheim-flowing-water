@@ -26,6 +26,7 @@
     <Compile Include="../../src/Server/TerrainChanges.cs" Link="Mod/TerrainChanges.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
+    <Compile Include="../../src/Client/BrickPick.cs" Link="Mod/BrickPick.cs" />
     <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />
   </ItemGroup>
 </Project>
