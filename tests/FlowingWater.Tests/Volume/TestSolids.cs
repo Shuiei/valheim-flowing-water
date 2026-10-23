@@ -28,6 +28,11 @@ internal sealed class TestSolids : ISolids
         }
     }
 
+    /// <summary>The bricks (x, y, z) whose solids cannot be read yet; none unless set.</summary>
+    public Func<int, int, int, bool> Waiting { get; set; }
+
+    public bool Ready(int x, int y, int z, float voxelSize) => Waiting?.Invoke(x, y, z) != true;
+
     /// <summary>
     /// Walls round the voxels x0..x1, z0..z1 (from y0 up), as faces closed between them and the outside;
     /// <paramref name="open"/> leaves one voxel's face open (a hole).

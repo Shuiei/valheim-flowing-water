@@ -193,5 +193,7 @@ public class SolidsChangesTests
         public SortedSet<int> Bricks { get; } = [];
 
         public void Fill(Brick brick, float voxelSize) => Bricks.Add(brick.X);
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 }

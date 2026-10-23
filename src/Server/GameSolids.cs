@@ -79,6 +79,26 @@ internal sealed class GameSolids : ISolids
         _parts.Into(was);
     }
 
+    /// <inheritdoc/>
+    public bool Ready(int x, int y, int z, float voxelSize)
+    {
+        // The ground is read under the brick's columns and one past its far edges: the zones under it, a voxel round.
+        float span = Brick.Size * voxelSize;
+        Vector2s first = ZoneSystem.GetZone(new Vector3((x * span) - voxelSize, 0f, (z * span) - voxelSize));
+        Vector2s last = ZoneSystem.GetZone(new Vector3(((x + 1) * span) + (2f * voxelSize), 0f, ((z + 1) * span) + (2f * voxelSize)));
+        bool ready = true;
+        for (int zz = first.y; zz <= last.y; zz++)
+        {
+            for (int zx = first.x; zx <= last.x; zx++)
+            {
+                // Each is asked for, not only the first missing: they are generated side by side.
+                ready &= _terrain.Ready(new Vector2s(zx, zz));
+            }
+        }
+
+        return ready;
+    }
+
     /// <summary>Forgets a zone's pieces, to read them again (a piece was built, broken, opened or closed there).</summary>
     public void Forget(Vector2s zone) => _boxesByZone.Remove(TileData.Key(zone));
 

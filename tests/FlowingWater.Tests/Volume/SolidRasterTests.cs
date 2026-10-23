@@ -234,6 +234,8 @@ public class SolidRasterTests
             SolidRaster.Ground(brick, voxelSize, (_, _) => 0f);
             SolidRaster.Pieces(brick, voxelSize, _pieces, (_, _) => 0f);
         }
+
+        public bool Ready(int x, int y, int z, float voxelSize) => true;
     }
 
     [Fact]

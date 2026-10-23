@@ -16,6 +16,9 @@ internal interface IZoneGround<TZone, TStamp>
     /// <summary>The zone's generated heights, one a vertex.</summary>
     float[] Generated(TZone zone);
 
+    /// <summary>Whether <see cref="Generated"/> would give the zone's heights at once; if not, they are asked for.</summary>
+    bool CanGenerate(TZone zone);
+
     /// <summary>The zone's changes now: their stamp, and their bytes (null when the zone has none).</summary>
     (TStamp Stamp, byte[] Data) Changes(TZone zone);
 
@@ -58,6 +61,12 @@ internal sealed class ZoneHeights<TZone, TStamp>
 
         return entry.Heights;
     }
+
+    /// <summary>
+    /// Whether the zone's heights can be read now without waiting for the game to generate them; if not, they are
+    /// asked for, to be ready at a later call.
+    /// </summary>
+    public bool Ready(TZone zone) => _zones.ContainsKey(_ground.Key(zone)) || _ground.CanGenerate(zone);
 
     /// <summary>Forgets the zones not among these (by key): they are made again when read.</summary>
     public void Keep(HashSet<long> zones) => ZoneCache.Keep(_zones, zones);
