@@ -39,12 +39,22 @@ internal static class Commands
         if (!net.IsServer())
         {
             Rights.Joining();
-            rpc.Register<bool>(EveryoneRpc, (_, everyone) => Rights.Told(everyone));
+            rpc.Register<bool>(EveryoneRpc, (_, everyone) =>
+            {
+                Rights.Told(everyone);
+                HoePieces.Refresh();
+            });
             return;
         }
 
         CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
     }
+
+    /// <summary>
+    /// Why this game's player may not place, change or remove sources and drains with the hoe; null when they may (as
+    /// for the command); outside a world, as for a player who is no admin.
+    /// </summary>
+    public static string MarkerRefusal(CommandRights.MarkerUse use) => Rights.MarkerRefusal(ZNet.instance != null && ZNet.instance.LocalPlayerIsAdminOrHost(), use);
 
     /// <summary>The server's CommandsForEveryone changed: every player's game is told.</summary>
     public static void TellEveryone()
@@ -208,12 +218,7 @@ internal static class Commands
         }
 
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
-        ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
-        zdo.Set(ZdoKeys.Rate, rate);
-        if (drain)
-        {
-            zdo.Set(ZdoKeys.Radius, radius);
-        }
+        Marker.Write(placed.GetComponent<ZNetView>().GetZDO(), drain, rate, radius);
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
             + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)

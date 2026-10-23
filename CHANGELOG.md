@@ -2,6 +2,18 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.0 — 2026-10-23
+
+### Added
+- Sources and drains are placed with the hoe: its pieces now include a Water source and a Water drain, free, set
+  exactly where you aim, on the ground or on anything built (a floor, a wall's top). A panel on the right of the
+  screen shows the rate, and a drain's radius, that the next one takes; **E** changes them. Looking at a placed one
+  tells what it does, **E** on it opens the panel to change it or remove it (its **Remove** button), and the hammer
+  removes it as any piece. The `flowingwater` command still works as before.
+- The players who may use the `flowingwater` command are the ones who may place, change and remove sources and
+  drains (the host and the server's admins always, others while the server's `CommandsForEveryone` is on): the hoe
+  offers them to no one else, and a player refused is told why.
+
 ## v0.15.13 — 2026-10-23
 
 ### Fixed

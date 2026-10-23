@@ -49,6 +49,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Update()
     {
+        Client.MarkerPanel.Tick();
         if (ZNet.instance == null || ZDOMan.instance == null)
         {
             WorldLoaded = false;

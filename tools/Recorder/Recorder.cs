@@ -19,7 +19,7 @@ namespace FlowingWater.Recorder;
 // it is done. It does nothing unless FW_REC_OUT is set.
 [BepInPlugin("Tie.FlowingWater.Recorder", "FlowingWaterRecorder", "1.0.0")]
 [BepInDependency("Tie.FlowingWater")]
-public sealed class Recorder : BaseUnityPlugin, IDisposable
+public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 {
     // The most a "!film" takes: frames a second, frames in all and seconds (five minutes, at up to 60 a second).
     private const int MaxFps = 60;
@@ -272,7 +272,9 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        if (chosen is not ("prep" or "pools" or "cascade" or "at"))
+        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "at"
+            || (chosen == "perf" && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FW_REC_PERF")));
+        if (!ownPlaces)
         {
             steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
             gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
@@ -287,6 +289,8 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
             "prep" => Prep(),
             "pools" => Pools(),
             "at" => At(),
+            "hoe" => Hoe(gentle),
+            "perf" => Perf(spawn, steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
@@ -831,6 +835,11 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
         Console.instance.TryRunCommand(text, false, true);
     }
 
+    // The player still there: gone (dead, or out of the world) the run cannot go on, and says so.
+    private static Player Alive(Player player, Vector3 target) => player != null && player == Player.m_localPlayer
+        ? player
+        : throw new InvalidOperationException($"the player is gone (dead?) on the way to {target}");
+
     private IEnumerator Go(Vector3 point, float? standAt = null)
     {
         Player player = Player.m_localPlayer;
@@ -846,7 +855,7 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
 
         var target = new Vector3(point.x, ground + 0.5f, point.z);
         float until = Time.time + 30f;
-        while (!player.TeleportTo(target, player.transform.rotation, true))
+        while (!Alive(player, target).TeleportTo(target, player.transform.rotation, true))
         {
             if (Time.time > until)
             {
@@ -857,12 +866,13 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
         }
 
         until = Time.time + 60f;
-        while (player.IsTeleporting() && Time.time < until)
+        while (Alive(player, target).IsTeleporting() && Time.time < until)
         {
             yield return null;
         }
 
         yield return new WaitForSeconds(4f);
+        Alive(player, target);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
         if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
