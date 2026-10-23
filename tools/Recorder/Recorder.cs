@@ -19,7 +19,7 @@ namespace FlowingWater.Recorder;
 // it is done. It does nothing unless FW_REC_OUT is set.
 [BepInPlugin("Tie.FlowingWater.Recorder", "FlowingWaterRecorder", "1.0.0")]
 [BepInDependency("Tie.FlowingWater")]
-public sealed class Recorder : BaseUnityPlugin
+public sealed class Recorder : BaseUnityPlugin, IDisposable
 {
     // The most a "!film" takes: frames a second, frames in all and seconds (five minutes, at up to 60 a second).
     private const int MaxFps = 60;
@@ -159,18 +159,26 @@ public sealed class Recorder : BaseUnityPlugin
         StartCoroutine(Run());
     }
 
-    // The log closed with the recorder (the game quits, or the plugin is unloaded), the patches taken off.
-    private void OnDestroy()
+    /// <summary>
+    /// Stops the run, closes the log and takes the patches off; Unity calls it as the recorder goes (OnDestroy). The run
+    /// is stopped first: it writes to the log to its end.
+    /// </summary>
+    public void Dispose()
     {
+        StopAllCoroutines();
         if (Current == this)
         {
             Current = null;
         }
 
         _harmony?.UnpatchSelf();
+        _harmony = null;
         _log?.Dispose();
         _log = null;
     }
+
+    // The recorder goes with the game (it quits) or with its plugin (unloaded).
+    private void OnDestroy() => Dispose();
 
     private void Note(string text)
     {
