@@ -19,7 +19,7 @@ namespace FlowingWater.Recorder;
 // it is done. It does nothing unless FW_REC_OUT is set.
 [BepInPlugin("Tie.FlowingWater.Recorder", "FlowingWaterRecorder", "1.0.0")]
 [BepInDependency("Tie.FlowingWater")]
-public sealed class Recorder : BaseUnityPlugin, IDisposable
+public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 {
     // The most a "!film" takes: frames a second, frames in all and seconds (five minutes, at up to 60 a second).
     private const int MaxFps = 60;
@@ -287,6 +287,7 @@ public sealed class Recorder : BaseUnityPlugin, IDisposable
             "prep" => Prep(),
             "pools" => Pools(),
             "at" => At(),
+            "hoe" => Hoe(gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
