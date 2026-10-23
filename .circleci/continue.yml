@@ -357,8 +357,8 @@ jobs:
 
 workflows:
   # Side by side once the game's DLLs are there; the smoke test waits for the package. Main's ruleset
-  # requires code-analysis, formatting, package and server-smoke of a pull request: it must stay in step
-  # with this list (and with release-pr's below).
+  # requires code-analysis, formatting, package, server-smoke and unit-tests of a pull request: it must stay
+  # in step with this list (and with release-pr's below). Every branch runs the whole of the unit tests.
   test:
     when:
       and:
@@ -386,7 +386,7 @@ workflows:
           requires:
             - package
 
-  # A release pull request: the four checks main's ruleset requires, reported at once (no build: main's code).
+  # A release pull request: the five checks main's ruleset requires, reported at once (no build: main's code).
   release-pr:
     when: << pipeline.parameters.release_pr >>
     jobs:
@@ -398,6 +398,8 @@ workflows:
           name: package
       - tested-on-main:
           name: server-smoke
+      - tested-on-main:
+          name: unit-tests
 
   # The approval first, so nothing runs for a release nobody approves; then only what the release needs:
   # the package (the checks ran on the pull request, on the same tree) and its smoke test, then what the
