@@ -155,6 +155,10 @@ jobs:
     executor: dotnet
     steps:
       - checkout
+      # The approved pull requests' check (tools/github/merge-of-main.jq) is run by the tests as the workflow runs it.
+      - run:
+          name: jq
+          command: apt-get update -qq && apt-get install -y -qq jq > /dev/null
       - run:
           name: Unit tests
           command: |
