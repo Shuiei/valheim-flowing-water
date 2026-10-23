@@ -251,6 +251,66 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void StepsOverWaterAllAsleepLookOverNoBrick()
+    {
+        VoxelGrid grid = StillPool(0, 2f, out VoxelSolver solver);
+        solver.Step(0.1f);
+        solver.TakeLooks();
+        float before = grid.TotalWater();
+
+        for (int k = 0; k < 100; k++)
+        {
+            Assert.Equal(StepState.Idle, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        }
+
+        Assert.Equal(0, solver.TakeLooks());
+        Assert.Equal(0, solver.Awake);
+        Assert.Equal(before, grid.TotalWater());
+    }
+
+    [Theory]
+    [InlineData("pour")]
+    [InlineData("drain")]
+    [InlineData("refill")]
+    [InlineData("made")]
+    [InlineData("neighbour")]
+    public void WaterAllAsleepWakesToAnythingThatStirsIt(string stir)
+    {
+        // A still pool against its brick's west edge, the dry brick there made by its water; all asleep, no look taken.
+        VoxelGrid grid = StillPool(0, 2f, out VoxelSolver solver);
+        solver.Step(0.1f);
+        solver.Advance(solver.MaxStep, () => true, int.MaxValue);
+        solver.TakeLooks();
+        Brick pool = grid.Find(0, 0, 0);
+        grid.Locate(3, 1, 3, out Brick brick, out int i);
+        switch (stir)
+        {
+            case "pour":
+                grid.Pour(3, 1, 3, 1f);
+                break;
+            case "drain":
+                // As a drain takes: the water round it wakes.
+                brick.Water[i] -= 0.5f;
+                brick.Wets(i);
+                break;
+            case "refill":
+                grid.Refill(pool);
+                break;
+            case "made":
+                grid.Forget(grid.Find(-1, 0, 0));
+                grid.Get(-1, 0, 0);
+                break;
+            default:
+                grid.Find(-1, 0, 0).Quiet = 0f;
+                break;
+        }
+
+        Assert.NotEqual(StepState.Idle, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        Assert.Equal(1, solver.TakeLooks());
+        Assert.True(solver.Awake > 0);
+    }
+
+    [Fact]
     public void ADryGridIsIdle()
     {
         var solver = new VoxelSolver(new VoxelGrid(Volume, new TestSolids(0)));
