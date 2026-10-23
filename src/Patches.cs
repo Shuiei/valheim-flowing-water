@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Reflection;
 using FlowingWater.Client;
 using HarmonyLib;
@@ -165,57 +166,28 @@ internal static class CurrentPatch
     }
 }
 
-/// <summary>
-/// The game's methods a patch for the sources and drains changes, looked up when Harmony prepares the patch: one not
-/// found (a game update changed it) is logged as an error naming it and left out, the others still patched, and a patch
-/// with none found is not applied. Harmony would otherwise throw at it, and every patch of the plugin after it, the
-/// water's among them, would be left out too.
-/// </summary>
-internal sealed class PatchTargets
+/// <summary>The game's methods a patch for the sources and drains changes (<see cref="PatchTargets"/>), by name.</summary>
+internal static class GameMethods
 {
-    private readonly string _patch;
-
-    private readonly (Type Type, string Name)[] _methods;
-
-    private MethodBase[] _found = [];
-
-    /// <summary>The methods a patch changes, each the only one of its name in its type.</summary>
-    public PatchTargets(string patch, params (Type Type, string Name)[] methods)
-    {
-        _patch = patch;
-        _methods = methods;
-    }
-
-    /// <summary>The methods found, for the patch's TargetMethods.</summary>
-    public IEnumerable<MethodBase> Found => _found;
+    /// <summary>The methods, each the only one of its name in its type, looked up with Harmony's AccessTools.</summary>
+    public static PatchTargets For(string patch, params (Type Type, string Name)[] methods) =>
+        new(patch, FlowingWaterPlugin.Log.LogError, [.. methods.Select(m => ($"{m.Type.Name}.{m.Name}", (Func<MethodBase>)(() => AccessTools.Method(m.Type, m.Name))))]);
 
     /// <summary>
-    /// For the patch's Prepare: Harmony calls it once before the patch (no original), then once for each method found.
+    /// For the patches that refuse a source or drain to a player who may not place or remove one: the player told why in
+    /// the centre of the screen, and the game's method skipped with false as its result.
     /// </summary>
-    /// <returns>Whether to apply the patch: one of its methods at least was found.</returns>
-    public bool Prepare(MethodBase original)
+    /// <returns>Whether the game's method runs.</returns>
+    public static bool MarkerAllowed(Player player, Piece piece, CommandRights.MarkerUse use, ref bool result)
     {
-        if (original != null)
+        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(use) is not { } refusal)
         {
             return true;
         }
 
-        var found = new List<MethodBase>();
-        foreach ((Type type, string name) in _methods)
-        {
-            MethodInfo method = AccessTools.Method(type, name);
-            if (method != null)
-            {
-                found.Add(method);
-            }
-            else
-            {
-                FlowingWaterPlugin.Log.LogError($"The game's {type.Name}.{name} was not found (a game update?): {_patch} leaves it alone");
-            }
-        }
-
-        _found = [.. found];
-        return _found.Length > 0;
+        player.Message(MessageHud.MessageType.Center, refusal);
+        result = false;
+        return false;
     }
 }
 
@@ -224,17 +196,15 @@ internal sealed class PatchTargets
 /// pieces, once.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class HoePiecesPatch
 {
-    private static readonly PatchTargets Targets = new(nameof(HoePiecesPatch), (typeof(ObjectDB), "Awake"), (typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB)));
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(HoePiecesPatch), (typeof(ObjectDB), "Awake"), (typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB)));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static bool Prepare(MethodBase original) => Targets.Prepare(original);
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Postfix(ObjectDB __instance)
     {
         HoePieces.AddTo(__instance);
@@ -246,17 +216,15 @@ internal static class HoePiecesPatch
 /// game reads whether a piece is enabled each time it lists them.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class OfferPiecesPatch
 {
-    private static readonly PatchTargets Targets = new(nameof(OfferPiecesPatch), (typeof(PieceTable), nameof(PieceTable.UpdateAvailable)), (typeof(Player), "UpdateKnownRecipesList"));
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(OfferPiecesPatch), (typeof(PieceTable), nameof(PieceTable.UpdateAvailable)), (typeof(Player), "UpdateKnownRecipesList"));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static bool Prepare(MethodBase original) => Targets.Prepare(original);
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Prefix()
     {
         HoePieces.Offer();
@@ -268,28 +236,17 @@ internal static class OfferPiecesPatch
 /// building costs off, the game lists every piece, enabled or not).
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class PlaceMarkerPatch
 {
-    private static readonly PatchTargets Targets = new(nameof(PlaceMarkerPatch), (typeof(Player), nameof(Player.TryPlacePiece)));
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(PlaceMarkerPatch), (typeof(Player), nameof(Player.TryPlacePiece)));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static bool Prepare(MethodBase original) => Targets.Prepare(original);
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
-    {
-        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Place) is not { } refusal)
-        {
-            return true;
-        }
-
-        __instance.Message(MessageHud.MessageType.Center, refusal);
-        __result = false;
-        return false;
-    }
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result) =>
+        GameMethods.MarkerAllowed(__instance, piece, CommandRights.MarkerUse.Place, ref __result);
 }
 
 /// <summary>
@@ -297,28 +254,17 @@ internal static class PlaceMarkerPatch
 /// makes after its own (wards, no-build places) and before it removes the piece.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class RemoveMarkerPatch
 {
-    private static readonly PatchTargets Targets = new(nameof(RemoveMarkerPatch), (typeof(Player), "CheckCanRemovePiece"));
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(RemoveMarkerPatch), (typeof(Player), "CheckCanRemovePiece"));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static bool Prepare(MethodBase original) => Targets.Prepare(original);
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
-    {
-        if (piece == null || piece.GetComponent<Marker>() == null || Commands.MarkerRefusal(CommandRights.MarkerUse.Remove) is not { } refusal)
-        {
-            return true;
-        }
-
-        __instance.Message(MessageHud.MessageType.Center, refusal);
-        __result = false;
-        return false;
-    }
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result) =>
+        GameMethods.MarkerAllowed(__instance, piece, CommandRights.MarkerUse.Remove, ref __result);
 }
 
 /// <summary>
@@ -326,17 +272,15 @@ internal static class RemoveMarkerPatch
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class PanelInputPatch
 {
-    private static readonly PatchTargets Targets = new(nameof(PanelInputPatch), (typeof(TextInput), nameof(TextInput.IsVisible)));
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(PanelInputPatch), (typeof(TextInput), nameof(TextInput.IsVisible)));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static bool Prepare(MethodBase original) => Targets.Prepare(original);
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Postfix(ref bool __result)
     {
         __result |= MarkerPanel.TakesInput;
