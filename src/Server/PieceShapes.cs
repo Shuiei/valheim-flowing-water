@@ -36,12 +36,6 @@ internal sealed class PieceShapes
         Vector3 position = zdo.GetPosition();
         Quaternion rotation = zdo.GetRotation();
         Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
-        float reach = shape.Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
-        if (reach > Farthest)
-        {
-            _farthest = reach;
-            Grown++;
-        }
         foreach (Box box in shape.Boxes)
         {
             Vector3 x = rotation * Vector3.Scale(box.AxisX, scale);
@@ -57,9 +51,9 @@ internal sealed class PieceShapes
     }
 
     /// <summary>
-    /// How far the solid boxes of any piece may reach from its place, metres: the farthest of the game's piece prefabs
-    /// (measured the first time this is asked, unscaled), or of any piece read since (its scale taken in) if farther.
-    /// Known before a zone's pieces are read, so that a zone holding a long piece is never left out.
+    /// How far the solid boxes of the game's pieces reach from their place, metres: the farthest of its piece prefabs,
+    /// unscaled (measured the first time this is asked). Known before a zone's pieces are read, so that a zone holding
+    /// a long piece is never left out; a piece scaled to reach farther is told by <see cref="Reach"/>.
     /// </summary>
     public float Farthest
     {
@@ -82,12 +76,6 @@ internal sealed class PieceShapes
             return _farthest;
         }
     }
-
-    /// <summary>
-    /// How many times a piece read (scaled past every prefab) made <see cref="Farthest"/> farther: zones chosen with
-    /// the bound before may have missed pieces like it.
-    /// </summary>
-    public int Grown { get; private set; }
 
     /// <summary>A piece's scale (one where it was not scaled).</summary>
     public static Vector3 Scale(ZDO zdo) => zdo.GetVec3(ScaleHash, Vector3.one);
