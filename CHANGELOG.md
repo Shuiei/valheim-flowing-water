@@ -15,7 +15,7 @@ All notable changes to FlowingWater. Newest first.
   spread over frames.
 - A server kept the ground of every zone its water had ever reached, and checked it again every two seconds, so the
   water cost more the longer the server ran: zones the water has left are now let go, and a terrain change no longer
-  makes the zone's whole ground again.
+  rebuilds the zone's whole ground.
 - Switching the water off (`Enabled`) and on again read every piece broken meanwhile in one frame: the pieces are now
   looked over a zone at a time, as usual.
 - Water that had just reached a new place could ignore a terrain change made there right after, until the next one.

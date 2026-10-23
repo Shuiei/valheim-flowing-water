@@ -70,10 +70,10 @@ everything that reaches it.
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
-| `Client.FlowVisualMinSpeed` | 0.15 | Water faster than this (m/s) is drawn as a running stream |
-| `Client.FlowTextureSpeed` | 0.5 | How fast the stream texture runs |
-| `Client.Spray` | true | Spray where the water falls or runs steeply |
-| `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
+| `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
+| `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
+| `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water falls or runs steeply |
+| `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
 ### Grid size
 
@@ -117,8 +117,8 @@ there to the new grid (same volume), at the next start or at once with a config 
   heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
   prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
   every `SendSeconds`, and the game sends it to the players near it. The column water of earlier versions is
-  moved into voxels once, when the world opens (a zone's that finds no room is kept, not drawn, and tried again at
-  the next start).
+  moved into voxels once, when the world opens (the old tile of a zone whose water finds no room is kept, not
+  drawn, and tried again at the next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
   dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,
