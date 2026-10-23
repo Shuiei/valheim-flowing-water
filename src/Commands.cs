@@ -228,7 +228,7 @@ internal static class Commands
         }
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
-            + (rate > VoxelServer.MaxRate ? $" (the server holds it to {VoxelServer.MaxRate:0} m³/s)" : string.Empty)
+            + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
     }
 
