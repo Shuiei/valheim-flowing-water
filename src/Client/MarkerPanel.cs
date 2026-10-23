@@ -185,7 +185,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         {
             float before = radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain);
             bool taken = radius ? HoePieces.Next.TrySetRadius(text, out string note) : HoePieces.Next.TrySetRate(_drain, text, out note);
-            if (!taken || note != null || !Mathf.Approximately(before, radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
+            if (!taken || note != null || !MarkerValues.Same(before, radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
             {
                 Say(note, taken);
             }
@@ -207,7 +207,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         float rate = _target.Rate;
         float reach = _target.Radius;
         bool taken = radius ? MarkerValues.TryRadius(text, out float value, out string note) : MarkerValues.TryRate(text, _drain, out value, out note);
-        if (!taken || Mathf.Approximately(value, radius ? reach : rate))
+        if (!taken || MarkerValues.Same(value, radius ? reach : rate))
         {
             if (!taken || note != null)
             {
