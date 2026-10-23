@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.2 — 2026-10-23
+
+### Fixed
+- With water moving, single server frames still went 3 to 5 times over `StepBudget` now and then, though the average
+  held. The water now steps on up to three threads of its own, and the server's thread never waits for one that has
+  not started, as it did on a busy machine. Changed blocks of water are packed for sending a few per frame (and
+  three times faster), instead of all in one frame each second. A block where the water first reaches a zone waits a
+  frame or two for the game to generate the ground there, instead of holding the frame.
+- With `DebugSeconds` set, the server's log now tells each part of the water's time (in all, its most in a frame,
+  its longest frame and what took it).
+
 ## v0.16.0 — 2026-10-23
 
 ### Added
