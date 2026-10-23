@@ -13,7 +13,7 @@ internal interface IZoneGround<TZone, TStamp>
     /// <summary>The zone's key (<see cref="ZoneCache"/>).</summary>
     long Key(TZone zone);
 
-    /// <summary>The zone's generated heights, as many as it has vertices; null when the game gave none (it said why).</summary>
+    /// <summary>The zone's generated heights, one a vertex.</summary>
     float[] Generated(TZone zone);
 
     /// <summary>The zone's changes now: their stamp, and their bytes (null when the zone has none).</summary>
@@ -77,8 +77,8 @@ internal sealed class ZoneHeights<TZone, TStamp>
         }
     }
 
-    // The zone's heights: generated (once), and the changes over them. While the game gives no generated heights the
-    // ground is taken at 0 m, and they are asked for again once the changes move on.
+    // The zone's heights: generated (once), and the changes over them. While the game's generated heights are not
+    // usable the ground is taken at 0 m, and they are asked for again once the changes move on.
     private void Build(Entry entry, (TStamp Stamp, byte[] Data) changes)
     {
         if (!entry.Generated && !Generate(entry))
@@ -98,15 +98,11 @@ internal sealed class ZoneHeights<TZone, TStamp>
         }
     }
 
-    // The generated heights kept; a height that is not a number taken at 0 m. False when the game gave none.
+    // The generated heights kept; a height that is not a number taken at 0 m. False when the game gave too few or too
+    // many.
     private bool Generate(Entry entry)
     {
         float[] generated = _ground.Generated(entry.Zone);
-        if (generated == null)
-        {
-            return false;
-        }
-
         if (generated.Length != _vertices)
         {
             _ground.Warn(entry.Zone, $"the heightmap builder gave {generated.Length} vertices, expected {_vertices}");
