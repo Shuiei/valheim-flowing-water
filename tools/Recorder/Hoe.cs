@@ -210,6 +210,46 @@ public sealed partial class Recorder
             player.UnequipItem(tool);
         }
 
+        // 8. A second source placed with the hoe on open ground, then removed with its panel's Remove button.
+        Vector3 spot = OnGround(site.At(8f) - (site.Across * 12f));
+        for (float across = 20f; Location.IsInsideNoBuildLocation(spot) && across <= 80f; across += 8f)
+        {
+            spot = OnGround(site.At(8f) - (site.Across * across));
+        }
+
+        Check(!Location.IsInsideNoBuildLocation(spot), $"the second source's place may be built on ({spot.ToString("F2")})");
+        yield return Go(spot - (site.Down * 3f));
+        player.EquipItem(hoe);
+        yield return new WaitForSeconds(1f);
+        Check(player.SetSelectedPiece(sourcePiece), "the source is chosen in the hoe again");
+        Aim(spot);
+        yield return new WaitForSeconds(1f);
+        placed = player.TryPlacePiece(sourcePiece);
+        ghostAt = Ghost(player);
+        yield return new WaitForSeconds(0.5f);
+        ZNetView second = NearestMarker(SourceName, ghostAt, 1f);
+        Check(placed && second != null, $"a second source is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
+        player.UnequipItem(hoe);
+        if (second != null)
+        {
+            Vector3 secondAt = second.transform.position;
+            Aim(secondAt + (Vector3.up * 0.3f));
+            yield return new WaitForSeconds(1f);
+            yield return Press(Key.E);
+            yield return new WaitForSeconds(0.3f);
+            panel = GameObject.Find(PanelName);
+            Transform removeButton = panel == null ? null : panel.transform.Find("Remove");
+            Check(panel != null && removeButton != null && removeButton.gameObject.activeInHierarchy, "[E] on the second source opens its panel, with its Remove button");
+            if (removeButton != null)
+            {
+                yield return Snap("hoe-7-panel-remove");
+                removeButton.GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
+                yield return new WaitForSeconds(1f);
+                Check((second == null || !second.IsValid()) && NearestMarker(SourceName, secondAt, 0.5f) == null, "the Remove button takes the second source away");
+                Check(GameObject.Find(PanelName) == null && !TextInput.IsVisible(), "the panel closes with it and gives the keys back to the game");
+            }
+        }
+
         _cameraAt = null;
         Note($"hoe: {_passed} checks passed, {_failed} failed");
     }
