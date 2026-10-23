@@ -13,6 +13,12 @@ internal sealed class WaterTrigger : MonoBehaviour
 {
     private const float NoWater = -10000f;
 
+    // The bodies the current pushed in this physics step: one inside several triggers (two bricks it straddles, or a
+    // tile kept beside bricks) is pushed once.
+    private static readonly HashSet<Rigidbody> Carried = [];
+
+    private static float _carriedAt = -1f;
+
     private readonly List<IWaterInteractable> _inside = [];
 
     private static IWaterInteractable Interactable(Collider collider)
@@ -40,6 +46,17 @@ internal sealed class WaterTrigger : MonoBehaviour
 
         Rigidbody body = target.GetComponent<Rigidbody>();
         if (body == null || body.isKinematic || !VoxelWater.CurrentAt(position, out Vector3 current))
+        {
+            return;
+        }
+
+        if (Time.fixedTime != _carriedAt)
+        {
+            _carriedAt = Time.fixedTime;
+            Carried.Clear();
+        }
+
+        if (!Carried.Add(body))
         {
             return;
         }
