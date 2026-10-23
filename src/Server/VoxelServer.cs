@@ -30,6 +30,9 @@ internal sealed class VoxelServer
 
     private const float TerrainRefreshSeconds = 2f;
 
+    // The most of a frame looking for sources and drains may take, milliseconds (a part at least).
+    private const double MarkerBudget = 0.5;
+
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
 
@@ -49,6 +52,13 @@ internal sealed class VoxelServer
     private readonly List<Source> _markers = [];
 
     private readonly List<ZDO> _zdos = [];
+
+    // The look for sources and drains, over the whole world, spread over frames.
+    private readonly PrefabPass<ZDO> _markerPass;
+
+    private readonly Stopwatch _markerWatch = new();
+
+    private readonly HashSet<ZDOID> _markersSeen = [];
 
     private readonly Stopwatch _stepWatch = new();
 
@@ -108,6 +118,7 @@ internal sealed class VoxelServer
         _solids = new GameSolids(_terrain);
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
+        _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
         NewGrid(SettingVoxelSize());
     }
 
@@ -121,10 +132,16 @@ internal sealed class VoxelServer
         }
 
         ApplyVoxelSize();
+        // The markers found are swapped in once the look is over the whole world.
         _scanTimer += dt;
-        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value)
+        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
         {
             _scanTimer = 0f;
+        }
+
+        _markerWatch.Restart();
+        if (_markerPass.Run(() => _markerWatch.Elapsed.TotalMilliseconds < MarkerBudget))
+        {
             ScanMarkers();
         }
 
@@ -716,11 +733,13 @@ internal sealed class VoxelServer
         return _terrain.HeightAt(zone, x - TileData.OriginX(zone), z - TileData.OriginZ(zone));
     }
 
+    // The sources and drains a whole look found, and the config's, in place of the last ones.
     private void ScanMarkers()
     {
         _noRoom.Clear();
         int before = _markers.Count;
         _markers.Clear();
+        _markersSeen.Clear();
         Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
         Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
         CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
@@ -734,8 +753,15 @@ internal sealed class VoxelServer
     private void Collect(string prefab, bool drain, float defaultRate)
     {
         float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
-        foreach (ZDO zdo in All(prefab))
+        int hash = prefab.GetStableHashCode();
+        foreach (ZDO zdo in _markerPass.Found(prefab))
         {
+            // One gone during the look, or found twice (gone, then made again as another object), is left out.
+            if (!zdo.IsValid() || zdo.GetPrefab() != hash || !_markersSeen.Add(zdo.m_uid))
+            {
+                continue;
+            }
+
             // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
             float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
             float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
