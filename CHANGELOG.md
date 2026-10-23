@@ -2,6 +2,18 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.3 — 2026-10-23
+
+### Fixed
+- Still water kept the server busy: a lake or pool over ground ending just under the top of a voxel (a centimetre or
+  so of room left there) never quite settled, so its water stayed awake, was worked out every frame and sent to the
+  players every second for as long as the server ran. It now settles and sleeps as any other.
+- With all the water still, the server still looked over every block of it each frame: it now does nothing for it
+  until water is poured or drained, a piece or the ground changes, or moving water comes near. The debug log tells
+  how many blocks are awake.
+- In a big world the look for sources and drains went on every frame, a look taking longer than `MarkerScanSeconds`:
+  that wait now counts from the end of each look.
+
 ## v0.16.2 — 2026-10-23
 
 ### Fixed
