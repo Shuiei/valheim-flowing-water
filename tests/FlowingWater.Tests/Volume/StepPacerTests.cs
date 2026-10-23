@@ -71,6 +71,23 @@ public class StepPacerTests
         Assert.Equal(0.1f, pacer.Owed, 4);
     }
 
+    [Fact]
+    public void AStepReturnedWhileTheLimitIsOwedStaysWithinIt()
+    {
+        // A step taken spans frames that owe the limit again, then is not done: owed time stays at the limit, and
+        // what went past is counted as given up.
+        var pacer = new StepPacer(0.5f);
+        pacer.Add(0.5f, 8.0);
+        Assert.True(pacer.Take(0.04f));
+        pacer.Add(0.04f, 8.0);
+        Assert.Equal(0f, pacer.TakeDropped());
+
+        pacer.Return(0.04f);
+
+        Assert.Equal(0.5f, pacer.Owed, 4);
+        Assert.Equal(0.04f, pacer.TakeDropped(), 4);
+    }
+
     // Steps taken in one frame, each costing this many milliseconds, while credit is left (as the server does).
     private static int Steps(StepPacer pacer, float step, double cost)
     {
