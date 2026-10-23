@@ -194,7 +194,7 @@ internal sealed class WaterBrick : MonoBehaviour
 
         if (_properties != null)
         {
-            WaterTile.Animate(_renderer, _properties);
+            Materials.Animate(_renderer, _properties);
         }
     }
 
@@ -374,7 +374,7 @@ internal sealed class WaterBrick : MonoBehaviour
         // The game's material is animated and drawn only as far as each renderer says, as the game's own water does.
         if (own == null)
         {
-            _properties ??= WaterTile.GameMaterialProperties();
+            _properties ??= Materials.GameMaterialProperties();
         }
         else if (_properties != null)
         {

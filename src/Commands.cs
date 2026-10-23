@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still|stream <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
@@ -158,12 +158,12 @@ internal static class Commands
         }
     }
 
-    // flowingwater mat still|stream <property> [value | r g b [a]]
+    // flowingwater mat custom|still <property> [value | r g b [a]]
     private static string Tune(Terminal.ConsoleEventArgs args)
     {
         if (args.Length < 4)
         {
-            return "mat custom|still|stream <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+            return "mat custom|still <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
         }
 
         string kind = args.Args[2].ToLowerInvariant();

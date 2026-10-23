@@ -532,21 +532,15 @@ internal sealed class VoxelServer
         float total = 0f;
         foreach (ZDO zdo in All(Prefabs.TileName))
         {
-            var data = new TileData(ZoneSystem.GetZone(zdo.GetPosition()));
             byte[] bytes = zdo.GetByteArray(ZdoKeys.Data);
             if (bytes == null)
             {
                 FlowingWaterPlugin.Log.LogInfo($"Water tile {zdo.m_uid}: empty, removed");
             }
-            else if (!data.Decode(bytes))
-            {
-                // Decode said why.
-                FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable, removed; its water is lost");
-            }
-            else
+            else if (TileWater(zdo, bytes) is { } water)
             {
                 // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
-                if (PourAll(TileWater(data)) is not { } poured)
+                if (PourAll(water) is not { } poured)
                 {
                     FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); kept, not drawn, to try again at the next start"));
                     continue;
@@ -555,27 +549,41 @@ internal sealed class VoxelServer
                 total += poured;
             }
 
+            // An unreadable tile (TileWater told of it) is removed too: its water is lost.
             DestroyZdo(zdo);
         }
 
         return total;
     }
 
-    // An old column tile's water: each cell's, at the ground in its middle.
-    private List<(Vector3 Point, float Volume)> TileWater(TileData data)
+    // An old column tile's water: each cell's, at the ground in its middle; null (told of) when its data is unreadable.
+    private List<(Vector3 Point, float Volume)> TileWater(ZDO zdo, byte[] bytes)
     {
-        float area = data.CellSize * data.CellSize;
-        var water = new List<(Vector3 Point, float Volume)>();
-        for (int z = 0; z < data.Size; z++)
+        float[] depths;
+        int side;
+        try
         {
-            for (int x = 0; x < data.Size; x++)
+            depths = ColumnTile.Depths(bytes, out side);
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"Water tile {zdo.m_uid}: unreadable ({e.Message}), removed; its water is lost");
+            return null;
+        }
+
+        Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
+        float cell = (float)TileData.ZoneMetres / side;
+        var water = new List<(Vector3 Point, float Volume)>();
+        for (int z = 0; z < side; z++)
+        {
+            for (int x = 0; x < side; x++)
             {
-                float depth = data.Depth[data.Index(x, z)];
+                float depth = depths[(z * side) + x];
                 if (depth > 0f)
                 {
-                    float wx = data.WorldX(x);
-                    float wz = data.WorldZ(z);
-                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * area));
+                    float wx = TileData.OriginX(zone) + (x * cell);
+                    float wz = TileData.OriginZ(zone) + (z * cell);
+                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * cell * cell));
                 }
             }
         }

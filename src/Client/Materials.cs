@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -7,28 +6,23 @@ namespace FlowingWater.Client;
 /// <summary>The materials the water is drawn with, copied from the game's own at first use.</summary>
 internal static class Materials
 {
-    private const string FlowMaterialName = "waterflow";
-
-    private const string CryptRoomPrefix = "sunkencrypt_new_";
-
     private const string PlainShaderName = "Custom/Piece";
 
     private static readonly int ColourId = Shader.PropertyToID("_Color");
-
-    private static readonly int FoamColourId = Shader.PropertyToID("_FoamColor");
-
-    private static readonly int MainTextureId = Shader.PropertyToID("_MainTex");
 
     private static readonly int AbsorptionId = Shader.PropertyToID("_Absorption");
 
     private static readonly int DeepColourId = Shader.PropertyToID("_DeepColor");
 
+    // What the game's water materials read from each renderer: the time their waves run on, how far they are drawn.
+    private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
+
+    private static readonly int VisibleMaxDistanceId = Shader.PropertyToID("_VisibleMaxDistance");
+
     // The plain materials made, by name: each is made once.
     private static readonly Dictionary<string, Material> PlainByName = [];
 
     private static Material _still;
-
-    private static Material _flow;
 
     private static Material _source;
 
@@ -41,8 +35,6 @@ internal static class Materials
     private static bool _customTried;
 
     private static bool _stillMissing;
-
-    private static bool _flowMissing;
 
     /// <summary>
     /// The mod's own water material, from the asset bundle built for this platform and embedded in
@@ -149,36 +141,23 @@ internal static class Materials
         return _still;
     }
 
-    /// <summary>The game's running-water material (a scrolling flow shader); null (logged once) when not loaded.</summary>
-    public static Material Flow()
+    /// <summary>
+    /// A renderer's properties for the game's water materials, which read them from each renderer as the game's own
+    /// water sets them: how far the water is drawn (the near simulation area) and, each frame (<see cref="Animate"/>),
+    /// the time its waves run on.
+    /// </summary>
+    public static MaterialPropertyBlock GameMaterialProperties()
     {
-        if (_flow != null || _flowMissing)
-        {
-            return _flow;
-        }
+        var properties = new MaterialPropertyBlock();
+        properties.SetFloat(VisibleMaxDistanceId, ZNet.instance.GetSyncedSimulationDistance().NearSimulationDistance * ZoneSystem.c_ZoneSize);
+        return properties;
+    }
 
-        Material source = FindLoaded(FlowMaterialName) ?? FromCryptRooms();
-        if (source == null)
-        {
-            _flowMissing = true;
-            FlowingWaterPlugin.Log.LogWarning($"Material {FlowMaterialName} was not found: streams are drawn as still water");
-            return null;
-        }
-
-        _flow = new Material(source) { name = "FlowingWater stream" };
-        _flow.SetFloat("_SpeedX", 0f);
-        _flow.SetFloat("_SpeedY", FlowingWaterPlugin.Settings.FlowTextureSpeed.Value);
-        // The crypts' material masks its water into thin stripes (a trickle along a channel) and
-        // tints it a murky green; a river is a full sheet, blue-grey with white foam. The scrolling
-        // normal map stays: that is the flow.
-        _flow.SetTexture(MainTextureId, Texture2D.whiteTexture);
-        _flow.SetColor(ColourId, new Color(0.45f, 0.62f, 0.72f, 0.6f));
-        _flow.SetColor(FoamColourId, new Color(0.9f, 0.95f, 1f, 1f));
-        _flow.SetFloat("_DepthFade", 1f);
-        _flow.SetFloat("_ShoreFade", 0.3f);
-        _flow.SetFloat("_BumpScale", 0.5f);
-        _flow.SetFloat("_FoamDepth", 0.4f);
-        return _flow;
+    /// <summary>The renderer's properties, with this frame's time for the waves.</summary>
+    public static void Animate(Renderer renderer, MaterialPropertyBlock properties)
+    {
+        properties.SetFloat(WaterTimeId, ZNet.instance.GetWrappedDayTimeSeconds());
+        renderer.SetPropertyBlock(properties);
     }
 
     /// <summary>A plain coloured material for a source or drain marker; null when no plain material can be found.</summary>
@@ -242,19 +221,18 @@ internal static class Materials
         return plain;
     }
 
-    /// <summary>Sets a float (one value) or colour (three or four) property on the still or stream material, for tuning in game.</summary>
+    /// <summary>Sets a float (one value) or colour (three or four) property on the custom or still material, for tuning in game.</summary>
     public static string Tune(string kind, string property, float[] values)
     {
         Material material = kind switch
         {
             "custom" => _custom,
             "still" => _still,
-            "stream" => _flow,
             _ => null,
         };
         if (material == null)
         {
-            return $"no {kind} material (custom, still or stream; water must have been drawn once with it)";
+            return $"no {kind} material (custom or still; water must have been drawn once with it)";
         }
 
         if (property == "list")
@@ -324,57 +302,5 @@ internal static class Materials
         }
 
         return volume.m_waterSurface.sharedMaterial;
-    }
-
-    // The running-water material lives in the sunken crypts' rooms; loading one room brings it in
-    // (and its textures), and the room stays loaded so that they do too.
-    private static Material FromCryptRooms()
-    {
-        if (DungeonDB.instance == null)
-        {
-            return null;
-        }
-
-        foreach (DungeonDB.RoomData room in DungeonDB.GetRooms())
-        {
-            if (!room.m_prefab.Name.StartsWith(CryptRoomPrefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            room.m_prefab.Load();
-            GameObject asset = room.m_prefab.Asset;
-            if (asset == null)
-            {
-                continue;
-            }
-
-            foreach (Renderer renderer in asset.GetComponentsInChildren<Renderer>(true))
-            {
-                foreach (Material material in renderer.sharedMaterials)
-                {
-                    if (material != null && material.name == FlowMaterialName)
-                    {
-                        FlowingWaterPlugin.Log.LogInfo($"Material {FlowMaterialName} taken from {room.m_prefab.Name}");
-                        return material;
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static Material FindLoaded(string name)
-    {
-        foreach (Material material in Resources.FindObjectsOfTypeAll<Material>())
-        {
-            if (material.name == name)
-            {
-                return material;
-            }
-        }
-
-        return null;
     }
 }
