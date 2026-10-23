@@ -133,6 +133,49 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void WaterAPieceDisplacesUnderAFloorGoesAsideNotOverTheFloor()
+    {
+        // A piece fills a pool's voxel with a solid floor right over it: the water moves into the voxel beside it,
+        // never over the floor; where every side is shut too, it stays.
+        bool built = false;
+        var grid = new VoxelGrid(1f, new Cells(() => built ? [(3, 3, 3), (3, 4, 3)] : []));
+        grid.Pour(3, 3, 3, 0.8f);
+
+        built = true;
+        grid.Refill(grid.Find(0, 0, 0));
+
+        Assert.Equal(0f, grid.WaterAt(3, 3, 3), 3);
+        Assert.Equal(0f, grid.WaterAt(3, 5, 3), 3);
+        Assert.Equal(0.8f, grid.WaterAt(4, 3, 3), 3);
+
+        var shut = new VoxelGrid(1f, new Cells(() => built ? [(3, 3, 3), (3, 4, 3), (4, 3, 3), (2, 3, 3), (3, 3, 4), (3, 3, 2), (3, 2, 3)] : []));
+        built = false;
+        shut.Pour(3, 3, 3, 0.8f);
+        built = true;
+        shut.Refill(shut.Find(0, 0, 0));
+
+        Assert.Equal(0.8f, shut.WaterAt(3, 3, 3), 3);
+        Assert.Equal(0.8f, shut.TotalWater(), 3);
+    }
+
+    [Fact]
+    public void WaterInAVoxelThatTurnsSolidClimbsIntoTheBrickAboveIfNeedBe()
+    {
+        int ground = 0;
+        var grid = new VoxelGrid(1f, new FuncSolids((_, y, _) => y < ground ? 1f : 0f));
+        grid.Pour(3, 15, 3, 0.5f);
+        Brick brick = grid.Find(0, 0, 0);
+
+        // The ground rises to cover the whole brick (a piece built there): the top row's water goes up a brick.
+        ground = 16;
+        grid.Refill(brick);
+
+        Assert.Equal(0f, grid.WaterAt(3, 15, 3));
+        Assert.Equal(0.5f, grid.WaterAt(3, 16, 3));
+        Assert.Equal(0.5f, grid.TotalWater(), 4);
+    }
+
+    [Fact]
     public void DryBricksAreForgottenAndUnlinkedWetOnesKept()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000));
@@ -147,5 +190,40 @@ public class VoxelGridTests
         Assert.NotNull(grid.Find(0, 0, 0));
         Assert.Null(grid.Find(0, 0, 0).Beside[0]);
         Assert.Null(dry.Beside[1]?.Beside[0]);
+    }
+
+    // Solid shares from a function of the voxel (x, y, z).
+    private sealed class FuncSolids : ISolids
+    {
+        private readonly System.Func<int, int, int, float> _solid;
+
+        public FuncSolids(System.Func<int, int, int, float> solid)
+        {
+            _solid = solid;
+        }
+
+        public void Fill(Brick brick, float voxelSize)
+        {
+            for (int i = 0; i < Brick.Count; i++)
+            {
+                (int x, int y, int z) = Brick.Place(i);
+                brick.Solid[i] = _solid((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z);
+            }
+        }
+    }
+
+    // Whole voxels solid where a function says, nothing else.
+    private sealed class Cells(System.Func<(int X, int Y, int Z)[]> solid) : ISolids
+    {
+        public void Fill(Brick brick, float voxelSize)
+        {
+            foreach ((int x, int y, int z) in solid())
+            {
+                if (x >> 4 == brick.X && y >> 4 == brick.Y && z >> 4 == brick.Z)
+                {
+                    brick.Solid[Brick.Index(x & 15, y & 15, z & 15)] = 1f;
+                }
+            }
+        }
     }
 }

@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.12.0 — 2026-10-21
+
+### Added
+- Console `flowingwater solids`: a map of what the coming 3D water will treat as solid round you (the ground, the
+  walls and floors you built), to check a pool or a tank before filling it.
+
 ## v0.11.0 — 2026-10-21
 
 ### Changed

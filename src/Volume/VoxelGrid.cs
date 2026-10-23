@@ -22,6 +22,9 @@ internal sealed class VoxelGrid
 {
     private static readonly (int X, int Y, int Z)[] Sides = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
 
+    // Where displaced water goes first: up, then the sides, then down.
+    private static readonly (int X, int Y, int Z)[] DisplaceOrder = [(0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0)];
+
     private readonly Dictionary<long, Brick> _bricks = [];
 
     private readonly HashSet<long> _wanted = [];
@@ -113,6 +116,65 @@ internal sealed class VoxelGrid
         }
 
         return (float)(total * VoxelVolume);
+    }
+
+    /// <summary>
+    /// Reads a brick's solids again (a piece was built or broken there). Water in a voxel that turned solid moves to a
+    /// voxel beside it it can reach (up first, then the sides, then down), never through a solid or a closed face: a
+    /// piece built in a pool pushes the water aside, it neither destroys it nor lifts it over a floor. With nowhere to
+    /// go, it stays.
+    /// </summary>
+    public void Refill(Brick brick)
+    {
+        Array.Clear(brick.Solid, 0, Brick.Count);
+        Array.Clear(brick.Closed, 0, Brick.Count);
+        _solids.Fill(brick, VoxelSize);
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            if (brick.Solid[i] >= 1f && brick.Water[i] > 0f)
+            {
+                (int x, int y, int z) = Brick.Place(i);
+                if (Displace((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z, brick.Water[i]))
+                {
+                    brick.Water[i] = 0f;
+                }
+            }
+        }
+    }
+
+    // Water out of solid voxel (x, y, z) into the first voxel beside it it can reach: up, east, west, north, south,
+    // down (bricks made as needed). False when none is.
+    private bool Displace(int x, int y, int z, float water)
+    {
+        foreach ((int dx, int dy, int dz) in DisplaceOrder)
+        {
+            if (Open(x, y, z, dx, dy, dz) is { } to)
+            {
+                to.Brick.Water[to.Index] += water;
+                to.Brick.EmptyFor = 0f;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // The voxel beside (x, y, z) one step (dx, dy, dz) away, when it is not solid and the face between is not closed.
+    private (Brick Brick, int Index)? Open(int x, int y, int z, int dx, int dy, int dz)
+    {
+        // A face belongs to the voxel west, under or south of it: the step's own voxel going east, up or north, the
+        // next one going the other way.
+        int ox = dx < 0 ? x - 1 : x, oy = dy < 0 ? y - 1 : y, oz = dz < 0 ? z - 1 : z;
+        byte bit = dx != 0 ? Brick.ClosedX : dy != 0 ? Brick.ClosedY : Brick.ClosedZ;
+        Brick owner = Get(ox >> 4, oy >> 4, oz >> 4);
+        if ((owner.Closed[Brick.Index(ox & 15, oy & 15, oz & 15)] & bit) != 0)
+        {
+            return null;
+        }
+
+        Brick brick = Get((x + dx) >> 4, (y + dy) >> 4, (z + dz) >> 4);
+        int i = Brick.Index((x + dx) & 15, (y + dy) & 15, (z + dz) & 15);
+        return brick.Solid[i] < 1f ? (brick, i) : null;
     }
 
     /// <summary>Asks for the brick at these brick coordinates, to be made after the step (safe from any thread).</summary>

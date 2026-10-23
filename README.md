@@ -28,6 +28,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
+| `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater flat` | Plain colours instead of water (blue still, green running), to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
@@ -207,6 +208,12 @@ FW_REC_OUT=/tmp/rec gamescope --backend headless -W 1920 -H 1080 -- <Steam runti
 (with `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `SteamAppId=892970` and the usual
 `WINEDLLOVERRIDES` for BepInEx). A character new to the world rides in with the Valkyrie first; the recorder
 waits for it to land. Remove the dll from the client afterwards.
+
+`FW_REC_SCENARIO` picks one scenario instead of every command: `at` takes the player to each place of
+`FW_REC_AT` (`x,z[,y]|command;...`, standing at `y` when given: on a floor, in a box) and runs the command there;
+`pools` fills and films the pools of a test world (`FW_REC_POOLS`, `x,z,radius,depth;...`) in each look of
+`FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground
+dug once).
 
 ## Checks
 

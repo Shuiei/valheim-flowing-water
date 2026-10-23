@@ -146,25 +146,35 @@ public sealed class Recorder : BaseUnityPlugin
         _log?.WriteLine(line);
     }
 
+    // Runs the steps, stepping any coroutine they start itself (not handing it to Unity), so that an exception at any
+    // depth ends here, logged as FAILED.
     private IEnumerator Run()
     {
-        IEnumerator steps = Steps();
-        while (true)
+        var running = new Stack<IEnumerator>();
+        running.Push(Steps());
+        while (running.Count > 0)
         {
             object current;
             try
             {
-                if (!steps.MoveNext())
+                if (!running.Peek().MoveNext())
                 {
-                    break;
+                    running.Pop();
+                    continue;
                 }
 
-                current = steps.Current;
+                current = running.Peek().Current;
             }
             catch (Exception e)
             {
                 Note("FAILED: " + e);
                 break;
+            }
+
+            if (current is IEnumerator nested)
+            {
+                running.Push(nested);
+                continue;
             }
 
             yield return current;
@@ -221,7 +231,7 @@ public sealed class Recorder : BaseUnityPlugin
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        if (chosen is not ("prep" or "pools" or "cascade"))
+        if (chosen is not ("prep" or "pools" or "cascade" or "at"))
         {
             steep = FindSite(spawn, 0.35f, 0.75f, true) ?? FindSite(spawn, 0.3f, 0.8f, false);
             gentle = FindSite(spawn, 0.06f, 0.18f, true) ?? FindSite(spawn, 0.05f, 0.2f, false);
@@ -235,6 +245,7 @@ public sealed class Recorder : BaseUnityPlugin
             "look" => Look(steep, gentle),
             "prep" => Prep(),
             "pools" => Pools(),
+            "at" => At(),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             _ => null,
@@ -779,11 +790,15 @@ public sealed class Recorder : BaseUnityPlugin
         Console.instance.TryRunCommand(text, false, true);
     }
 
-    private IEnumerator Go(Vector3 point)
+    private IEnumerator Go(Vector3 point, float? standAt = null)
     {
         Player player = Player.m_localPlayer;
         float ground = WorldGenerator.instance.GetHeight(point.x, point.z);
-        if (ZoneSystem.instance.GetGroundHeight(point, out float loaded))
+        if (standAt is { } given)
+        {
+            ground = given - 0.5f;
+        }
+        else if (ZoneSystem.instance.GetGroundHeight(point, out float loaded))
         {
             ground = loaded;
         }
@@ -808,7 +823,7 @@ public sealed class Recorder : BaseUnityPlugin
 
         yield return new WaitForSeconds(4f);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
-        if (off > 5f)
+        if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
             throw new InvalidOperationException($"teleport to {target} ended at {player.transform.position}");
         }
@@ -882,6 +897,30 @@ public sealed class Recorder : BaseUnityPlugin
 
     // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
     // well above the sea, that keeps falling for 30 m the same way.
+    // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
+    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log.
+    private IEnumerator At()
+    {
+        string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+        if (steps.Length == 0)
+        {
+            throw new InvalidOperationException("the at scenario needs FW_REC_AT (\"x,z[,y]|command;...\"), and it has no steps");
+        }
+
+        foreach (string step in steps)
+        {
+            string[] parts = step.Split(new[] { '|' }, 2);
+            float[] where = [.. parts[0].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture))];
+            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
+            if (parts.Length > 1)
+            {
+                Command(parts[1].Trim());
+            }
+
+            yield return new WaitForSeconds(2f);
+        }
+    }
+
     // Readies a test world for the editor: at each place of FW_REC_DIG ("x,z;x,z"), the game generates the zones
     // around (the player stands there) and the ground is dug once (the editor makes new ground only where the
     // game already has some). The server saves the world when it stops.
