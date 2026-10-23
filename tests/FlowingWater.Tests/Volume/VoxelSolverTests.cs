@@ -268,6 +268,26 @@ public class VoxelSolverTests
         Assert.Equal(before, grid.TotalWater());
     }
 
+    [Fact]
+    public void EachLookIsCountedOnceAndTheCountForgottenWhenTaken()
+    {
+        // Water poured in the one brick of a closed box: each step looks the bricks over once, its brick awake.
+        VoxelGrid grid = Box();
+        grid.Pour(3, 4, 3, 6f);
+        var solver = new VoxelSolver(grid);
+        Assert.Equal(0, solver.TakeLooks());
+        Assert.Equal(0, solver.Awake);
+
+        for (int k = 0; k < 3; k++)
+        {
+            Assert.Equal(StepState.Done, solver.Advance(solver.MaxStep, () => true, int.MaxValue));
+        }
+
+        Assert.Equal(3, solver.TakeLooks());
+        Assert.Equal(0, solver.TakeLooks());
+        Assert.Equal(grid.Bricks.Count, solver.Awake);
+    }
+
     [Theory]
     [InlineData("pour")]
     [InlineData("drain")]
