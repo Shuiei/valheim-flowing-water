@@ -13,12 +13,14 @@ namespace FlowingWater.Client;
 /// <summary>
 /// A brick of the 3D water on a player's game: reads the brick's data when the server changes it, keeps it in
 /// <see cref="VoxelWater.Field"/>, and draws the water's surface over it (<see cref="VoxelSurface"/>) with the
-/// water's material. When its water changes, the bricks round it are drawn again too (their sides and corners
-/// depend on it). The data is read on another thread, and the surface built on another thread from the bricks it
-/// reads as they were then; only taking the data, handing the water read to the brick and the surface to the mesh
-/// are done in the game's frame, as its time allows. On a dedicated server (whose scene holds the bricks round the world's
-/// zero) it only keeps the water, as the game's own water volumes work there: its trigger and the game's water checks
-/// then see it for the creatures the server simulates; nothing is drawn.
+/// water's material. What it draws eases from what it drew to the newest data over a moment, without water too thin
+/// to draw steadily (<see cref="WaterEase"/>), and is kept in <see cref="VoxelWater.Drawn"/>; when that changes, the
+/// bricks round it are drawn again too (their sides and corners depend on it). The data is read on another thread,
+/// and the surface built on another thread from the bricks it reads as they were drawn then; only taking the data,
+/// handing the water read to the brick and the surface to the mesh are done in the game's frame, as its time allows.
+/// On a dedicated server (whose scene holds the bricks round the world's zero) it only keeps the water, as the game's
+/// own water volumes work there: its trigger and the game's water checks then see it for the creatures the server
+/// simulates; nothing is drawn.
 /// </summary>
 internal sealed class WaterBrick : MonoBehaviour
 {
@@ -101,9 +103,18 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private BrickView _view;
 
-    // The brick's data as the server last changed it, read into its water and the bricks round it whose surface
-    // that changes (none on a dedicated server).
-    private readonly LatestRead<(BrickView View, ICollection<(int X, int Y, int Z)> Touched)> _reading = new();
+    // The water drawn, and what it was when the newest data came, eased from since then (none once the ease is
+    // done); whether data came since the brick was last built.
+    private BrickView _drawnWater;
+
+    private BrickView _easedFrom;
+
+    private float _easeStart;
+
+    private bool _newData;
+
+    // The brick's data as the server last changed it, read into its water.
+    private readonly LatestRead<BrickView> _reading = new();
 
     private float _drawnAt;
 
@@ -300,6 +311,7 @@ internal sealed class WaterBrick : MonoBehaviour
         if (_view != null && ByKey.TryGetValue(key, out WaterBrick current) && current == this)
         {
             VoxelWater.Field.Remove(_view.X, _view.Y, _view.Z);
+            VoxelWater.Drawn.Remove(_view.X, _view.Y, _view.Z);
             ByKey.Remove(key);
             if (_drawn)
             {
@@ -346,23 +358,15 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private void StartReading(byte[] data)
     {
-        BrickView was = _view;
-        bool drawn = _drawn;
-        _reading.Start(() => data == null ? default : Decode(data, was, drawn));
+        _reading.Start(() => data == null ? null : BrickData.Decode(data));
         Read.Add(this);
     }
 
-    private static (BrickView View, ICollection<(int X, int Y, int Z)> Touched) Decode(byte[] data, BrickView was, bool drawn)
-    {
-        BrickView view = BrickData.Decode(data);
-        return (view, drawn ? VoxelSurface.Touched(was, view) : null);
-    }
-
-    // The water read, handed to the brick: kept, and drawn again with the bricks round it its change touches. A read
-    // whose data changed again meanwhile is dropped (the newer one is read next).
+    // The water read, handed to the brick: kept, and drawn again (easing to it from what is drawn). A read whose data
+    // changed again meanwhile is dropped (the newer one is read next).
     private void TakeRead()
     {
-        if (!_reading.TryTake(out (BrickView View, ICollection<(int X, int Y, int Z)> Touched) read, out Exception failure))
+        if (!_reading.TryTake(out BrickView read, out Exception failure))
         {
             return;
         }
@@ -373,12 +377,12 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        if (read.View == null)
+        if (read == null)
         {
             return;
         }
 
-        _view = read.View;
+        _view = read;
         VoxelWater.Field.Set(_view);
         ByKey[VoxelGrid.Key(_view.X, _view.Y, _view.Z)] = this;
         if (GetComponentInChildren<BoxCollider>() is { } trigger)
@@ -388,8 +392,8 @@ internal sealed class WaterBrick : MonoBehaviour
 
         if (_drawn)
         {
+            _newData = true;
             Waiting.Add(this);
-            Neighbours(_view, read.Touched);
         }
     }
 
@@ -504,7 +508,8 @@ internal sealed class WaterBrick : MonoBehaviour
         }
     }
 
-    // The surface over the brick, built on another thread from the bricks round it as they are now.
+    // The surface over the brick, built on another thread from the bricks round it as they are drawn now, and its
+    // water eased as far as it is by now. New data starts a new ease, from the water drawn.
     private void Build()
     {
         _drawnAt = Time.time;
@@ -513,33 +518,59 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        BrickView view = _view;
-        VoxelField near = VoxelWater.Field.Near(view);
+        if (_newData)
+        {
+            _newData = false;
+            _easedFrom = _drawnWater;
+            _easeStart = Time.time;
+        }
+
+        BrickView from = _easedFrom;
+        BrickView to = _view;
+        BrickView drawn = _drawnWater;
+        float share = from == null ? 1f : WaterEase.Share(Time.time - _easeStart);
+        VoxelField near = VoxelWater.Drawn.Near(to);
         // Lifted, the surface is drawn that much higher over the object.
         Vector3 origin = transform.position - new Vector3(0f, Lift, 0f);
-        if (_building.TryStart(() => Shape.Of(near, view, origin)))
+        if (_building.TryStart(() => Shape.Of(near, WaterEase.Show(WaterEase.Blend(from, to, share), drawn), drawn, share < 1f, origin)))
         {
             Built.Add(this);
         }
     }
 
-    // The surface built, handed to the mesh.
+    // The surface built: its water kept as drawn, the bricks round it whose surface that changes drawn again (and
+    // this one, until its ease is done), and the surface handed to the mesh.
     private void Take()
     {
-        if (_building.TryTake(out Shape shape, out Exception failure))
+        if (!_building.TryTake(out Shape shape, out Exception failure))
         {
-            Apply(shape, failure);
+            return;
         }
-    }
 
-    // A built surface handed to the mesh.
-    private void Apply(Shape shape, Exception failure)
-    {
         if (failure != null)
         {
             Failed(failure, transform.position);
             return;
         }
+
+        _drawnWater = shape.Drawn;
+        VoxelWater.Drawn.Set(_drawnWater);
+        Neighbours(_drawnWater, shape.Touched);
+        if (shape.Easing)
+        {
+            Waiting.Add(this);
+        }
+        else
+        {
+            _easedFrom = null;
+        }
+
+        Apply(shape);
+    }
+
+    // A built surface handed to the mesh.
+    private void Apply(Shape shape)
+    {
 
         // Plain colours (flat) or the mod's own shader; else the game's material.
         Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
@@ -602,10 +633,27 @@ internal sealed class WaterBrick : MonoBehaviour
 
         public List<int> Triangles { get; private set; } = [];
 
-        public static Shape Of(VoxelField field, BrickView view, Vector3 origin)
+        // The water it was built from, as drawn.
+        public BrickView Drawn { get; private set; }
+
+        // The bricks round it whose surface changes with it, from what was drawn before.
+        public ICollection<(int X, int Y, int Z)> Touched { get; private set; }
+
+        // Whether the water is still easing to the newest data.
+        public bool Easing { get; private set; }
+
+        // The surface of the water drawn, over the bricks round it as drawn (that field is this build's own).
+        public static Shape Of(VoxelField field, BrickView water, BrickView before, bool easing, Vector3 origin)
         {
-            SurfaceMesh surface = VoxelSurface.Build(field, view);
-            var shape = new Shape { Triangles = surface.Triangles };
+            field.Set(water);
+            SurfaceMesh surface = VoxelSurface.Build(field, water);
+            var shape = new Shape
+            {
+                Triangles = surface.Triangles,
+                Drawn = water,
+                Touched = VoxelSurface.Touched(before, water),
+                Easing = easing,
+            };
             var uvs = new (float U, float V)[surface.Vertices.Count];
             for (int i = 0; i < surface.Vertices.Count; i++)
             {
