@@ -32,8 +32,6 @@ internal sealed class SolidsWatch
     // Each zone's pieces as last looked at: where each stands, and its turn and state.
     private readonly Dictionary<long, Dictionary<ZDOID, (Vector3 At, float Reach, int Look)>> _pieces = [];
 
-    private readonly Dictionary<long, int> _ground = [];
-
     // The zones whose pieces are read again, and the places whose bricks read their solids again.
     private readonly HashSet<Vector2s> _changed = [];
 
@@ -121,8 +119,8 @@ internal sealed class SolidsWatch
         return refilled;
     }
 
-    // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their ground, their
-    // solids and heights. A brick there again reads them anew.
+    // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their solids and
+    // heights. A brick there again reads them anew.
     private void Keep(HashSet<Vector2s> zones)
     {
         var keys = new HashSet<long>();
@@ -132,7 +130,6 @@ internal sealed class SolidsWatch
         }
 
         ZoneCache.Keep(_pieces, keys);
-        ZoneCache.Keep(_ground, keys);
         _solids.Keep(keys);
         _terrain.Keep(keys);
     }
@@ -167,7 +164,7 @@ internal sealed class SolidsWatch
         }
     }
 
-    // A zone looked at in full: its pieces and ground compared with last time.
+    // A zone looked at in full: its pieces compared with last time.
     private void Looked(Vector2s zone)
     {
         long key = TileData.Key(zone);
@@ -184,15 +181,17 @@ internal sealed class SolidsWatch
         }
 
         _pieces[key] = pieces;
-        _terrain.Heights(zone, out int ground);
-        if (_ground.TryGetValue(key, out int wasGround) && wasGround != ground)
-        {
-            // The ground does not say where it changed: the whole zone, from the bottom to the top of the world.
-            _changed.Add(zone);
-            _regions.Add(new Bounds(new Vector3(TileData.OriginX(zone) + (TileData.ZoneMetres / 2f), 0f, TileData.OriginZ(zone) + (TileData.ZoneMetres / 2f)), new Vector3(TileData.ZoneMetres, 1e5f, TileData.ZoneMetres)));
-        }
+    }
 
-        _ground[key] = ground;
+    /// <summary>
+    /// A zone's ground changed (its heights were read again): the bricks over it read their solids again. Every brick
+    /// that read the heights before is among them, however soon after it read them the ground changed.
+    /// </summary>
+    public void GroundChanged(Vector2s zone)
+    {
+        // The ground does not say where it changed: the whole zone, from the bottom to the top of the world.
+        _changed.Add(zone);
+        _regions.Add(new Bounds(new Vector3(TileData.OriginX(zone) + (TileData.ZoneMetres / 2f), 0f, TileData.OriginZ(zone) + (TileData.ZoneMetres / 2f)), new Vector3(TileData.ZoneMetres, 1e5f, TileData.ZoneMetres)));
     }
 
     // The pieces that differ between two looks at a zone: where each was, and where it is.

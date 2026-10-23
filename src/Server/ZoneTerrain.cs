@@ -29,8 +29,8 @@ internal sealed class ZoneTerrain
 
     private readonly List<ZDO> _found = [];
 
-    /// <summary>A zone's vertex heights, 65 by 65 (index z * 65 + x), and a number that changes when they do.</summary>
-    public float[] Heights(Vector2s zone, out int version)
+    /// <summary>A zone's vertex heights, 65 by 65 (index z * 65 + x).</summary>
+    public float[] Heights(Vector2s zone)
     {
         long key = TileData.Key(zone);
         if (!_zones.TryGetValue(key, out Entry entry))
@@ -40,7 +40,6 @@ internal sealed class ZoneTerrain
             _zones[key] = entry;
         }
 
-        version = entry.Version;
         return entry.Heights;
     }
 
@@ -50,7 +49,7 @@ internal sealed class ZoneTerrain
     /// </summary>
     public float HeightAt(Vector2s zone, float x, float z)
     {
-        return Sample(Heights(zone, out _), x, z);
+        return Sample(Heights(zone), x, z);
     }
 
     /// <summary>Like <see cref="HeightAt"/> on heights already fetched with <see cref="Heights"/>.</summary>
@@ -69,8 +68,9 @@ internal sealed class ZoneTerrain
     /// <summary>Forgets the zones not among these (by <see cref="TileData.Key"/>): they are made again when read.</summary>
     public void Keep(HashSet<long> zones) => ZoneCache.Keep(_zones, zones);
 
-    /// <summary>Rebuilds the zones whose terrain changes moved on since they were read.</summary>
-    public void Refresh()
+    /// <summary>Rebuilds the zones whose terrain changes moved on since they were read, and tells of each.</summary>
+    /// <param name="changed">A zone's heights changed: what was read of them before is out of date.</param>
+    public void Refresh(Action<Vector2s> changed)
     {
         foreach (KeyValuePair<long, Entry> pair in _zones)
         {
@@ -81,6 +81,7 @@ internal sealed class ZoneTerrain
             if (revision != entry.Revision || id != entry.Changes)
             {
                 Build(entry.Zone, entry);
+                changed(entry.Zone);
             }
         }
     }
@@ -157,8 +158,6 @@ internal sealed class ZoneTerrain
         {
             ApplyChanges(changes, entry.Heights, entry.Base, zone);
         }
-
-        entry.Version++;
     }
 
     private ZDO FindChanges(Vector2s zone)
@@ -186,8 +185,6 @@ internal sealed class ZoneTerrain
         public bool Generated { get; set; }
 
         public Vector2s Zone { get; set; }
-
-        public int Version { get; set; }
 
         public uint Revision { get; set; }
 

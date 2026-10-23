@@ -149,7 +149,7 @@ internal sealed class VoxelServer
         if (_terrainTimer >= TerrainRefreshSeconds)
         {
             _terrainTimer = 0f;
-            _terrain.Refresh();
+            _terrain.Refresh(_watch.GroundChanged);
         }
 
         // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
