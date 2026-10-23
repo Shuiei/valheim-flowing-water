@@ -17,7 +17,7 @@ namespace FlowingWater.Server;
 /// reaches it. Each brick with water is kept in a FlowingWater_Brick object, which the game saves with the world and
 /// sends to the players near it. The water of the column tiles before (FlowingWater_Tile) is moved into voxels once.
 /// </summary>
-internal sealed class VoxelServer
+internal sealed class VoxelServer : IBrickWorld<ZDOID>
 {
     // Longest frame stepped at once, seconds: a hitch is let go rather than stepped in one long go.
     private const float LongestFrame = 0.25f;
@@ -42,11 +42,7 @@ internal sealed class VoxelServer
 
     private readonly SolidsWatch _watch;
 
-    // Each brick's object, by its id: the game hands a destroyed object's ZDO out again as another object, so a ZDO
-    // kept from frame to frame may be someone else's by now.
-    private readonly Dictionary<long, ZDOID> _objects = [];
-
-    private readonly Dictionary<long, (Brick Brick, int Changes, int Hash)> _sent = [];
+    private readonly BrickObjects<ZDOID> _objects;
 
     private readonly List<Source> _markers = [];
 
@@ -110,6 +106,7 @@ internal sealed class VoxelServer
         _solids = new GameSolids(_terrain);
         _watch = new SolidsWatch(_solids, _terrain);
         _timeLeft = TimeLeft;
+        _objects = new BrickObjects<ZDOID>(this);
         NewGrid(SettingVoxelSize());
     }
 
@@ -263,72 +260,8 @@ internal sealed class VoxelServer
     {
         FinishStep();
         _sendWatch.Start();
-        var kept = new HashSet<long>();
-        foreach (Brick brick in _grid.Bricks)
-        {
-            long key = VoxelGrid.Key(brick.X, brick.Y, brick.Z);
-            if (Send(brick, key))
-            {
-                kept.Add(key);
-            }
-        }
-
-        foreach (long key in _objects.Keys.Where(k => !kept.Contains(k)).ToList())
-        {
-            if (Live(_objects[key]) is { } zdo)
-            {
-                DestroyZdo(zdo);
-            }
-
-            _objects.Remove(key);
-            _sent.Remove(key);
-        }
-
+        _sentCount += _objects.Publish(_grid.Bricks, _grid.VoxelSize);
         _sendWatch.Stop();
-    }
-
-    // Sends a brick's water if it changed since last sent; false when it holds none (its object goes). A brick
-    // unchanged since (a still pool asleep) is neither read nor packed again; one made again at the same place since
-    // (forgotten dry, then wet again) is another brick.
-    private bool Send(Brick brick, long key)
-    {
-        bool live = _objects.TryGetValue(key, out ZDOID known) && Live(known) != null;
-        bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash) was) && was.Brick == brick;
-        if (live && sent && was.Changes == brick.Changes)
-        {
-            return true;
-        }
-
-        if (!Array.Exists(brick.Water, w => w > Brick.Dry))
-        {
-            return false;
-        }
-
-        byte[] data = BrickData.Encode(brick, _grid.VoxelSize);
-        int hash = Hash(data);
-        if (!live || !sent || was.Hash != hash)
-        {
-            Object(brick, key).Set(ZdoKeys.Brick, data);
-            _sentCount++;
-        }
-
-        _sent[key] = (brick, brick.Changes, hash);
-        return true;
-    }
-
-    // Every brick's object destroyed and forgotten.
-    private void DropObjects()
-    {
-        foreach (ZDOID id in _objects.Values)
-        {
-            if (Live(id) is { } zdo)
-            {
-                DestroyZdo(zdo);
-            }
-        }
-
-        _objects.Clear();
-        _sent.Clear();
     }
 
     /// <summary>Stops listening to the world (it closes).</summary>
@@ -342,27 +275,29 @@ internal sealed class VoxelServer
         _solver = new VoxelSolver(_grid);
     }
 
-    // The brick's object, made (or made again, if something removed it) where the brick is.
-    private ZDO Object(Brick brick, long key)
+    // A ZDO kept from frame to frame may be someone else's by now: the game hands a destroyed object's ZDO out again.
+    // Its id is not: the game never gives out an id twice, so a destroyed object's id finds none. Its prefab is looked
+    // at too, should anything have made the object something else.
+    bool IBrickWorld<ZDOID>.IsBrick(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash;
+
+    ZDOID IBrickWorld<ZDOID>.Make(Brick brick)
     {
-        if (_objects.TryGetValue(key, out ZDOID id) && Live(id) is { } zdo)
-        {
-            if (!zdo.IsOwner())
-            {
-                zdo.SetOwner(ZDOMan.GetSessionID());
-            }
-
-            return zdo;
-        }
-
         float span = Brick.Size * _grid.VoxelSize;
-        ZDO made = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
-        _objects[key] = made.m_uid;
-        return made;
+        return NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash).m_uid;
     }
 
-    // A brick's object, if it is still there and still a brick (null when something else destroyed it).
-    private static ZDO Live(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash ? zdo : null;
+    void IBrickWorld<ZDOID>.Write(ZDOID id, byte[] data)
+    {
+        ZDO zdo = ZDOMan.instance.GetZDO(id);
+        if (!zdo.IsOwner())
+        {
+            zdo.SetOwner(ZDOMan.GetSessionID());
+        }
+
+        zdo.Set(ZdoKeys.Brick, data);
+    }
+
+    void IBrickWorld<ZDOID>.Destroy(ZDOID id) => DestroyZdo(ZDOMan.instance.GetZDO(id));
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without one is saved
     // but can never be found again by prefab.
@@ -380,17 +315,6 @@ internal sealed class VoxelServer
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
         ZDOMan.instance.DestroyZDO(zdo);
-    }
-
-    private static int Hash(byte[] data)
-    {
-        int hash = data.Length;
-        foreach (byte b in data)
-        {
-            hash = unchecked((hash * 31) + b);
-        }
-
-        return hash;
     }
 
     // The bricks saved with the world, and the column tiles of before, moved into voxels.
@@ -608,7 +532,7 @@ internal sealed class VoxelServer
 
         // The bricks are cut differently now: a key of the old grid is another place in the new one.
         _refusedSize = 0f;
-        DropObjects();
+        _objects.Drop();
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: voxels of {size} m now, {total:0.0} m³ moved over"));
     }
 
