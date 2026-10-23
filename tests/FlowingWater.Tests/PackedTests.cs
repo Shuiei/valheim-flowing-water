@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.IO.Compression;
 using Xunit;
@@ -90,12 +89,11 @@ public class PackedTests
         Assert.Throws<InvalidDataException>(() => Packed.Read(packed, "test data", reader => reader.ReadInt64() + reader.ReadInt64()));
     }
 
-    // Random bytes, the same each run, half of them in runs (as a brick's water is) so that they pack.
+    // Random-looking bytes, the same each run, half of them in runs (as a brick's water is) so that they pack.
     private static byte[] Bytes(int length, int seed)
     {
-        var random = new Random(seed);
         byte[] bytes = new byte[length];
-        random.NextBytes(bytes);
+        new Scrambled(seed).Fill(bytes);
         for (int i = 0; i < length / 2; i++)
         {
             bytes[i] = (byte)(i / 64);

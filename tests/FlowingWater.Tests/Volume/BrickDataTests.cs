@@ -45,14 +45,14 @@ public class BrickDataTests
         // A third of the voxels dry, the others with water on the byte's steps (n/200 of a voxel: nothing carried on),
         // a few pressed in past its reach, solids on their own steps (n/255) and flows of all speeds both ways.
         const float Size = 0.5f;
-        var random = new Random(52);
+        var random = new Scrambled(52);
         var brick = new Brick(4, -1, 9);
         for (int i = 0; i < Brick.Count; i++)
         {
             brick.FlowX[i] = (float)((random.NextDouble() * 6.0) - 3.0);
             brick.FlowY[i] = (float)((random.NextDouble() * 6.0) - 3.0);
             brick.FlowZ[i] = (float)((random.NextDouble() * 6.0) - 3.0);
-            if (random.Next(3) == 0)
+            if (random.Next(0, 3) == 0)
             {
                 continue;
             }
