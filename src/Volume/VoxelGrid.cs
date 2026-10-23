@@ -89,6 +89,13 @@ internal sealed class VoxelGrid
             if (next is { } linked)
             {
                 linked.Beside[side ^ 1] = brick;
+
+                // Water beside that went still against the face, held there while no brick was (MaxBricks, or the
+                // brick made a few frames after it asked), wakes to run into it: a dry brick beside it never would.
+                if (linked.WetTo(side ^ 1))
+                {
+                    linked.Quiet = 0;
+                }
             }
         }
 
