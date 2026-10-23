@@ -21,8 +21,23 @@ namespace FlowingWater.Recorder;
 [BepInDependency("Tie.FlowingWater")]
 public sealed class Recorder : BaseUnityPlugin
 {
+    // The most a "!film" takes: frames a second, frames in all and seconds (five minutes, at up to 60 a second).
+    private const int MaxFps = 60;
+
+    private const int MaxFrames = 18000;
+
+    private const float MaxSeconds = (float)MaxFrames / MaxFps;
+
     // How far from the given point "!remove" looks for the source, metres.
     private const float RemoveReach = 2f;
+
+    // Names Windows keeps for devices.
+    private static readonly HashSet<string> Devices = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+    };
 
     private static Recorder _instance;
 
@@ -901,7 +916,8 @@ public sealed class Recorder : BaseUnityPlugin
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
-    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s".
+    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s",
+    // "!shot from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
         string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
@@ -932,6 +948,38 @@ public sealed class Recorder : BaseUnityPlugin
                     Note("recorder command with missing or bad numbers: " + command);
                 }
             }
+            else if (command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal))
+            {
+                // "!shot fx,fy,fz,ax,ay,az,name" or "!film fx,fy,fz,ax,ay,az,name,seconds,fps": from a point, at a point.
+                bool film = command[1] == 'f';
+                string[] v = command.Substring(6).Split(',');
+                if (v.Length != (film ? 9 : 7) || !Numbers(string.Join(",", v, 0, 6), out float[] p))
+                {
+                    Note("recorder command with missing or bad numbers: " + command);
+                }
+                else if (!PlainName(v[6]))
+                {
+                    // Its files are written in the output folder, never elsewhere.
+                    Note("recorder shot or film name that is not a plain name: " + command);
+                }
+                else if (film && !FilmName(v[6]))
+                {
+                    Note("film name ffmpeg's frame list refuses (letters, digits, '.', '_' and '-' only, no '.' first): " + command);
+                }
+                else if (!film)
+                {
+                    yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
+                }
+                else if (Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
+                    && fps is >= 1 and <= MaxFps && seconds[0] <= MaxSeconds && seconds[0] * fps is >= 1f and <= MaxFrames)
+                {
+                    yield return Film(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6], seconds[0], fps);
+                }
+                else
+                {
+                    Note(FormattableString.Invariant($"film with bad numbers, no frame or too many (fps up to {MaxFps}, frames up to {MaxFrames}, seconds up to {MaxSeconds}): {command}"));
+                }
+            }
             else if (command.StartsWith("!", StringComparison.Ordinal))
             {
                 Own(command);
@@ -944,6 +992,19 @@ public sealed class Recorder : BaseUnityPlugin
             yield return new WaitForSeconds(2f);
         }
     }
+
+    // A name that makes a file in the output folder: not empty, no folder, no "..", nothing a film's ffmpeg list would
+    // need escaped (quotes, line breaks), not "log" (the recorder's own log.txt is open) and no Windows device.
+    private static bool PlainName(string name) =>
+        name.Length > 0 && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name.IndexOfAny(['/', '\\', '\'', '"', '\n', '\r']) < 0
+        && name != "." && name != ".." && !string.Equals(name, "log", StringComparison.OrdinalIgnoreCase) && !Device(name);
+
+    // A name ffmpeg's concat list takes in its safe mode: ASCII letters, digits, '.', '_' and '-', not starting with '.'.
+    private static bool FilmName(string name) =>
+        name[0] != '.' && name.All(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '.' or '_' or '-');
+
+    // Whether Windows takes a file of this name (with any extension after it) for a device, not a file.
+    private static bool Device(string name) => Devices.Contains(name.Split('.')[0].TrimEnd(' '));
 
     // Numbers given as "a,b,c": false when one is not a finite number.
     private static bool Numbers(string text, out float[] values)

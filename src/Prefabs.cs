@@ -1,4 +1,5 @@
 using FlowingWater.Client;
+using FlowingWater.Volume;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -65,8 +66,27 @@ internal static class Prefabs
         renderer.shadowCastingMode = ShadowCastingMode.Off;
         renderer.receiveShadows = true;
         tile.AddComponent<WaterTile>();
+        Trigger(tile, new Vector3(TileData.ZoneMetres, 1f, TileData.ZoneMetres));
+
+        Networked(SourceName).AddComponent<Marker>().IsDrain = false;
+        Networked(DrainName).AddComponent<Marker>().IsDrain = true;
+        Networked(GroundName).AddComponent<GroundChanges>();
+        GameObject brick = Networked(BrickName);
+        brick.AddComponent<MeshFilter>();
+        MeshRenderer brickRenderer = brick.AddComponent<MeshRenderer>();
+        brickRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        brickRenderer.receiveShadows = true;
+        brick.AddComponent<WaterBrick>();
+
+        // Sized to the brick when its data arrives (the voxels' size is the server's).
+        Trigger(brick, Vector3.one * Brick.Size);
+    }
+
+    // A trigger box on the game's water layer under the object: what lets characters and things swim in it.
+    private static void Trigger(GameObject parent, Vector3 size)
+    {
         var trigger = new GameObject("Trigger");
-        trigger.transform.SetParent(tile.transform, false);
+        trigger.transform.SetParent(parent.transform, false);
         int layer = LayerMask.NameToLayer(WaterLayer);
         if (layer < 0)
         {
@@ -79,13 +99,8 @@ internal static class Prefabs
 
         BoxCollider box = trigger.AddComponent<BoxCollider>();
         box.isTrigger = true;
-        box.size = new Vector3(TileData.ZoneMetres, 1f, TileData.ZoneMetres);
+        box.size = size;
         trigger.AddComponent<WaterTrigger>();
-
-        Networked(SourceName).AddComponent<Marker>().IsDrain = false;
-        Networked(DrainName).AddComponent<Marker>().IsDrain = true;
-        Networked(GroundName).AddComponent<GroundChanges>();
-        Networked(BrickName);
     }
 
     private static GameObject Networked(string name)

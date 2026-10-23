@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.14.0 — 2026-10-21
+
+### Changed
+- Players see the 3D water: pools on raised floors, water spilling over walls and falling, and they swim at the
+  water's own level wherever it stands. The running water's sound and spray are silent until they come back.
+
 ## v0.13.0 — 2026-10-21
 
 ### Changed

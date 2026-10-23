@@ -66,7 +66,7 @@ internal static class LiquidLevelPatch
     {
         if (type is LiquidType.Water or LiquidType.All)
         {
-            __result = Mathf.Max(__result, WaterTile.SurfaceAt(p));
+            __result = Mathf.Max(__result, VoxelWater.SurfaceAt(p));
         }
     }
 }
@@ -78,7 +78,7 @@ internal static class WaterLevelPatch
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Postfix(Vector3 p, ref float __result)
     {
-        __result = Mathf.Max(__result, WaterTile.SurfaceAt(p));
+        __result = Mathf.Max(__result, VoxelWater.SurfaceAt(p));
     }
 }
 
@@ -91,7 +91,7 @@ internal static class UnderWaterPatch
     {
         if (!__result)
         {
-            __result = WaterTile.SurfaceAt(p) > p.y;
+            __result = VoxelWater.SurfaceAt(p) > p.y;
         }
     }
 }
@@ -123,7 +123,7 @@ internal static class SetLiquidLevelPatch
         // Water volumes also report to objects already destroyed, when a world closes.
         if (type == LiquidType.Water && __instance != null)
         {
-            level = Mathf.Max(level, WaterTile.SurfaceAt(__instance.transform.position));
+            level = Mathf.Max(level, VoxelWater.SurfaceAt(__instance.transform.position));
         }
     }
 }
@@ -137,7 +137,7 @@ internal static class CurrentPatch
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
     private static void Postfix(Character __instance)
     {
-        if (!__instance.IsSwimming() || !__instance.IsOwner() || !WaterTile.CurrentAt(__instance.transform.position, out Vector3 current))
+        if (!__instance.IsSwimming() || !__instance.IsOwner() || !VoxelWater.CurrentAt(__instance.transform.position, out Vector3 current))
         {
             return;
         }

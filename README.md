@@ -125,21 +125,17 @@ there to the new grid (same volume), at the next start or at once with a config 
   write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
   m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
   where it slows. The server's debug map reports what each zone cut and laid down.
-- **White water.** Twice a second each tile picks where most water runs fastest (at least 1.2 m/s and 3 cm
-  deep), up to six places 6 m apart, the steepest first. Each gets a sound of running water, louder the more
-  water passes: a stream's babble (a loop made in code from a bubble model: each air bubble rings at a pitch
-  set by its size and dies away, a couple of hundred a second over a soft wash) turning into the roar of
-  rapids from a slope of 1 (45°) to 2, both played through the game's sound-effects mixer, only within 35 m.
-  Where the surface slopes more than 0.25 there is spray too (a copy of the game's own bow splash made to run
-  steadily, thicker with the flow and the slope).
-- **Client.** The tile component eases the depths towards the last ones received and rebuilds its mesh
-  (at most 20 times a second, over the wet part of the zone only):
-  wet vertices at the water surface (15 cm thick at least, so streams show), dry ones beside them carrying the
-  surface on into the ground so the shore is where the surface meets the ground, the rest sunk out of sight. Cells faster than `FlowVisualMinSpeed` use the game's running-water material
-  (`waterflow`, a scrolling flow shader) with texture coordinates laid along the flow; the rest use the
-  sea water material without wind waves. A trigger box on the game's water layer tells characters and
-  floating things the surface over them; Harmony patches make the game's water-level checks and the
-  level any water volume reports include the flowing water, and let a swimmer drift with the current.
+- **White water.** The running water's sound and spray were made for the column water; they are silent on the
+  3D water until they come back on it in a later version.
+- **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
+  with no water over it, its corners at the mean level of the tops beside them (a pool lies flat, a stream slopes
+  smoothly, the edge fades where fewer columns hold water), and the sides of the water where it borders a voxel
+  without (a fall's sheet, water spilling over a wall), with the water's material. It is drawn again at most ten
+  times a second, with the blocks beside it when its water changes. A trigger box on the game's water layer tells
+  characters and floating things the surface over them: the top of the stack of water they are in or just over,
+  so a pool on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level
+  checks and the level any water volume reports include the flowing water, and let a swimmer drift with the
+  current of the voxel they are in.
 
 ## Building
 

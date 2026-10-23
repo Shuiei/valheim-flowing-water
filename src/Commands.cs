@@ -77,7 +77,7 @@ internal static class Commands
                 Remove(terminal, player);
                 break;
             case "info":
-                terminal.AddString("flowingwater: " + WaterTile.Describe(player.transform.position));
+                terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "debug":
                 terminal.AddString("flowingwater: " + WaterTile.DebugInfo(player.transform.position));
