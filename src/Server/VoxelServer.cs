@@ -121,6 +121,10 @@ internal sealed class VoxelServer
     // of once.
     private readonly HashSet<string> _rateCapped = [];
 
+    // The markers (by object) and fixed sources and drains (by their text) left out for a rate or a text that is not
+    // usable, each told of once: they are looked for again every MarkerScanSeconds.
+    private readonly HashSet<string> _ignored = [];
+
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
 
@@ -798,7 +802,7 @@ internal sealed class VoxelServer
             // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
             float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
             float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
-            if (Usable(rate, drain, zdo.GetPosition().ToString()))
+            if (Usable(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()))
             {
                 _markers.Add(new Source(zdo.GetPosition(), Capped(rate, drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString()), drain, radius));
             }
@@ -824,11 +828,15 @@ internal sealed class VoxelServer
                 || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate)
                 || (parts.Length == 4 && (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out radius) || radius <= 0f)))
             {
-                FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
+                if (_ignored.Add(trimmed))
+                {
+                    FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
+                }
+
                 continue;
             }
 
-            if (Usable(rate, drain, trimmed))
+            if (Usable(rate, drain, trimmed, trimmed))
             {
                 _markers.Add(new Source(new Vector3(x, Ground(x, z), z), Capped(rate, drain, trimmed, trimmed), drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
             }
@@ -851,15 +859,20 @@ internal sealed class VoxelServer
         return MaxRate;
     }
 
-    // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more.
-    private static bool Usable(float rate, bool drain, string where)
+    // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more. One that is not is
+    // told of once for each marker (key).
+    private bool Usable(float rate, bool drain, string where, string key)
     {
         if (!float.IsNaN(rate) && !float.IsInfinity(rate) && (drain ? rate >= 0f : rate > 0f))
         {
             return true;
         }
 
-        FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
+        if (_ignored.Add(key))
+        {
+            FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
+        }
+
         return false;
     }
 

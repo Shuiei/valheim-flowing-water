@@ -13,7 +13,8 @@ All notable changes to FlowingWater. Newest first.
 - Switching the water off (`Enabled`) and on again read every piece broken meanwhile in one frame: the pieces are now
   looked over a zone at a time, as usual.
 - Water that had just reached a new place could ignore a terrain change made there right after, until the next one.
-- A source buried in rock logged "no room" every three seconds: it is now told once.
+- A source buried in rock logged "no room" every three seconds, and a source or drain with a rate that is no use
+  logged it as often: each is now told once.
 - Old column water the server could not move into voxels yet was still drawn over the water, where no one could swim,
   and took the players' frame time: it is kept for the server to move later, no longer drawn.
 - At 0.25 m voxels (`CellSize`), a thin sheet of water could stop moving before it was level.
