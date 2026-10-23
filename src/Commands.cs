@@ -19,6 +19,10 @@ internal static class Commands
     // Who may use the command: the server's CommandsForEveryone, as it told this player's game.
     private static readonly CommandRights Rights = new();
 
+    // The server telling this game its CommandsForEveryone tells it FlowingWater is there: the hoe's source and drain
+    // are learned (or offered as the rights now say) at once.
+    static Commands() => Rights.Told += HoePieces.Sync;
+
     public static void Register()
     {
         if (_registered)
@@ -41,8 +45,7 @@ internal static class Commands
             Rights.Joining();
             rpc.Register<bool>(EveryoneRpc, (_, everyone) =>
             {
-                Rights.Told(everyone);
-                HoePieces.Sync();
+                Rights.Tell(everyone);
             });
             return;
         }

@@ -28,7 +28,7 @@ public class CommandRightsTests
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
         Assert.Null(rights.Refusal(adminOrHost: true));
@@ -38,7 +38,7 @@ public class CommandRightsTests
     public void APlayerMayWhileTheServerSaysEveryoneMay()
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
         Assert.Null(rights.Refusal(adminOrHost: false));
     }
@@ -47,7 +47,7 @@ public class CommandRightsTests
     public void APlayerIsRefusedWhenTheServerSaysOnlyAdmins()
     {
         var rights = new CommandRights();
-        rights.Told(false);
+        rights.Tell(false);
 
         Assert.Equal("flowingwater: only the server's admins may use it (CommandsForEveryone is off on the server)", rights.Refusal(adminOrHost: false));
     }
@@ -56,7 +56,7 @@ public class CommandRightsTests
     public void JoiningAnotherServerForgetsWhatTheLastOneSaid()
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
         rights.Joining();
 
@@ -73,7 +73,7 @@ public class CommandRightsTests
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
         Assert.Null(rights.MarkerRefusal(isServer, adminOrHost: true, (CommandRights.MarkerUse)use));
@@ -86,7 +86,7 @@ public class CommandRightsTests
     public void APlayerMayUseTheWaterWhileTheServerSaysEveryoneMay(int use)
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
         Assert.Null(rights.MarkerRefusal(isServer: false, adminOrHost: false, (CommandRights.MarkerUse)use));
     }
@@ -98,7 +98,7 @@ public class CommandRightsTests
     public void APlayerIsRefusedTheWaterWhenTheServerSaysOnlyAdmins(int use, string refusal)
     {
         var rights = new CommandRights();
-        rights.Told(false);
+        rights.Tell(false);
 
         Assert.Equal(refusal, rights.MarkerRefusal(isServer: false, adminOrHost: false, (CommandRights.MarkerUse)use));
     }
@@ -125,7 +125,7 @@ public class CommandRightsTests
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
         Assert.Equal(here, rights.ModHere(isServer));
@@ -135,7 +135,7 @@ public class CommandRightsTests
     public void JoiningAnotherServerForgetsThatTheLastOneHadTheMod()
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
         rights.Joining();
 
         Assert.False(rights.ModHere(isServer: false));
@@ -150,9 +150,39 @@ public class CommandRightsTests
     public void WhereTheModIsTheWaterAndTheCommandAreRefusedToTheSamePlayers(bool everyone, bool adminOrHost)
     {
         var rights = new CommandRights();
-        rights.Told(everyone);
+        rights.Tell(everyone);
 
         Assert.Equal(rights.Refusal(adminOrHost) == null, rights.MarkerRefusal(isServer: false, adminOrHost, CommandRights.MarkerUse.Place) == null);
+    }
+
+    // The server telling its setting is what tells this game FlowingWater is there: the hoe is synced at once.
+    [Fact]
+    public void TheServerTellingItsSettingIsHeardAtOnceAndEachTime()
+    {
+        var rights = new CommandRights();
+        var heard = new List<bool?>();
+        rights.Told += () => heard.Add(rights.ServerSaysEveryone);
+
+        rights.Joining();
+        Assert.Empty(heard);
+
+        rights.Tell(false);
+        rights.Tell(true);
+
+        Assert.Equal([false, true], heard);
+        Assert.True(rights.ModHere(isServer: false));
+    }
+
+    // The console command keeps its own rule: its admins may on a server that said nothing; others are told why.
+    [Fact]
+    public void TheCommandIsStillLeftToAdminsOnAServerThatSaidNothing()
+    {
+        var rights = new CommandRights();
+
+        Assert.Null(rights.Refusal(adminOrHost: true));
+        Assert.Equal(
+            "flowingwater: the server has not said whether everyone may use it (is the mod on the server?); its admins may",
+            rights.Refusal(adminOrHost: false));
     }
 
     [Fact]
@@ -199,7 +229,7 @@ public class CommandRightsTests
         public void Told(bool everyone)
         {
             TimesTold++;
-            Rights.Told(everyone);
+            Rights.Tell(everyone);
         }
     }
 }

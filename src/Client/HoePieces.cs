@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -102,25 +103,17 @@ internal static class HoePieces
         Player player = Player.m_localPlayer;
         if (player != null && !Commands.ModHere)
         {
-            Forget(player);
+            if (KnownRecipes?.GetValue(player) is HashSet<string> known)
+            {
+                MarkerKnowledge.Sync(modHere: false, known, Prefabs.Markers.Select(m => m.GetComponent<Piece>().m_name));
+            }
+            else
+            {
+                FlowingWaterPlugin.Log.LogError("Player.m_knownRecipes not found: a character keeps the source and drain learned on a server without FlowingWater (the hoe still does not offer them)");
+            }
         }
 
         Refresh();
-    }
-
-    // The source and drain taken out of what the player knows.
-    private static void Forget(Player player)
-    {
-        if (KnownRecipes?.GetValue(player) is not HashSet<string> known)
-        {
-            FlowingWaterPlugin.Log.LogError("Player.m_knownRecipes not found: a character keeps the source and drain learned on a server without FlowingWater (the hoe still does not offer them)");
-            return;
-        }
-
-        foreach (GameObject marker in Prefabs.Markers)
-        {
-            known.Remove(marker.GetComponent<Piece>().m_name);
-        }
     }
 
     /// <summary>

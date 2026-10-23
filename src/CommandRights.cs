@@ -24,6 +24,9 @@ internal sealed class CommandRights
         Remove,
     }
 
+    /// <summary>The server told its CommandsForEveryone (FlowingWater is there, and who may use it may have changed).</summary>
+    public event Action Told;
+
     /// <summary>The server's CommandsForEveryone as it told this game; null until it has.</summary>
     public bool? ServerSaysEveryone { get; private set; }
 
@@ -38,9 +41,13 @@ internal sealed class CommandRights
     /// <param name="isServer">Whether this game is the server (alone or hosting).</param>
     public bool ModHere(bool isServer) => isServer || ServerSaysEveryone != null;
 
-    /// <summary>The server told its CommandsForEveryone.</summary>
+    /// <summary>The server told its CommandsForEveryone: <see cref="Told"/> is raised.</summary>
     /// <param name="everyone">Its value.</param>
-    public void Told(bool everyone) => ServerSaysEveryone = everyone;
+    public void Tell(bool everyone)
+    {
+        ServerSaysEveryone = everyone;
+        Told?.Invoke();
+    }
 
     /// <summary>Why this game's player may not use the command; null when they may.</summary>
     /// <param name="adminOrHost">Whether the player is the host, alone, or one of the server's admins.</param>
