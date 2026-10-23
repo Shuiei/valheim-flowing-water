@@ -169,6 +169,10 @@ internal sealed class WaterBrick : MonoBehaviour
         return longest;
     }
 
+    // A brick's read started in this long, milliseconds: kept if the longest. Only the game's main thread comes here and
+    // to TakeLongestStart (the bricks' Update, the recorder's measures), so a plain max is enough, nothing atomic.
+    private static void NoteStart(double milliseconds) => _longestStart = Math.Max(_longestStart, milliseconds);
+
     internal static double[] SpentParts => [Reading.Elapsed.TotalMilliseconds, Building.Elapsed.TotalMilliseconds, Taking.Elapsed.TotalMilliseconds, Starting.Elapsed.TotalMilliseconds];
 
     /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices, for measures.</summary>
@@ -259,7 +263,7 @@ internal sealed class WaterBrick : MonoBehaviour
                 }
                 finally
                 {
-                    _longestStart = Math.Max(_longestStart, (Stopwatch.GetTimestamp() - began) * 1000.0 / Stopwatch.Frequency);
+                    NoteStart((Stopwatch.GetTimestamp() - began) * 1000.0 / Stopwatch.Frequency);
                     StartingFrame.Stop();
                     Starting.Stop();
                     Reading.Stop();
