@@ -201,6 +201,34 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void ASleepingBrickRestsAndWakesWithItsWaterAsItWas()
+    {
+        // Two pools in bricks apart: the west one still, the east one fed all along (awake). The sleeping brick holds
+        // no flows, heads or shares of its own, and nothing the awake one does writes into what it reads instead.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, (x, y, z) => (byte)(TestSolids.Box(0, 7, 0, 7)(x, y, z) | TestSolids.Box(32, 39, 0, 7)(x, y, z))));
+        Fill(grid, 0, 7, 0, 7, 1.5f);
+        Fill(grid, 32, 39, 0, 7, 1.5f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 100; k++)
+        {
+            grid.Pour(35, 1, 3, 0.01f);
+            solver.Step(0.1f);
+        }
+
+        Brick west = grid.Find(0, 0, 0);
+        Assert.True(west.Resting);
+        Assert.False(grid.Find(2, 0, 0).Resting);
+        Assert.All(west.FlowX.Concat(west.FlowY).Concat(west.FlowZ).Concat(west.Head).Concat(west.Share), v => Assert.Equal(0f, v));
+        float water = west.Water.Sum();
+
+        grid.Pour(3, 1, 3, 1f);
+        solver.Step(0.1f);
+
+        Assert.False(west.Resting);
+        Assert.Equal(water + 1f, west.Water.Sum(), 1);
+    }
+
+    [Fact]
     public void SleepingBricksBesideAwakeOnesKeepTheVolume()
     {
         // A pool three bricks long; once it is still, its east end is fed a little every step (awake), the rest sleeps.

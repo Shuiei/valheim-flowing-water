@@ -260,12 +260,10 @@ internal sealed class VoxelSolver
         if (Sleeps(brick))
         {
             // Falling asleep, its flows are let go: no water may cross its faces while it sleeps (one side would
-            // count what the other does not).
+            // count what the other does not), and what only stepping uses is given back until it wakes.
             if (!brick.Asleep)
             {
-                Array.Clear(brick.FlowX, 0, Brick.Count);
-                Array.Clear(brick.FlowY, 0, Brick.Count);
-                Array.Clear(brick.FlowZ, 0, Brick.Count);
+                brick.Rest();
                 brick.LastHigh = (-1, -1, -1);
                 brick.Changes++;
             }
@@ -276,6 +274,7 @@ internal sealed class VoxelSolver
         }
 
         brick.Asleep = false;
+        brick.Wake();
         brick.Changes++;
 
         (int wlx, int wly, int wlz) = brick.WetLow;
@@ -405,7 +404,11 @@ internal sealed class VoxelSolver
                         float water = brick.Water[i];
                         if (room <= 0f || water <= Brick.Dry)
                         {
-                            brick.Head[i] = Floor(brick, i, y, s);
+                            if (!brick.Asleep)
+                            {
+                                brick.Head[i] = Floor(brick, i, y, s);
+                            }
+
                             above = 0f;
                             continue;
                         }
@@ -414,7 +417,11 @@ internal sealed class VoxelSolver
                         // air and falls, its weight carried by nothing; the weight comes on over the last tenth of the
                         // voxel's room, so that no head jumps (a jump feeds the water energy and it never settles).
                         float carried = Math.Min(1f, Math.Max(0f, ((water / room) - (1f - Contact)) / Contact)) * above;
-                        brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * stiffness * s);
+                        if (!brick.Asleep)
+                        {
+                            brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * stiffness * s);
+                        }
+
                         deepest = Math.Max(deepest, carried);
                         above = OpenBelow(brick, i, y) ? carried + water : 0f;
                     }

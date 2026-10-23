@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.6 — 2026-10-22
+
+### Fixed
+- Still water took as much of the server's memory as moving water: a still lake now takes about a quarter of it
+  (37 KB a block of voxels instead of 133 KB).
+
 ## v0.15.5 — 2026-10-22
 
 ### Fixed
