@@ -35,7 +35,8 @@ internal static class HoePieces
     /// </summary>
     public static void AddTo(ObjectDB items)
     {
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+        // The main menu's ObjectDB holds no items yet: the world's, filled, comes when a world opens.
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null || items.m_items.Count == 0)
         {
             return;
         }
