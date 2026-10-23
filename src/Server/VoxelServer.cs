@@ -62,6 +62,9 @@ internal sealed class VoxelServer
     // Seconds the solids watch and forgetting dry bricks have waited for a step under way.
     private float _waited;
 
+    // Bricks that read their solids again (a piece or the ground changed by them) since last logged.
+    private int _refilled;
+
     private readonly StepPacer _pacer = new(MostOwed);
 
     private float _dropped;
@@ -138,7 +141,7 @@ internal sealed class VoxelServer
         _waited += dt;
         if (!_solver.InStep)
         {
-            _watch.Update(_waited, _grid);
+            _refilled += _watch.Update(_waited, _grid);
             _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
             _waited = 0f;
         }
@@ -810,11 +813,12 @@ internal sealed class VoxelServer
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;
         _dropped = 0f;
+        _refilled = 0;
         _longestFrame = 0.0;
         int cells = (int)(TileData.ZoneMetres / MapMetres);
         foreach (KeyValuePair<long, Dictionary<(int X, int Z), float>> zone in depths)

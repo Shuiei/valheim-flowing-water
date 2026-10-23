@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.7 — 2026-10-22
+
+### Fixed
+- Water beside a big base made the server hitch every two seconds while it looked for built or broken pieces: the
+  looking is now spread over frames, a little at a time.
+
 ## v0.15.6 — 2026-10-22
 
 ### Fixed
