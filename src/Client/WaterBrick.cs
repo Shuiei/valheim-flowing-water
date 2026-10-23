@@ -40,6 +40,10 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static bool _settingWatched;
 
+    private static bool _flat;
+
+    private static float _lift;
+
     private ZNetView _nview;
 
     private MeshFilter _filter;
@@ -56,6 +60,28 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private readonly BackgroundBuild<Shape> _building = new();
 
+    /// <summary>Draw with a plain opaque colour instead of the water's material, for testing (console `flowingwater flat`).</summary>
+    internal static bool Flat
+    {
+        get => _flat;
+        set
+        {
+            _flat = value;
+            DrawAll();
+        }
+    }
+
+    /// <summary>Metres the water is drawn higher than it is, for testing (console `flowingwater lift`).</summary>
+    internal static float Lift
+    {
+        get => _lift;
+        set
+        {
+            _lift = value;
+            DrawAll();
+        }
+    }
+
     // Every brick is drawn again with the other material when the shader setting changes.
     private static void WatchSetting()
     {
@@ -65,16 +91,62 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         _settingWatched = true;
-        FlowingWaterPlugin.Settings.CustomShader.SettingChanged += (_, _) =>
+        FlowingWaterPlugin.Settings.CustomShader.SettingChanged += (_, _) => DrawAll();
+    }
+
+    private static void DrawAll()
+    {
+        foreach (WaterBrick brick in ByKey.Values)
         {
-            foreach (WaterBrick brick in ByKey.Values)
+            if (brick != null)
             {
-                if (brick != null)
-                {
-                    Waiting.Add(brick);
-                }
+                Waiting.Add(brick);
             }
-        };
+        }
+    }
+
+    /// <summary>What the brick at a point draws (else the nearest in the column there), for the console.</summary>
+    public static string DebugInfo(Vector3 point)
+    {
+        WaterBrick found = null;
+        float nearest = float.MaxValue;
+        foreach (WaterBrick brick in ByKey.Values)
+        {
+            if (brick == null || brick._view == null)
+            {
+                continue;
+            }
+
+            float span = Brick.Size * brick._view.VoxelSize;
+            Vector3 low = new Vector3(brick._view.X, brick._view.Y, brick._view.Z) * span;
+            if (point.x < low.x || point.x >= low.x + span || point.z < low.z || point.z >= low.z + span)
+            {
+                continue;
+            }
+
+            float off = point.y < low.y ? low.y - point.y : Mathf.Max(0f, point.y - (low.y + span));
+            if (off < nearest)
+            {
+                nearest = off;
+                found = brick;
+            }
+        }
+
+        if (found == null)
+        {
+            return "no water brick in the column here";
+        }
+
+        BrickView view = found._view;
+        Mesh mesh = found._mesh;
+        var text = new System.Text.StringBuilder();
+        text.Append(FormattableString.Invariant($"brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels at {found.transform.position}, {nearest:0.#} m from you: renderer {found._renderer.enabled}, lift {Lift}, flat {Flat}"));
+        text.Append(FormattableString.Invariant($"; mesh {mesh.vertexCount} vertices, {(mesh.subMeshCount > 0 ? mesh.GetIndexCount(0) / 3 : 0)} triangles, bounds {mesh.bounds.min} to {mesh.bounds.max}; drawn {Time.time - found._drawnAt:0.0} s ago, building {found._building.Busy}"));
+        Material material = found._renderer.sharedMaterial;
+        text.Append(material == null
+            ? "; material none"
+            : FormattableString.Invariant($"; material {material.name} shader {material.shader.name} supported {material.shader.isSupported} queue {material.renderQueue} keywords {string.Join(" ", material.shaderKeywords)}"));
+        return text.ToString();
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
@@ -233,7 +305,8 @@ internal sealed class WaterBrick : MonoBehaviour
 
         BrickView view = _view;
         VoxelField near = VoxelWater.Field.Near(view);
-        Vector3 origin = transform.position;
+        // Lifted, the surface is drawn that much higher over the object.
+        Vector3 origin = transform.position - new Vector3(0f, Lift, 0f);
         if (_building.TryStart(() => Shape.Of(near, view, origin)))
         {
             Built.Add(this);
@@ -281,7 +354,8 @@ internal sealed class WaterBrick : MonoBehaviour
         FlowingWaterPlugin.Log.LogError($"Water brick at {at}: its surface could not be built, left as it was ({failure})");
 
     private static Material Material() =>
-        FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
+        Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
+        : FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() is { } custom ? custom : Materials.Still();
 
     // A surface as the mesh takes it: positions from the brick's origin, and what each vertex carries.
     private sealed class Shape

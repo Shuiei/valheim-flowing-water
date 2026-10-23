@@ -27,9 +27,9 @@ Console (F5) command `flowingwater`:
 | `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
-| `flowingwater debug` | What the tile under you draws: materials, shaders, triangles |
+| `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater flat` | Plain colours instead of water (blue still, green running), to see the shape |
+| `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still\|stream <property> [values]` | Change a water material property in game (`list` names them) |
 

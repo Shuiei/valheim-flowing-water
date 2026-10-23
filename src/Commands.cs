@@ -80,7 +80,7 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "debug":
-                terminal.AddString("flowingwater: " + WaterTile.DebugInfo(player.transform.position));
+                terminal.AddString("flowingwater: " + WaterBrick.DebugInfo(player.transform.position));
                 break;
             case "solids":
                 foreach (string line in SolidsView.Around(player.transform.position, (float)TileData.ZoneMetres / TileData.SizeFor(FlowingWaterPlugin.Settings.CellSize.Value)))
@@ -91,8 +91,8 @@ internal static class Commands
 
                 break;
             case "flat":
-                WaterTile.Flat = !WaterTile.Flat;
-                terminal.AddString("flowingwater: " + (WaterTile.Flat ? "plain colours (blue still, green stream)" : "water materials"));
+                WaterBrick.Flat = !WaterBrick.Flat;
+                terminal.AddString("flowingwater: " + (WaterBrick.Flat ? "a plain colour (blue)" : "the water's material"));
                 break;
             case "mat":
                 terminal.AddString("flowingwater: " + Tune(args));
@@ -100,8 +100,8 @@ internal static class Commands
             case "lift":
                 if (Number(terminal, args, 2, 0f, true, "the lift (m)", out float lift))
                 {
-                    WaterTile.Lift = lift;
-                    terminal.AddString($"flowingwater: water drawn {WaterTile.Lift:0.##} m above its level");
+                    WaterBrick.Lift = lift;
+                    terminal.AddString($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level");
                 }
 
                 break;
