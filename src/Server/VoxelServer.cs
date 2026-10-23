@@ -337,16 +337,14 @@ internal sealed class VoxelServer
         _solver = new VoxelSolver(_grid);
     }
 
-    // The brick's object, made (or made again, if something removed it) where the brick is.
+    // The brick's object, made (or made again, if something removed it) where the brick is. The game gives it to a
+    // player near it, as it does every object; it is written as it is: the game sends what the server writes to every
+    // player near, its owner too, by the data's revision, and the brick's owner never writes it. Taking it back each
+    // time made it go to and fro, the whole object sent again each time it changed hands.
     private ZDO Object(Brick brick, long key)
     {
         if (_objects.TryGetValue(key, out ZDO zdo) && ZDOMan.instance.GetZDO(zdo.m_uid) != null)
         {
-            if (!zdo.IsOwner())
-            {
-                zdo.SetOwner(ZDOMan.GetSessionID());
-            }
-
             return zdo;
         }
 
@@ -368,6 +366,7 @@ internal sealed class VoxelServer
         return zdo;
     }
 
+    // Only the owner can destroy an object.
     private static void DestroyZdo(ZDO zdo)
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
