@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.7 — 2026-10-23
+
+### Fixed
+- No one could swim or float in the flowing water: characters walked along the bottom of a deep pool, and boats and
+  items sank through it. Its water now holds them up as the game's own water does.
+
 ## v0.16.4 — 2026-10-23
 
 ### Fixed
