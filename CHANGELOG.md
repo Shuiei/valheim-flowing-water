@@ -22,6 +22,19 @@ All notable changes to FlowingWater. Newest first.
 - A release whose upload failed on one mod site could not be finished: both sites are checked before anything is
   tagged, and a failed release can be run again.
 
+## v0.15.9 — 2026-10-23
+
+### Fixed
+- Water held at the edge of the room it had (`MaxBricks` reached, or a busy server still making the next block of
+  water) went still there and never ran on once there was room: it now flows on as soon as the next block is made.
+- Swimmers, floating things and fish in the sea where a river meets it kept losing the sea for a moment, and sank or
+  shook: the river's water no longer hides the sea's from what is in both.
+- A block of water's object destroyed by something else (another mod, an admin's clean-up) could leave the water
+  writing into, and later destroying, whatever object the game made next: dropped items or a player's pieces. The
+  water now only ever touches its own objects.
+- An error while the water was sent just before a world save stopped the world from being saved: the error is now
+  logged and the world is saved, with the water as it was last sent.
+
 ## v0.15.8 — 2026-10-22
 
 ### Fixed

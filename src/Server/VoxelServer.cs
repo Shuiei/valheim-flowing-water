@@ -47,7 +47,9 @@ internal sealed class VoxelServer
 
     private readonly SolidsWatch _watch;
 
-    private readonly Dictionary<long, ZDO> _objects = [];
+    // Each brick's object, by its id: the game hands a destroyed object's ZDO out again as another object, so a ZDO
+    // kept from frame to frame may be someone else's by now.
+    private readonly Dictionary<long, ZDOID> _objects = [];
 
     private readonly Dictionary<long, (Brick Brick, int Changes, int Hash)> _sent = [];
 
@@ -282,9 +284,9 @@ internal sealed class VoxelServer
 
         foreach (long key in _objects.Keys.Where(k => !kept.Contains(k)).ToList())
         {
-            if (ZDOMan.instance.GetZDO(_objects[key].m_uid) != null)
+            if (Live(_objects[key]) is { } zdo)
             {
-                DestroyZdo(_objects[key]);
+                DestroyZdo(zdo);
             }
 
             _objects.Remove(key);
@@ -299,7 +301,7 @@ internal sealed class VoxelServer
     // (forgotten dry, then wet again) is another brick.
     private bool Send(Brick brick, long key)
     {
-        bool live = _objects.TryGetValue(key, out ZDO known) && ZDOMan.instance.GetZDO(known.m_uid) != null;
+        bool live = _objects.TryGetValue(key, out ZDOID known) && Live(known) != null;
         bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash) was) && was.Brick == brick;
         if (live && sent && was.Changes == brick.Changes)
         {
@@ -326,9 +328,12 @@ internal sealed class VoxelServer
     // Every brick's object destroyed and forgotten.
     private void DropObjects()
     {
-        foreach (ZDO zdo in _objects.Values.Where(z => ZDOMan.instance.GetZDO(z.m_uid) != null))
+        foreach (ZDOID id in _objects.Values)
         {
-            DestroyZdo(zdo);
+            if (Live(id) is { } zdo)
+            {
+                DestroyZdo(zdo);
+            }
         }
 
         _objects.Clear();
@@ -352,16 +357,19 @@ internal sealed class VoxelServer
     // time made it go to and fro, the whole object sent again each time it changed hands.
     private ZDO Object(Brick brick, long key)
     {
-        if (_objects.TryGetValue(key, out ZDO zdo) && ZDOMan.instance.GetZDO(zdo.m_uid) != null)
+        if (_objects.TryGetValue(key, out ZDOID id) && Live(id) is { } zdo)
         {
             return zdo;
         }
 
         float span = Brick.Size * _grid.VoxelSize;
-        zdo = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
-        _objects[key] = zdo;
-        return zdo;
+        ZDO made = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
+        _objects[key] = made.m_uid;
+        return made;
     }
+
+    // A brick's object, if it is still there and still a brick (null when something else destroyed it).
+    private static ZDO Live(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash ? zdo : null;
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without one is saved
     // but can never be found again by prefab.

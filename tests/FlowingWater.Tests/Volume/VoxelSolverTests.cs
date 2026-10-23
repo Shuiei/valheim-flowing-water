@@ -557,6 +557,32 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterAsleepAtABricksEdgeRunsOnWhenTheBrickBesideIsMadeAtLast()
+    {
+        // A pool fills a brick, its east face open onto the next brick, which the cap keeps from being made: the water
+        // is held at the edge and sleeps there. Once the cap is raised the brick beside is made, and the water runs on.
+        var grid = new VoxelGrid(Volume, new TestSolids(0, TestSolids.Box(0, 31, 0, 15))) { MaxBricks = 1 };
+        Fill(grid, 0, 15, 0, 15, 0.8f);
+        var solver = new VoxelSolver(grid);
+        for (int k = 0; k < 40; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.True(grid.Find(0, 0, 0).Asleep);
+
+        grid.MaxBricks = 10;
+        for (int k = 0; k < 100; k++)
+        {
+            solver.Step(0.1f);
+        }
+
+        Assert.NotNull(grid.Find(1, 0, 0));
+        Assert.True(grid.WaterAt(28, 0, 7) > 0.2f, $"{grid.WaterAt(28, 0, 7)} in the brick made");
+        Assert.Equal(256f * 0.8f, grid.TotalWater(), 1);
+    }
+
+    [Fact]
     public void OneLongStepIsTakenInStableShortOnes()
     {
         // Forty seconds asked for at once: the water settles level and still as it does a tenth at a time.

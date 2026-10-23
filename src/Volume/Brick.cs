@@ -151,6 +151,17 @@ internal sealed class Brick
         Quiet = 0;
     }
 
+    /// <summary>Whether its wet voxels, as last found, reach its border on this side (0 east ... 5 south).</summary>
+    public bool WetTo(int side) => WetHigh.X >= 0 && side switch
+    {
+        0 => WetHigh.X == Size - 1,
+        1 => WetLow.X == 0,
+        2 => WetHigh.Y == Size - 1,
+        3 => WetLow.Y == 0,
+        4 => WetHigh.Z == Size - 1,
+        _ => WetLow.Z == 0,
+    };
+
     /// <summary>Seconds it has held no water, to forget it.</summary>
     public float EmptyFor { get; set; }
 

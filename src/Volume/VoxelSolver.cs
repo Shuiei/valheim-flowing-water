@@ -41,7 +41,8 @@ internal sealed class VoxelSolver
     private const float DeepestStable = 10f;
 
     // A brick whose every flow stayed under this (cubic metres a second) for this many steps sleeps: it is skipped
-    // while the bricks beside it sleep too or are dry (water poured in, a solid changed or a waking neighbour wakes it).
+    // while the bricks beside it sleep too or are dry (water poured in, a solid changed, a waking neighbour or a brick
+    // made where its water meets the edge wakes it).
     private const float SleepingFlow = 1e-3f;
 
     private const int StepsToSleep = 24;
@@ -294,7 +295,7 @@ internal sealed class VoxelSolver
         int hx = wet ? Math.Min(Brick.Size - 1, whx + 1) : -1, hy = wet ? Math.Min(Brick.Size - 1, why + 1) : -1, hz = wet ? Math.Min(Brick.Size - 1, whz + 1) : -1;
         for (int side = 0; side < 6; side++)
         {
-            if (brick.Beside[side] is not { } next || next.WetHigh.X < 0 || !Touches(next, side ^ 1))
+            if (brick.Beside[side] is not { } next || !next.WetTo(side ^ 1))
             {
                 continue;
             }
@@ -356,17 +357,6 @@ internal sealed class VoxelSolver
 
         return true;
     }
-
-    // Whether a brick's wet voxels reach its border on this side (0 east ... 5 south).
-    private static bool Touches(Brick brick, int side) => side switch
-    {
-        0 => brick.WetHigh.X == Brick.Size - 1,
-        1 => brick.WetLow.X == 0,
-        2 => brick.WetHigh.Y == Brick.Size - 1,
-        3 => brick.WetLow.Y == 0,
-        4 => brick.WetHigh.Z == Brick.Size - 1,
-        _ => brick.WetLow.Z == 0,
-    };
 
     // The heads of a column of bricks, top down: a voxel's floor, plus all the water resting on it (its own and that
     // of the wet voxels over it, up to air, a solid or a closed face), plus the push of what is pressed in. Returns
