@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.15.12 — 2026-10-23
+
+### Fixed
+- The water (the mod's own shader) took none of the game's fog: far off, in mist or at night, it stood out darker
+  and sharper than the land round it. It now fades into the fog as the land does.
+
 ## v0.15.11 — 2026-10-23
 
 ### Fixed
