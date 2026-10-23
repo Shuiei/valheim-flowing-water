@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -32,9 +31,6 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     // The debug map draws one character per this many metres.
     private const float MapMetres = 2f;
-
-    // The farthest a drain reaches, metres: as far as the DefaultDrainRadius setting allows.
-    private const float MaxDrainRadius = 16f;
 
     private readonly ZoneTerrain _terrain = new();
 
@@ -96,6 +92,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     // The points water was poured at that had no room, each told of once until the markers are looked for again.
     private readonly HashSet<Vector3> _noRoom = [];
+
+    // What a source's or drain's rate and reach may be, each one held told of once.
+    private readonly MarkerRules _rates = new(FlowingWaterPlugin.Log.LogWarning);
 
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
@@ -286,16 +285,11 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash).m_uid;
     }
 
-    void IBrickWorld<ZDOID>.Write(ZDOID id, byte[] data)
-    {
-        ZDO zdo = ZDOMan.instance.GetZDO(id);
-        if (!zdo.IsOwner())
-        {
-            zdo.SetOwner(ZDOMan.GetSessionID());
-        }
-
-        zdo.Set(ZdoKeys.Brick, data);
-    }
+    // The game gives a brick's object to a player near it, as it does every object; it is written as it is: the game
+    // sends what the server writes to every player near, its owner too, by the data's revision, and the brick's owner
+    // never writes it. Taking it back each time made it go to and fro, the whole object sent again each time it
+    // changed hands.
+    void IBrickWorld<ZDOID>.Write(ZDOID id, byte[] data) => ZDOMan.instance.GetZDO(id).Set(ZdoKeys.Brick, data);
 
     void IBrickWorld<ZDOID>.Destroy(ZDOID id) => DestroyZdo(ZDOMan.instance.GetZDO(id));
 
@@ -311,6 +305,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return zdo;
     }
 
+    // Only the owner can destroy an object.
     private static void DestroyZdo(ZDO zdo)
     {
         zdo.SetOwner(ZDOMan.GetSessionID());
@@ -668,56 +663,21 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
         foreach (ZDO zdo in All(prefab))
         {
-            // A drain's reach is clamped as the setting is: a player may write any radius into its marker.
-            float radius = drain ? Mathf.Clamp(zdo.GetFloat(ZdoKeys.Radius, defaultRadius), 0f, MaxDrainRadius) : 0f;
-            float rate = zdo.GetFloat(ZdoKeys.Rate, defaultRate);
-            if (Usable(rate, drain, zdo.GetPosition().ToString()))
+            float radius = drain ? MarkerRules.Reach(zdo.GetFloat(ZdoKeys.Radius, defaultRadius)) : 0f;
+            if (_rates.TryRate(zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString(), out float rate))
             {
                 _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
             }
         }
     }
 
-    // "x,z,rate; x,z,rate" from the config, drains with an optional radius: "x,z,rate,radius"; on the ground there.
+    // The config's fixed sources or drains, on the ground there.
     private void CollectFixed(string list, bool drain)
     {
-        foreach (string item in list.Split(';'))
+        foreach ((float x, float z, float rate, float radius) in _rates.Fixed(list, drain, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value))
         {
-            string trimmed = item.Trim();
-            if (trimmed.Length == 0)
-            {
-                continue;
-            }
-
-            string[] parts = trimmed.Split(',');
-            float radius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
-            if (parts.Length < 3 || parts.Length > (drain ? 4 : 3)
-                || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
-                || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
-                || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float rate)
-                || (parts.Length == 4 && (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out radius) || radius <= 0f)))
-            {
-                FlowingWaterPlugin.Log.LogWarning($"Fixed {(drain ? "drain" : "source")} \"{trimmed}\" is not {(drain ? "x,z,rate or x,z,rate,radius" : "x,z,rate")}; ignored");
-                continue;
-            }
-
-            if (Usable(rate, drain, trimmed))
-            {
-                _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, drain ? Mathf.Min(radius, MaxDrainRadius) : 0f));
-            }
+            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, radius));
         }
-    }
-
-    // A source's rate must be a number over 0; a drain's a number of 0 (it takes all) or more.
-    private static bool Usable(float rate, bool drain, string where)
-    {
-        if (!float.IsNaN(rate) && !float.IsInfinity(rate) && (drain ? rate >= 0f : rate > 0f))
-        {
-            return true;
-        }
-
-        FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"{(drain ? "Drain" : "Source")} at {where}: rate {rate} is not usable; ignored"));
-        return false;
     }
 
     // A top-down map per zone, a character per 2 by 2 metres: '.' dry, then deeper and deeper (all the water over

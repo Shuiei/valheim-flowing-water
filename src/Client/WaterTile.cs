@@ -491,8 +491,26 @@ internal sealed class WaterTile : MonoBehaviour
         }
 
         _renderer.sharedMaterials = [still ?? stream, stream ?? still];
-        _properties = new MaterialPropertyBlock();
-        _properties.SetFloat(VisibleMaxDistanceId, ZNet.instance.GetSyncedSimulationDistance().NearSimulationDistance * ZoneSystem.c_ZoneSize);
+        _properties = GameMaterialProperties();
+    }
+
+    /// <summary>
+    /// A renderer's properties for the game's water materials, which read them from each renderer as the game's own
+    /// water sets them: how far the water is drawn (the near simulation area) and, each frame (<see cref="Animate"/>),
+    /// the time its waves run on.
+    /// </summary>
+    internal static MaterialPropertyBlock GameMaterialProperties()
+    {
+        var properties = new MaterialPropertyBlock();
+        properties.SetFloat(VisibleMaxDistanceId, ZNet.instance.GetSyncedSimulationDistance().NearSimulationDistance * ZoneSystem.c_ZoneSize);
+        return properties;
+    }
+
+    /// <summary>The renderer's properties, with this frame's time for the waves.</summary>
+    internal static void Animate(Renderer renderer, MaterialPropertyBlock properties)
+    {
+        properties.SetFloat(WaterTimeId, ZNet.instance.GetWrappedDayTimeSeconds());
+        renderer.SetPropertyBlock(properties);
     }
 
     /// <summary>What the tile under a point draws, for the console.</summary>
@@ -600,8 +618,7 @@ internal sealed class WaterTile : MonoBehaviour
         if (_properties != null)
         {
             _renderer.enabled = true;
-            _properties.SetFloat(WaterTimeId, ZNet.instance.GetWrappedDayTimeSeconds());
-            _renderer.SetPropertyBlock(_properties);
+            Animate(_renderer, _properties);
         }
     }
 

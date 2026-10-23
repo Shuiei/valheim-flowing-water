@@ -10,18 +10,22 @@
 //   thunderstore|hexium <dist> [--dry-run]
 //       Publishes FlowingWater-<version>.zip in dist (made by thunderstore/build.sh; the version
 //       is its manifest's) to one site. --dry-run checks all it can without publishing: the token, that
-//       the version is not on the site yet, the categories, the files. A version already on the site
-//       fails: no site takes a version twice.
+//       the version is not on the site yet, the categories, the files (the release runs it for both sites
+//       before it tags anything). A version already on the site fails: no site takes a version twice. On
+//       Hexium, a version an earlier run submitted (hidden, so not seen as there) whose metadata it then
+//       failed to set is taken as submitted: its metadata is set.
 // The tokens come from the environment: THUNDERSTORE_TOKEN, HEXIUM_TOKEN.
 // No Nexus Mods yet: the mod has no page there (made by hand on the website). Once it has one, its
 // publishing comes from Moder Warehouse Plus's publish.cs (PublishNexus), with a nexus entry in sites.json.
 #:property PublishAot=false
+#:project ReleaseRules/ReleaseRules.csproj
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using FlowingWater.Release;
 
 const string Repo = "https://github.com/Shuiei/valheim-flowing-water";
 const string SitesFile = "tools/release/sites.json";
@@ -201,17 +205,26 @@ static async Task PublishHexium(HttpClient http, JsonNode site, Release release,
     }
 
     string upload = await Upload(http, Name, url, token, release.Plugin, tokenToParts: true);
-    JsonNode? result;
     try
     {
-        result = await Submit(http, Name, url, token, upload, team, community, categories);
+        var result = await Submit(http, Name, url, token, upload, team, community, categories);
+        Console.WriteLine($"{Name}: published {result?["package_version"]?["full_name"]} (hidden: unhide it on its Versions page on hexium.gg).");
     }
-    catch (SiteException ex) when (ex.Message.Contains("already", StringComparison.OrdinalIgnoreCase))
+    catch (SiteException ex) when (SiteAnswers.SubmittedAlready(ex.Status, ex.Answer))
     {
-        throw new InvalidOperationException($"{ex.Message}\nThat version is on Hexium already, hidden: unhide it on its Versions page on hexium.gg.", ex);
+        // NotThereYet did not see it: hidden, submitted by an earlier run of this job that failed after (setting the
+        // metadata). On with the metadata; the upload just made is not used.
+        Console.WriteLine($"{Name}: {team}-{release.Name} {release.Version} was submitted already, by an earlier run (hidden: unhide it on its Versions page on hexium.gg); its metadata is set now. The site said: {ex.Answer}");
+        try
+        {
+            await Call(http, Name, Post($"{url}/api/experimental/usermedia/{upload}/abort-upload/", new JsonObject(), Bearer(token)));
+        }
+        catch (Exception abort) when (abort is SiteException or HttpRequestException)
+        {
+            Console.WriteLine($"warning: {Name}: calling off the unused upload failed: {abort.Message}");
+        }
     }
 
-    Console.WriteLine($"{Name}: published {result?["package_version"]?["full_name"]} (hidden: unhide it on its Versions page on hexium.gg).");
     var meta = new JsonObject { ["install_location"] = install, ["categories"] = new JsonArray([.. categories.Select(c => JsonValue.Create(c))]) };
     await Call(http, Name, Post($"{url}/api/mod/{team}/{release.Name}/set-metadata", meta, Bearer(token)));
     Console.WriteLine($"{Name}: install location {install}, categories {string.Join(", ", categories)}.");
@@ -356,7 +369,7 @@ static async Task<JsonNode?> Call(HttpClient http, string site, HttpRequestMessa
         {
             // The URL without its query: a presigned URL's query is a credential.
             string where = request.RequestUri!.GetLeftPart(UriPartial.Path);
-            throw new SiteException($"{site} answered {(int)answer.StatusCode} to {request.Method} {where}: {Shorten(text)}", (int)answer.StatusCode);
+            throw new SiteException($"{site} answered {(int)answer.StatusCode} to {request.Method} {where}: {Shorten(text)}", (int)answer.StatusCode, Shorten(text));
         }
 
         return text.Length == 0 ? null : JsonNode.Parse(text);
@@ -376,8 +389,10 @@ static string[] Texts(JsonNode node, string key) => [.. node[key]!.AsArray().Sel
 // One release's package: the plugin's zip, with its manifest and icon (for the sites' checks).
 internal sealed record Release(string Version, string Name, string Plugin, byte[] Manifest, byte[] Icon);
 
-// A site's error answer, with its HTTP status.
-internal sealed class SiteException(string message, int status) : InvalidOperationException(message)
+// A site's error answer, with its HTTP status and what it said (shortened).
+internal sealed class SiteException(string message, int status, string answer = "") : InvalidOperationException(message)
 {
     public int Status { get; } = status;
+
+    public string Answer { get; } = answer;
 }

@@ -11,7 +11,13 @@ internal static class Commands
 {
     private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | flat | lift [m] | mat custom|still|stream <property> [values]";
 
+    // How the server tells each player its CommandsForEveryone.
+    private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
+
     private static bool _registered;
+
+    // Who may use the command: the server's CommandsForEveryone, as it told this player's game.
+    private static readonly CommandRights Rights = new();
 
     public static void Register()
     {
@@ -23,6 +29,35 @@ internal static class Commands
         _registered = true;
         _ = new Terminal.ConsoleCommand("flowingwater", Usage, Run);
     }
+
+    /// <summary>
+    /// A peer's PeerInfo handled (it joined): the server tells the player's game its CommandsForEveryone; the player's
+    /// game, joining, listens for it.
+    /// </summary>
+    public static void Joined(ZNet net, ZRpc rpc)
+    {
+        if (!net.IsServer())
+        {
+            Rights.Joining();
+            rpc.Register<bool>(EveryoneRpc, (_, everyone) => Rights.Told(everyone));
+            return;
+        }
+
+        CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
+    }
+
+    /// <summary>The server's CommandsForEveryone changed: every player's game is told.</summary>
+    public static void TellEveryone()
+    {
+        if (ZNet.instance == null || !ZNet.instance.IsServer())
+        {
+            return;
+        }
+
+        CommandRights.Tell(ZNet.instance.GetPeers(), p => p.IsReady(), TellOne);
+    }
+
+    private static void TellOne(ZNetPeer peer) => peer.m_rpc.Invoke(EveryoneRpc, FlowingWaterPlugin.Settings.CommandsForEveryone.Value);
 
     // An exception out of a console command reaches Unity's event system, whose logging of it has
     // crashed the game outright; it is logged here instead, with its message on the console.
@@ -42,16 +77,16 @@ internal static class Commands
     private static void RunUnguarded(Terminal.ConsoleEventArgs args)
     {
         Terminal terminal = args.Context;
-        if (!FlowingWaterPlugin.Settings.CommandsForEveryone.Value && !terminal.IsCheatsEnabled())
+        Player player = Player.m_localPlayer;
+        if (player == null || ZNet.instance == null)
         {
-            terminal.AddString("flowingwater: cheats must be on (or CommandsForEveryone in the config)");
+            terminal.AddString("flowingwater: needs a player in the world");
             return;
         }
 
-        Player player = Player.m_localPlayer;
-        if (player == null)
+        if (Rights.Refusal(ZNet.instance.LocalPlayerIsAdminOrHost()) is { } refusal)
         {
-            terminal.AddString("flowingwater: needs a player in the world");
+            terminal.AddString(refusal);
             return;
         }
 
@@ -181,6 +216,7 @@ internal static class Commands
         }
 
         terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
+            + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
     }
 

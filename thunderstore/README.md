@@ -30,8 +30,9 @@ Console (F5) command `flowingwater`:
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 
-The command works for everyone unless `CommandsForEveryone` is off in the config (then cheats must be
-on). A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
+The host and the server's admins may always use the command; other players while the **server's**
+`CommandsForEveryone` is on (their own config does not count). A source gives at most 100 m³/s, and so does a
+drain given a rate (a drain of rate 0 still takes everything that reaches it). A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
 `FixedDrains`).
 
 ## Settings
@@ -44,6 +45,7 @@ on). A server can also have sources and drains with no marker placed, from its c
 | `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m. Smaller gives finer water: moving water costs about 3× at 0.5 and 15× at 0.25 (measured on a 20 × 20 m pool; more water, more cost), still water stays cheap |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command (the server's setting counts) |
 | `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
 | `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
 | `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |

@@ -15,7 +15,7 @@ internal interface IBrickWorld<TId>
     /// <summary>A new object where the brick is.</summary>
     TId Make(Brick brick);
 
-    /// <summary>A brick's water written into its object, taken over first if another has it.</summary>
+    /// <summary>A brick's water written into its object, whoever has it.</summary>
     void Write(TId id, byte[] data);
 
     /// <summary>A brick's object destroyed.</summary>

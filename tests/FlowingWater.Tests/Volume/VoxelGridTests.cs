@@ -325,6 +325,48 @@ public class VoxelGridTests
         Assert.Null(dry.Beside[1]?.Beside[0]);
     }
 
+    [Fact]
+    public void ABrickIsLookedOverAgainOnlyOnceItsWaterChanged()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000));
+        grid.Pour(0, 0, 0, 1f);
+        Brick wet = grid.Find(0, 0, 0);
+        Brick dry = grid.Get(1, 0, 0);
+        grid.ForgetDry(5f, 8f);
+
+        // Its water gone in a step (which counts a change): it is dry from then on.
+        wet.Water[0] = 0f;
+        wet.Changes++;
+
+        // Water put in the dry one outside its wet voxels' box (a step counts it too): it is wet.
+        dry.Water[Brick.Index(9, 9, 9)] = 0.5f;
+        dry.Changes++;
+        grid.ForgetDry(10f, 8f);
+
+        Assert.Null(grid.Find(0, 0, 0));
+        Assert.Same(dry, grid.Find(1, 0, 0));
+        Assert.Equal(0f, dry.EmptyFor);
+    }
+
+    [Fact]
+    public void ABrickForgottenLeavesItsShutFacesWithTheBrickBesideUntilItsSolidsChange()
+    {
+        // The brick east is solid in its southern half, the brick north open.
+        var grid = new VoxelGrid(1f, new FuncSolids((x, _, z) => x >= 16 && z < 8 ? 1f : 0f));
+        Brick brick = grid.Get(0, 0, 0);
+        grid.Forget(grid.Get(1, 0, 0));
+        grid.Forget(grid.Get(0, 0, 1));
+
+        Assert.True(brick.Shuts(0, Brick.Index(15, 3, 3)));
+        Assert.False(brick.Shuts(0, Brick.Index(15, 3, 12)));
+        Assert.False(brick.Shuts(4, Brick.Index(3, 3, 15)));
+        Assert.False(brick.Shuts(1, Brick.Index(0, 3, 3)));
+
+        grid.Refill(brick);
+
+        Assert.False(brick.Shuts(0, Brick.Index(15, 3, 3)));
+    }
+
     // Solid shares from a function of the voxel (x, y, z).
     private sealed class FuncSolids : ISolids
     {

@@ -13,8 +13,8 @@
 #   server-smoke   the package in a real dedicated server with BepInExPack (tools/server-smoke.sh): it
 #                  loads, simulates a fixed source's water with no error, and loads the saved water again
 #                  after a restart
-#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests); on main, with their
-#                  code coverage, kept for the coverage job
+#   unit-tests     the mod's rules that need no game, on .NET (tests/FlowingWater.Tests), the release's
+#                  decisions and this file's wiring; on main, with their code coverage, kept for the coverage job
 #   coverage       on main only, once unit-tests has passed: sends the coverage to Codecov (codecov.yml), which
 #                  fails its own check (codecov/project) under 95% line coverage. A failed test run sends
 #                  nothing, so Codecov never shows the coverage of part of the tests. Branches and pull
@@ -24,9 +24,12 @@
 # approval (the checks ran on the pull request, which main's ruleset keeps up to date with main):
 #   hold-release   waits for someone to approve it in CircleCI (the mod-token context is restricted)
 #   game-dlls, package, server-smoke   as above: the package to release, smoke-tested
+#   check-*        what publishing the zip on Thunderstore and Hexium needs, without publishing
+#                  (tools/release/publish.cs --dry-run: the tokens, the version not there yet, the
+#                  categories, the files): nothing is tagged while a site would refuse it
 #   github-release tags the commit v<VERSION> and makes the GitHub release with that zip and the release
 #                  notes (tools/release/publish.cs; the Sign release workflow on GitHub adds Sigstore
-#                  signatures)
+#                  signatures); rerun once this commit is released there, it goes on to the sites
 #   publish-*      the zip on Thunderstore and Hexium (tools/release/publish.cs, tools/release/sites.json),
 #                  side by side. Nexus Mods once the mod has a page there (made by hand: README.md, Releasing)
 # How to release: README.md, Releasing.
@@ -267,7 +270,7 @@ jobs:
 
   # Tags the commit and makes the GitHub release with the zip the package job built and server-smoke
   # tested. The release notes: docs/releases/v<version>.md, else the CHANGELOG's sections since the last
-  # tag.
+  # tag. Rerun after the release was made (a publish job failed after it), it does nothing more.
   github-release:
     executor: dotnet
     steps:
@@ -282,15 +285,10 @@ jobs:
             curl -fsSLO "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_linux_amd64.tar.gz"
             curl -fsSL "https://github.com/cli/cli/releases/download/v$gh/gh_${gh}_checksums.txt" | grep "gh_${gh}_linux_amd64.tar.gz" | sha256sum -c -
             tar -xzf "gh_${gh}_linux_amd64.tar.gz" -C /usr/local --strip-components=1
+      # A rerun after the release was made stops here, on to the mod sites (tools/release/still-to-release.sh).
       - run:
           name: Still to be released
-          command: |
-            git fetch -q --tags origin
-            version=$(tr -d '[:space:]' < VERSION)
-            if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
-              echo "v$version is tagged already (released from another pipeline?)."; exit 1
-            fi
-            ls /tmp/dist/FlowingWater-$version.zip
+          command: tools/release/still-to-release.sh /tmp/dist
       - run:
           name: The release notes
           command: |
@@ -322,7 +320,8 @@ jobs:
           name: Tested on main
           command: echo "A release pull request changes only CHANGELOG.md and docs/releases/; its code was checked on main."
 
-  # The plugin on one mod site (tools/release/publish.cs, tools/release/sites.json).
+  # The plugin on one mod site (tools/release/publish.cs, tools/release/sites.json); with options --dry-run, only
+  # checked.
   publish:
     executor: dotnet
     parameters:
@@ -341,8 +340,9 @@ jobs:
 
 workflows:
   # Side by side once the game's DLLs are there; the smoke test waits for the package. Main's ruleset
-  # requires code-analysis, formatting, package and server-smoke of a pull request: it must stay in step
-  # with this list (and with release-pr's below).
+  # requires code-analysis, formatting, package, server-smoke and unit-tests of a pull request: it must stay
+  # in step with this list (and with release-pr's below; the unit tests' CircleCiTests hold the list too). Every
+  # branch runs the whole of the unit tests.
   test:
     when:
       and:
@@ -370,7 +370,7 @@ workflows:
           requires:
             - package
 
-  # A release pull request: the four checks main's ruleset requires, reported at once (no build: main's code).
+  # A release pull request: the five checks main's ruleset requires, reported at once (no build: main's code).
   release-pr:
     when: << pipeline.parameters.release_pr >>
     jobs:
@@ -382,9 +382,12 @@ workflows:
           name: package
       - tested-on-main:
           name: server-smoke
+      - tested-on-main:
+          name: unit-tests
 
   # The approval first, so nothing runs for a release nobody approves; then only what the release needs:
-  # the package (the checks ran on the pull request, on the same tree) and its smoke test, then the
+  # the package (the checks ran on the pull request, on the same tree) and its smoke test, then what the
+  # mod sites need checked (a site that would refuse it stops the release before anything is tagged), then the
   # release. The mod-token context's secrets (GITHUB_TOKEN, THUNDERSTORE_TOKEN, HEXIUM_TOKEN) reach only
   # the release jobs.
   release:
@@ -401,10 +404,25 @@ workflows:
       - server-smoke:
           requires:
             - package
-      - github-release:
+      - publish:
+          name: check-thunderstore
+          site: thunderstore
+          options: --dry-run
           context: mod-token
           requires:
             - server-smoke
+      - publish:
+          name: check-hexium
+          site: hexium
+          options: --dry-run
+          context: mod-token
+          requires:
+            - server-smoke
+      - github-release:
+          context: mod-token
+          requires:
+            - check-thunderstore
+            - check-hexium
       - publish:
           name: publish-thunderstore
           site: thunderstore
