@@ -267,6 +267,12 @@ internal sealed class VoxelGrid
         long[] wanted;
         lock (_wanted)
         {
+            // Called after every step and every frame the water sleeps: most often none is.
+            if (_wanted.Count == 0)
+            {
+                return;
+            }
+
             wanted = [.. _wanted];
             _wanted.Clear();
         }

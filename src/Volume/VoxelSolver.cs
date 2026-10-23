@@ -34,7 +34,7 @@ internal sealed class VoxelSolver
     // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
     private const float Damping = 0.3f, Drag = 0.05f;
 
-    // The share of a voxel's room over which the weight of the water over it comes on as it fills.
+    // The share of a voxel over which the weight of the water over it comes on as it fills (the last of its room).
     private const float Contact = 0.1f;
 
     // The deepest water steps are kept stable for, metres: longer steps are split.
@@ -74,6 +74,22 @@ internal sealed class VoxelSolver
     // The most water over a voxel each column found in its last heads, in voxels.
     private float[] _deepest = [];
 
+    // Whether the last look over the bricks found none to step, and each brick's count of changes and quiet seconds
+    // then (in the order of _bricks). While every brick keeps them (nothing poured, drained, read its solids again or
+    // woke it: a brick's quiet grows only in a step) and none was made or forgotten, a look would find the same: it is
+    // not taken, and still water costs nothing a frame.
+    private bool _idle;
+
+    private int[] _idleChanges = [];
+
+    private float[] _idleQuiet = [];
+
+    // Each brick's part found, by index (made once: a look is taken every frame).
+    private readonly Action<int> _part;
+
+    // The looks over the bricks since last asked.
+    private int _looks;
+
     private float _stiffness = Stiffness;
 
     // The step under way: its length, its phase (Idle when none) and how far through it, the stiffness its heads use.
@@ -96,10 +112,14 @@ internal sealed class VoxelSolver
     {
         _grid = grid;
         _parts = parts ?? new FrameParts();
+        _part = k => Part(_bricks[k]);
     }
 
     /// <summary>Whether a step is under way (<see cref="Advance"/> stopped in it): the grid must not change.</summary>
     public bool InStep => _phase != Idle;
+
+    /// <summary>The bricks the last look over them found to step (awake, with water in or beside them).</summary>
+    public int Awake { get; private set; }
 
     /// <summary>Water whose voxel's top is at or below this level (metres) is gone: the sea takes it.</summary>
     public float SeaLevel { get; set; } = float.NegativeInfinity;
@@ -199,10 +219,60 @@ internal sealed class VoxelSolver
             _bricks = [.. _grid.Bricks];
             _columns = [.. _bricks.GroupBy(b => ((long)b.X << 32) | (uint)b.Z).Select(g => g.OrderByDescending(b => b.Y).ToArray())];
             _deepest = new float[_columns.Length];
+            _idleChanges = new int[_bricks.Length];
+            _idleQuiet = new float[_bricks.Length];
+            _idle = false;
+        }
+        else if (_idle && Unstirred())
+        {
+            return false;
         }
 
-        Parallel.For(0, _bricks.Length, k => Part(_bricks[k]));
-        return !Array.TrueForAll(_bricks, b => b.PartCount == 0);
+        _looks++;
+        Parallel.For(0, _bricks.Length, _part);
+        int awake = 0;
+        for (int k = 0; k < _bricks.Length; k++)
+        {
+            awake += _bricks[k].PartCount > 0 ? 1 : 0;
+        }
+
+        Awake = awake;
+        _idle = awake == 0;
+        if (_idle)
+        {
+            for (int k = 0; k < _bricks.Length; k++)
+            {
+                _idleChanges[k] = _bricks[k].Changes;
+                _idleQuiet[k] = _bricks[k].Quiet;
+            }
+        }
+
+        return !_idle;
+    }
+
+    // Whether every brick is as the last look found it, nothing to step.
+    private bool Unstirred()
+    {
+        for (int k = 0; k < _bricks.Length; k++)
+        {
+            if (_bricks[k].Changes != _idleChanges[k] || _bricks[k].Quiet < _idleQuiet[k])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// How many times the bricks were looked over for a step to begin since last asked (none while all the water
+    /// sleeps), and forgets them.
+    /// </summary>
+    public int TakeLooks()
+    {
+        int looks = _looks;
+        _looks = 0;
+        return looks;
     }
 
     // The bricks asked for during the step made, while the frame has time.
@@ -442,9 +512,12 @@ internal sealed class VoxelSolver
                         }
 
                         // What is over the voxel presses on it only as it fills: water over a voxel not full hangs over
-                        // air and falls, its weight carried by nothing; the weight comes on over the last tenth of the
-                        // voxel's room, so that no head jumps (a jump feeds the water energy and it never settles).
-                        float carried = Math.Min(1f, Math.Max(0f, ((water / room) - (1f - Contact)) / Contact)) * above;
+                        // air and falls, its weight carried by nothing; the weight comes on over the last tenth of a
+                        // voxel under the top of its room, so that no head jumps (a jump feeds the water energy and it
+                        // never settles). A voxel with less room than that (ground just under its top) carries as much
+                        // of the weight as its water reaches, and is pressed fuller for the rest: the weight coming on
+                        // over a tenth of its sliver of room was such a jump, and kept the water over it astir for ever.
+                        float carried = Math.Min(1f, Math.Max(0f, (water - Math.Max(0f, room - Contact)) / Contact)) * above;
                         if (!brick.Asleep)
                         {
                             brick.Head[i] = Floor(brick, i, y, s) + ((water + carried) * s) + (Math.Max(0f, water - room) * stiffness * s);

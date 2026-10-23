@@ -60,6 +60,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private readonly HashSet<ZDOID> _markersSeen = [];
 
+    // The voxels a drain takes from, kept from call to call (a drain looks every frame, most often finding none).
+    private readonly List<(Brick Brick, int Index)> _drained = [];
+
     private readonly Stopwatch _stepWatch = new();
 
     private readonly Stopwatch _frameWatch = new();
@@ -156,11 +159,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         ApplyVoxelSize();
-        // The markers found are swapped in once the look is over the whole world.
-        _scanTimer += dt;
-        if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
+        // The markers found are swapped in once the look is over the whole world. The next look begins that long after
+        // the last one ended: in a world whose look takes longer than that, the look went on every frame.
+        if (!_markerPass.Busy)
         {
-            _scanTimer = 0f;
+            _scanTimer += dt;
+            if (_scanTimer >= FlowingWaterPlugin.Settings.MarkerScanSeconds.Value && _markerPass.Start())
+            {
+                _scanTimer = 0f;
+            }
         }
 
         _parts.Into(WaterPart.Markers);
@@ -672,7 +679,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         int cy = Mathf.FloorToInt((drain.Point.y + 0.05f) / s);
         int cz = Mathf.FloorToInt(drain.Point.z / s);
         float there = 0f;
-        var found = new List<(Brick Brick, int Index)>();
+        _drained.Clear();
         foreach (Brick brick in _grid.Bricks)
         {
             int x0 = brick.X * Brick.Size;
@@ -692,7 +699,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
                 bool within = ((dx * dx) + (dy * dy) + (dz * dz)) * s * s <= drain.Radius * drain.Radius || (dx == 0 && dy == 0 && dz == 0);
                 if (within && brick.Water[i] > 0f)
                 {
-                    found.Add((brick, i));
+                    _drained.Add((brick, i));
                     there += brick.Water[i];
                 }
             }
@@ -706,7 +713,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         // Drained, a sleeping brick wakes: the water round the drain flows in.
-        foreach ((Brick brick, int i) in found)
+        foreach ((Brick brick, int i) in _drained)
         {
             brick.Water[i] -= brick.Water[i] * share;
             brick.Wets(i);
@@ -810,7 +817,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels, {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels ({_solver.Awake} awake, looked over {_solver.TakeLooks()} times), {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
         text.Append('\n').Append(_parts.Report());
         _stepWatch.Reset();
         _sendWatch.Reset();
