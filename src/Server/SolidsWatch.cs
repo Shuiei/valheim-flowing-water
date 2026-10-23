@@ -139,7 +139,9 @@ internal sealed class SolidsWatch
 
     private void Destroyed(ZDO zdo)
     {
-        if (_solids.Shapes.Count(zdo.GetPrefab()) > 0)
+        // The water switched off is not watched (nothing would read what piled up until it is on again): the first look
+        // once it is on finds the piece gone, as it is still among those last looked at.
+        if (FlowingWaterPlugin.Settings.Enabled.Value && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
             Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
             PieceChanged(zone, zdo.GetPosition(), _solids.Shapes.Reach(zdo));
