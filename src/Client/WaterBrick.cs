@@ -46,6 +46,10 @@ internal sealed class WaterBrick : MonoBehaviour
     // meshes (the recorder looks for the frames one of them takes long).
     private static readonly Stopwatch Reading = new();
 
+    // Of Reading, the part starting the bricks' reads in their Update (taking the data, handing it to the pool):
+    // unbudgeted, once a brick's data changed.
+    private static readonly Stopwatch Starting = new();
+
     private static readonly Stopwatch Building = new();
 
     private static readonly Stopwatch Taking = new();
@@ -147,7 +151,7 @@ internal sealed class WaterBrick : MonoBehaviour
     internal static double SpentMilliseconds => Spent.Elapsed.TotalMilliseconds;
 
     /// <summary>The parts of <see cref="SpentMilliseconds"/>: reading data, starting builds, handing meshes over.</summary>
-    internal static double[] SpentParts => [Reading.Elapsed.TotalMilliseconds, Building.Elapsed.TotalMilliseconds, Taking.Elapsed.TotalMilliseconds];
+    internal static double[] SpentParts => [Reading.Elapsed.TotalMilliseconds, Building.Elapsed.TotalMilliseconds, Taking.Elapsed.TotalMilliseconds, Starting.Elapsed.TotalMilliseconds];
 
     /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices, for measures.</summary>
     internal static int Census(out int drawn, out int vertices)
@@ -228,12 +232,14 @@ internal sealed class WaterBrick : MonoBehaviour
             if (zdo != null && _reading.Wants(zdo.DataRevision))
             {
                 Reading.Start();
+                Starting.Start();
                 try
                 {
                     StartReading(zdo.GetByteArray(ZdoKeys.Brick));
                 }
                 finally
                 {
+                    Starting.Stop();
                     Reading.Stop();
                 }
             }
