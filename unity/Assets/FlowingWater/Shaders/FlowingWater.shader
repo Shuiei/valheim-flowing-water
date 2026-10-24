@@ -11,7 +11,8 @@
 // y = depth (m), z = how much of it is shown, w = 1 where the brick draws the top (else the brick under or over it);
 // and x, y = current (m/s, east and north), z = foam from falling. The previous state and the next are blended over
 // the time between the server's changes, so the water moves on smoothly instead of jumping at each. Each square
-// between four columns is drawn by one brick: the one whose top its first shown corner is.
+// between four columns is drawn by one brick: the one whose top its first shown corner is, in the next state (where
+// it shows no water there, in the previous one, so water drying up fades out).
 //
 // Light: what lies behind the surface (the scene, grabbed once a frame, bent by the ripples) is seen through thin
 // water, tinted by the surface colour; deeper water takes the bottom colour instead, from shallow to deep with the
@@ -195,15 +196,28 @@ Shader "FlowingWater/Water"
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
 
-        // Whether this brick draws the square a point is in: the brick whose top its first shown corner is.
+        // A state's say on a square: 1 where this brick draws it (the brick whose top its first shown corner is), 0
+        // where another does, -1 where no corner shows water.
+        float Owner(sampler2D state, float2 corner)
+        {
+            float4 a = tex2Dlod(state, float4(GridUv(corner), 0.0, 0.0));
+            float4 b = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 0.0)), 0.0, 0.0));
+            float4 c = tex2Dlod(state, float4(GridUv(corner + float2(0.0, 1.0)), 0.0, 0.0));
+            float4 d = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 1.0)), 0.0, 0.0));
+            return a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : (d.z > 0.0 ? d.w : -1.0)));
+        }
+
+        // Whether this brick draws the square a point is in: as the next state has it, or where the next shows no
+        // water there, as the previous did (water drying up fades out instead of going at once).
         bool Draws(float2 cell)
         {
             float2 corner = min(floor(cell), GRID_SIDE - 2.0);
-            float4 a = tex2Dlod(_SurfaceNext, float4(GridUv(corner), 0.0, 0.0));
-            float4 b = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(1.0, 0.0)), 0.0, 0.0));
-            float4 c = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(0.0, 1.0)), 0.0, 0.0));
-            float4 d = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(1.0, 1.0)), 0.0, 0.0));
-            float own = a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : d.w));
+            float own = Owner(_SurfaceNext, corner);
+            if (own < 0.0)
+            {
+                own = Owner(_SurfacePrev, corner);
+            }
+
             return own > 0.5;
         }
 

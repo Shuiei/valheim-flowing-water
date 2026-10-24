@@ -43,6 +43,9 @@ internal sealed class GpuSurface : IDisposable
     /// <summary>What the brick's renderer hands the shader.</summary>
     public MaterialPropertyBlock Properties { get; } = new();
 
+    /// <summary>Whether the brick draws any of its squares while it blends to the last grid shown.</summary>
+    public bool Draws { get; private set; }
+
     /// <summary>The grid every brick of this voxel size draws: its points' places in columns as their first uv.</summary>
     public static Mesh Grid(float voxelSize)
     {
@@ -109,6 +112,7 @@ internal sealed class GpuSurface : IDisposable
         _to = grid;
         _start = now;
         _time = time;
+        Draws = SurfaceGrid.DrawsAny(_from, _to);
         Upload(_from, _surfacePrev, _flowPrev);
         Upload(_to, _surfaceNext, _flowNext);
         Properties.SetTexture(SurfacePrevId, _surfacePrev);
