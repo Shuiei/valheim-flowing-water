@@ -19,6 +19,10 @@ internal static class Commands
     // Who may use the command: the server's CommandsForEveryone, as it told this player's game.
     private static readonly CommandRights Rights = new();
 
+    // The server telling this game its CommandsForEveryone tells it FlowingWater is there: the hoe's source and drain
+    // are learned (or offered as the rights now say) at once.
+    static Commands() => Rights.Told += HoePieces.Sync;
+
     public static void Register()
     {
         if (_registered)
@@ -41,8 +45,7 @@ internal static class Commands
             Rights.Joining();
             rpc.Register<bool>(EveryoneRpc, (_, everyone) =>
             {
-                Rights.Told(everyone);
-                HoePieces.Refresh();
+                Rights.Tell(everyone);
             });
             return;
         }
@@ -52,9 +55,13 @@ internal static class Commands
 
     /// <summary>
     /// Why this game's player may not place, change or remove sources and drains with the hoe; null when they may (as
-    /// for the command); outside a world, as for a player who is no admin.
+    /// for the command, where FlowingWater is); outside a world, refused.
     /// </summary>
-    public static string MarkerRefusal(CommandRights.MarkerUse use) => Rights.MarkerRefusal(ZNet.instance != null && ZNet.instance.LocalPlayerIsAdminOrHost(), use);
+    public static string MarkerRefusal(CommandRights.MarkerUse use) =>
+        Rights.MarkerRefusal(ZNet.instance != null && ZNet.instance.IsServer(), ZNet.instance != null && ZNet.instance.LocalPlayerIsAdminOrHost(), use);
+
+    /// <summary>Whether FlowingWater is where this game plays (alone, hosting, or on a server running it).</summary>
+    public static bool ModHere => Rights.ModHere(ZNet.instance != null && ZNet.instance.IsServer());
 
     /// <summary>The server's CommandsForEveryone changed: every player's game is told.</summary>
     public static void TellEveryone()

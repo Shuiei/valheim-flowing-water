@@ -8,6 +8,25 @@ All notable changes to FlowingWater. Newest first.
 - No one could swim or float in the flowing water: characters walked along the bottom of a deep pool, and boats and
   items sank through it. Its water now holds them up as the game's own water does.
 
+## v0.16.6 — 2026-10-23
+
+### Fixed
+- Water running down a slope was drawn as a stair of one-metre blocks, with a wall of water standing at every step
+  and shards along its edges. It is now one smooth sheet down the slope, with sides only where water really ends: a
+  fall's sheet, a pool's edge over a cliff (none into the ground, none along a thin sheet, whose edge fades).
+- Water's surface jumped at each change the server sent, and a thin sheet's patches switched on and off all the
+  time instead of running as a steady stream. The water drawn now moves smoothly from one change to the next, and
+  water too thin to see (under 3 cm) is left out, a patch drawn staying drawn until its water is clearly gone.
+
+## v0.16.5 — 2026-10-23
+
+### Fixed
+- A character made before the hoe's Water source and Water drain did not see them in the hoe until something in its
+  inventory changed: it now learns them as it enters a world where FlowingWater is.
+- On a server without FlowingWater, the hoe offered the source and drain (which did nothing there) to the server's
+  admins and kept them learned: it now offers only the game's own pieces there, and the character forgets them until
+  it plays where the mod is again.
+
 ## v0.16.4 — 2026-10-23
 
 ### Fixed

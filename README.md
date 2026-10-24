@@ -50,7 +50,9 @@ alone) and the server's admins (its `adminlist.txt`) always; other players while
 is on. The server's setting counts, not the player's: the server tells each player's game its value when they join,
 and again when it changes. The hoe offers the source and the drain only to a player who may; one who may not (where
 the game offers every piece, building costs off) is told why in the middle of the screen, as when changing or
-removing one.
+removing one. A character learns the source and drain as soon as it is in a world where FlowingWater is (alone,
+hosting, or on a server running it), whatever its age, and forgets them on a server without it: the hoe there offers
+only the game's own pieces.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
@@ -167,14 +169,20 @@ there to the new grid (same volume), at the next start or at once with a config 
   `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
 - **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
-  with no water over it, its corners at the mean level of the tops beside them (a pool lies flat, a stream slopes
-  smoothly, the edge fades where fewer columns hold water), and the sides of the water where it borders a voxel
-  without (a fall's sheet, water spilling over a wall), with the water's material. It is drawn again at most ten
-  times a second, with the blocks beside it when its water changes. A trigger box on the game's water layer tells
-  characters and floating things the surface over them: the top of the stack of water they are in or just over,
-  so a pool on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level
-  checks and the level any water volume reports include the flowing water, and let a swimmer drift with the
-  current of the voxel they are in.
+  with no water over it, its corners shared with the tops beside it that are one water with it (within a row of
+  it, or with the higher one's water all over the lower top, up to three voxels down), at the mean of their
+  levels: a pool lies flat, a stream down a steep slope is one smooth sheet, and the edge fades where fewer
+  columns hold water. The water has sides where it borders a voxel without, up to the surface over it (a fall's
+  sheet, a pool's edge over a cliff), but none between columns of one water, none against the ground under water
+  standing beside it, and none along a sheet thinner than half a voxel. All with the water's material. When the
+  server sends a block's water again, what is drawn moves to it over 0.4 s instead of jumping, and a voxel's water
+  thinner than 3 cm is not drawn, or 1 cm once drawn, so a thin sheet does not flicker as its water comes and
+  goes by millimetres. It is drawn again at most ten times a second, with the blocks beside it when what it draws
+  changes. A trigger box on the game's water layer tells characters and floating things the surface over them:
+  the top of the stack of water they are in or just over (the server's water, not eased), so a pool on a raised
+  floor floats a swimmer at its own level. Harmony patches make the game's water-level checks and the level any
+  water volume reports include the flowing water, and let a swimmer drift with the current of the voxel they are
+  in.
 
 ## Building
 

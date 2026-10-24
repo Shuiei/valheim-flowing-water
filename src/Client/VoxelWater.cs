@@ -15,6 +15,13 @@ internal static class VoxelWater
     /// <summary>The bricks known.</summary>
     public static VoxelField Field { get; } = new();
 
+    /// <summary>
+    /// The bricks as drawn: their water eased between the server's changes, without water too thin to draw
+    /// (<see cref="WaterEase"/>). Their surfaces read it, so that the bricks beside one meet it where it is
+    /// drawn.
+    /// </summary>
+    public static VoxelField Drawn { get; } = new();
+
     /// <summary>The surface of the water a point is in or just over; <see cref="NoWater"/> where there is none.</summary>
     public static float SurfaceAt(Vector3 point)
     {
