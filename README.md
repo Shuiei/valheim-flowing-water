@@ -124,11 +124,14 @@ there to the new grid (same volume), at the next start or at once with a config 
   plus all the water resting on it in its column (up to air, a solid or a closed face), so a still pool is still,
   water over air falls, and a hole low in a box's side lets water out faster the deeper the box; water pressed in
   under a ceiling adds a stiff head, so a pipe carries the push of the water above it. A voxel never gives more
-  than it holds. Long steps are split so the water stays stable 10 m deep. Each step works only on the part of a
-  block round its water (and its borders where the next block has water), and a block whose water has barely
-  moved for a second sleeps (skipped) until water is poured in, a solid changes or a block beside it moves:
-  still pools cost almost nothing. A source pours at its point (the first
-  open voxel there); a drain takes from every voxel within its radius.
+  than it holds. Water wets new ground as a rivulet does: sideways onto dry ground no lower than its own (across a
+  slope, over flat ground) it goes only from water standing 3 cm deep, while dry ground lower down is run onto
+  freely; so a stream runs down a slope a couple of metres wide instead of fanning out into a sheet, and a sheet
+  stops spreading as it thins (water already on wet ground flows as before, and none is lost). Long steps are
+  split so the water stays stable 10 m deep. Each step works only on the part of a block round its water (and its
+  borders where the next block has water), and a block whose water has barely moved for a second sleeps (skipped)
+  until water is poured in, a solid changes or a block beside it moves: still pools cost almost nothing. A source
+  pours at its point (the first open voxel there); a drain takes from every voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's
   heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
