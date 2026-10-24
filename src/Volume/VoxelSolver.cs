@@ -34,6 +34,13 @@ internal sealed class VoxelSolver
     // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
     private const float Damping = 0.3f, Drag = 0.05f;
 
+    // Water wets new ground only once it stands this deep, metres: through a side face, water goes into a voxel holding
+    // less than a film only from a voxel holding at least this much. Without it a stream fanned out over a smooth slope
+    // into a sheet a few millimetres thick, its wet patches coming and going; with it, as a real rivulet, it keeps to
+    // the ground it wet, its front moving on only where the water stands deep enough, and a sheet stops spreading as
+    // it thins. Water already on wet ground flows as before, and nothing is lost: a film left behind stays.
+    private const float Wetting = 0.03f, Film = 0.002f;
+
     // The share of a voxel over which the weight of the water over it comes on as it fills (the last of its room).
     private const float Contact = 0.1f;
 
@@ -669,8 +676,23 @@ internal sealed class VoxelSolver
         flow += dt * Gravity * area / s * (brick.Head[i] - other.Head[j]);
         flow /= 1f + (dt * (Damping + (Drag * (flow < 0f ? -flow : flow) / area)));
 
+        // Sideways onto dry ground no lower than its own, only from water deep enough to wet it.
+        if (axis != 1 && flow != 0f && Unwetting(brick, i, other, j, y, s, flow > 0f))
+        {
+            return 0f;
+        }
+
         // Only water there is can leave.
         return (flow > 0f && wi <= Brick.Dry) || (flow < 0f && wj <= Brick.Dry) ? 0f : flow;
+    }
+
+    // Whether a flow sideways (out of voxel i if outward, else into it) would wet dry ground that is no lower than the
+    // ground the water comes from, from water too thin to: such ground is wet only by water standing Wetting deep. Dry
+    // ground lower down (down a slope, over an edge) is run onto freely.
+    private static bool Unwetting(Brick brick, int i, Brick other, int j, int y, float s, bool outward)
+    {
+        (Brick fromBrick, int from, Brick toBrick, int to) = outward ? (brick, i, other, j) : (other, j, brick, i);
+        return toBrick.Water[to] * s < Film && fromBrick.Water[from] * s < Wetting && Floor(toBrick, to, y, s) >= Floor(fromBrick, from, y, s) - (Film * s);
     }
 
     // How high the water stands across a side face, metres: from the higher of the two floors to the higher

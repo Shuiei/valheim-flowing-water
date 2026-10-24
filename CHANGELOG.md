@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.20.0 — 2026-10-24
+
+### Changed
+- Water now runs down a slope as a stream instead of fanning out into a thin sheet: it wets new ground beside it
+  only once it stands a few centimetres deep, as a real rivulet does. A spill on flat ground stops spreading as it
+  thins, so there is less water for the server to work on.
+
 ## v0.19.0 — 2026-10-24
 
 ### Changed

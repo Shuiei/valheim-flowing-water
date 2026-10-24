@@ -36,6 +36,59 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AThinFilmDoesNotSpreadOntoDryGround()
+    {
+        // Two centimetres of water in one voxel of a dry floor.
+        VoxelGrid grid = Box();
+        grid.Pour(3, 0, 3, 0.02f);
+
+        Run(grid, 5f);
+
+        Assert.Equal(0.02f, grid.WaterAt(3, 0, 3), 4);
+        Assert.Equal(0f, grid.WaterAt(4, 0, 3));
+        Assert.Equal(0f, grid.WaterAt(3, 0, 4));
+    }
+
+    [Fact]
+    public void WaterSpreadsUntilItIsTooThinToWetMore()
+    {
+        // Half a cubic metre in one voxel of a 16 by 16 m dry floor: it spreads, then stops as a sheet a few
+        // centimetres thick over part of the floor, its volume kept.
+        var grid = new VoxelGrid(1f, new TestSolids(0, TestSolids.Box(0, 15, 0, 15)));
+        grid.Pour(8, 0, 8, 0.5f);
+
+        Run(grid, 30f);
+
+        int wet = Enumerable.Range(0, 16).Sum(z => Enumerable.Range(0, 16).Count(x => grid.WaterAt(x, 0, z) > 0.002f));
+        Assert.InRange(wet, 9, 60);
+        Assert.Equal(0.5f, grid.TotalWater(), 3);
+    }
+
+    [Fact]
+    public void AStreamDownASmoothSlopeStaysNarrow()
+    {
+        // A smooth slope falling north, water poured at its top for 20 s (half a cubic metre a second): halfway down
+        // the stream is a couple of metres wide, not a sheet across the slope.
+        var grid = new VoxelGrid(1f, new TestSolids(0, TestSolids.Box(0, 23, 0, 23), (x, z) => 10f - (0.35f * z)));
+        var solver = new VoxelSolver(grid);
+        for (float t = 0f; t < 20f; t += 0.1f)
+        {
+            grid.Pour(12, 10, 1, 0.05f);
+            solver.Step(0.1f);
+        }
+
+        // The stream halfway down, and the water on the whole slope: most of it deep enough to see (3 cm), little
+        // of it a thinner sheet (without the wetting rule the stream was 6 m wide there, as much thin as seen).
+        int wide = Enumerable.Range(0, 24).Count(x => Enumerable.Range(0, 12).Any(y => grid.WaterAt(x, y, 12) > 0.01f));
+        var water = (from z in Enumerable.Range(0, 24) from x in Enumerable.Range(0, 24) from y in Enumerable.Range(0, 12) select grid.WaterAt(x, y, z)).ToList();
+        int thin = water.Count(w => w is >= 0.01f and < 0.03f);
+        int seen = water.Count(w => w >= 0.03f);
+        Assert.InRange(wide, 1, 3);
+        Assert.True(seen > 1.5f * thin, $"{seen} voxels seen, {thin} thin");
+        Assert.Equal(10f, grid.TotalWater(), 2);
+    }
+
+    [Fact]
     public void AClosedBoxHoldsItsWaterStill()
     {
         VoxelGrid grid = Pool(3.5f);
