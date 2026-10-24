@@ -28,7 +28,7 @@ public class CommandRightsTests
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
         Assert.Null(rights.Refusal(adminOrHost: true));
@@ -38,7 +38,7 @@ public class CommandRightsTests
     public void APlayerMayWhileTheServerSaysEveryoneMay()
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
         Assert.Null(rights.Refusal(adminOrHost: false));
     }
@@ -47,7 +47,7 @@ public class CommandRightsTests
     public void APlayerIsRefusedWhenTheServerSaysOnlyAdmins()
     {
         var rights = new CommandRights();
-        rights.Told(false);
+        rights.Tell(false);
 
         Assert.Equal("flowingwater: only the server's admins may use it (CommandsForEveryone is off on the server)", rights.Refusal(adminOrHost: false));
     }
@@ -56,7 +56,7 @@ public class CommandRightsTests
     public void JoiningAnotherServerForgetsWhatTheLastOneSaid()
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
         rights.Joining();
 
@@ -65,18 +65,18 @@ public class CommandRightsTests
     }
 
     [Theory]
-    [InlineData(null, (int)CommandRights.MarkerUse.Place)]
-    [InlineData(false, (int)CommandRights.MarkerUse.Change)]
-    [InlineData(true, (int)CommandRights.MarkerUse.Remove)]
-    public void TheHostAndAdminsMayAlwaysPlaceChangeAndRemoveWater(bool? everyone, int use)
+    [InlineData(true, null, (int)CommandRights.MarkerUse.Place)]
+    [InlineData(false, false, (int)CommandRights.MarkerUse.Change)]
+    [InlineData(false, true, (int)CommandRights.MarkerUse.Remove)]
+    public void TheHostAndAdminsMayAlwaysPlaceChangeAndRemoveWaterWhereTheModIs(bool isServer, bool? everyone, int use)
     {
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
-        Assert.Null(rights.MarkerRefusal(adminOrHost: true, (CommandRights.MarkerUse)use));
+        Assert.Null(rights.MarkerRefusal(isServer, adminOrHost: true, (CommandRights.MarkerUse)use));
     }
 
     [Theory]
@@ -86,9 +86,9 @@ public class CommandRightsTests
     public void APlayerMayUseTheWaterWhileTheServerSaysEveryoneMay(int use)
     {
         var rights = new CommandRights();
-        rights.Told(true);
+        rights.Tell(true);
 
-        Assert.Null(rights.MarkerRefusal(adminOrHost: false, (CommandRights.MarkerUse)use));
+        Assert.Null(rights.MarkerRefusal(isServer: false, adminOrHost: false, (CommandRights.MarkerUse)use));
     }
 
     [Theory]
@@ -98,38 +98,91 @@ public class CommandRightsTests
     public void APlayerIsRefusedTheWaterWhenTheServerSaysOnlyAdmins(int use, string refusal)
     {
         var rights = new CommandRights();
-        rights.Told(false);
+        rights.Tell(false);
 
-        Assert.Equal(refusal, rights.MarkerRefusal(adminOrHost: false, (CommandRights.MarkerUse)use));
+        Assert.Equal(refusal, rights.MarkerRefusal(isServer: false, adminOrHost: false, (CommandRights.MarkerUse)use));
     }
 
-    [Fact]
-    public void APlayerIsRefusedTheWaterUntilTheServerHasSaid()
+    // A server that said nothing has no FlowingWater: a source or drain would do nothing there, whoever placed it.
+    [Theory]
+    [InlineData(false, (int)CommandRights.MarkerUse.Place, "FlowingWater is not on this server: no one may place sources and drains here")]
+    [InlineData(true, (int)CommandRights.MarkerUse.Change, "FlowingWater is not on this server: no one may change sources and drains here")]
+    [InlineData(true, (int)CommandRights.MarkerUse.Remove, "FlowingWater is not on this server: no one may remove sources and drains here")]
+    public void NoOneMayUseTheWaterOnAServerWithoutTheMod(bool adminOrHost, int use, string refusal)
     {
         var rights = new CommandRights();
 
-        Assert.Equal(
-            "The server has not said whether everyone may place sources and drains (is FlowingWater on the server?); its admins may",
-            rights.MarkerRefusal(adminOrHost: false, CommandRights.MarkerUse.Place));
+        Assert.Equal(refusal, rights.MarkerRefusal(isServer: false, adminOrHost, (CommandRights.MarkerUse)use));
     }
 
-    // The hoe and the command go together: whoever may use one may use the other.
     [Theory]
-    [InlineData(null, false)]
-    [InlineData(null, true)]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void TheWaterAndTheCommandAreRefusedToTheSamePlayers(bool? everyone, bool adminOrHost)
+    [InlineData(true, null, true)]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, true)]
+    [InlineData(false, null, false)]
+    public void TheModIsHereAloneHostingOrOnAServerThatSaidSo(bool isServer, bool? everyone, bool here)
     {
         var rights = new CommandRights();
         if (everyone is { } said)
         {
-            rights.Told(said);
+            rights.Tell(said);
         }
 
-        Assert.Equal(rights.Refusal(adminOrHost) == null, rights.MarkerRefusal(adminOrHost, CommandRights.MarkerUse.Place) == null);
+        Assert.Equal(here, rights.ModHere(isServer));
+    }
+
+    [Fact]
+    public void JoiningAnotherServerForgetsThatTheLastOneHadTheMod()
+    {
+        var rights = new CommandRights();
+        rights.Tell(true);
+        rights.Joining();
+
+        Assert.False(rights.ModHere(isServer: false));
+    }
+
+    // Where the mod is, the hoe and the command go together: whoever may use one may use the other.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void WhereTheModIsTheWaterAndTheCommandAreRefusedToTheSamePlayers(bool everyone, bool adminOrHost)
+    {
+        var rights = new CommandRights();
+        rights.Tell(everyone);
+
+        Assert.Equal(rights.Refusal(adminOrHost) == null, rights.MarkerRefusal(isServer: false, adminOrHost, CommandRights.MarkerUse.Place) == null);
+    }
+
+    // The server telling its setting is what tells this game FlowingWater is there: the hoe is synced at once.
+    [Fact]
+    public void TheServerTellingItsSettingIsHeardAtOnceAndEachTime()
+    {
+        var rights = new CommandRights();
+        var heard = new List<bool?>();
+        rights.Told += () => heard.Add(rights.ServerSaysEveryone);
+
+        rights.Joining();
+        Assert.Empty(heard);
+
+        rights.Tell(false);
+        rights.Tell(true);
+
+        Assert.Equal([false, true], heard);
+        Assert.True(rights.ModHere(isServer: false));
+    }
+
+    // The console command keeps its own rule: its admins may on a server that said nothing; others are told why.
+    [Fact]
+    public void TheCommandIsStillLeftToAdminsOnAServerThatSaidNothing()
+    {
+        var rights = new CommandRights();
+
+        Assert.Null(rights.Refusal(adminOrHost: true));
+        Assert.Equal(
+            "flowingwater: the server has not said whether everyone may use it (is the mod on the server?); its admins may",
+            rights.Refusal(adminOrHost: false));
     }
 
     [Fact]
@@ -176,7 +229,7 @@ public class CommandRightsTests
         public void Told(bool everyone)
         {
             TimesTold++;
-            Rights.Told(everyone);
+            Rights.Tell(everyone);
         }
     }
 }

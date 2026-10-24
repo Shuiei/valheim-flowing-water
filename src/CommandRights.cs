@@ -24,15 +24,30 @@ internal sealed class CommandRights
         Remove,
     }
 
+    /// <summary>The server told its CommandsForEveryone (FlowingWater is there, and who may use it may have changed).</summary>
+    public event Action Told;
+
     /// <summary>The server's CommandsForEveryone as it told this game; null until it has.</summary>
     public bool? ServerSaysEveryone { get; private set; }
 
     /// <summary>This game joins a server: what the last one said no longer counts.</summary>
     public void Joining() => ServerSaysEveryone = null;
 
-    /// <summary>The server told its CommandsForEveryone.</summary>
+    /// <summary>
+    /// Whether FlowingWater is where this game plays: in a game alone or hosted (it is here), or on a server that told
+    /// its CommandsForEveryone (it is there). A server that said nothing has none (or one too old to tell): a source or
+    /// drain placed there would do nothing, so the hoe neither offers them nor keeps them learned.
+    /// </summary>
+    /// <param name="isServer">Whether this game is the server (alone or hosting).</param>
+    public bool ModHere(bool isServer) => isServer || ServerSaysEveryone != null;
+
+    /// <summary>The server told its CommandsForEveryone: <see cref="Told"/> is raised.</summary>
     /// <param name="everyone">Its value.</param>
-    public void Told(bool everyone) => ServerSaysEveryone = everyone;
+    public void Tell(bool everyone)
+    {
+        ServerSaysEveryone = everyone;
+        Told?.Invoke();
+    }
 
     /// <summary>Why this game's player may not use the command; null when they may.</summary>
     /// <param name="adminOrHost">Whether the player is the host, alone, or one of the server's admins.</param>
@@ -44,25 +59,27 @@ internal sealed class CommandRights
 
     /// <summary>
     /// Why this game's player may not place, change or remove sources and drains (in the game's centre message); null
-    /// when they may. The same players may as may use the command.
+    /// when they may: where FlowingWater is (<see cref="ModHere"/>), the same players as may use the command; on a
+    /// server without it, no one.
     /// </summary>
+    /// <param name="isServer">Whether this game is the server (alone or hosting).</param>
     /// <param name="adminOrHost">Whether the player is the host, alone, or one of the server's admins.</param>
     /// <param name="use">What they do.</param>
-    public string MarkerRefusal(bool adminOrHost, MarkerUse use)
+    public string MarkerRefusal(bool isServer, bool adminOrHost, MarkerUse use)
     {
-        if (adminOrHost || ServerSaysEveryone == true)
-        {
-            return null;
-        }
-
         string verb = use switch
         {
             MarkerUse.Place => "place",
             MarkerUse.Change => "change",
             _ => "remove",
         };
-        return ServerSaysEveryone == null
-            ? $"The server has not said whether everyone may {verb} sources and drains (is FlowingWater on the server?); its admins may"
+        if (!ModHere(isServer))
+        {
+            return $"FlowingWater is not on this server: no one may {verb} sources and drains here";
+        }
+
+        return adminOrHost || ServerSaysEveryone != false
+            ? null
             : $"Only the server's admins may {verb} sources and drains (CommandsForEveryone is off on the server)";
     }
 
