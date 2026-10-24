@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.17.3 — 2026-10-24
+
+### Fixed
+- The hammer could no longer remove a source or drain once they were hidden. It now does, as any piece: with the
+  hammer in hand they show, and the one aimed at turns red.
+
 ## v0.17.2 — 2026-10-24
 
 ### Fixed

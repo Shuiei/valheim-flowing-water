@@ -6,7 +6,8 @@ namespace FlowingWater.Client;
 
 /// <summary>
 /// A placed source or drain: a small sphere where the water starts or ends, hidden but while the hoe in hand has one of
-/// its water pieces chosen (<see cref="HoePieces.Shown"/>), and red while its remover aims at it. A piece of the hoe's:
+/// its water pieces chosen or the hammer is (<see cref="HoePieces.Shown"/>), and red while the hoe's remover or the
+/// hammer aims at it (either removes it). A piece of the hoe's:
 /// placed where the player aims, with the panel's values (<see cref="IPlaced"/>); shown, its hover text says what it
 /// does, and [E] on it opens the panel to change it. Hidden, nothing aims at it: its collider is off too.
 /// </summary>

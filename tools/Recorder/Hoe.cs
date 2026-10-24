@@ -263,7 +263,17 @@ public sealed partial class Recorder
         Check(placed && second != null, $"a second source is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
         if (second != null)
         {
+            // The hammer in hand shows it too, red where it aims: it removes them as any piece.
             Vector3 secondAt = second.transform.position;
+            ItemDrop.ItemData hammer = Tool(player, "Hammer");
+            player.EquipItem(hammer);
+            yield return new WaitForSeconds(1f);
+            Aim(secondAt + (Vector3.up * 0.3f));
+            yield return new WaitForSeconds(1f);
+            Check(Drawn(second) && second.GetComponentInChildren<Renderer>().sharedMaterial.name == AimedMaterial, "the hammer in hand shows the second source, red where it aims");
+            player.EquipItem(hoe);
+            yield return new WaitForSeconds(1f);
+            player.SetSelectedPiece(sourcePiece);
             Aim(secondAt + (Vector3.up * 0.3f));
             yield return new WaitForSeconds(1f);
             yield return Press(Key.E);
