@@ -72,8 +72,9 @@ public static class BuildBundles
         material.shader = shader;
         material.name = "FlowingWater";
         ResetToShaderDefaults(material, shader);
-        material.SetTexture("_NormalMap", AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath));
+        material.SetTexture("_Normal", AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath));
         material.SetTexture("_FoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
+        material.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
         EditorUtility.SetDirty(material);
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
