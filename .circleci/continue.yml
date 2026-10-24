@@ -180,60 +180,54 @@ jobs:
   # The unit tests' coverage sent to Codecov: on main only, once unit-tests has passed (workflows). The orb's
   # fail_on_error does nothing (its set_codecov_envs.sh empties CODECOV_FAIL_ON_ERROR, so the CLI never fails the
   # step): a missing report is caught before the upload, and a refused or unprocessed one after it, by asking
-  # Codecov for this commit's coverage.
+  # Codecov whether this job's own upload was processed.
   coverage:
     executor: dotnet
     steps:
       # Codecov's CLI reads the commit and the repository's files from the checkout.
       - checkout
       - run:
-          name: gpg (Codecov's CLI is checked against its signature)
-          command: apt-get update -qq && apt-get install -y -qq gnupg > /dev/null
+          name: gpg (Codecov's CLI is checked against its signature) and jq (its API's answers are read with it)
+          command: apt-get update -qq && apt-get install -y -qq gnupg jq > /dev/null
       - attach_workspace:
           at: /tmp/coverage
       # The report itself, kept with the build: its line-by-line hits show which lines Codecov misses.
       - store_artifacts:
           path: /tmp/coverage
           destination: coverage
-      - run:
-          name: Codecov's reports of this commit before the upload
-          command: |
-            # Each upload Codecov takes adds a session to the commit: a re-run must add one, not find an earlier one.
-            # A commit Codecov does not know (404) or knows with no report has none; any other answer fails the job,
-            # since taking it for none would let an earlier report pass the check after the upload.
-            url="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1/"
-            status=$(curl -sS -o /tmp/codecov-commit.json -w '%{http_code}' "$url") || { echo "Codecov could not be asked for $CIRCLE_SHA1."; exit 1; }
-            sessions=$(grep -Eo '"sessions": *[0-9]+' /tmp/codecov-commit.json | head -1 | grep -Eo '[0-9]+$' || true)
-            if [ "$status" = 404 ] || { [ "$status" = 200 ] && grep -Eq '"totals": *null' /tmp/codecov-commit.json; }; then
-              sessions=0
-            elif [ "$status" != 200 ] || [ -z "$sessions" ]; then
-              echo "Codecov answered HTTP $status for $CIRCLE_SHA1 with no report count: $(head -c 300 /tmp/codecov-commit.json)"
-              exit 1
-            fi
-            echo "$sessions" > /tmp/codecov-sessions
-            echo "Codecov has $sessions report(s) of $CIRCLE_SHA1 so far."
       - codecov/upload:
           dir: /tmp/coverage
           plugins: noop
       - run:
-          name: Codecov has this commit's coverage
+          name: Codecov has this job's coverage
           command: |
-            # Codecov processes a report after taking it: its public API is asked for this commit's, every 10 s for
-            # up to five minutes, until it is processed with one more report than before the upload. None (the upload
-            # refused, or never processed) fails the job.
-            url="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1/"
-            before=$(cat /tmp/codecov-sessions)
+            # Codecov processes an upload after taking it: its public API is asked for this commit's uploads, every 10 s
+            # for up to five minutes, until this job's own (Codecov's CLI names it after the job's build number, which a
+            # re-run or another workflow on the same commit does not share) is processed into the commit's report.
+            # None (the upload refused, or never processed), or one Codecov failed, fails the job. Each request gives
+            # up after 30 s, so a stalled one cannot hold the job past its five minutes.
+            api="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1"
             for try in $(seq 30); do
-              commit=$(curl -fsS "$url" 2>/dev/null || true)
-              sessions=$(printf '%s' "$commit" | grep -Eo '"sessions": *[0-9]+' | head -1 | grep -Eo '[0-9]+$' || true)
-              if printf '%s' "$commit" | grep -Eq '"state": *"complete"' && [ "${sessions:-0}" -gt "$before" ]; then
-                echo "Codecov has $CIRCLE_SHA1: $(printf '%s' "$commit" | grep -Eo '"coverage": *[0-9.]+' | head -1)"
-                exit 0
-              fi
-              echo "Try $try: Codecov has ${sessions:-0} report(s) of $CIRCLE_SHA1, not yet the new one processed."
+              uploads=$(curl -fsS --connect-timeout 10 --max-time 30 "$api/uploads/?page_size=100" 2>/dev/null || true)
+              state=$(printf '%s' "$uploads" | jq -r --arg build "$CIRCLE_BUILD_NUM" \
+                '[.results[]? | select(.name == $build or ((.build_url // "") | endswith("/" + $build)))][0].state // empty' 2>/dev/null || true)
+              case "$state" in
+                processed|merged|complete)
+                  commit=$(curl -fsS --connect-timeout 10 --max-time 30 "$api/" 2>/dev/null || true)
+                  if printf '%s' "$commit" | jq -e '.state == "complete"' > /dev/null 2>&1; then
+                    echo "Codecov has build $CIRCLE_BUILD_NUM's upload of $CIRCLE_SHA1 ($state): coverage $(printf '%s' "$commit" | jq -r '.totals.coverage')"
+                    exit 0
+                  fi
+                  ;;
+                error)
+                  echo "Codecov failed to process build $CIRCLE_BUILD_NUM's upload of $CIRCLE_SHA1."
+                  exit 1
+                  ;;
+              esac
+              echo "Try $try: build $CIRCLE_BUILD_NUM's upload of $CIRCLE_SHA1 is ${state:-not at Codecov yet}."
               sleep 10
             done
-            echo "Codecov has no new processed coverage for $CIRCLE_SHA1 after five minutes: the upload was refused or failed."
+            echo "Codecov has no processed upload of build $CIRCLE_BUILD_NUM for $CIRCLE_SHA1 after five minutes: the upload was refused or failed."
             exit 1
 
   formatting:
