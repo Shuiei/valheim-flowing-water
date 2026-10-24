@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.19.0 — 2026-10-24
+
+### Changed
+- The water's surface is now shaped by the graphics card: one smooth sheet down a slope instead of steps, its edges
+  and thin water fading out instead of flickering, and it moves on smoothly between the server's changes instead
+  of jumping to each. Less work for the game's own frame too.
+
 ## v0.18.0 — 2026-10-24
 
 ### Changed
