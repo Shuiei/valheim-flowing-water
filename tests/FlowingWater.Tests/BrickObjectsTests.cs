@@ -100,6 +100,34 @@ public class BrickObjectsTests
     }
 
     [Fact]
+    public void AChangeHeldBackIsWrittenThoughTheBrickChangesNoMore()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        objects.Publish([brick], VoxelSize);
+
+        // Held back, then saved: written exactly.
+        brick.Water[0] = 0.505f;
+        brick.Changes++;
+        Assert.Equal(0, objects.Publish([brick], VoxelSize));
+        Assert.Equal(1, objects.Publish([brick], VoxelSize, exact: true));
+        Assert.Equal(0.505f, Water(world, 1), 3);
+
+        // Held back, then left alone: written by the tenth send, and not again.
+        brick.Water[0] = 0.51f;
+        brick.Changes++;
+        int written = 0;
+        for (int send = 0; send < 2 * BrickObjects<int>.RefreshSends; send++)
+        {
+            written += objects.Publish([brick], VoxelSize);
+            Assert.Equal(send < BrickObjects<int>.RefreshSends - 1 ? 0 : 1, written);
+        }
+
+        Assert.Equal(0.51f, Water(world, 1), 3);
+    }
+
+    [Fact]
     public void WaterComingAndACurrentChangingShowButATraceTooThinToDrawDoesNot()
     {
         var world = new World();
@@ -135,6 +163,7 @@ public class BrickObjectsTests
         var objects = new BrickObjects<int>(new World { Anything = true });
         int written = 0;
         int changed = 0;
+        var changes = new Dictionary<Brick, int>();
         for (int second = 0; second < 90; second++)
         {
             for (int tenth = 0; tenth < 10; tenth++)
@@ -147,11 +176,16 @@ public class BrickObjectsTests
             if (second >= 60)
             {
                 written += sent;
-                changed += grid.Bricks.Count;
+                changed += grid.Bricks.Count(b => !changes.TryGetValue(b, out int was) || was != b.Changes);
+            }
+
+            foreach (Brick brick in grid.Bricks)
+            {
+                changes[brick] = brick.Changes;
             }
         }
 
-        // Every brick changed every second; at most four in five of them were sent (seven in ten as measured).
+        // Of the bricks changed in each second, at most four in five were sent (seven in ten as measured).
         Assert.InRange(written, 1, changed * 4 / 5);
     }
 

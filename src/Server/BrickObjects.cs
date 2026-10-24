@@ -171,15 +171,16 @@ internal sealed class BrickObjects<TId>
         Forget([.. _objects.Keys]);
     }
 
-    // A brick's water packed if it changed since last sent and the change would show (its data null when it is held
-    // back, or packs as last written: its object keeps what it has, and the look it was written with is what the next
-    // change is weighed against); false when it holds none. One made again at the same place since (forgotten dry,
-    // then wet again) is another brick.
+    // A brick's water packed if it changed since last sent, or a change is held back, and the change would show (its
+    // data null when it is held back, or packs as last written: its object keeps what it has, and the look it was
+    // written with is what the next change is weighed against); false when it holds none. A change held back is held
+    // only so many sends, and never past a save, though the brick changes no more. One made again at the same place
+    // since (forgotten dry, then wet again) is another brick.
     private bool Pack(Brick brick, long key, float voxelSize)
     {
         bool live = _objects.TryGetValue(key, out TId known) && _world.IsBrick(known);
         bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash, byte[] Look, int Held) was) && was.Brick == brick;
-        if (live && sent && was.Changes == brick.Changes)
+        if (live && sent && was.Changes == brick.Changes && was.Held == 0)
         {
             _packed.Add((brick, key, null, was.Hash, was.Changes, was.Look, was.Held));
             return true;
