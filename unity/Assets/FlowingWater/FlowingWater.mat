@@ -23,6 +23,14 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _FlowNext:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FlowPrev:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _FoamTex:
         m_Texture: {fileID: 2800000, guid: 21f9943c184691e569b919268d3e4a92, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -39,8 +47,18 @@ Material:
         m_Texture: {fileID: 2800000, guid: 21f9943c184691e569b919268d3e4a92, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _SurfaceNext:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SurfacePrev:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BlendStart: 0
+    - _BlendTime: 1
     - _DeepDepth: 3
     - _DeepWater: 6
     - _DepthFade: 15
@@ -59,6 +77,7 @@ Material:
     - _FoamScale: 0.6
     - _FoamSpeed: 4
     - _Glossiness: 0.94
+    - _Lift: 0
     - _Metallic: 0
     - _NormalPower: 0.5
     - _NormalScale: 0.04
@@ -78,6 +97,7 @@ Material:
     - _StillScale: 0.12
     - _StillSpeed: 0.05
     - _SurfaceTint: 0.15
+    - _VoxelSize: 1
     - _WaveVel: 1
     m_Colors:
     - _Absorption: {r: 0.45, g: 0.12, b: 0.09, a: 0}

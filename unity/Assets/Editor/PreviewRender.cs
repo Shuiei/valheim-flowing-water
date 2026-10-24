@@ -141,55 +141,116 @@ public static class PreviewRender
         return texture;
     }
 
+    // The water as the plugin draws it with this shader: a tile of 16 by 16 columns at a time, each the same grid raised
+    // by the shader to the tile's tops, read from its two textures (the previous state the same as the next).
     private static void MakeWater(float[,] ground, float[,] depth, Vector2[,] current, Material water)
     {
-        var mesh = new Mesh { indexFormat = IndexFormat.UInt32 };
-        var vertices = new List<Vector3>();
-        var uv0 = new List<Vector2>();
-        var uv1 = new List<Vector4>();
-        var uv2 = new List<Vector2>();
-        for (int z = 0; z <= Size; z++)
+        const int Columns = 16;
+        const int Side = Columns + 1;
+        Mesh grid = WaterGrid(Columns);
+        for (int tz = 0; tz < Size / Columns; tz++)
         {
-            for (int x = 0; x <= Size; x++)
+            for (int tx = 0; tx < Size / Columns; tx++)
             {
-                float d = depth[x, z];
-                int wet = 0;
-                float carried = float.MinValue;
-                for (int dz = -1; dz <= 1; dz++)
+                var surface = new Texture2D(Side, Side, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+                var flow = new Texture2D(Side, Side, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+                var tops = new Color[Side * Side];
+                var currents = new Color[Side * Side];
+                for (int j = 0; j < Side; j++)
                 {
-                    for (int dx = -1; dx <= 1; dx++)
+                    for (int i = 0; i < Side; i++)
                     {
-                        int nx = Mathf.Clamp(x + dx, 0, Size);
-                        int nz = Mathf.Clamp(z + dz, 0, Size);
-                        if (depth[nx, nz] > 0.02f)
-                        {
-                            wet++;
-                            carried = Mathf.Max(carried, ground[nx, nz] + depth[nx, nz]);
-                        }
+                        int x = Mathf.Min((tx * Columns) + i, Size);
+                        int z = Mathf.Min((tz * Columns) + j, Size);
+                        float d = depth[x, z];
+                        float shown = Mathf.Clamp01((d - 0.01f) / 0.02f);
+                        tops[(j * Side) + i] = new Color(d > 0.01f ? ground[x, z] + d : Beside(ground, depth, x, z), d, shown, 1f);
+                        currents[(j * Side) + i] = new Color(current[x, z].x, current[x, z].y, 0f, 0f);
                     }
                 }
 
-                float y = d > 0.02f ? ground[x, z] + d : carried > float.MinValue ? Mathf.Min(carried, ground[x, z] - 0.02f) : ground[x, z] - 0.4f;
-                float shore = d > 0.02f ? Mathf.Clamp01((wet - 1) / 8f) : 0f;
-                vertices.Add(new Vector3(x, y, z));
-                uv0.Add(new Vector2(x, z));
-                uv1.Add(new Vector4(d, 0f, shore, 0f));
-                uv2.Add(current[x, z]);
+                surface.SetPixels(tops);
+                surface.Apply(false);
+                flow.SetPixels(currents);
+                flow.Apply(false);
+                var properties = new MaterialPropertyBlock();
+                properties.SetTexture("_SurfacePrev", surface);
+                properties.SetTexture("_SurfaceNext", surface);
+                properties.SetTexture("_FlowPrev", flow);
+                properties.SetTexture("_FlowNext", flow);
+                properties.SetFloat("_BlendStart", -100f);
+                properties.SetFloat("_BlendTime", 1f);
+                properties.SetFloat("_VoxelSize", 1f);
+
+                // The tile's object at its centre, its floor at 0: column (i, j) stands at x, z = its own.
+                var go = new GameObject($"Water {tx},{tz}");
+                go.transform.position = new Vector3((tx * Columns) + (Columns / 2f) - 0.5f, Columns / 2f, (tz * Columns) + (Columns / 2f) - 0.5f);
+                go.AddComponent<MeshFilter>().sharedMesh = grid;
+                var renderer = go.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = water;
+                renderer.SetPropertyBlock(properties);
+            }
+        }
+    }
+
+    // A dry point's height: the mean of the wet ones round it, else just under the ground.
+    private static float Beside(float[,] ground, float[,] depth, int x, int z)
+    {
+        float sum = 0f;
+        int count = 0;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int nx = Mathf.Clamp(x + dx, 0, Size);
+                int nz = Mathf.Clamp(z + dz, 0, Size);
+                if (depth[nx, nz] > 0.01f)
+                {
+                    sum += ground[nx, nz] + depth[nx, nz];
+                    count++;
+                }
+            }
+        }
+
+        return count > 0 ? sum / count : ground[x, z] - 0.4f;
+    }
+
+    // The plugin's grid: two points a column, each with its place in columns as its uv.
+    private static Mesh WaterGrid(int columns)
+    {
+        const int PerColumn = 2;
+        int points = (columns * PerColumn) + 1;
+        float span = columns;
+        var vertices = new List<Vector3>();
+        var cells = new List<Vector2>();
+        for (int j = 0; j < points; j++)
+        {
+            for (int i = 0; i < points; i++)
+            {
+                float u = (float)i / PerColumn;
+                float v = (float)j / PerColumn;
+                vertices.Add(new Vector3(u + 0.5f - (span / 2f), 0f, v + 0.5f - (span / 2f)));
+                cells.Add(new Vector2(u, v));
             }
         }
 
         var triangles = new List<int>();
-        Grid(triangles, (x, z) => depth[x, z] > 0.02f || depth[x + 1, z] > 0.02f || depth[x, z + 1] > 0.02f || depth[x + 1, z + 1] > 0.02f);
+        for (int j = 0; j < points - 1; j++)
+        {
+            for (int i = 0; i < points - 1; i++)
+            {
+                int a = (j * points) + i;
+                int b = a + points;
+                triangles.AddRange(new[] { a, b, b + 1, a, b + 1, a + 1 });
+            }
+        }
+
+        var mesh = new Mesh();
         mesh.SetVertices(vertices);
-        mesh.SetUVs(0, uv0);
-        mesh.SetUVs(1, uv1);
-        mesh.SetUVs(2, uv2);
+        mesh.SetUVs(0, cells);
         mesh.SetTriangles(triangles, 0);
-        mesh.RecalculateNormals();
-        mesh.RecalculateTangents();
-        var go = new GameObject("Water");
-        go.AddComponent<MeshFilter>().sharedMesh = mesh;
-        go.AddComponent<MeshRenderer>().sharedMaterial = water;
+        mesh.bounds = new Bounds(Vector3.zero, new Vector3(span + 2f, 200f, span + 2f));
+        return mesh;
     }
 
     private static void Grid(List<int> triangles, Func<int, int, bool> keep)

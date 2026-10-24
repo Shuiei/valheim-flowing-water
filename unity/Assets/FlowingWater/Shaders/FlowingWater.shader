@@ -5,10 +5,14 @@
 // runs, its ripples run with it (flow mapping) and it foams with its speed; where it lies still, the ripples drift
 // with the game's wind as the sea's do.
 //
-// The mesh carries the simulation per vertex:
-//   uv0       world x, z (metres)
-//   uv1       x = water depth (m), y = extra foam 0..1, z = shore 0..1 (0 = the water's very edge)
-//   uv2       x, y = current (m/s, world x and z)
+// The surface is shaped here, not on the processor: each brick draws one fixed grid (uv0 = the point's place in
+// columns, from the brick's south-west column's centre), raised to the water's top read from two small textures per
+// state (a column each, and one more east and north, from the bricks beside): x = the top over the brick's floor (m),
+// y = depth (m), z = how much of it is shown, w = 1 where the brick draws the top (else the brick under or over it);
+// and x, y = current (m/s, east and north), z = foam from falling. The previous state and the next are blended over
+// the time between the server's changes, so the water moves on smoothly instead of jumping at each. Each square
+// between four columns is drawn by one brick: the one whose top its first shown corner is, in the next state (where
+// it shows no water there, in the previous one, so water drying up fades out).
 //
 // Light: what lies behind the surface (the scene, grabbed once a frame, bent by the ripples) is seen through thin
 // water, tinted by the surface colour; deeper water takes the bottom colour instead, from shallow to deep with the
@@ -50,7 +54,17 @@ Shader "FlowingWater/Water"
         _RapidsTiling ("Rapids foam tiling (per metre)", Float) = 0.35
         _ShoreOffset ("Still water thinner than this (m) is not seen", Float) = 0.15
         _RunningOffset ("Running water thinner than this (m) is not seen", Float) = 0.02
-        _EdgeFade ("Edge fade (shore share of the mesh)", Range(0.01, 1)) = 0.3
+        _EdgeFade ("Edge fade (shown share)", Range(0.01, 1)) = 0.3
+
+        // Each brick's (set per renderer).
+        [HideInInspector] _SurfacePrev ("Surface before", 2D) = "black" {}
+        [HideInInspector] _SurfaceNext ("Surface after", 2D) = "black" {}
+        [HideInInspector] _FlowPrev ("Current before", 2D) = "black" {}
+        [HideInInspector] _FlowNext ("Current after", 2D) = "black" {}
+        [HideInInspector] _BlendStart ("Blend start (s)", Float) = 0
+        [HideInInspector] _BlendTime ("Blend time (s)", Float) = 1
+        [HideInInspector] _VoxelSize ("Voxel size (m)", Float) = 1
+        [HideInInspector] _Lift ("Lift (m)", Float) = 0
     }
 
     SubShader
@@ -73,6 +87,14 @@ Shader "FlowingWater/Water"
         sampler2D _FoamTex;
         sampler2D _RandomFoamTex;
         sampler2D _FlowingWaterBehind;
+        sampler2D _SurfacePrev;
+        sampler2D _SurfaceNext;
+        sampler2D _FlowPrev;
+        sampler2D _FlowNext;
+        float _BlendStart;
+        float _BlendTime;
+        float _VoxelSize;
+        float _Lift;
         UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
         fixed4 _ColorTop;
@@ -119,15 +141,84 @@ Shader "FlowingWater/Water"
             float3 worldPos;
             float4 screenPos;
             float4 grabPos; // the same point in the grabbed image (upside down on some platforms)
+            float2 cell;    // the point's place in the brick's columns
         };
+
+        // Columns along a side of a brick's textures.
+        #define GRID_SIDE 17.0
+
+        float2 GridUv(float2 cell)
+        {
+            return (cell + 0.5) / GRID_SIDE;
+        }
+
+        // How far the blend from the previous state to the next is.
+        float BlendShare()
+        {
+            return saturate((_Time.y - _BlendStart) / max(_BlendTime, 0.001));
+        }
+
+        // The surface at a place in the columns, blended (x = top, y = depth, z = shown; w is the next state's).
+        float4 SurfaceAt(float2 cell)
+        {
+            float4 uv = float4(GridUv(cell), 0.0, 0.0);
+            float4 next = tex2Dlod(_SurfaceNext, uv);
+            return float4(lerp(tex2Dlod(_SurfacePrev, uv).xyz, next.xyz, BlendShare()), next.w);
+        }
+
+        float4 FlowAt(float2 cell)
+        {
+            float4 uv = float4(GridUv(cell), 0.0, 0.0);
+            return lerp(tex2Dlod(_FlowPrev, uv), tex2Dlod(_FlowNext, uv), BlendShare());
+        }
 
         void vert(inout appdata_full v, out Input o)
         {
             UNITY_INITIALIZE_OUTPUT(Input, o);
-            o.world = v.texcoord.xy;
-            o.water = v.texcoord1;
-            o.current = v.texcoord2.xy;
+            float2 cell = v.texcoord.xy;
+            float4 surface = SurfaceAt(cell);
+            float4 flow = FlowAt(cell);
+
+            // Raised to the top (over the brick's floor; the object sits at the brick's centre).
+            v.vertex.y = surface.x - (8.0 * _VoxelSize) + _Lift;
+
+            // The surface's slope, from the tops half a column either side.
+            float east = SurfaceAt(cell + float2(0.5, 0.0)).x - SurfaceAt(cell - float2(0.5, 0.0)).x;
+            float north = SurfaceAt(cell + float2(0.0, 0.5)).x - SurfaceAt(cell - float2(0.0, 0.5)).x;
+            float2 slope = float2(east, north) / max(_VoxelSize, 0.001);
+            v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
+            v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
+
+            o.world = mul(unity_ObjectToWorld, v.vertex).xz;
+            o.water = float4(surface.y, flow.z, surface.z, 0.0);
+            o.current = flow.xy;
+            o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
+        }
+
+        // A state's say on a square: 1 where this brick draws it (the brick whose top its first shown corner is), 0
+        // where another does, -1 where no corner shows water.
+        float Owner(sampler2D state, float2 corner)
+        {
+            float4 a = tex2Dlod(state, float4(GridUv(corner), 0.0, 0.0));
+            float4 b = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 0.0)), 0.0, 0.0));
+            float4 c = tex2Dlod(state, float4(GridUv(corner + float2(0.0, 1.0)), 0.0, 0.0));
+            float4 d = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 1.0)), 0.0, 0.0));
+            return a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : (d.z > 0.0 ? d.w : -1.0)));
+        }
+
+        // Whether this brick draws the square a point is in: as the next state has it, or where the next shows no
+        // water there, as the previous did (water drying up fades out instead of going at once).
+        bool Draws(float2 cell)
+        {
+            float2 corner = min(floor(cell), GRID_SIDE - 2.0);
+            float own = Owner(_SurfaceNext, corner);
+            if (own < 0.0)
+            {
+                own = Owner(_SurfacePrev, corner);
+            }
+
+            return own > 0.5;
         }
 
         // The scene's distance from the camera, along its view axis, at a point of the screen.
@@ -200,6 +291,11 @@ Shader "FlowingWater/Water"
 
         void surf(Input i, inout SurfaceOutputStandard o)
         {
+            if (!Draws(i.cell))
+            {
+                discard;
+            }
+
             float depth = max(i.water.x, 0.0);
             float deep = saturate(depth / _DeepWater);
             float speed = length(i.current);

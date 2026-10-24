@@ -123,6 +123,16 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private readonly BackgroundBuild<Shape> _building = new();
 
+    // With the mod's own shader the graphics card shapes the surface: built here is only the brick's grid of tops, and
+    // the card blends from one to the next over the time between them (measured, for this brick).
+    private readonly BackgroundBuild<SurfaceGrid> _gridBuilding = new();
+
+    private GpuSurface _gpu;
+
+    private float _lastData = -1f;
+
+    private float _dataInterval = 1f;
+
     /// <summary>Draw with a plain opaque colour instead of the water's material, for testing (console `flowingwater flat`).</summary>
     internal static bool Flat
     {
@@ -203,10 +213,11 @@ internal sealed class WaterBrick : MonoBehaviour
             }
 
             bricks++;
-            if (brick._mesh != null && brick._mesh.vertexCount > 0 && brick._renderer.enabled)
+            Mesh drawnMesh = brick._filter.sharedMesh;
+            if (drawnMesh != null && drawnMesh.vertexCount > 0 && brick._renderer.enabled)
             {
                 drawn++;
-                vertices += brick._mesh.vertexCount;
+                vertices += drawnMesh.vertexCount;
             }
         }
 
@@ -223,10 +234,10 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         BrickView view = found._view;
-        Mesh mesh = found._mesh;
+        Mesh mesh = found._filter.sharedMesh;
         var text = new System.Text.StringBuilder();
         text.Append(FormattableString.Invariant($"brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels at {found.transform.position}, {nearest:0.#} m from you: renderer {found._renderer.enabled}, lift {Lift}, flat {Flat}"));
-        text.Append(FormattableString.Invariant($"; mesh {mesh.vertexCount} vertices, {(mesh.subMeshCount > 0 ? mesh.GetIndexCount(0) / 3 : 0)} triangles, bounds {mesh.bounds.min} to {mesh.bounds.max}; drawn {Time.time - found._drawnAt:0.0} s ago, building {found._building.Busy}"));
+        text.Append(FormattableString.Invariant($"; mesh {mesh.vertexCount} vertices, {(mesh.subMeshCount > 0 ? mesh.GetIndexCount(0) / 3 : 0)} triangles, bounds {mesh.bounds.min} to {mesh.bounds.max}; drawn {Time.time - found._drawnAt:0.0} s ago, building {found._building.Busy || found._gridBuilding.Busy}, shaped on the card {found._gpu != null && mesh != found._mesh}"));
         Material material = found._renderer.sharedMaterial;
         text.Append(material == null
             ? "; material none"
@@ -335,7 +346,7 @@ internal sealed class WaterBrick : MonoBehaviour
             ByKey.Remove(key);
             if (_drawn)
             {
-                Neighbours(_view, VoxelSurface.Round);
+                Neighbours(_view, OnCard() ? SurfaceGrid.Readers : VoxelSurface.Round);
             }
         }
 
@@ -353,11 +364,14 @@ internal sealed class WaterBrick : MonoBehaviour
             Destroy(_mesh);
         }
 
+        _gpu?.Dispose();
+
         // A surface still being built is not drawn, nor data still being read kept; a failure to build or read it is
         // still told, in the game's frame (its log is the game's), from where the brick was.
         Vector3 at = transform.position;
         var frame = TaskScheduler.FromCurrentSynchronizationContext();
         _building.Abandon(failure => Failed(failure, at), frame);
+        _gridBuilding.Abandon(failure => Failed(failure, at), frame);
         _reading.Abandon(failure => ReadFailed(failure, at), frame);
     }
 
@@ -414,8 +428,24 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             _newData = true;
             Waiting.Add(this);
+            if (_lastData >= 0f)
+            {
+                _dataInterval = Mathf.Clamp(Time.time - _lastData, 0.25f, 2f);
+            }
+
+            _lastData = Time.time;
+
+            // The grids round it read its columns at their edges, its tops near theirs and its water under theirs.
+            if (OnCard())
+            {
+                Neighbours(_view, SurfaceGrid.Readers);
+            }
         }
     }
+
+    // Whether the graphics card shapes the surface: the mod's own shader draws it (not the game's material, nor the
+    // flat colour for testing).
+    private static bool OnCard() => !Flat && FlowingWaterPlugin.Settings.CustomShader.Value && Materials.Custom() != null;
 
     // Unreadable data is the server's (another version of the mod): told, and the brick keeps the water it had. Any
     // other failure is the mod's own.
@@ -477,7 +507,7 @@ internal sealed class WaterBrick : MonoBehaviour
         Taking.Start();
         try
         {
-            Built.Serve(brick => brick == null || brick._building.Done, InBudget, brick => Timed(brick, b => b.Take()));
+            Built.Serve(brick => brick == null || brick._building.Done || brick._gridBuilding.Done, InBudget, brick => Timed(brick, b => b.Take()));
         }
         finally
         {
@@ -491,7 +521,7 @@ internal sealed class WaterBrick : MonoBehaviour
             try
             {
                 Waiting.Serve(
-                    brick => brick == null || (!brick._building.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
+                    brick => brick == null || (!brick._building.Busy && !brick._gridBuilding.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
                     InBudget,
                     brick => Timed(brick, b => b.Build()));
             }
@@ -538,6 +568,23 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
+        if (OnCard())
+        {
+            // The card blends from the surface drawn to the newest: the water drawn is the newest.
+            _newData = false;
+            _easedFrom = null;
+            _drawnWater = _view;
+            VoxelWater.Drawn.Set(_view);
+            VoxelField latest = VoxelWater.Field.Near(_view);
+            (int x, int y, int z) = (_view.X, _view.Y, _view.Z);
+            if (_gridBuilding.TryStart(() => SurfaceGrid.Build(latest, x, y, z)))
+            {
+                Built.Add(this);
+            }
+
+            return;
+        }
+
         if (_newData)
         {
             _newData = false;
@@ -562,6 +609,25 @@ internal sealed class WaterBrick : MonoBehaviour
     // this one, until its ease is done), and the surface handed to the mesh.
     private void Take()
     {
+        if (_gridBuilding.TryTake(out SurfaceGrid grid, out Exception gridFailure))
+        {
+            if (gridFailure != null)
+            {
+                Failed(gridFailure, transform.position);
+            }
+            else if (OnCard())
+            {
+                ShowOnCard(grid);
+            }
+            else
+            {
+                // The way it is drawn changed while the grid was built: the mesh is built instead.
+                Waiting.Add(this);
+            }
+
+            return;
+        }
+
         if (!_building.TryTake(out Shape shape, out Exception failure))
         {
             return;
@@ -570,6 +636,13 @@ internal sealed class WaterBrick : MonoBehaviour
         if (failure != null)
         {
             Failed(failure, transform.position);
+            return;
+        }
+
+        if (OnCard())
+        {
+            // The way it is drawn changed while the mesh was built: the grid is built instead.
+            Waiting.Add(this);
             return;
         }
 
@@ -591,10 +664,8 @@ internal sealed class WaterBrick : MonoBehaviour
     // A built surface handed to the mesh.
     private void Apply(Shape shape)
     {
-
-        // Plain colours (flat) or the mod's own shader; else the game's material.
-        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
-            : FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        // Plain colours (flat), else the game's material: the mod's own shader draws only the card's grid.
+        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f)) : null;
         Material material = own ?? Materials.Still();
         if (material == null)
         {
@@ -602,6 +673,8 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         UseGameProperties(own == null);
+        _filter.sharedMesh = _mesh;
+        _renderer.enabled = true;
         _mesh.Clear();
         _mesh.indexFormat = shape.Vertices.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
         _mesh.SetVertices(shape.Vertices);
@@ -613,6 +686,25 @@ internal sealed class WaterBrick : MonoBehaviour
         _mesh.SetTriangles(shape.Triangles, 0, false);
         _mesh.bounds = shape.Bounds;
         _renderer.sharedMaterial = material;
+    }
+
+    // A grid built, handed to the card: the shared grid drawn with the mod's own shader, the brick's textures blending
+    // to it from what is drawn now. A brick with no top of its own to show draws nothing.
+    private void ShowOnCard(SurfaceGrid grid)
+    {
+        Material material = Materials.Custom();
+        if (material == null)
+        {
+            return;
+        }
+
+        UseGameProperties(false);
+        _gpu ??= new GpuSurface();
+        _gpu.Show(grid, Time.timeSinceLevelLoad, _dataInterval, Lift);
+        _filter.sharedMesh = GpuSurface.Grid(grid.VoxelSize);
+        _renderer.sharedMaterial = material;
+        _renderer.SetPropertyBlock(_gpu.Properties);
+        _renderer.enabled = _gpu.Draws;
     }
 
     // The game's material is animated and drawn only as far as each renderer says, as the game's own water does; the
