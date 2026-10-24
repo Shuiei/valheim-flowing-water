@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.17.1 — 2026-10-24
+
+### Fixed
+- With another mod letting the hoe remove pieces, Remove source or drain removed whatever it was aimed at: it now
+  removes only sources and drains. With a source or drain chosen, the remove key no longer takes away a placed one.
+- If the game's hoe could not be found, placed sources and drains stayed hidden and out of reach: they now show at
+  all times then, as before they were hidden.
+
 ## v0.17.0 — 2026-10-24
 
 ### Added
