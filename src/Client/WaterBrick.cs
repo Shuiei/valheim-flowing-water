@@ -639,6 +639,13 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
+        if (OnCard())
+        {
+            // The way it is drawn changed while the mesh was built: the grid is built instead.
+            Waiting.Add(this);
+            return;
+        }
+
         _drawnWater = shape.Drawn;
         VoxelWater.Drawn.Set(_drawnWater);
         Neighbours(_drawnWater, shape.Touched);
@@ -657,10 +664,8 @@ internal sealed class WaterBrick : MonoBehaviour
     // A built surface handed to the mesh.
     private void Apply(Shape shape)
     {
-
-        // Plain colours (flat) or the mod's own shader; else the game's material.
-        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f))
-            : FlowingWaterPlugin.Settings.CustomShader.Value ? Materials.Custom() : null;
+        // Plain colours (flat), else the game's material: the mod's own shader draws only the card's grid.
+        Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f)) : null;
         Material material = own ?? Materials.Still();
         if (material == null)
         {
