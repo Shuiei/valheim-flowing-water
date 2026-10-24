@@ -108,6 +108,52 @@ internal sealed class VoxelField
     }
 
     /// <summary>
+    /// Where a ray first goes down into the water's surface, along its direction (a unit vector), within a distance:
+    /// looked for in steps of half a voxel (the last one at the distance), and at the crossing, the point of the ray at
+    /// the surface's level. A step from over a surface to past its level is a crossing too, though the ray is through
+    /// the water by then (a sheet thinner than the step, the ground under it): where the ray is at that level, it is
+    /// in that water. A ray starting in the water finds where it is first out of it and in again.
+    /// </summary>
+    /// <returns>Whether it meets the surface within the distance.</returns>
+    public bool RayToSurface(float ox, float oy, float oz, float dx, float dy, float dz, float within, out float distance)
+    {
+        float step = VoxelSize * 0.5f;
+        float before = 0f;
+        bool above = false;
+        float over = float.NegativeInfinity;
+        for (float t = 0f; ; t = Math.Min(t + step, within))
+        {
+            float y = oy + (dy * t);
+            float surface = SurfaceAt(ox + (dx * t), y, oz + (dz * t));
+            bool under = !float.IsNegativeInfinity(surface) && y <= surface;
+            if (above && under)
+            {
+                distance = dy < 0f ? Math.Min(t, Math.Max(before, (oy - surface) / -dy)) : t;
+                return true;
+            }
+
+            if (above && dy < 0f && y <= over)
+            {
+                float crossing = (oy - over) / -dy;
+                if (!float.IsNegativeInfinity(SurfaceAt(ox + (dx * crossing), over - (VoxelSize * 0.01f), oz + (dz * crossing))))
+                {
+                    distance = crossing;
+                    return true;
+                }
+            }
+
+            above = !under;
+            over = above ? surface : float.NegativeInfinity;
+            before = t;
+            if (t >= within)
+            {
+                distance = 0f;
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// The water's velocity at a point in it, metres a second (x east, y up, z north); false where dry, and over the
     /// water's surface.
     /// </summary>

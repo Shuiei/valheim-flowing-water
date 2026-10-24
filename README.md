@@ -8,8 +8,8 @@ or the sea takes it. Dig a channel with the pickaxe and the river follows it.
   the lake at its foot while everyone is elsewhere. Each zone with water keeps its state in the world
   save (a `FlowingWater_Tile` object), so rivers survive restarts.
 - **Players** see the water (the game's own water and running-stream materials), swim in it, float on
-  it, get wet, and are carried by its current. The game's own water checks (fishing, building,
-  creatures) see it too.
+  it, get wet, and are carried by its current; ships are placed and sail on it. The game's own water
+  checks (fishing, building, creatures) see it too.
 - Both sides need the mod. A player without it sees nothing and walks through the water (the server
   keeps the objects for the others).
 
