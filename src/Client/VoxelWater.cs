@@ -4,13 +4,62 @@ using UnityEngine;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// The 3D water this player's game knows (every brick received), for swimming, floating, the current and the
-/// console: the surface a point is in or just over, and the velocity there.
+/// The 3D water this player's game knows (every brick received), for swimming, floating, the current, placing ships
+/// and the console: the surface a point is in or just over, where a ray meets it, and the velocity there.
 /// </summary>
 internal static class VoxelWater
 {
     /// <summary>What <see cref="SurfaceAt"/> gives where there is no water: far under any ground.</summary>
     public const float NoWater = -10000f;
+
+    private const string GameWaterLayer = "Water";
+
+    private static Collider _standIn;
+
+    /// <summary>
+    /// A collider on the game's water layer, never in the world (its object inactive): what the game is handed as the
+    /// water surface a ship is placed on, which it only checks is there.
+    /// </summary>
+    public static Collider StandIn
+    {
+        get
+        {
+            if (_standIn == null)
+            {
+                var surface = new GameObject("FlowingWater surface");
+                surface.SetActive(false);
+                Object.DontDestroyOnLoad(surface);
+                int layer = LayerMask.NameToLayer(GameWaterLayer);
+                if (layer < 0)
+                {
+                    FlowingWaterPlugin.Log.LogError($"Layer {GameWaterLayer} not found: ships cannot be placed on the flowing water");
+                }
+                else
+                {
+                    surface.layer = layer;
+                }
+
+                _standIn = surface.AddComponent<BoxCollider>();
+            }
+
+            return _standIn;
+        }
+    }
+
+    /// <summary>Where a ray (from the camera, say) first goes down into the water's surface, within a distance.</summary>
+    /// <returns>Whether it meets the surface within the distance.</returns>
+    public static bool RayToSurface(Vector3 origin, Vector3 direction, float within, out Vector3 hit)
+    {
+        Vector3 d = direction.normalized;
+        if (Field.RayToSurface(origin.x, origin.y, origin.z, d.x, d.y, d.z, within, out float distance))
+        {
+            hit = origin + (d * distance);
+            return true;
+        }
+
+        hit = Vector3.zero;
+        return false;
+    }
 
     /// <summary>The bricks known.</summary>
     public static VoxelField Field { get; } = new();
