@@ -280,5 +280,14 @@ public class MarkerValuesTests
         Assert.Contains("rate is set in the panel", MarkerValues.Description(drain: false));
         Assert.Contains("rate and radius are set in the panel", MarkerValues.Description(drain: true));
         Assert.All([MarkerValues.Description(drain: false), MarkerValues.Description(drain: true)], d => Assert.Contains("changes or removes it", d));
+        Assert.All([MarkerValues.Description(drain: false), MarkerValues.Description(drain: true)], d => Assert.Contains("show while a water piece is chosen", d));
+    }
+
+    [Fact]
+    public void TheRemoverSaysItShowsThemAndRemovesTheOneAimedAt()
+    {
+        Assert.Equal("Remove source or drain", MarkerValues.RemoverName);
+        Assert.Contains("Shows the sources and drains", MarkerValues.RemoverDescription);
+        Assert.Contains("a click removes it", MarkerValues.RemoverDescription);
     }
 }

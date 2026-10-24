@@ -21,10 +21,11 @@ Needs BepInExPack_Valheim.
 
 ## Placing water
 
-With the **hoe**: its pieces include a **Water source** and a **Water drain**, free, placed exactly where you aim, on
+With the **hoe**: its pieces include a **Water source**, a **Water drain** and **Remove source or drain**, free; the first two go exactly where you aim, on
 the ground or on anything built. A panel on the right shows the rate (and a drain's radius) the next one takes:
-**E** to change them, **Enter** to apply, **Esc** or **E** when done. **E** on a placed one (the hoe put away) changes
-it, or removes it with the panel's **Remove** button; the hammer removes it too, as any piece.
+**E** to change them, **Enter** to apply, **Esc** or **E** when done. Placed ones are invisible, shown only while the
+hoe is in hand with one of these three chosen: **E** on a shown one changes it, or removes it with the panel's
+**Remove** button. With **Remove source or drain** chosen, the one aimed at turns red and a click removes it.
 
 Console (F5) command `flowingwater`:
 

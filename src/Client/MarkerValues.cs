@@ -146,11 +146,17 @@ internal static class MarkerValues
     /// <param name="drain">A drain, else a source.</param>
     public static string Name(bool drain) => drain ? "Water drain" : "Water source";
 
+    /// <summary>The name of the hoe's piece that removes a source or drain.</summary>
+    public const string RemoverName = "Remove source or drain";
+
+    /// <summary>The description of the hoe's piece that removes a source or drain.</summary>
+    public const string RemoverDescription = "Shows the sources and drains, hidden otherwise; the one aimed at turns red, and a click removes it.";
+
     /// <summary>The piece's description in the hoe.</summary>
     /// <param name="drain">A drain, else a source.</param>
     public static string Description(bool drain) => drain
-        ? "Takes the water that reaches it. Its rate and radius are set in the panel on the right; [E] on a placed one changes or removes it."
-        : "Water springs from it. Its rate is set in the panel on the right; [E] on a placed one changes or removes it.";
+        ? "Takes the water that reaches it. Its rate and radius are set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it."
+        : "Water springs from it. Its rate is set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it.";
 
     /// <summary>
     /// What a source or drain does, as the server takes it: its rate held to the most (or "no water" when it is not

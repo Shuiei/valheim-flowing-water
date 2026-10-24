@@ -260,12 +260,16 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        if (ZInput.GetButtonDown("Use") && !Hud.IsPieceSelectionVisible() && !ClosedThisFrame)
+        // [E] aimed at a placed one is the game's, which opens the panel for it.
+        if (ZInput.GetButtonDown("Use") && !Hud.IsPieceSelectionVisible() && !ClosedThisFrame && !AimedAtPlaced())
         {
             ZInput.ResetButtonStatus("Use");
             Edit();
         }
     }
+
+    private static bool AimedAtPlaced() =>
+        Player.m_localPlayer is { } player && player.GetHoverObject() is { } hover && hover.GetComponentInParent<Marker>() != null;
 
     // [Esc] or [E], not on the frame the panel opened (the same press).
     private bool Leaving()
