@@ -39,24 +39,7 @@ internal static class BrickData
         writer.Write(voxelSize);
 
         // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
-        byte[] water = new byte[Brick.Count];
-        float[] exact = new float[Brick.Count];
-        float carried = 0f;
-        for (int i = 0; i < Brick.Count; i++)
-        {
-            // A dry voxel takes nothing carried: water rounded off elsewhere does not wet it. Nor does one whose water is
-            // not a number: it is kept as none, as it always was.
-            if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
-            {
-                continue;
-            }
-
-            float share = brick.Water[i] + carried;
-            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(share * Full)));
-            exact[i] = share;
-            carried = water[i] == More ? 0f : share - (water[i] / Full);
-        }
-
+        byte[] water = WaterBytes(brick, out float[] exact);
         writer.Write(water);
         float area = voxelSize * voxelSize;
         for (int i = 0; i < Brick.Count; i++)
@@ -91,14 +74,10 @@ internal static class BrickData
     {
         byte[] look = new byte[Brick.Count * LookBytes];
         float area = voxelSize * voxelSize;
+        byte[] waters = WaterBytes(brick, out _);
         for (int i = 0; i < Brick.Count; i++)
         {
-            if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
-            {
-                continue;
-            }
-
-            byte water = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(brick.Water[i] * Full)));
+            byte water = waters[i];
             if (water == 0)
             {
                 continue;
@@ -213,6 +192,31 @@ internal static class BrickData
         float south = z > 0 ? brick.FlowZ[i - Brick.Size] : brick.Beside[5]?.FlowZ[i + ((Brick.Size - 1) * Brick.Size)] ?? 0f;
         float half = 0.5f / faceArea;
         return ((brick.FlowX[i] + west) * half, (brick.FlowY[i] + under) * half, (brick.FlowZ[i] + south) * half);
+    }
+
+    // Each voxel's water in steps of 1/Full, what each rounds off carried on into the next so the brick's volume is
+    // kept, and the exact share each was rounded from (kept as is where the byte says More).
+    private static byte[] WaterBytes(Brick brick, out float[] exact)
+    {
+        byte[] water = new byte[Brick.Count];
+        exact = new float[Brick.Count];
+        float carried = 0f;
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            // A dry voxel takes nothing carried: water rounded off elsewhere does not wet it. Nor does one whose water is
+            // not a number: it is kept as none, as it always was.
+            if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
+            {
+                continue;
+            }
+
+            float share = brick.Water[i] + carried;
+            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(share * Full)));
+            exact[i] = share;
+            carried = water[i] == More ? 0f : share - (water[i] / Full);
+        }
+
+        return water;
     }
 
     private static sbyte SpeedByte(float speed)

@@ -109,6 +109,25 @@ public class BrickDataTests
     }
 
     [Fact]
+    public void TheLookRoundsTheWaterAsItIsSent()
+    {
+        // A trace before a half-full voxel: what the trace rounds off is carried into the next voxel when sent, and the
+        // look carries it too, so the half-full one's change (100 to 103 steps sent) is seen as it is sent.
+        var before = new Brick(0, 0, 0);
+        var after = new Brick(0, 0, 0);
+        (before.Water[0], before.Water[1]) = (0.0026f, 0.502f);
+        (after.Water[0], after.Water[1]) = (0.0024f, 0.512f);
+
+        byte[] was = BrickData.Look(before, 1f);
+        byte[] now = BrickData.Look(after, 1f);
+
+        Assert.Equal(100, was[BrickData.LookBytes]);
+        Assert.Equal(103, now[BrickData.LookBytes]);
+        Assert.Equal(BrickData.Decode(BrickData.Encode(after, 1f)).Water[1], now[BrickData.LookBytes] / 200f, 4);
+        Assert.True(BrickData.Shows(was, now, 2, 3, BrickData.Steps(0.01f, 1f)));
+    }
+
+    [Fact]
     public void AThinFilmKeepsItsVolumeToWithinAStepAndWetsNoDryVoxel()
     {
         // Every other voxel holds a film of 0.002 to 0.012 of a voxel (spread evenly over that range), a few pressed in
