@@ -69,6 +69,28 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void ARayMeetsASheetThinnerThanItsStep()
+    {
+        // 0.3 of a voxel of water on a floor 0.6 into row 7 (surface 7.9): straight down from 8.05, the next step
+        // (7.55) is under the floor, in no water.
+        VoxelField field = Field((3, 7, 3, 0.3f, 0.6f));
+
+        Assert.True(field.RayToSurface(3.5f, 8.05f, 3.5f, 0f, -1f, 0f, 5f, out float distance));
+        Assert.Equal(0.15f, distance, 3);
+    }
+
+    [Fact]
+    public void ARayMeetsWaterInItsLastShortStep()
+    {
+        // A pool with its level at 1.5, a ray straight down from 2.1 stopping at 1.45: its steps at 2.1 and 1.6 are
+        // over the water, its last, shorter one (0.15) reaches it.
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f));
+
+        Assert.True(field.RayToSurface(3.5f, 2.1f, 3.5f, 0f, -1f, 0f, 0.65f, out float distance));
+        Assert.Equal(0.6f, distance, 3);
+    }
+
+    [Fact]
     public void ARayStartingInTheWaterMeetsItOnlyWhereItGoesBackIn()
     {
         // From inside the pool, straight up and out of it: never back in.
