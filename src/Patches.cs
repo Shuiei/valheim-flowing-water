@@ -349,6 +349,53 @@ internal static class HoeRemovePatch
 }
 
 /// <summary>
+/// A ship (any piece placed on water) can be placed on the flowing water: where the camera's ray meets its surface
+/// before what the game's own ray met (the ground under it, or nothing), the game is told it met water there, as it is
+/// at the sea's surface. Within the game's reach for the piece; the sea's own surface is found by the game.
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
+internal static class ShipPlacePatch
+{
+    // The game's ray reaches this far, metres.
+    private const float GameRay = 50f;
+
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(ShipPlacePatch), (typeof(Player), "PieceRayTest"));
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static void Postfix(Player __instance, bool water, ref bool __result, ref Vector3 point, ref Vector3 normal, ref Piece piece, ref Heightmap heightmap, ref Collider waterSurface)
+    {
+        if (!water || GameCamera.instance == null)
+        {
+            return;
+        }
+
+        Transform camera = GameCamera.instance.transform;
+        float within = __result ? Vector3.Distance(camera.position, point) : GameRay;
+        if (!VoxelWater.RayToSurface(camera.position, camera.forward, within, out Vector3 hit))
+        {
+            return;
+        }
+
+        float reach = __instance.m_maxPlaceDistance + (__instance.GetSelectedPiece() is { } selected ? selected.m_extraPlacementDistance : 0f);
+        if (Vector3.Distance(__instance.m_eye.position, hit) >= reach)
+        {
+            return;
+        }
+
+        __result = true;
+        point = hit;
+        normal = Vector3.up;
+        piece = null;
+        heightmap = null;
+        waterSurface = VoxelWater.StandIn;
+    }
+}
+
+/// <summary>
 /// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>

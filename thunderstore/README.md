@@ -6,7 +6,8 @@ the river follows it.
 
 - The **server** simulates every river whole, players nearby or not: the spring on the mountain fills
   the lake at its foot while everyone is elsewhere. Rivers are saved with the world.
-- **Players** see the water, swim in it, float on it, get wet, and are carried by its current. The
+- **Players** see the water, swim in it, float on it, get wet, and are carried by its current; ships are placed and
+  sail on it. The
   game's own water checks (fishing, building, creatures) see it too. Running water is silent and throws
   no spray for now: its sound and spray come back in a later version.
 

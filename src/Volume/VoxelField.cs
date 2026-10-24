@@ -108,6 +108,36 @@ internal sealed class VoxelField
     }
 
     /// <summary>
+    /// Where a ray first goes down into the water's surface, along its direction (a unit vector), within a distance:
+    /// looked for in steps of half a voxel, and at the crossing, the point of the ray at the surface's level. A ray
+    /// starting in the water finds where it is first out of it and in again.
+    /// </summary>
+    /// <returns>Whether it meets the surface within the distance.</returns>
+    public bool RayToSurface(float ox, float oy, float oz, float dx, float dy, float dz, float within, out float distance)
+    {
+        float step = VoxelSize * 0.5f;
+        float before = 0f;
+        bool above = false;
+        for (float t = 0f; t <= within; t += step)
+        {
+            float y = oy + (dy * t);
+            float surface = SurfaceAt(ox + (dx * t), y, oz + (dz * t));
+            bool under = !float.IsNegativeInfinity(surface) && y <= surface;
+            if (under && above)
+            {
+                distance = dy < 0f ? Math.Min(t, Math.Max(before, (oy - surface) / -dy)) : t;
+                return true;
+            }
+
+            above = !under;
+            before = t;
+        }
+
+        distance = 0f;
+        return false;
+    }
+
+    /// <summary>
     /// The water's velocity at a point in it, metres a second (x east, y up, z north); false where dry, and over the
     /// water's surface.
     /// </summary>

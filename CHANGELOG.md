@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.17.4 — 2026-10-24
+
+### Fixed
+- A ship could not be placed on the flowing water: the game took it for dry ground. Aimed at its surface, a ship now
+  goes on it as on the sea.
+
 ## v0.17.3 — 2026-10-24
 
 ### Fixed

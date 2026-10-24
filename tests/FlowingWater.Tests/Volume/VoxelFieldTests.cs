@@ -46,6 +46,38 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void ARayDownOntoAPoolMeetsItsSurface()
+    {
+        // A pool two voxels across, 1.5 deep (level 1.5), and a ray from 5 m over it, down at 45 degrees towards it.
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f), (4, 0, 3, 1f, 0f), (4, 1, 3, 0.5f, 0f));
+        float d = (float)System.Math.Sqrt(0.5);
+
+        Assert.True(field.RayToSurface(0.5f, 5f, 3.5f, d, -d, 0f, 20f, out float distance));
+
+        // Down 3.5 m to the level: as far along, x 4 (in the pool).
+        Assert.Equal(3.5f / d, distance, 3);
+    }
+
+    [Fact]
+    public void ARayMissingTheWaterOrStoppingShortMeetsNothing()
+    {
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f));
+        float d = (float)System.Math.Sqrt(0.5);
+
+        Assert.False(field.RayToSurface(0.5f, 5f, 8.5f, d, -d, 0f, 20f, out _));
+        Assert.False(field.RayToSurface(0.5f, 5f, 3.5f, d, -d, 0f, 4f, out _));
+    }
+
+    [Fact]
+    public void ARayStartingInTheWaterMeetsItOnlyWhereItGoesBackIn()
+    {
+        // From inside the pool, straight up and out of it: never back in.
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f));
+
+        Assert.False(field.RayToSurface(3.5f, 0.5f, 3.5f, 0f, 1f, 0f, 10f, out _));
+    }
+
+    [Fact]
     public void TheVelocityIsTheVoxelsTheSwimmerIsIn()
     {
         VoxelField field = Current(1.5f, -0.5f);
