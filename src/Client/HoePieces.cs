@@ -49,7 +49,8 @@ internal static class HoePieces
 
     /// <summary>
     /// Whether placed sources and drains show, this frame: the local player holds the hoe with one of its water pieces
-    /// chosen (else they are hidden, and nothing aims at them); always while the hoe has no remover (<see cref="HoeRemoval.Shown"/>).
+    /// chosen, or the hammer (else they are hidden, and nothing aims at them); always while the hoe has no remover
+    /// (<see cref="HoeRemoval.Sight"/>, <see cref="HoeRemoval.Shown"/>).
     /// </summary>
     public static bool Shown
     {
@@ -60,7 +61,10 @@ internal static class HoePieces
         }
     }
 
-    /// <summary>Whether the hoe's remover is chosen, this frame: the source or drain aimed at is marked to go.</summary>
+    /// <summary>
+    /// Whether the source or drain aimed at is marked to go, this frame: the hoe's remover is chosen, or a tool that
+    /// removes pieces (the hammer) is in hand.
+    /// </summary>
     public static bool Removing
     {
         get
@@ -152,7 +156,7 @@ internal static class HoePieces
     public static bool MayRemove(Player player, Piece aimed) => HoeRemoval.MayRemove(
         hoeInHand: _table != null && Tool(player) == _table,
         _tableRemoved,
-        removing: player == Player.m_localPlayer && Removing,
+        removing: player == Player.m_localPlayer && Removing && Tool(player) == _table,
         aimedIsMarker: aimed != null && aimed.GetComponent<Marker>() != null);
 
     /// <summary>A click with the remover: the game's remove at what the player aims at (only a source or drain goes).</summary>
@@ -161,7 +165,7 @@ internal static class HoePieces
 
     private static PieceTable Tool(Player player) => BuildPieces?.GetValue(player) as PieceTable;
 
-    // Once a frame: whether the hoe in hand has one of its water pieces chosen.
+    // Once a frame: whether the tool in hand shows placed sources and drains, and marks the one aimed at.
     private static void Look()
     {
         if (_shownFrame == Time.frameCount)
@@ -173,19 +177,18 @@ internal static class HoePieces
         _shown = false;
         _removing = false;
         Player player = Player.m_localPlayer;
-        if (_table == null || player == null || !player.InPlaceMode() || Tool(player) != _table)
+        PieceTable tool = player != null && player.InPlaceMode() ? Tool(player) : null;
+        if (tool == null)
         {
             return;
         }
 
         Piece selected = player.GetSelectedPiece();
-        if (selected == null)
-        {
-            return;
-        }
-
-        _removing = selected.gameObject == Prefabs.Remover;
-        _shown = _removing || selected.GetComponent<Marker>() != null;
+        (_shown, _removing) = HoeRemoval.Sight(
+            hoeInHand: tool == _table,
+            removerChosen: selected != null && selected.gameObject == Prefabs.Remover,
+            waterPieceChosen: selected != null && selected.GetComponent<Marker>() != null,
+            toolRemovesPieces: tool.m_canRemovePieces);
     }
 
     /// <summary>
