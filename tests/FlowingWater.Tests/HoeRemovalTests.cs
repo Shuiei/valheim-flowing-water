@@ -3,11 +3,39 @@ using Xunit;
 namespace FlowingWater.Tests;
 
 /// <summary>
-/// Placed sources and drains show only while a water piece of the hoe's is chosen, unless the hoe has no remover; the
-/// remover removes them and nothing else, and the hoe's remove key removes nothing it did not before.
+/// Placed sources and drains show only while a water piece of the hoe's is chosen or the hammer is in hand, unless the
+/// hoe has no remover; the remover removes them and nothing else, the hammer as any piece, and the hoe's remove key
+/// removes nothing it did not before.
 /// </summary>
 public class HoeRemovalTests
 {
+    [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, false, true, true)]
+    public void TheHoeShowsThemWithAWaterPieceAndMarksTheAimedOneWithTheRemover(bool remover, bool waterPiece, bool shown, bool marked)
+    {
+        Assert.Equal((shown, marked), HoeRemoval.Sight(hoeInHand: true, remover, waterPiece, toolRemovesPieces: false));
+    }
+
+    [Fact]
+    public void TheHoeWithAnotherPieceHidesThemEvenWhereItRemovesPieces()
+    {
+        Assert.Equal((false, false), HoeRemoval.Sight(hoeInHand: true, removerChosen: false, waterPieceChosen: false, toolRemovesPieces: true));
+    }
+
+    [Fact]
+    public void TheHammerShowsThemAndMarksTheAimedOneToBreakAsAnyPiece()
+    {
+        Assert.Equal((true, true), HoeRemoval.Sight(hoeInHand: false, removerChosen: false, waterPieceChosen: false, toolRemovesPieces: true));
+    }
+
+    [Fact]
+    public void AToolThatRemovesNothingLeavesThemHidden()
+    {
+        Assert.Equal((false, false), HoeRemoval.Sight(hoeInHand: false, removerChosen: false, waterPieceChosen: false, toolRemovesPieces: false));
+    }
+
     [Theory]
     [InlineData(true, true, true)]
     [InlineData(false, true, false)]

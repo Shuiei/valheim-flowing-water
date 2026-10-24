@@ -24,9 +24,9 @@ Needs BepInExPack_Valheim.
 With the **hoe**: its pieces include a **Water source**, a **Water drain** and **Remove source or drain**, free; the
 first two go exactly where you aim, on the ground or on anything built. With the source or drain chosen, a panel on
 the right shows the rate (and a drain's radius) the next one takes: **E** to change them, **Enter** to apply, **Esc**
-or **E** when done. Placed ones are invisible, shown only while the hoe is in hand with one of these three chosen:
-**E** on a shown one changes it, or removes it with the panel's **Remove** button. With **Remove source or drain**
-chosen, the one aimed at turns red and a click removes it.
+or **E** when done. Placed ones are invisible, shown only while the hoe is in hand with one of these three chosen, or
+the hammer: **E** on a shown one changes it, or removes it with the panel's **Remove** button. With **Remove source or
+drain** chosen, the one aimed at turns red and a click removes it. The hammer removes one too, as any piece.
 
 Console (F5) command `flowingwater`:
 
