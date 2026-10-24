@@ -11,8 +11,8 @@ namespace FlowingWater.Client;
 /// The source and drain in the hoe's pieces, and the piece that removes them: added to the hoe's piece table when the
 /// game's item list wakes up (the table is the hoe prefab's own, kept from one world to the next: added once), with
 /// icons drawn here; offered only to a player who may place them, as the game offers a piece it has enabled. Placed
-/// sources and drains show only while one of these is chosen in the hoe in hand (<see cref="Shown"/>); the hoe, which
-/// the game lets remove nothing, removes only them, and only then.
+/// sources and drains show only while one of these is chosen in the hoe in hand (<see cref="Shown"/>); a click with the
+/// remover runs the game's remove at the one aimed at (<see cref="RemoveAimed"/>), which removes only them.
 /// </summary>
 internal static class HoePieces
 {
@@ -30,6 +30,9 @@ internal static class HoePieces
 
     // The pieces of the tool in the player's hand: whether it is the hoe (null if the game has it no more).
     private static readonly FieldInfo BuildPieces = AccessTools.Field(typeof(Player), "m_buildPieces");
+
+    // The game's remove at what the player aims at, as the hammer's (its checks, effects and swing).
+    private static readonly MethodInfo RemovePiece = AccessTools.Method(typeof(Player), "RemovePiece");
 
     private static NextPlacement _next;
 
@@ -53,7 +56,7 @@ internal static class HoePieces
         get
         {
             Look();
-            return HoeRemoval.Shown(_shown, HoeRemovePatch.Applied && BuildPieces != null && _table != null);
+            return HoeRemoval.Shown(_shown, HoeRemovePatch.Applied && RemoverClickPatch.Applied && BuildPieces != null && _table != null);
         }
     }
 
@@ -75,8 +78,7 @@ internal static class HoePieces
 
     /// <summary>
     /// Adds the source, drain and remover to the hoe's pieces, in the category of its own (once; nothing on a game that
-    /// draws nothing, a dedicated server, where no one holds a hoe), and lets the hoe remove: what the game asks of a
-    /// tool before its remove kind of piece does anything (<see cref="MayRemove"/> keeps it to sources and drains).
+    /// draws nothing, a dedicated server, where no one holds a hoe).
     /// </summary>
     public static void AddTo(ObjectDB items)
     {
@@ -105,9 +107,10 @@ internal static class HoePieces
             }
         }
 
-        // The hoe's remove kept to sources and drains needs its patch: without it, no remover (the patch's error names
-        // the method missing), and placed ones show at all times for the hammer's remove, as before the remover.
-        bool removes = HoeRemovePatch.Applied && BuildPieces != null;
+        // The remover needs its patches (its click, and the game's remove kept to sources and drains): without them, no
+        // remover (the patch's error names the method missing), and placed ones show at all times for the hammer's
+        // remove, as before the remover.
+        bool removes = HoeRemovePatch.Applied && RemoverClickPatch.Applied && BuildPieces != null;
         if (BuildPieces == null)
         {
             FlowingWaterPlugin.Log.LogError("Player.m_buildPieces not found: the hoe does not remove sources and drains (the hammer still does), and they show at all times");
@@ -139,7 +142,6 @@ internal static class HoePieces
         {
             _table = table;
             _tableRemoved = table.m_canRemovePieces;
-            table.m_canRemovePieces |= removes;
         }
     }
 
@@ -152,6 +154,10 @@ internal static class HoePieces
         _tableRemoved,
         removing: player == Player.m_localPlayer && Removing,
         aimedIsMarker: aimed != null && aimed.GetComponent<Marker>() != null);
+
+    /// <summary>A click with the remover: the game's remove at what the player aims at (only a source or drain goes).</summary>
+    /// <returns>Whether one was removed.</returns>
+    public static bool RemoveAimed(Player player) => (bool)RemovePiece.Invoke(player, []);
 
     private static PieceTable Tool(Player player) => BuildPieces?.GetValue(player) as PieceTable;
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -213,7 +212,6 @@ public sealed partial class Recorder
         // 7. The drain removed with the hoe's remover: chosen, it shows the drain, red when aimed at; the floor it stood
         // on is not the hoe's to remove.
         Piece removerPiece = hoeTable.m_pieces.FirstOrDefault(p => p.name == RemoverName)?.GetComponent<Piece>();
-        MethodInfo removePiece = AccessTools.Method(typeof(Player), "RemovePiece");
         if (drain != null && removerPiece != null)
         {
             Vector3 drainAt = drain.transform.position;
@@ -227,14 +225,14 @@ public sealed partial class Recorder
             Check(Drawn(drain) && drain.GetComponentInChildren<Renderer>().sharedMaterial.name == AimedMaterial, "the remover chosen, the drain aimed at shows red");
             Check(GameObject.Find(PanelName) == null, "the remover chosen, no panel shows");
             yield return Snap("hoe-7-remover");
-            bool removed = (bool)removePiece.Invoke(player, []);
+            bool removed = player.TryPlacePiece(removerPiece);
             yield return new WaitForSeconds(1f);
             Check(removed && (drain == null || !drain.IsValid()) && NearestMarker(DrainName, drainAt, 0.5f) == null, $"the remover takes the drain away (removed {removed})");
             if (floor != null)
             {
                 Aim(floor.transform.position);
                 yield return new WaitForSeconds(1f);
-                bool floorRemoved = (bool)removePiece.Invoke(player, []);
+                bool floorRemoved = player.TryPlacePiece(removerPiece);
                 yield return new WaitForSeconds(0.5f);
                 Check(!floorRemoved && floor != null, $"the remover leaves the game's pieces alone (the floor removed {floorRemoved})");
             }

@@ -291,8 +291,37 @@ internal static class RemoveMarkerPatch
 }
 
 /// <summary>
-/// The hoe removes nothing of the game's: its remove (its remover's click, or the remove key) goes on only at a source or
-/// drain aimed at while they show, and does nothing else.
+/// A click with the hoe's remover places nothing: it runs the game's remove at what the player aims at instead (which
+/// <see cref="HoeRemovePatch"/> keeps to a source or drain), its result the click's.
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
+internal static class RemoverClickPatch
+{
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(RemoverClickPatch), (typeof(Player), nameof(Player.TryPlacePiece)));
+
+    /// <summary>Whether it was applied: without it, the hoe has no remover (a click with it would place it).</summary>
+    public static bool Applied => Targets.Found.Any();
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static bool Prefix(Player __instance, Piece piece, ref bool __result)
+    {
+        if (piece == null || piece.gameObject != Prefabs.Remover)
+        {
+            return true;
+        }
+
+        __result = HoePieces.RemoveAimed(__instance);
+        return false;
+    }
+}
+
+/// <summary>
+/// The hoe removes nothing of the game's: its remove (its remover's click) goes on only at a source or drain aimed at
+/// while they show, and does nothing else.
 /// </summary>
 [HarmonyPatch]
 [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]

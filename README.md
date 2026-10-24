@@ -27,7 +27,7 @@ takes no keys while you type; **Enter** applies, **Esc** or **E** is done). They
 `DefaultDrainRate` and `DefaultDrainRadius` and stay as you set them until you quit the game. Placed sources and
 drains are invisible: they show only while the hoe is in hand with one of these three chosen. Looking at a shown one
 tells what it does; **E** on it opens the panel to change it, or to take it away with the panel's **Remove** button.
-With **Remove source or drain** chosen, the one you aim at turns red and a click (or the remove key) takes it away;
+With **Remove source or drain** chosen, the one you aim at turns red and a click takes it away;
 the hoe removes nothing else.
 
 A source's rate is above 0 and a drain's 0 or more (0 takes everything that reaches it), each 100 m³/s at most: the
