@@ -242,51 +242,67 @@ public sealed partial class Recorder
             Check(false, $"the drain is removed with the hoe's remover (drain {(drain == null ? "gone" : "placed")}, remover {(removerPiece == null ? "missing" : "found")})");
         }
 
-        // 8. A second source placed with the hoe on open ground, then removed with its panel's Remove button.
-        Vector3 spot = OnGround(site.At(8f) - (site.Across * 12f));
-        for (float across = 20f; Location.IsInsideNoBuildLocation(spot) && across <= 80f; across += 8f)
+        // 8. Two more sources placed with the hoe on open ground: the first removed with the hammer as any piece, the
+        // second with its panel's Remove button.
+        foreach (bool byHammer in new[] { true, false })
         {
-            spot = OnGround(site.At(8f) - (site.Across * across));
-        }
+            string which = byHammer ? "the hammer's source" : "the panel's source";
+            float along = byHammer ? 12f : 18f;
+            Vector3 spot = OnGround(site.At(8f) - (site.Across * along));
+            for (float across = along + 8f; Location.IsInsideNoBuildLocation(spot) && across <= 80f; across += 8f)
+            {
+                spot = OnGround(site.At(8f) - (site.Across * across));
+            }
 
-        Check(!Location.IsInsideNoBuildLocation(spot), $"the second source's place may be built on ({spot.ToString("F2")})");
-        yield return Go(spot - (site.Down * 3f));
-        player.EquipItem(hoe);
-        yield return new WaitForSeconds(1f);
-        Check(player.SetSelectedPiece(sourcePiece), "the source is chosen in the hoe again");
-        Aim(spot);
-        yield return new WaitForSeconds(1f);
-        placed = player.TryPlacePiece(sourcePiece);
-        ghostAt = Ghost(player);
-        yield return new WaitForSeconds(0.5f);
-        ZNetView second = NearestMarker(SourceName, ghostAt, 1f);
-        Check(placed && second != null, $"a second source is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
-        if (second != null)
-        {
-            // The hammer in hand shows it too, red where it aims: it removes them as any piece.
-            Vector3 secondAt = second.transform.position;
-            ItemDrop.ItemData hammer = Tool(player, "Hammer");
-            player.EquipItem(hammer);
-            yield return new WaitForSeconds(1f);
-            Aim(secondAt + (Vector3.up * 0.3f));
-            yield return new WaitForSeconds(1f);
-            Check(Drawn(second) && second.GetComponentInChildren<Renderer>().sharedMaterial.name == AimedMaterial, "the hammer in hand shows the second source, red where it aims");
+            Check(!Location.IsInsideNoBuildLocation(spot), $"{which}'s place may be built on ({spot.ToString("F2")})");
+            yield return Go(spot - (site.Down * 3f));
             player.EquipItem(hoe);
             yield return new WaitForSeconds(1f);
+            Check(player.SetSelectedPiece(sourcePiece), $"the source is chosen in the hoe again for {which}");
+            Aim(spot);
+            yield return new WaitForSeconds(1f);
+            placed = player.TryPlacePiece(sourcePiece);
+            ghostAt = Ghost(player);
+            yield return new WaitForSeconds(0.5f);
+            ZNetView more = NearestMarker(SourceName, ghostAt, 1f);
+            Check(placed && more != null, $"{which} is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
+            if (more == null)
+            {
+                continue;
+            }
+
+            Vector3 moreAt = more.transform.position;
+            if (byHammer)
+            {
+                // The hammer in hand shows it too, red where it aims, and removes it as any piece.
+                ItemDrop.ItemData hammer = Tool(player, "Hammer");
+                player.EquipItem(hammer);
+                yield return new WaitForSeconds(1f);
+                Aim(moreAt + (Vector3.up * 0.3f));
+                yield return new WaitForSeconds(1f);
+                Check(Drawn(more) && more.GetComponentInChildren<Renderer>().sharedMaterial.name == AimedMaterial, "the hammer in hand shows the source, red where it aims");
+                yield return Snap("hoe-8-hammer");
+                bool removed = (bool)AccessTools.Method(typeof(Player), "RemovePiece").Invoke(player, []);
+                yield return new WaitForSeconds(1f);
+                Check(removed && (more == null || !more.IsValid()) && NearestMarker(SourceName, moreAt, 0.5f) == null, $"the hammer takes the source away (removed {removed})");
+                player.UnequipItem(hammer);
+                continue;
+            }
+
             player.SetSelectedPiece(sourcePiece);
-            Aim(secondAt + (Vector3.up * 0.3f));
+            Aim(moreAt + (Vector3.up * 0.3f));
             yield return new WaitForSeconds(1f);
             yield return Press(Key.E);
             yield return new WaitForSeconds(0.3f);
             panel = GameObject.Find(PanelName);
             Transform removeButton = panel == null ? null : panel.transform.Find("Remove");
-            Check(panel != null && removeButton != null && removeButton.gameObject.activeInHierarchy, "[E] on the second source opens its panel, with its Remove button");
+            Check(panel != null && removeButton != null && removeButton.gameObject.activeInHierarchy, "[E] on the source opens its panel, with its Remove button");
             if (removeButton != null)
             {
-                yield return Snap("hoe-7-panel-remove");
+                yield return Snap("hoe-8-panel-remove");
                 removeButton.GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
                 yield return new WaitForSeconds(1f);
-                Check((second == null || !second.IsValid()) && NearestMarker(SourceName, secondAt, 0.5f) == null, "the Remove button takes the second source away");
+                Check((more == null || !more.IsValid()) && NearestMarker(SourceName, moreAt, 0.5f) == null, "the Remove button takes the source away");
                 Check(GameObject.Find(PanelName) == null && !TextInput.IsVisible(), "the panel closes with it and gives the keys back to the game");
             }
         }
