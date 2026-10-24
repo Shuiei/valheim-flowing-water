@@ -91,6 +91,29 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void ARayGoingIntoAPoolThroughItsSideUnderItsLevelMeetsNothing()
+    {
+        // A pool with its level at 1.5, rays from beside it under that level: level, and gently down.
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f), (4, 0, 3, 1f, 0f), (4, 1, 3, 0.5f, 0f));
+        float length = (float)System.Math.Sqrt(1.01);
+
+        Assert.False(field.RayToSurface(0.5f, 1f, 3.5f, 1f, 0f, 0f, 10f, out _));
+        Assert.False(field.RayToSurface(0.5f, 1.4f, 3.5f, 1f / length, -0.1f / length, 0f, 10f, out _));
+    }
+
+    [Fact]
+    public void ARayOverAHighPoolOntoALowerOneMeetsTheLowerOnesSurface()
+    {
+        // A pool with its level at 1.5 and beside it, east, one at 1.0: a ray from over the high one down past its level
+        // only once over the low one meets the low one at its own level.
+        VoxelField field = Field((3, 0, 3, 1f, 0f), (3, 1, 3, 0.5f, 0f), (4, 0, 3, 1f, 0f), (5, 0, 3, 1f, 0f), (6, 0, 3, 1f, 0f));
+        float length = (float)System.Math.Sqrt(1.25);
+
+        Assert.True(field.RayToSurface(3.9f, 1.6f, 3.5f, 1f / length, -0.5f / length, 0f, 10f, out float distance));
+        Assert.Equal(0.6f * length / 0.5f, distance, 3);
+    }
+
+    [Fact]
     public void ARayStartingInTheWaterMeetsItOnlyWhereItGoesBackIn()
     {
         // From inside the pool, straight up and out of it: never back in.
