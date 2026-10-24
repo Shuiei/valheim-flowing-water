@@ -247,10 +247,9 @@ internal sealed class WaterBrick : MonoBehaviour
             return;
         }
 
-        if (!_triggerMissingTold && GetComponentInChildren<BrickTrigger>(true) == null)
+        if (GetComponentInChildren<BrickTrigger>(true) == null)
         {
-            _triggerMissingTold = true;
-            FlowingWaterPlugin.Log.LogError($"Water brick at {transform.position} came without its trigger: no one can swim or float in the flowing water");
+            TriggerMissing(transform.position);
         }
 
         _drawn = ZNet.instance == null || !ZNet.instance.IsDedicated();
@@ -262,6 +261,18 @@ internal sealed class WaterBrick : MonoBehaviour
         _mesh = new Mesh { name = "FlowingWater brick" };
         _mesh.MarkDynamic();
         _filter.sharedMesh = _mesh;
+    }
+
+    // A brick came without its trigger: told once, as every brick would (Unity wakes them on the game's thread only).
+    private static void TriggerMissing(Vector3 at)
+    {
+        if (_triggerMissingTold)
+        {
+            return;
+        }
+
+        _triggerMissingTold = true;
+        FlowingWaterPlugin.Log.LogError($"Water brick at {at} came without its trigger: no one can swim or float in the flowing water");
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]

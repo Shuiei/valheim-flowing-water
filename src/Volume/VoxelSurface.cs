@@ -292,7 +292,7 @@ internal static class VoxelSurface
             // Rows 0, +1, -1, +2, -2... from the top's.
             for (int k = 0; k <= 2 * MaxStep; k++)
             {
-                int y = top.Y + ((k % 2 == 1) ? (k + 1) / 2 : -k / 2);
+                int y = top.Y + ((k % 2 != 0) ? (k + 1) / 2 : -k / 2);
                 if (_field.IsWet(x, y, z) && !_field.GoesUp(x, y, z) && Joins(top, (x, y, z)))
                 {
                     return y;

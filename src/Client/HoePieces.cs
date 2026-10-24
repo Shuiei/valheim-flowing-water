@@ -46,14 +46,14 @@ internal static class HoePieces
 
     /// <summary>
     /// Whether placed sources and drains show, this frame: the local player holds the hoe with one of its water pieces
-    /// chosen (else they are hidden, and nothing aims at them); always without the hoe's remover.
+    /// chosen (else they are hidden, and nothing aims at them); always while the hoe has no remover (<see cref="HoeRemoval.Shown"/>).
     /// </summary>
     public static bool Shown
     {
         get
         {
             Look();
-            return _shown || !HoeRemovePatch.Applied || BuildPieces == null;
+            return HoeRemoval.Shown(_shown, HoeRemovePatch.Applied && BuildPieces != null && _table != null);
         }
     }
 
@@ -90,7 +90,8 @@ internal static class HoePieces
         PieceTable table = hoe?.GetComponent<ItemDrop>()?.m_itemData.m_shared.m_buildPieces;
         if (table == null)
         {
-            FlowingWaterPlugin.Log.LogError($"The game's {HoeName} or its pieces not found: sources and drains cannot be placed with it (the flowingwater command still can)");
+            FlowingWaterPlugin.Log.LogError($"The game's {HoeName} or its pieces not found: sources and drains cannot be placed with it (the flowingwater command still can), and they show at all times");
+            _table = null;
             return;
         }
 
@@ -143,18 +144,14 @@ internal static class HoePieces
     }
 
     /// <summary>
-    /// Whether the game's remove may go on for this player, at the piece the game found aimed at: anything with a tool
-    /// that removes of its own; with the hoe, a source or drain while they show, nothing else.
+    /// Whether the game's remove may go on for this player, at the piece the game found aimed at (<see cref="HoeRemoval.MayRemove"/>):
+    /// with the remover chosen, a source or drain only; with the hoe's other pieces, what it removed before the remover.
     /// </summary>
-    public static bool MayRemove(Player player, Piece aimed)
-    {
-        if (_table == null || _tableRemoved || Tool(player) != _table)
-        {
-            return true;
-        }
-
-        return player == Player.m_localPlayer && Shown && aimed != null && aimed.GetComponent<Marker>() != null;
-    }
+    public static bool MayRemove(Player player, Piece aimed) => HoeRemoval.MayRemove(
+        hoeInHand: _table != null && Tool(player) == _table,
+        _tableRemoved,
+        removing: player == Player.m_localPlayer && Removing,
+        aimedIsMarker: aimed != null && aimed.GetComponent<Marker>() != null);
 
     private static PieceTable Tool(Player player) => BuildPieces?.GetValue(player) as PieceTable;
 
