@@ -291,6 +291,35 @@ internal static class RemoveMarkerPatch
 }
 
 /// <summary>
+/// The hoe removes nothing of the game's: its remove (its remover's click, or the remove key) goes on only at a source or
+/// drain aimed at while they show, and does nothing else.
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
+internal static class HoeRemovePatch
+{
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(HoeRemovePatch), (typeof(Player), "RemovePiece"));
+
+    /// <summary>Whether it was applied: without it, the hoe is not let remove (it would remove anything).</summary>
+    public static bool Applied => Targets.Found.Any();
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static bool Prefix(Player __instance, ref bool __result)
+    {
+        if (HoePieces.MayRemove(__instance, __instance.GetHoveringPiece()))
+        {
+            return true;
+        }
+
+        __result = false;
+        return false;
+    }
+}
+
+/// <summary>
 /// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>

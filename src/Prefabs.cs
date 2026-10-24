@@ -10,7 +10,7 @@ namespace FlowingWater;
 /// The plugin's networked objects, made in code (no asset bundle) and added to the game's prefab
 /// list each time a world opens: a water brick per 16-voxel cube with water (and the zone tiles of the column
 /// water before it, read once to move their water over, never drawn), the source and drain markers (pieces of the
-/// hoe's), erosion's ground.
+/// hoe's), the hoe's piece that removes them (never placed: not networked), erosion's ground.
 /// </summary>
 internal static class Prefabs
 {
@@ -20,11 +20,16 @@ internal static class Prefabs
 
     public const string DrainName = "FlowingWater_Drain";
 
+    public const string RemoverName = "FlowingWater_Remove";
+
     public const string GroundName = "FlowingWater_Ground";
 
     public const string BrickName = "FlowingWater_Brick";
 
     public const string WaterLayer = "WaterVolume";
+
+    /// <summary>The name of a marker's child with the collider the game's aiming finds.</summary>
+    public const string AimName = "Aim";
 
     /// <summary>
     /// The layer of a marker's collider: the game's for pieces nothing bumps into. Its aiming (to place, remove,
@@ -57,13 +62,26 @@ internal static class Prefabs
         }
     }
 
-    /// <summary>Adds the prefabs to a ZNetScene about to wake up (before it indexes its list).</summary>
+    /// <summary>The hoe's piece that removes a source or drain, made the first time it is asked for.</summary>
+    public static GameObject Remover
+    {
+        get
+        {
+            Built();
+            return _root.transform.Find(RemoverName).gameObject;
+        }
+    }
+
+    /// <summary>The pieces added to the hoe: the source, the drain and the remover.</summary>
+    public static IEnumerable<GameObject> HoeTools => [.. Markers, Remover];
+
+    /// <summary>Adds the networked prefabs to a ZNetScene about to wake up (before it indexes its list).</summary>
     public static void Register(ZNetScene scene)
     {
         Built();
         foreach (Transform child in _root.transform)
         {
-            if (!scene.m_prefabs.Contains(child.gameObject))
+            if (child.GetComponent<ZNetView>() != null && !scene.m_prefabs.Contains(child.gameObject))
             {
                 scene.m_prefabs.Add(child.gameObject);
             }
@@ -91,6 +109,7 @@ internal static class Prefabs
 
         MarkerPiece(Networked(SourceName), false);
         MarkerPiece(Networked(DrainName), true);
+        RemoverPiece();
         Networked(GroundName).AddComponent<GroundChanges>();
         GameObject brick = Networked(BrickName);
         brick.AddComponent<MeshFilter>();
@@ -116,7 +135,7 @@ internal static class Prefabs
         piece.m_canBeRemoved = true;
         piece.m_canRotate = false;
 
-        var aim = new GameObject("Aim");
+        var aim = new GameObject(AimName);
         aim.transform.SetParent(marker.transform, false);
         int layer = LayerMask.NameToLayer(MarkerLayer);
         if (layer < 0)
@@ -131,6 +150,19 @@ internal static class Prefabs
         SphereCollider sphere = aim.AddComponent<SphereCollider>();
         sphere.radius = MarkerRadius;
         sphere.center = Vector3.up * MarkerRadius;
+    }
+
+    // The hoe's remover: a piece of the game's remove kind, which the game never places (no ghost, no object); chosen,
+    // a click removes the source or drain aimed at, as the hammer's remove does a piece.
+    private static void RemoverPiece()
+    {
+        var remover = new GameObject(RemoverName);
+        remover.transform.SetParent(_root.transform, false);
+        Piece piece = remover.AddComponent<Piece>();
+        piece.m_name = MarkerValues.RemoverName;
+        piece.m_description = MarkerValues.RemoverDescription;
+        piece.m_removePiece = true;
+        piece.m_canBeRemoved = false;
     }
 
     // A trigger box on the game's water layer under the object: what lets characters and things swim in it.

@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.17.0 — 2026-10-24
+
+### Added
+- The hoe has a third water piece, Remove source or drain: chosen, it shows the sources and drains around, the one
+  aimed at turns red, and a click removes it.
+
+### Changed
+- Placed sources and drains are now invisible: they show only while the hoe is in hand with one of its water pieces
+  chosen, and only then can they be aimed at, changed with E, or removed. E aimed at a placed one now changes it even
+  while a source or drain is chosen to place.
+
 ## v0.16.7 — 2026-10-23
 
 ### Fixed

@@ -8,9 +8,11 @@ using UnityEngine.Rendering;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// The source and drain in the hoe's pieces: added to the hoe's piece table when the game's item list wakes up (the
-/// table is the hoe prefab's own, kept from one world to the next: added once), with an icon drawn here; offered only
-/// to a player who may place them, as the game offers a piece it has enabled.
+/// The source and drain in the hoe's pieces, and the piece that removes them: added to the hoe's piece table when the
+/// game's item list wakes up (the table is the hoe prefab's own, kept from one world to the next: added once), with
+/// icons drawn here; offered only to a player who may place them, as the game offers a piece it has enabled. Placed
+/// sources and drains show only while one of these is chosen in the hoe in hand (<see cref="Shown"/>); the hoe, which
+/// the game lets remove nothing, removes only them, and only then.
 /// </summary>
 internal static class HoePieces
 {
@@ -26,7 +28,44 @@ internal static class HoePieces
     // The pieces and recipes the player knows, kept in their character: where the source and drain are forgotten.
     private static readonly FieldInfo KnownRecipes = AccessTools.Field(typeof(Player), "m_knownRecipes");
 
+    // The pieces of the tool in the player's hand: whether it is the hoe (null if the game has it no more).
+    private static readonly FieldInfo BuildPieces = AccessTools.Field(typeof(Player), "m_buildPieces");
+
     private static NextPlacement _next;
+
+    // The hoe's piece table, once found, and whether the game let it remove pieces before the remover came.
+    private static PieceTable _table;
+
+    private static bool _tableRemoved;
+
+    private static int _shownFrame = -1;
+
+    private static bool _shown;
+
+    private static bool _removing;
+
+    /// <summary>
+    /// Whether placed sources and drains show, this frame: the local player holds the hoe with one of its water pieces
+    /// chosen (else they are hidden, and nothing aims at them); always without the hoe's remover.
+    /// </summary>
+    public static bool Shown
+    {
+        get
+        {
+            Look();
+            return _shown || !HoeRemovePatch.Applied || BuildPieces == null;
+        }
+    }
+
+    /// <summary>Whether the hoe's remover is chosen, this frame: the source or drain aimed at is marked to go.</summary>
+    public static bool Removing
+    {
+        get
+        {
+            Look();
+            return _removing;
+        }
+    }
 
     /// <summary>The values the next source or drain placed takes, kept for the session (from the settings at first).</summary>
     public static NextPlacement Next => _next ??= new NextPlacement(
@@ -35,8 +74,9 @@ internal static class HoePieces
         FlowingWaterPlugin.Settings.DefaultDrainRadius.Value);
 
     /// <summary>
-    /// Adds the source and drain to the hoe's pieces, in the category of its own (once; nothing on a game that draws
-    /// nothing, a dedicated server, where no one holds a hoe).
+    /// Adds the source, drain and remover to the hoe's pieces, in the category of its own (once; nothing on a game that
+    /// draws nothing, a dedicated server, where no one holds a hoe), and lets the hoe remove: what the game asks of a
+    /// tool before its remove kind of piece does anything (<see cref="MayRemove"/> keeps it to sources and drains).
     /// </summary>
     public static void AddTo(ObjectDB items)
     {
@@ -57,39 +97,104 @@ internal static class HoePieces
         Piece.PieceCategory category = Piece.PieceCategory.Misc;
         foreach (GameObject other in table.m_pieces)
         {
-            if (other != null && other.GetComponent<Piece>() is { } piece && piece.GetComponent<Marker>() == null)
+            if (other != null && other.GetComponent<Piece>() is { } piece && !Prefabs.HoeTools.Contains(other))
             {
                 category = piece.m_category;
                 break;
             }
         }
 
-        foreach (GameObject marker in Prefabs.Markers)
+        // The hoe's remove kept to sources and drains needs its patch: without it, no remover (the patch's error names
+        // the method missing), and placed ones show at all times for the hammer's remove, as before the remover.
+        bool removes = HoeRemovePatch.Applied && BuildPieces != null;
+        if (BuildPieces == null)
         {
-            Piece piece = marker.GetComponent<Piece>();
+            FlowingWaterPlugin.Log.LogError("Player.m_buildPieces not found: the hoe does not remove sources and drains (the hammer still does), and they show at all times");
+        }
+
+        foreach (GameObject tool in Prefabs.HoeTools)
+        {
+            if (tool == Prefabs.Remover && !removes)
+            {
+                continue;
+            }
+
+            Piece piece = tool.GetComponent<Piece>();
             piece.m_category = category;
             if (piece.m_icon == null)
             {
-                piece.m_icon = Icon(marker.GetComponent<Marker>().IsDrain);
+                piece.m_icon = tool.GetComponent<Marker>() is { } marker
+                    ? Icon(marker.IsDrain ? "drain" : "source", marker.IsDrain ? Whirl : Drop)
+                    : Icon("remover", Crossed);
             }
 
-            if (!table.m_pieces.Contains(marker))
+            if (!table.m_pieces.Contains(tool))
             {
-                table.m_pieces.Add(marker);
+                table.m_pieces.Add(tool);
             }
+        }
+
+        if (_table != table)
+        {
+            _table = table;
+            _tableRemoved = table.m_canRemovePieces;
+            table.m_canRemovePieces |= removes;
         }
     }
 
     /// <summary>
-    /// Offers the source and drain to this game's player when they may place them, else not: what the game reads
+    /// Whether the game's remove may go on for this player, at the piece the game found aimed at: anything with a tool
+    /// that removes of its own; with the hoe, a source or drain while they show, nothing else.
+    /// </summary>
+    public static bool MayRemove(Player player, Piece aimed)
+    {
+        if (_table == null || _tableRemoved || Tool(player) != _table)
+        {
+            return true;
+        }
+
+        return player == Player.m_localPlayer && Shown && aimed != null && aimed.GetComponent<Marker>() != null;
+    }
+
+    private static PieceTable Tool(Player player) => BuildPieces?.GetValue(player) as PieceTable;
+
+    // Once a frame: whether the hoe in hand has one of its water pieces chosen.
+    private static void Look()
+    {
+        if (_shownFrame == Time.frameCount)
+        {
+            return;
+        }
+
+        _shownFrame = Time.frameCount;
+        _shown = false;
+        _removing = false;
+        Player player = Player.m_localPlayer;
+        if (_table == null || player == null || !player.InPlaceMode() || Tool(player) != _table)
+        {
+            return;
+        }
+
+        Piece selected = player.GetSelectedPiece();
+        if (selected == null)
+        {
+            return;
+        }
+
+        _removing = selected.gameObject == Prefabs.Remover;
+        _shown = _removing || selected.GetComponent<Marker>() != null;
+    }
+
+    /// <summary>
+    /// Offers the source, drain and remover to this game's player when they may place them, else not: what the game reads
     /// when it lists the pieces a tool offers and those the player knows.
     /// </summary>
     public static void Offer()
     {
         bool may = Commands.MarkerRefusal(CommandRights.MarkerUse.Place) == null;
-        foreach (GameObject marker in Prefabs.Markers)
+        foreach (GameObject tool in Prefabs.HoeTools)
         {
-            marker.GetComponent<Piece>().m_enabled = may;
+            tool.GetComponent<Piece>().m_enabled = may;
         }
     }
 
@@ -105,7 +210,7 @@ internal static class HoePieces
         {
             if (KnownRecipes?.GetValue(player) is HashSet<string> known)
             {
-                MarkerKnowledge.Sync(modHere: false, known, Prefabs.Markers.Select(m => m.GetComponent<Piece>().m_name));
+                MarkerKnowledge.Sync(modHere: false, known, Prefabs.HoeTools.Select(t => t.GetComponent<Piece>().m_name));
             }
             else
             {
@@ -139,10 +244,10 @@ internal static class HoePieces
         UpdateAvailablePieces.Invoke(player, []);
     }
 
-    // A source: a drop of water. A drain: a dark whirl taking it in. Drawn here, no file.
-    private static Sprite Icon(bool drain)
+    // A source: a drop of water. A drain: a dark whirl taking it in. The remover: a drop crossed out. Drawn here, no file.
+    private static Sprite Icon(string kind, System.Func<float, float, Color32> paint)
     {
-        var texture = new Texture2D(IconSize, IconSize, TextureFormat.RGBA32, false) { name = drain ? "FlowingWater drain icon" : "FlowingWater source icon" };
+        var texture = new Texture2D(IconSize, IconSize, TextureFormat.RGBA32, false) { name = $"FlowingWater {kind} icon" };
         var pixels = new Color32[IconSize * IconSize];
         for (int y = 0; y < IconSize; y++)
         {
@@ -151,7 +256,7 @@ internal static class HoePieces
                 // Centred, -1..1, y up.
                 float u = ((x + 0.5f) / IconSize * 2f) - 1f;
                 float v = ((y + 0.5f) / IconSize * 2f) - 1f;
-                pixels[(y * IconSize) + x] = drain ? Whirl(u, v) : Drop(u, v);
+                pixels[(y * IconSize) + x] = paint(u, v);
             }
         }
 
@@ -182,6 +287,14 @@ internal static class HoePieces
         float light = Mathf.Clamp01(1f - (Vector2.Distance(new Vector2(u, v), new Vector2(-0.2f, -0.05f)) / 0.9f));
         var colour = Color.Lerp(new Color(0.12f, 0.42f, 0.85f), new Color(0.7f, 0.9f, 1f), light * light);
         return colour;
+    }
+
+    // A drop under a red cross.
+    private static Color32 Crossed(float u, float v)
+    {
+        const float Half = 0.09f;
+        bool cross = Mathf.Abs(u) < 0.8f && Mathf.Abs(v) < 0.8f && (Mathf.Abs(u - v) < Half * 1.41f || Mathf.Abs(u + v) < Half * 1.41f);
+        return cross ? new Color32(220, 40, 30, 255) : Drop(u, v);
     }
 
     // A whirl: a dark round pool, rings turning in to a black middle.

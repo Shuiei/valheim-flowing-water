@@ -19,14 +19,15 @@ waves or splashes. Buildings do not hold water yet: only the terrain does.
 
 ## Placing water
 
-With the **hoe**: among its pieces are a **Water source** and a **Water drain**, free to build. Each goes exactly
+With the **hoe**: among its pieces are a **Water source**, a **Water drain** and **Remove source or drain**, free to build. Each goes exactly
 where you aim, on the ground or on anything built (a floor, a wall's top). While one of them is the hoe's piece, a
 panel on the right of the screen shows the rate (m³/s), and for a drain the radius (m), that the next one placed
 takes: **E** lets you change them (the mouse is free and the game takes no keys while you type; **Enter** applies,
 **Esc** or **E** is done). They start from `DefaultSourceRate`, `DefaultDrainRate` and `DefaultDrainRadius` and stay
-as you set them until you quit the game. Looking at a placed one tells what it does; **E** on it (the hoe put away)
-opens the panel to change it, or to take it away with the panel's **Remove** button. The hammer removes one too, as
-any piece (the hoe removes nothing).
+as you set them until you quit the game. Placed sources and drains are invisible: they show only while the hoe is in
+hand with one of these three chosen. Looking at a shown one tells what it does; **E** on it opens the panel to change
+it, or to take it away with the panel's **Remove** button. With **Remove source or drain** chosen, the one you aim at
+turns red and a click (or the remove key) takes it away; the hoe removes nothing else.
 
 A source's rate is above 0 and a drain's 0 or more (0 takes everything that reaches it), each 100 m³/s at most: the
 panel holds a higher rate to 100, as the server does, and says so. A drain's radius is 0.25 to 16 m.
@@ -242,7 +243,8 @@ waits for it to land. Remove the dll from the client afterwards.
 `FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground
 dug once). `hoe` places a source and a drain with the hoe on the gentle slope near the spawn, as a player would
 (keys pressed through the game's input system, values typed into the panel), a drain on a floor it builds, changes
-the source through **E**, removes the drain with the hammer and a second source with its panel's **Remove** button,
+the source through **E**, checks a placed one is hidden with the hoe put away, removes the drain with the hoe's
+remover (and not the floor under it) and a second source with its panel's **Remove** button,
 and logs each check as a `PASS` or `FAIL` line with shots of each step.
 `perf` measures the water's cost to the game: frame rate, 1 % low, worst frame, the water's own time in the frame,
 its bricks and vertices, garbage collections and memory, with no water, then a stream, a fountain, a cascade and a

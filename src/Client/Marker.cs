@@ -5,15 +5,26 @@ using UnityEngine;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// A placed source or drain: a small sphere where the water starts or ends. A piece of the hoe's: placed where the
-/// player aims, with the panel's values (<see cref="IPlaced"/>); its hover text says what it does, and [E] on it opens
-/// the panel to change it.
+/// A placed source or drain: a small sphere where the water starts or ends, hidden but while the hoe in hand has one of
+/// its water pieces chosen (<see cref="HoePieces.Shown"/>), and red while its remover aims at it. A piece of the hoe's:
+/// placed where the player aims, with the panel's values (<see cref="IPlaced"/>); shown, its hover text says what it
+/// does, and [E] on it opens the panel to change it. Hidden, nothing aims at it: its collider is off too.
 /// </summary>
-internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
+internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, IRemoved
 {
     private static readonly List<Marker> All = [];
 
     private ZNetView _nview;
+
+    private Piece _piece;
+
+    private Renderer _sphere;
+
+    private Collider _aim;
+
+    private bool _shown = true;
+
+    private bool _aimed;
 
     /// <summary>True for a drain, false for a source; set on the prefab.</summary>
     [SuppressMessage("Design", "CA1051:Do not declare visible instance fields", Justification = "Unity copies fields, not properties, from the prefab.")]
@@ -81,6 +92,12 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
         ZNetScene.instance.Destroy(gameObject);
     }
 
+    /// <summary>The game's remove took it (the hoe's remover, or the hammer's): it is not found again meanwhile.</summary>
+    public void OnRemoved()
+    {
+        All.Remove(this);
+    }
+
     /// <summary>The player placed it with the hoe: it takes the values the panel shows for the next one.</summary>
     public void OnPlaced()
     {
@@ -135,6 +152,7 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
     private void Awake()
     {
         _nview = GetComponent<ZNetView>();
+        _piece = GetComponent<Piece>();
 
         // The hoe's placement ghost has no object of its own (the game makes it with networking off): it is drawn,
         // nothing more.
@@ -156,6 +174,7 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
 
         if (ZNet.instance != null && ZNet.instance.IsDedicated())
         {
+            enabled = false;
             return;
         }
 
@@ -164,10 +183,51 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced
         sphere.transform.SetParent(transform, false);
         sphere.transform.localScale = Vector3.one * (Prefabs.MarkerRadius * 2f);
         sphere.transform.localPosition = Vector3.up * Prefabs.MarkerRadius;
+        _sphere = sphere.GetComponent<Renderer>();
         Material material = Materials.Marker(IsDrain);
         if (material != null)
         {
-            sphere.GetComponent<Renderer>().sharedMaterial = material;
+            _sphere.sharedMaterial = material;
+        }
+
+        _aim = transform.Find(Prefabs.AimName)?.GetComponent<Collider>();
+        if (!ghost)
+        {
+            Show(HoePieces.Shown);
+        }
+    }
+
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    private void Update()
+    {
+        bool shown = HoePieces.Shown;
+        Show(shown);
+        bool aimed = shown && HoePieces.Removing && Player.m_localPlayer.GetHoveringPiece() == _piece;
+        if (aimed == _aimed)
+        {
+            return;
+        }
+
+        _aimed = aimed;
+        Material material = aimed ? Materials.MarkerAimed() : Materials.Marker(IsDrain);
+        if (material != null)
+        {
+            _sphere.sharedMaterial = material;
+        }
+    }
+
+    private void Show(bool shown)
+    {
+        if (shown == _shown)
+        {
+            return;
+        }
+
+        _shown = shown;
+        _sphere.enabled = shown;
+        if (_aim != null)
+        {
+            _aim.enabled = shown;
         }
     }
 

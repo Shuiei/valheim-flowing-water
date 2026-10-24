@@ -160,6 +160,9 @@ internal static class Materials
         renderer.SetPropertyBlock(properties);
     }
 
+    /// <summary>The plain red of a source or drain the hoe's remover aims at; null when no plain material can be found.</summary>
+    public static Material MarkerAimed() => Plain("FlowingWater marker to remove", new Color(0.95f, 0.2f, 0.12f));
+
     /// <summary>A plain coloured material for a source or drain marker; null when no plain material can be found.</summary>
     public static Material Marker(bool drain)
     {

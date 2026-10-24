@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -18,6 +19,10 @@ public sealed partial class Recorder
     private const string SourceName = "FlowingWater_Source";
 
     private const string DrainName = "FlowingWater_Drain";
+
+    private const string RemoverName = "FlowingWater_Remove";
+
+    private const string AimedMaterial = "FlowingWater marker to remove";
 
     private const string PanelName = "FlowingWater panel";
 
@@ -44,7 +49,7 @@ public sealed partial class Recorder
         // 1. The hoe in hand, in build mode, the source chosen in it.
         GameObject hoePrefab = ObjectDB.instance.GetItemPrefab("Hoe");
         PieceTable hoeTable = hoePrefab.GetComponent<ItemDrop>().m_itemData.m_shared.m_buildPieces;
-        Check(hoeTable.m_pieces.Any(p => p.name == SourceName) && hoeTable.m_pieces.Any(p => p.name == DrainName), "the hoe's pieces hold the source and the drain");
+        Check(hoeTable.m_pieces.Any(p => p.name == SourceName) && hoeTable.m_pieces.Any(p => p.name == DrainName) && hoeTable.m_pieces.Any(p => p.name == RemoverName), "the hoe's pieces hold the source, the drain and the remover");
         ItemDrop.ItemData hoe = Tool(player, "Hoe");
         player.EquipItem(hoe);
         yield return new WaitForSeconds(1f);
@@ -142,11 +147,19 @@ public sealed partial class Recorder
             yield return Snap("hoe-4-drain-placed");
         }
 
-        // 5. The hoe put away, [E] on the placed source opens the panel for it; its rate changed to 2.
+        // 5. The hoe put away, the placed source is hidden; back in hand with the source chosen, it shows, and [E] aimed
+        // at it opens the panel for it (not the next one's); its rate changed to 2.
         player.UnequipItem(hoe);
         yield return Go(sourceAt - (site.Down * 2.5f));
         Aim(sourceAt + (Vector3.up * 0.3f));
         yield return new WaitForSeconds(1f);
+        Check(!Drawn(source) && player.GetHoverObject()?.GetComponentInParent<ZNetView>() != source, "the hoe put away, the placed source is hidden and not aimed at");
+        player.EquipItem(hoe);
+        yield return new WaitForSeconds(1f);
+        player.SetSelectedPiece(sourcePiece);
+        Aim(sourceAt + (Vector3.up * 0.3f));
+        yield return new WaitForSeconds(1f);
+        Check(Drawn(source), "the hoe in hand with the source chosen, the placed source shows");
         GameObject hover = player.GetHoverObject();
         Check(hover != null && hover.GetComponentInParent<ZNetView>() == source, $"aiming at the source hovers it ({(hover == null ? "nothing" : hover.name)})");
         string hoverText = hover?.GetComponentInParent<Hoverable>()?.GetHoverText() ?? string.Empty;
@@ -197,25 +210,38 @@ public sealed partial class Recorder
 
         Check(deepest > 0.02f, $"water runs from the source after 15 s (deepest within 4 m: {deepest:0.00} m)");
 
-        // 7. The drain removed with the game's remove action, by the hoe if it removes pieces, else the hammer.
-        string remover = hoeTable.m_canRemovePieces ? "Hoe" : "Hammer";
-        Note($"the hoe {(hoeTable.m_canRemovePieces ? "removes" : "does not remove")} pieces: the drain is removed with the {remover}");
-        if (drain != null)
+        // 7. The drain removed with the hoe's remover: chosen, it shows the drain, red when aimed at; the floor it stood
+        // on is not the hoe's to remove.
+        Piece removerPiece = hoeTable.m_pieces.FirstOrDefault(p => p.name == RemoverName)?.GetComponent<Piece>();
+        MethodInfo removePiece = AccessTools.Method(typeof(Player), "RemovePiece");
+        if (drain != null && removerPiece != null)
         {
             Vector3 drainAt = drain.transform.position;
 
             // Uphill of the drain, on the ground: the source's water has had a minute to run down by now, and the floor,
             // a metre up with nothing under it, may have broken (the drain stays where it was placed).
             yield return Go(floorSpot - (site.Down * 3f));
-            ItemDrop.ItemData tool = Tool(player, remover);
-            player.EquipItem(tool);
-            yield return new WaitForSeconds(1f);
+            Check(player.SetSelectedPiece(removerPiece), "the remover is chosen in the hoe");
             Aim(drainAt + (Vector3.up * 0.3f));
             yield return new WaitForSeconds(1f);
-            bool removed = (bool)AccessTools.Method(typeof(Player), "RemovePiece").Invoke(player, []);
+            Check(Drawn(drain) && drain.GetComponentInChildren<Renderer>().sharedMaterial.name == AimedMaterial, "the remover chosen, the drain aimed at shows red");
+            Check(GameObject.Find(PanelName) == null, "the remover chosen, no panel shows");
+            yield return Snap("hoe-7-remover");
+            bool removed = (bool)removePiece.Invoke(player, []);
             yield return new WaitForSeconds(1f);
-            Check(removed && (drain == null || !drain.IsValid()) && NearestMarker(DrainName, drainAt, 0.5f) == null, $"the {remover}'s remove takes the drain away (removed {removed})");
-            player.UnequipItem(tool);
+            Check(removed && (drain == null || !drain.IsValid()) && NearestMarker(DrainName, drainAt, 0.5f) == null, $"the remover takes the drain away (removed {removed})");
+            if (floor != null)
+            {
+                Aim(floor.transform.position);
+                yield return new WaitForSeconds(1f);
+                bool floorRemoved = (bool)removePiece.Invoke(player, []);
+                yield return new WaitForSeconds(0.5f);
+                Check(!floorRemoved && floor != null, $"the remover leaves the game's pieces alone (the floor removed {floorRemoved})");
+            }
+        }
+        else
+        {
+            Check(false, $"the drain is removed with the hoe's remover (drain {(drain == null ? "gone" : "placed")}, remover {(removerPiece == null ? "missing" : "found")})");
         }
 
         // 8. A second source placed with the hoe on open ground, then removed with its panel's Remove button.
@@ -237,7 +263,6 @@ public sealed partial class Recorder
         yield return new WaitForSeconds(0.5f);
         ZNetView second = NearestMarker(SourceName, ghostAt, 1f);
         Check(placed && second != null, $"a second source is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
-        player.UnequipItem(hoe);
         if (second != null)
         {
             Vector3 secondAt = second.transform.position;
@@ -258,6 +283,8 @@ public sealed partial class Recorder
             }
         }
 
+        player.UnequipItem(hoe);
+
         _cameraAt = null;
         Note($"hoe: {_passed} checks passed, {_failed} failed");
     }
@@ -275,6 +302,9 @@ public sealed partial class Recorder
 
         Note((passed ? "PASS " : "FAIL ") + what);
     }
+
+    // Whether a placed source's or drain's sphere is drawn.
+    private static bool Drawn(ZNetView marker) => marker != null && marker.GetComponentInChildren<Renderer>() is { } sphere && sphere.enabled;
 
     // The player's tool of this name, given when missing.
     private ItemDrop.ItemData Tool(Player player, string name)
