@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.21.0 — 2026-10-24
+
+### Changed
+- The server sends a block of water to the players only when the change would show: a running stream's water stirs
+  all the time, and changes too small to see are held back until they add up. A stream is sent about a third less
+  often, less work for the server and less to download; the world is still saved exactly.
+
 ## v0.20.0 — 2026-10-24
 
 ### Changed

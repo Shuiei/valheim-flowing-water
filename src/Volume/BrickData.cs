@@ -76,6 +76,81 @@ internal static class BrickData
         }
     });
 
+    /// <summary>Bytes a voxel in a brick's <see cref="Look"/>: its water, its solid share and its current on each axis.</summary>
+    public const int LookBytes = 5;
+
+    /// <summary>The water steps (of 200 a voxel) of the thinnest water a player's game draws, metres deep, in voxels this size.</summary>
+    public static int Steps(float metres, float voxelSize) => (int)Math.Ceiling(metres / voxelSize * Full);
+
+    /// <summary>
+    /// The brick as a player sees it, <see cref="LookBytes"/> a voxel, rounded as <see cref="Encode"/> rounds them: what a
+    /// send compares with the brick as last sent, to know whether the change would show (<see cref="Shows"/>) before
+    /// packing it at all.
+    /// </summary>
+    public static byte[] Look(Brick brick, float voxelSize)
+    {
+        byte[] look = new byte[Brick.Count * LookBytes];
+        float area = voxelSize * voxelSize;
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
+            {
+                continue;
+            }
+
+            byte water = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(brick.Water[i] * Full)));
+            if (water == 0)
+            {
+                continue;
+            }
+
+            (float x, float y, float z) = Velocity(brick, i, area);
+            int k = i * LookBytes;
+            look[k] = water;
+            look[k + 1] = (byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f);
+            look[k + 2] = (byte)SpeedByte(x);
+            look[k + 3] = (byte)SpeedByte(y);
+            look[k + 4] = (byte)SpeedByte(z);
+        }
+
+        return look;
+    }
+
+    /// <summary>
+    /// Whether a player would see the brick change from one <see cref="Look"/> to the next: a voxel's water over
+    /// <paramref name="visibleSteps"/> (of 200 a voxel: what a player's game draws at all, fading in over it) changing
+    /// by more than <paramref name="waterSteps"/>, its floor at all where it is drawn, or its current on an axis by more
+    /// than <paramref name="speedSteps"/> (of 127, in square-root steps: finer when slow) where it is drawn. Traces too
+    /// thin to draw come and go all along a running stream's edges and bed, and water a hair over or under the
+    /// thinnest drawn barely shows: those do not count.
+    /// </summary>
+    public static bool Shows(byte[] was, byte[] now, int waterSteps, int speedSteps, int visibleSteps)
+    {
+        for (int k = 0; k < now.Length; k += LookBytes)
+        {
+            int a = Math.Max(0, was[k] - visibleSteps), b = Math.Max(0, now[k] - visibleSteps);
+            if (a == 0 && b == 0)
+            {
+                continue;
+            }
+
+            if (Math.Abs(a - b) > waterSteps || was[k + 1] != now[k + 1])
+            {
+                return true;
+            }
+
+            for (int axis = 2; axis < LookBytes; axis++)
+            {
+                if (Math.Abs((sbyte)was[k + axis] - (sbyte)now[k + axis]) > speedSteps)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The brick kept by <see cref="Encode"/>.</summary>
     /// <exception cref="InvalidDataException">
     /// The bytes are not that (or of another version), or hold a voxel size or a share of water that is not a number,
