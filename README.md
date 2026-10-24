@@ -169,21 +169,23 @@ there to the new grid (same volume), at the next start or at once with a config 
   the 3D water is silent and sprays nothing until they come back on it in a later version (`Spray` and
   `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
-- **Client.** Each block of water the server sends is drawn by its own object: the surface over each wet voxel
-  with no water over it, its corners shared with the tops beside it that are one water with it (within a row of
-  it, or with the higher one's water all over the lower top, up to three voxels down), at the mean of their
-  levels: a pool lies flat, a stream down a steep slope is one smooth sheet, and the edge fades where fewer
-  columns hold water. The water has sides where it borders a voxel without, up to the surface over it (a fall's
-  sheet, a pool's edge over a cliff), but none between columns of one water, none against the ground under water
-  standing beside it, and none along a sheet thinner than half a voxel. All with the water's material. When the
-  server sends a block's water again, what is drawn moves to it over 0.4 s instead of jumping, and a voxel's water
-  thinner than 3 cm is not drawn, or 1 cm once drawn, so a thin sheet does not flicker as its water comes and
-  goes by millimetres. It is drawn again at most ten times a second, with the blocks beside it when what it draws
-  changes. A trigger box on the game's water layer tells characters and floating things the surface over them:
-  the top of the stack of water they are in or just over (the server's water, not eased), so a pool on a raised
-  floor floats a swimmer at its own level. Harmony patches make the game's water-level checks and the level any
-  water volume reports include the flowing water, and let a swimmer drift with the current of the voxel they are
-  in.
+- **Client.** Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
+  card shapes the surface: the block's columns' tops (its highest top in its own rows, else the nearest within three
+  rows over or under them, so a sheet running into the block over or under joins it), how much of each is shown
+  (fading in from 1 cm to 3 cm of water) and its current go into two small textures, one column more east and north
+  from the blocks beside it, and one fixed grid of points two to a voxel is raised to them, between columns as they
+  are between their tops: a pool lies flat, a stream down a slope is one smooth sheet, the edge fades out. Each square
+  between four columns is drawn by one block, the one whose top its first shown corner is. When the server sends a
+  block's water again, the card blends from the surface as drawn to the new one over the time between the server's
+  sends, so the water moves on smoothly instead of jumping; nothing is built in the game's frame but the textures.
+  With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
+  instead: the top of each wet voxel with no water over it, its corners shared with the tops beside it that are one
+  water with it, sides where the water ends (a fall's sheet, a pool's edge over a cliff), eased to new water over 0.4
+  s, at most ten times a second. A trigger box on the game's water layer tells characters and floating things the
+  surface over them: the top of the stack of water they are in or just over (the server's water, not eased), so a pool
+  on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level checks and the
+  level any water volume reports include the flowing water, and let a swimmer drift with the current of the voxel they
+  are in.
 
 ## Building
 
