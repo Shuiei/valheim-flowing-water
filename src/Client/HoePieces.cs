@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -20,6 +22,9 @@ internal static class HoePieces
     private static readonly MethodInfo UpdateKnownRecipes = AccessTools.Method(typeof(Player), "UpdateKnownRecipesList");
 
     private static readonly MethodInfo UpdateAvailablePieces = AccessTools.Method(typeof(Player), "UpdateAvailablePiecesList");
+
+    // The pieces and recipes the player knows, kept in their character: where the source and drain are forgotten.
+    private static readonly FieldInfo KnownRecipes = AccessTools.Field(typeof(Player), "m_knownRecipes");
 
     private static NextPlacement _next;
 
@@ -86,6 +91,29 @@ internal static class HoePieces
         {
             marker.GetComponent<Piece>().m_enabled = may;
         }
+    }
+
+    /// <summary>
+    /// The local player's source and drain made to match where they play: learned where FlowingWater is (the game
+    /// teaches a tool's new pieces only when the inventory changes after a character is loaded, so a character older
+    /// than them would not learn them until then), forgotten on a server without it (they would do nothing there).
+    /// </summary>
+    public static void Sync()
+    {
+        Player player = Player.m_localPlayer;
+        if (player != null && !Commands.ModHere)
+        {
+            if (KnownRecipes?.GetValue(player) is HashSet<string> known)
+            {
+                MarkerKnowledge.Sync(modHere: false, known, Prefabs.Markers.Select(m => m.GetComponent<Piece>().m_name));
+            }
+            else
+            {
+                FlowingWaterPlugin.Log.LogError("Player.m_knownRecipes not found: a character keeps the source and drain learned on a server without FlowingWater (the hoe still does not offer them)");
+            }
+        }
+
+        Refresh();
     }
 
     /// <summary>

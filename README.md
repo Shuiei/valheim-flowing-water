@@ -50,7 +50,9 @@ alone) and the server's admins (its `adminlist.txt`) always; other players while
 is on. The server's setting counts, not the player's: the server tells each player's game its value when they join,
 and again when it changes. The hoe offers the source and the drain only to a player who may; one who may not (where
 the game offers every piece, building costs off) is told why in the middle of the screen, as when changing or
-removing one.
+removing one. A character learns the source and drain as soon as it is in a world where FlowingWater is (alone,
+hosting, or on a server running it), whatever its age, and forgets them on a server without it: the hoe there offers
+only the game's own pieces.
 
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may

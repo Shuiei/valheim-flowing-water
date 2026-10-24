@@ -30,6 +30,7 @@
     <Compile Include="../../src/Server/BrickObjects.cs" Link="Mod/BrickObjects.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/CommandRights.cs" Link="Mod/CommandRights.cs" />
+    <Compile Include="../../src/MarkerKnowledge.cs" Link="Mod/MarkerKnowledge.cs" />
     <Compile Include="../../src/Client/MarkerValues.cs" Link="Mod/MarkerValues.cs" />
     <Compile Include="../../src/Client/NextPlacement.cs" Link="Mod/NextPlacement.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />

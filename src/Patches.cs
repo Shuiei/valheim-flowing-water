@@ -212,6 +212,29 @@ internal static class HoePiecesPatch
 }
 
 /// <summary>
+/// The local player spawned, their character loaded: they learn the source and drain where FlowingWater is, and forget
+/// them on a server without it (the game itself teaches a tool's new pieces only when the inventory next changes).
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
+internal static class LearnPiecesPatch
+{
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(LearnPiecesPatch), (typeof(Player), nameof(Player.OnSpawned)));
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static void Postfix(Player __instance)
+    {
+        if (__instance == Player.m_localPlayer)
+        {
+            HoePieces.Sync();
+        }
+    }
+}
+
+/// <summary>
 /// The source and drain are offered (listed in the hoe, learned as pieces) only to a player who may place them: the
 /// game reads whether a piece is enabled each time it lists them.
 /// </summary>
