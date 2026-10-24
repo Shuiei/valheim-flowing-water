@@ -323,14 +323,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     }
 
     /// <summary>
-    /// Sends every changed brick now, all as they are at once (the world is about to be saved), and forgets dry ones;
+    /// Sends every changed brick now, all as they are at once and exactly (the world is about to be saved: what it keeps
+    /// is the water the server finds at its next start), and forgets dry ones;
     /// a send spread over frames under way is given up for it.
     /// </summary>
     public void Publish()
     {
         FinishStep();
         _sendWatch.Start();
-        _sentCount += _objects.Publish(_grid.Bricks, _grid.VoxelSize);
+        _sentCount += _objects.Publish(_grid.Bricks, _grid.VoxelSize, exact: true);
         _sendWatch.Stop();
     }
 

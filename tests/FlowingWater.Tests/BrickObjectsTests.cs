@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlowingWater.Server;
+using FlowingWater.Tests.Volume;
 using FlowingWater.Volume;
 using Xunit;
 
@@ -40,6 +41,118 @@ public class BrickObjectsTests
         Assert.Equal([1, 1], world.Written);
         Assert.Equal(0.8f, Water(world, 1), 2);
         Assert.Equal(1, world.Made);
+    }
+
+    [Fact]
+    public void AChangeThatWouldNotShowIsHeldBackUntilItAddsUp()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        objects.Publish([brick], VoxelSize);
+
+        // A step of 200 a voxel at a time: held back while within two of what was sent, sent at the third.
+        foreach (float water in new[] { 0.505f, 0.51f })
+        {
+            brick.Water[0] = water;
+            brick.Changes++;
+            Assert.Equal(0, objects.Publish([brick], VoxelSize));
+        }
+
+        brick.Water[0] = 0.515f;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], VoxelSize));
+        Assert.Equal(0.515f, Water(world, 1), 3);
+    }
+
+    [Fact]
+    public void BeforeTheWorldIsSavedEveryChangeIsWrittenExactly()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        objects.Publish([brick], VoxelSize);
+
+        brick.Water[0] = 0.505f;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], VoxelSize, exact: true));
+        Assert.Equal(0.505f, Water(world, 1), 3);
+    }
+
+    [Fact]
+    public void AChangeHeldBackIsSentAfterTenSends()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        objects.Publish([brick], VoxelSize);
+
+        brick.Water[0] = 0.505f;
+        int written = 0;
+        for (int send = 0; send < BrickObjects<int>.RefreshSends; send++)
+        {
+            brick.Changes++;
+            written += objects.Publish([brick], VoxelSize);
+        }
+
+        Assert.Equal(1, written);
+        Assert.Equal(0.505f, Water(world, 1), 3);
+    }
+
+    [Fact]
+    public void WaterComingAndACurrentChangingShowButATraceTooThinToDrawDoesNot()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        objects.Publish([brick], VoxelSize);
+
+        // In the dry voxel beside it, a trace thinner than a player's game draws (1 cm), then water it draws.
+        brick.Water[1] = 0.004f;
+        brick.Changes++;
+        Assert.Equal(0, objects.Publish([brick], VoxelSize));
+        brick.Water[1] = 0.05f;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], VoxelSize));
+
+        // The current through its east face: a little does not show, more does.
+        float area = VoxelSize * VoxelSize;
+        brick.FlowX[0] = 0.002f * area;
+        brick.Changes++;
+        Assert.Equal(0, objects.Publish([brick], VoxelSize));
+        brick.FlowX[0] = 1f * area;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], VoxelSize));
+    }
+
+    [Fact]
+    public void ARunningStreamIsSentLessOftenThanEverySecond()
+    {
+        // A stream down a slope into the sea, run for a minute and then sent once a second for half a minute: its
+        // water stirs all the time, but most of it by less than shows.
+        var grid = new VoxelGrid(1f, new TestSolids(0, TestSolids.Box(0, 47, 0, 47), (x, z) => 20f - (0.35f * z)));
+        var solver = new VoxelSolver(grid) { SeaLevel = 5f };
+        var objects = new BrickObjects<int>(new World { Anything = true });
+        int written = 0;
+        int changed = 0;
+        for (int second = 0; second < 90; second++)
+        {
+            for (int tenth = 0; tenth < 10; tenth++)
+            {
+                grid.Pour(24, 20, 1, 0.05f);
+                solver.Step(0.1f);
+            }
+
+            int sent = objects.Publish(grid.Bricks, 1f);
+            if (second >= 60)
+            {
+                written += sent;
+                changed += grid.Bricks.Count;
+            }
+        }
+
+        // Every brick changed every second; at most four in five of them were sent (seven in ten as measured).
+        Assert.InRange(written, 1, changed * 4 / 5);
     }
 
     [Fact]
@@ -305,10 +418,13 @@ public class BrickObjectsTests
             return _next++;
         }
 
+        // Bricks' data written is not kept (a long run's bytes are not looked at).
+        public bool Anything { get; init; }
+
         public void Write(int id, byte[] data)
         {
             Assert.True(Objects.ContainsKey(id), $"{id} written, not a brick's");
-            Objects[id] = data;
+            Objects[id] = Anything ? [] : data;
             Written.Add(id);
         }
 
