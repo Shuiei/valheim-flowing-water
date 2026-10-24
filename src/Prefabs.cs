@@ -152,8 +152,9 @@ internal static class Prefabs
         sphere.center = Vector3.up * MarkerRadius;
     }
 
-    // The hoe's remover: a piece of the game's remove kind, which the game never places (no ghost, no object); chosen,
-    // a click removes the source or drain aimed at, as the hammer's remove does a piece.
+    // The hoe's remover: an ordinary piece, not of the game's remove kind (whose button the game's menu shows only in a
+    // menu with tags, as the hammer's, not the hoe's). Its ghost has nothing to draw; a click with it removes the
+    // source or drain aimed at instead of placing anything (RemoverClickPatch).
     private static void RemoverPiece()
     {
         var remover = new GameObject(RemoverName);
@@ -161,7 +162,6 @@ internal static class Prefabs
         Piece piece = remover.AddComponent<Piece>();
         piece.m_name = MarkerValues.RemoverName;
         piece.m_description = MarkerValues.RemoverDescription;
-        piece.m_removePiece = true;
         piece.m_canBeRemoved = false;
     }
 

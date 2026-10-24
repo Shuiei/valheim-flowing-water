@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.17.2 — 2026-10-24
+
+### Fixed
+- Remove source or drain was missing from the hoe's pieces: the game's menu leaves pieces of its own remove kind out
+  of the hoe's. It is now an ordinary piece, there with the source and drain.
+
 ## v0.17.1 — 2026-10-24
 
 ### Fixed
