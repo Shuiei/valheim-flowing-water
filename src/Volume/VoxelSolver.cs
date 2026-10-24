@@ -676,8 +676,9 @@ internal sealed class VoxelSolver
         flow += dt * Gravity * area / s * (brick.Head[i] - other.Head[j]);
         flow /= 1f + (dt * (Damping + (Drag * (flow < 0f ? -flow : flow) / area)));
 
-        // Sideways onto dry ground no lower than its own, only from water deep enough to wet it.
-        if (axis != 1 && flow != 0f && Unwetting(brick, i, other, j, y, s, flow > 0f))
+        // Sideways onto dry ground no lower than its own, only from water deep enough to wet it (no flow is none either
+        // way).
+        if (axis != 1 && Unwetting(brick, i, other, j, y, s, flow > 0f))
         {
             return 0f;
         }
@@ -692,7 +693,7 @@ internal sealed class VoxelSolver
     private static bool Unwetting(Brick brick, int i, Brick other, int j, int y, float s, bool outward)
     {
         (Brick fromBrick, int from, Brick toBrick, int to) = outward ? (brick, i, other, j) : (other, j, brick, i);
-        return toBrick.Water[to] * s < Film && fromBrick.Water[from] * s < Wetting && Floor(toBrick, to, y, s) >= Floor(fromBrick, from, y, s) - (Film * s);
+        return toBrick.Water[to] * s < Film && fromBrick.Water[from] * s < Wetting && Floor(toBrick, to, y, s) >= Floor(fromBrick, from, y, s) - Film;
     }
 
     // How high the water stands across a side face, metres: from the higher of the two floors to the higher

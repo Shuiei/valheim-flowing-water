@@ -50,6 +50,20 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void AThinFilmDoesNotSpreadOntoGroundAMillimetreLowerWhateverTheVoxelSize()
+    {
+        // A centimetre of water in one voxel of a quarter of a metre, the ground round it a millimetre lower: as level
+        // as its own, so not wet by water so thin.
+        var grid = new VoxelGrid(0.25f, new TestSolids(0, TestSolids.Box(0, 7, 0, 7), (x, z) => x == 3 && z == 3 ? 0.5f : 0.496f));
+        grid.Pour(3, 0, 3, 0.01f * 0.25f * 0.25f);
+
+        Run(grid, 5f);
+
+        Assert.Equal(0f, grid.WaterAt(4, 0, 3));
+        Assert.Equal(0f, grid.WaterAt(3, 0, 2));
+    }
+
+    [Fact]
     public void WaterSpreadsUntilItIsTooThinToWetMore()
     {
         // Half a cubic metre in one voxel of a 16 by 16 m dry floor: it spreads, then stops as a sheet a few
