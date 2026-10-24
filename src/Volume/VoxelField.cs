@@ -112,7 +112,9 @@ internal sealed class VoxelField
     /// looked for in steps of half a voxel (the last one at the distance), and at the crossing, the point of the ray at
     /// the surface's level. A step from over a surface to past its level is a crossing too, though the ray is through
     /// the water by then (a sheet thinner than the step, the ground under it): where the ray is at that level, it is
-    /// in that water. A ray starting in the water finds where it is first out of it and in again.
+    /// in that water, and only if that water's surface is at that level (not a lower pool beside it). Water gone into
+    /// through its side, under its level, is no crossing. A ray starting in the water finds where it is first out of it
+    /// and in again.
     /// </summary>
     /// <returns>Whether it meets the surface within the distance.</returns>
     public bool RayToSurface(float ox, float oy, float oz, float dx, float dy, float dz, float within, out float distance)
@@ -126,16 +128,18 @@ internal sealed class VoxelField
             float y = oy + (dy * t);
             float surface = SurfaceAt(ox + (dx * t), y, oz + (dz * t));
             bool under = !float.IsNegativeInfinity(surface) && y <= surface;
-            if (above && under)
+            // Down through the surface's level since the last step (so the ray goes down), not in through its side.
+            if (above && under && oy + (dy * before) > surface)
             {
-                distance = dy < 0f ? Math.Min(t, Math.Max(before, (oy - surface) / -dy)) : t;
+                distance = Math.Min(t, Math.Max(before, (oy - surface) / -dy));
                 return true;
             }
 
             if (above && dy < 0f && y <= over)
             {
                 float crossing = (oy - over) / -dy;
-                if (!float.IsNegativeInfinity(SurfaceAt(ox + (dx * crossing), over - (VoxelSize * 0.01f), oz + (dz * crossing))))
+                float there = SurfaceAt(ox + (dx * crossing), over - (VoxelSize * 0.01f), oz + (dz * crossing));
+                if (Math.Abs(there - over) <= VoxelSize * 0.01f)
                 {
                     distance = crossing;
                     return true;

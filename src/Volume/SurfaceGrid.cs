@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace FlowingWater.Volume;
 
@@ -14,6 +16,8 @@ namespace FlowingWater.Volume;
 /// a sheet running down out of the brick, or up into it, is joined to the columns beside it. Each square between four
 /// columns is drawn once: by the brick whose rows hold the top of its first column shown (south-west, south-east,
 /// north-west, north-east), and whose grid covers the square (the squares whose south-west column is one of its own).
+/// While the surface blends from one grid to the next, a square where the next shows no water at all is drawn as the
+/// grid blended from drew it, so water drying up fades out instead of going at once.
 /// </para>
 /// </summary>
 internal sealed class SurfaceGrid
@@ -32,6 +36,15 @@ internal sealed class SurfaceGrid
 
     /// <summary>Falling this fast, metres a second, the water is all foam.</summary>
     public const float FoamFall = 4f;
+
+    /// <summary>
+    /// The bricks whose grid reads a brick's water, from it: those west and south of it (their last columns are its
+    /// first), one under it (a top up to <see cref="Window"/> rows over its own), and those over it as far as a column's
+    /// depth reaches down from a top (<see cref="VoxelSurface.DeepestColumn"/> rows, from a top up to Window rows
+    /// under the brick drawing it).
+    /// </summary>
+    public static IReadOnlyList<(int X, int Y, int Z)> Readers { get; } =
+        [.. from dx in new[] { -1, 0 } from dz in new[] { -1, 0 } from dy in Enumerable.Range(-1, ((VoxelSurface.DeepestColumn + Window + Brick.Size - 1) / Brick.Size) + 2) where dx != 0 || dy != 0 || dz != 0 select (dx, dy, dz)];
 
     /// <summary>The grid of this brick.</summary>
     public SurfaceGrid(int x, int y, int z, float voxelSize)
@@ -132,14 +145,26 @@ internal sealed class SurfaceGrid
     /// Whether the square whose south-west column is (i, j) is drawn by this brick: its first column shown (south-west,
     /// south-east, north-west, north-east) has its top in the brick's own rows. The graphics card asks the same.
     /// </summary>
-    public bool DrawsSquare(int i, int j)
+    public bool DrawsSquare(int i, int j) => Owns(i, j) ?? false;
+
+    /// <summary>
+    /// Whether the square whose south-west column is (i, j) is drawn by this brick while its surface blends from one
+    /// grid to the next: as the next draws it, or where the next shows no water at any of its corners, as the grid
+    /// blended from drew it (the water drying up there fades out). The graphics card asks the same.
+    /// </summary>
+    public static bool DrawsSquare(SurfaceGrid from, SurfaceGrid to, int i, int j) => to.Owns(i, j) ?? from?.Owns(i, j) ?? false;
+
+    /// <summary>Whether the brick draws any square at all while its surface blends from one grid to the next.</summary>
+    public static bool DrawsAny(SurfaceGrid from, SurfaceGrid to)
     {
-        foreach ((int di, int dj) in Corners)
+        for (int j = 0; j < Brick.Size; j++)
         {
-            int k = Index(i + di, j + dj);
-            if (Shown[k] > 0f)
+            for (int i = 0; i < Brick.Size; i++)
             {
-                return Own[k] > 0f;
+                if (DrawsSquare(from, to, i, j))
+                {
+                    return true;
+                }
             }
         }
 
@@ -148,8 +173,9 @@ internal sealed class SurfaceGrid
 
     /// <summary>
     /// The surface as it is drawn part way from one grid to the next, as the graphics card blends them: each column's
-    /// values that share of the way (the squares drawn, the next grid's). New data coming part way, the grid drawn then
-    /// is where the next blend starts from, so the water never jumps.
+    /// values that share of the way; the next grid's say on whose each column's top is, or where it shows none there, the
+    /// grid blended from's. New data coming part way, the grid drawn then is where the next blend starts from, so the
+    /// water never jumps.
     /// </summary>
     /// <param name="from">The grid blended from; none, the next grid as it is.</param>
     /// <param name="to">The grid blended to.</param>
@@ -161,7 +187,7 @@ internal sealed class SurfaceGrid
             return to;
         }
 
-        var blend = new SurfaceGrid(to.X, to.Y, to.Z, to.VoxelSize) { Draws = to.Draws };
+        var blend = new SurfaceGrid(to.X, to.Y, to.Z, to.VoxelSize) { Draws = from.Draws || to.Draws };
         float t = Clamp(share);
         Lerp(from.Height, to.Height, blend.Height, t);
         Lerp(from.Depth, to.Depth, blend.Depth, t);
@@ -169,7 +195,11 @@ internal sealed class SurfaceGrid
         Lerp(from.CurrentX, to.CurrentX, blend.CurrentX, t);
         Lerp(from.CurrentZ, to.CurrentZ, blend.CurrentZ, t);
         Lerp(from.Foam, to.Foam, blend.Foam, t);
-        Array.Copy(to.Own, blend.Own, to.Own.Length);
+        for (int k = 0; k < blend.Own.Length; k++)
+        {
+            blend.Own[k] = to.Shown[k] > 0f ? to.Own[k] : from.Own[k];
+        }
+
         return blend;
     }
 
@@ -182,6 +212,21 @@ internal sealed class SurfaceGrid
     }
 
     private static readonly (int I, int J)[] Corners = [(0, 0), (1, 0), (0, 1), (1, 1)];
+
+    // The brick's say on a square: whether it draws it, by its first corner shown; none shown, none.
+    private bool? Owns(int i, int j)
+    {
+        foreach ((int di, int dj) in Corners)
+        {
+            int k = Index(i + di, j + dj);
+            if (Shown[k] > 0f)
+            {
+                return Own[k] > 0f;
+            }
+        }
+
+        return null;
+    }
 
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
 

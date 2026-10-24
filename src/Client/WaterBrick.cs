@@ -346,7 +346,7 @@ internal sealed class WaterBrick : MonoBehaviour
             ByKey.Remove(key);
             if (_drawn)
             {
-                Neighbours(_view, VoxelSurface.Round);
+                Neighbours(_view, OnCard() ? SurfaceGrid.Readers : VoxelSurface.Round);
             }
         }
 
@@ -435,16 +435,13 @@ internal sealed class WaterBrick : MonoBehaviour
 
             _lastData = Time.time;
 
-            // The grids round it read its columns at their edges and its tops near theirs.
+            // The grids round it read its columns at their edges, its tops near theirs and its water under theirs.
             if (OnCard())
             {
-                Neighbours(_view, Around);
+                Neighbours(_view, SurfaceGrid.Readers);
             }
         }
     }
-
-    // The bricks round one, all 26.
-    private static readonly (int X, int Y, int Z)[] Around = [.. from dx in new[] { -1, 0, 1 } from dy in new[] { -1, 0, 1 } from dz in new[] { -1, 0, 1 } where dx != 0 || dy != 0 || dz != 0 select (dx, dy, dz)];
 
     // Whether the graphics card shapes the surface: the mod's own shader draws it (not the game's material, nor the
     // flat colour for testing).
@@ -618,9 +615,14 @@ internal sealed class WaterBrick : MonoBehaviour
             {
                 Failed(gridFailure, transform.position);
             }
-            else
+            else if (OnCard())
             {
                 ShowOnCard(grid);
+            }
+            else
+            {
+                // The way it is drawn changed while the grid was built: the mesh is built instead.
+                Waiting.Add(this);
             }
 
             return;
@@ -697,7 +699,7 @@ internal sealed class WaterBrick : MonoBehaviour
         _filter.sharedMesh = GpuSurface.Grid(grid.VoxelSize);
         _renderer.sharedMaterial = material;
         _renderer.SetPropertyBlock(_gpu.Properties);
-        _renderer.enabled = grid.Draws;
+        _renderer.enabled = _gpu.Draws;
     }
 
     // The game's material is animated and drawn only as far as each renderer says, as the game's own water does; the
