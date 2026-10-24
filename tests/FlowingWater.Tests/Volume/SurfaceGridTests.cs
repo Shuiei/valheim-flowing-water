@@ -151,6 +151,58 @@ public class SurfaceGridTests
         Assert.Same(to, SurfaceGrid.Blend(null, to, 0.5f));
     }
 
+    [Fact]
+    public void WaterDryingUpIsDrawnAsBeforeUntilItHasFadedOut()
+    {
+        var wet = new BrickView(0, 0, 0, 1f);
+        wet.Water[Brick.Index(2, 1, 2)] = 0.6f;
+        var from = SurfaceGrid.Build(Field(wet), 0, 0, 0);
+        var to = SurfaceGrid.Build(Field(new BrickView(0, 0, 0, 1f)), 0, 0, 0);
+
+        Assert.False(to.Draws);
+        Assert.True(SurfaceGrid.DrawsSquare(from, to, 2, 2));
+        Assert.True(SurfaceGrid.DrawsAny(from, to));
+        Assert.False(SurfaceGrid.DrawsAny(to, to));
+
+        // Blended part way and blended on from there, the square stays this brick's.
+        var half = SurfaceGrid.Blend(from, to, 0.5f);
+        Assert.True(half.Draws);
+        Assert.Equal(1f, half.Own[SurfaceGrid.Index(2, 2)]);
+        Assert.True(SurfaceGrid.DrawsSquare(half, to, 2, 2));
+    }
+
+    [Fact]
+    public void ABricksGridIsReadByEveryBrickWhoseGridItChanges()
+    {
+        // A column 40 deep, its top in brick 2 and its bottom in brick 0: brick 2's grid reads brick 0's floor.
+        var views = new BrickView[3];
+        for (int b = 0; b < 3; b++)
+        {
+            views[b] = new BrickView(0, b, 0, 1f);
+        }
+
+        for (int y = 8; y < 48; y++)
+        {
+            views[y / Brick.Size].Water[Brick.Index(4, y % Brick.Size, 4)] = 1f;
+        }
+
+        views[2].Water[Brick.Index(4, 15, 4)] = 0.5f;
+        var deep = SurfaceGrid.Build(Field(views), 0, 2, 0);
+        views[0].Solid[Brick.Index(4, 8, 4)] = 0.5f;
+        var raised = SurfaceGrid.Build(Field(views), 0, 2, 0);
+
+        Assert.NotEqual(deep.Depth[SurfaceGrid.Index(4, 4)], raised.Depth[SurfaceGrid.Index(4, 4)]);
+        Assert.Contains((0, 2, 0), SurfaceGrid.Readers);
+
+        // The deepest a grid reads, a full column under a top Window rows under the brick, and the bricks west and
+        // south whose last columns are its first.
+        int deepest = ((SurfaceGrid.Window + VoxelSurface.DeepestColumn) / Brick.Size) + 1;
+        Assert.Contains((0, deepest, 0), SurfaceGrid.Readers);
+        Assert.Contains((-1, -1, -1), SurfaceGrid.Readers);
+        Assert.DoesNotContain((1, 0, 0), SurfaceGrid.Readers);
+        Assert.DoesNotContain((0, 0, 0), SurfaceGrid.Readers);
+    }
+
     private static VoxelField Field(params BrickView[] views)
     {
         var field = new VoxelField();
