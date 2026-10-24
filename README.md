@@ -73,7 +73,7 @@ everything that reaches it.
 | `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
 | `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built (paused with the 3D water, back in a later version) |
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
-| `Server.SendSeconds` | 1 | How often a changed block of water is sent to the players near it |
+| `Server.SendSeconds` | 1 | How often a block of water whose change would show is sent to the players near it |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
@@ -133,15 +133,19 @@ there to the new grid (same volume), at the next start or at once with a config 
   until water is poured in, a solid changes or a block beside it moves: still pools cost almost nothing. A source
   pours at its point (the first open voxel there); a drain takes from every voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
-  dedicated server and where no player is. Ground heights come from the world generator as the game's
-  heightmap builder makes them, plus the players' terrain changes; pieces come from their objects and the
-  prefabs' colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed,
-  every `SendSeconds` (packed a few blocks a frame, written together once all are; all at once before the world
-  is saved), and the game sends it to the players near it. A step of the water is taken a part of the blocks at a
-  time, the frame's budget looked at between parts, spread over the server's processors; a block
-  whose ground is not generated yet waits a frame or two for it rather than holding the frame. The column water
-  of earlier versions is moved into voxels once, when the world opens (the old tile of a zone whose water finds no
-  room is kept, not drawn, and tried again at the next start).
+  dedicated server and where no player is. Ground heights come from the world generator as the game's heightmap
+  builder makes them, plus the players' terrain changes; pieces come from their objects and the prefabs'
+  colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed in a way a
+  player would see, every `SendSeconds` (packed a few blocks a frame, written together once all are), and the game
+  sends it to the players near it: a voxel's water over the thinnest drawn (1 cm) changing by more than 1 % of a
+  voxel, its floor, or its current by a few steps. A running stream's water stirs all the time, its edges' traces
+  coming and going: changes too small to show are held back until they add up, or ten sends at most, so a stream's
+  blocks are sent about a third less often and still water's hardly at all. Before the world is saved every change
+  is written as it is. A step of the water is taken a part of the blocks at a time, the frame's budget looked at
+  between parts, spread over the server's processors; a block whose ground is not generated yet waits a frame or
+  two for it rather than holding the frame. The column water of earlier versions is moved into voxels once, when
+  the world opens (the old tile of a zone whose water finds no room is kept, not drawn, and tried again at the
+  next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
   standard lighting), with the look of the game's sea: when the game runs, the water takes the sea material's own
   ripple and foam textures, colours and settings, and is coloured, lit and fogged the way the sea is, so a pool or a
