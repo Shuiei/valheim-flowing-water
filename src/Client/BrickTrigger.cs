@@ -5,13 +5,15 @@ using UnityEngine;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// The tile's trigger box on the game's water layer: tells characters, items and ships inside it
+/// The brick's trigger box on the game's water layer: tells characters, items and ships inside it
 /// the water level over them, as the game's own water volumes do, and lets the current carry
 /// floating things (swimmers are carried by the character patch). The level told is the higher of the
 /// flowing water and the game's own (the sea at a river's mouth): what is told last is what an object has, so
 /// telling the flowing water's alone would take the sea from a swimmer or a fish between the sea's own tellings.
+/// Its name must be no class of the game's: Unity finds a component added in code again by its class name alone when
+/// the game copies its object, so one named as the game's own WaterTrigger (splash effects) became that on every brick.
 /// </summary>
-internal sealed class WaterTrigger : MonoBehaviour
+internal sealed class BrickTrigger : MonoBehaviour
 {
     private const float NoWater = -10000f;
 

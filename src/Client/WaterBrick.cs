@@ -86,6 +86,9 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private static float _lift;
 
+    // Whether a brick without its trigger was told of: once, as every brick would be.
+    private static bool _triggerMissingTold;
+
     private ZNetView _nview;
 
     // Whether it is drawn: not on a dedicated server.
@@ -242,6 +245,12 @@ internal sealed class WaterBrick : MonoBehaviour
         {
             enabled = false;
             return;
+        }
+
+        if (!_triggerMissingTold && GetComponentInChildren<BrickTrigger>(true) == null)
+        {
+            _triggerMissingTold = true;
+            FlowingWaterPlugin.Log.LogError($"Water brick at {transform.position} came without its trigger: no one can swim or float in the flowing water");
         }
 
         _drawn = ZNet.instance == null || !ZNet.instance.IsDedicated();

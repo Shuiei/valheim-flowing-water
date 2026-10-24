@@ -151,7 +151,7 @@ internal static class Prefabs
         BoxCollider box = trigger.AddComponent<BoxCollider>();
         box.isTrigger = true;
         box.size = size;
-        trigger.AddComponent<WaterTrigger>();
+        trigger.AddComponent<BrickTrigger>();
     }
 
     private static GameObject Networked(string name)
