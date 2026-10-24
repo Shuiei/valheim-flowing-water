@@ -13,7 +13,6 @@
   <ItemGroup>
     <Compile Include="../../src/Server/ErosionRules.cs" Link="Mod/ErosionRules.cs" />
     <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
-    <Compile Include="../../src/Client/WaterLook.cs" Link="Mod/WaterLook.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
     <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
     <Compile Include="../../src/Client/LatestRead.cs" Link="Mod/LatestRead.cs" />

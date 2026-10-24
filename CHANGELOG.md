@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.18.0 — 2026-10-24
+
+### Changed
+- The flowing water now looks like the game's own sea: the same ripples, colours, reflections, foam and shore, so a
+  pool or a river reads as the same water as the sea it runs into. Where it runs, its ripples run with it and fast
+  water foams.
+- The WaterClarity and WaterColour settings are gone: the water takes the sea's colours.
+
 ## v0.17.4 — 2026-10-24
 
 ### Fixed

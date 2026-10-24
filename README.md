@@ -85,9 +85,7 @@ everything that reaches it.
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all (the hoe's panel starts from it) |
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres (the hoe's panel starts from it) |
 | `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place, change and remove sources and drains (the server's setting counts; the host and admins always may) |
-| `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
-| `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
-| `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
+| `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
@@ -142,14 +140,14 @@ there to the new grid (same volume), at the next start or at once with a config 
   of earlier versions is moved into voxels once, when the world opens (the old tile of a zone whose water finds no
   room is kept, not drawn, and tried again at the next start).
 - **Shader.** The mod's own (`unity/Assets/FlowingWater/Shaders/FlowingWater.shader`, built-in render pipeline,
-  standard lighting): the mesh carries depth, white water, shore and current per vertex; a ripple normal map is
-  dragged along the current in two offset phases (flow mapping), with a slow second layer for still water and,
-  seen from afar, a larger layer that still reads at a distance; the water is a body, not a tinted sheet: what
-  lies behind it (the scene, grabbed once a frame) is seen through it, bent by the ripples, each colour dimmed
-  by how much water the eye looks through, from the scene's depth (red goes first, so a pool turns blue-green
-  and deeper water hides its bed: `WaterClarity`, `WaterColour`), with 15% of the water's colour even where it
-  is thin; foam rises with speed, with the surface's slope (rapids, falls) and a little at the shore; the edge
-  fades out to nothing, its reflections included (the blending adds light even where the water is transparent).
+  standard lighting), with the look of the game's sea: when the game runs, the water takes the sea material's own
+  ripple and foam textures, colours and settings, and is coloured, lit and fogged the way the sea is, so a pool or a
+  river is the same water as the sea it runs into. What lies behind (the scene, grabbed once a frame, bent by the
+  ripples) is seen through thin water, tinted as through the sea; deeper water takes the sea's bottom colour, from
+  shallow to deep with the water's depth. Still water's ripples drift with the game's wind, as the sea's; running
+  water's are dragged along the current in two offset phases (flow mapping), finer than the sea's, and it foams
+  with its speed (rapids) and where the simulation says it falls. The shore fades out over the scene's depth behind
+  it, with a band of foam just off the edge, as the sea's.
 - **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
   can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s. Carrying less, it
   picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets everything down,

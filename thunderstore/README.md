@@ -54,9 +54,7 @@ drain given a rate (a drain of rate 0 still takes everything that reaches it). A
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
 | `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place sources and drains (the server's setting counts) |
-| `Client.CustomShader` | true | The mod's own water shader; off = the game's materials |
-| `Client.WaterClarity` | 4.5 | How far one sees into the water (m): shallow stays clear, deep takes the water's colour |
-| `Client.WaterColour` | 081C24FF | The colour deep water takes (RGBA hex, RRGGBBAA) |
+| `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 | `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water rushes down steep ground |

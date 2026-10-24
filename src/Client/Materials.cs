@@ -10,9 +10,12 @@ internal static class Materials
 
     private static readonly int ColourId = Shader.PropertyToID("_Color");
 
-    private static readonly int AbsorptionId = Shader.PropertyToID("_Absorption");
+    // What the water takes from the game's sea material: its textures, colours and settings, by the same names.
+    private static readonly string[] SeaTextures = ["_Normal", "_FoamTex", "_RandomFoamTex"];
 
-    private static readonly int DeepColourId = Shader.PropertyToID("_DeepColor");
+    private static readonly string[] SeaColours = ["_ColorTop", "_ColorBottom", "_ColorBottomShallow", "_SurfaceColor", "_FoamColor"];
+
+    private static readonly string[] SeaFloats = ["_Glossiness", "_Metallic", "_NormalPower", "_NormalScale", "_WaveVel", "_DepthFade", "_ShoreFade", "_FoamDepth", "_RefractionScale", "_RefractionMax"];
 
     // What the game's water materials read from each renderer: the time their waves run on, how far they are drawn.
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
@@ -102,19 +105,64 @@ internal static class Materials
         }
 
         _custom = new Material(material) { name = "FlowingWater custom" };
-        ApplyLook();
-        FlowingWaterPlugin.Settings.WaterClarity.SettingChanged += (_, _) => ApplyLook();
-        FlowingWaterPlugin.Settings.WaterColour.SettingChanged += (_, _) => ApplyLook();
         FlowingWaterPlugin.Log.LogInfo($"Water shader {material.shader.name} loaded from the {platform} bundle");
+        TakeSeaLook(_custom);
         return _custom;
     }
 
-    // The water's clarity and colour from the settings, onto the custom material.
-    private static void ApplyLook()
+    // The sea's look onto the water: its own textures, colours and settings, so the two are the same water. Without
+    // the sea's material (or one of its values) the shader's own stand in: the sea's as they were when it was written,
+    // with made textures.
+    private static void TakeSeaLook(Material water)
     {
-        (float r, float g, float b) = WaterLook.Absorption(FlowingWaterPlugin.Settings.WaterClarity.Value);
-        _custom.SetVector(AbsorptionId, new Vector4(r, g, b, 0f));
-        _custom.SetColor(DeepColourId, FlowingWaterPlugin.Settings.WaterColour.Value);
+        Material sea = ZoneWater();
+        if (sea == null)
+        {
+            FlowingWaterPlugin.Log.LogWarning("The sea's material was not found: the water is drawn with the shader's own copy of its look");
+            return;
+        }
+
+        var missing = new List<string>();
+        foreach (string name in SeaTextures)
+        {
+            if (sea.HasProperty(name) && sea.GetTexture(name) is { } texture)
+            {
+                water.SetTexture(name, texture);
+            }
+            else
+            {
+                missing.Add(name);
+            }
+        }
+
+        foreach (string name in SeaColours)
+        {
+            if (sea.HasProperty(name))
+            {
+                water.SetColor(name, sea.GetColor(name));
+            }
+            else
+            {
+                missing.Add(name);
+            }
+        }
+
+        foreach (string name in SeaFloats)
+        {
+            if (sea.HasProperty(name))
+            {
+                water.SetFloat(name, sea.GetFloat(name));
+            }
+            else
+            {
+                missing.Add(name);
+            }
+        }
+
+        if (missing.Count > 0)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"The sea's material has no {string.Join(", ", missing)}: the water uses the shader's own for those");
+        }
     }
 
     /// <summary>The game's sea water, without its wind waves; null (logged once) when it cannot be found.</summary>
