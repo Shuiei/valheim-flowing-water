@@ -30,7 +30,8 @@ internal sealed class VoxelField
     /// <summary>
     /// A field of only the bricks <see cref="VoxelSurface.Build"/> reads for this one, to build its surface away from
     /// this field (on another thread, while this one changes): those round it, the one over them, and those under
-    /// them as far down as a column's depth is measured (from a top as low as a voxel under the brick).
+    /// them as far down as a column's depth is measured (from a top as low as the tops its corners join, a few rows
+    /// under the brick).
     /// </summary>
     public VoxelField Near(BrickView view)
     {

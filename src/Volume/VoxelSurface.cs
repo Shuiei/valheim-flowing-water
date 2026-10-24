@@ -5,10 +5,13 @@ namespace FlowingWater.Volume;
 
 /// <summary>
 /// The water's surface over a brick, as triangles, without the game. A wet voxel with no water over it has a top,
-/// its corners shared with the tops beside it at the mean of their levels (a pool lies flat, a stream slopes
-/// smoothly); a wet voxel beside one with no water has a side from its water's floor to its top (a fall's sheet, the
-/// side of a stream leaving a ledge). Each vertex carries the depth of the water under it, how far it is from a
-/// shore (0 at the water's very edge) and the water's velocity.
+/// its corners shared with the tops beside it that are one water with it (<see cref="MaxStep"/>), at the mean of
+/// their levels: a pool lies flat, and a stream down a slope, however steep, is one smooth sheet, not a stair. A wet
+/// voxel beside one with no water has a side from its water's floor up to the surface over it (a fall's sheet, a
+/// pool's edge over a cliff), except between columns of one water, where the water beside stands on what fills that
+/// voxel (ground), and along a sheet thinner than <see cref="SheetDepth"/>, whose edge is its surface's. Each vertex
+/// carries the depth of the water under it, how far it is from a shore (0 at the water's very edge) and the water's
+/// velocity.
 /// </summary>
 internal static class VoxelSurface
 {
@@ -17,8 +20,21 @@ internal static class VoxelSurface
     /// <summary>The most voxels down a column's depth is measured, under its top.</summary>
     public const int DeepestColumn = 64;
 
+    /// <summary>
+    /// The most rows apart the tops of two columns side by side may be and still be one water: the higher one's
+    /// water all over the lower top (a stream running down a slope up to three voxels a voxel). Further apart, the
+    /// higher one ends there with a side (a fall's edge).
+    /// </summary>
+    public const int MaxStep = 3;
+
+    /// <summary>
+    /// The shallowest water, a share of a voxel from its top down to its floor, whose column has sides: a thinner
+    /// sheet's edge is its surface's, faded at the shore.
+    /// </summary>
+    public const float SheetDepth = 0.5f;
+
     // Bricks over one whose surface may read it: a column's depth is measured down DeepestColumn voxels from its top,
-    // which may be a row over the brick it is in.
+    // which may be a top some rows under the brick it is in (joined round a corner, at most 3 MaxStep down).
     private const int Above = (DeepestColumn / Brick.Size) + 1;
 
     /// <summary>The bricks round one whose surface may read it, as offsets in bricks: beside it, under it, and up to five over.</summary>
@@ -26,9 +42,10 @@ internal static class VoxelSurface
 
     /// <summary>
     /// The bricks round one (offsets in bricks) whose surface may change when its water goes from
-    /// <paramref name="was"/> to <paramref name="now"/>: one beside it reads its columns facing it, one under it its
-    /// bottom two layers (its top voxels are tops when no water goes on up through them), those over it up to five
-    /// bricks up any column (the depth under their water is measured down through this one).
+    /// <paramref name="was"/> to <paramref name="now"/>: one beside it reads its columns facing it, one under it any
+    /// of its rows (the water of a top there is joined to tops up to <see cref="MaxStep"/> over it, theirs to others,
+    /// and so on round a corner), those over it up to five bricks up any column (the depth under their water is
+    /// measured down through this one).
     /// All of them when there was none before.
     /// </summary>
     public static ICollection<(int X, int Y, int Z)> Touched(BrickView was, BrickView now)
@@ -43,8 +60,8 @@ internal static class VoxelSurface
         {
             if (!Same(was, now, i))
             {
-                (int x, int y, int z) = Brick.Place(i);
-                AddRound(touched, x, y, z);
+                (int x, _, int z) = Brick.Place(i);
+                AddRound(touched, x, z);
             }
         }
 
@@ -55,11 +72,11 @@ internal static class VoxelSurface
     private static bool Same(BrickView was, BrickView now, int i) =>
         was.Water[i].Equals(now.Water[i]) && was.Solid[i].Equals(now.Solid[i]);
 
-    // The bricks a changed voxel at (x, y, z) of a brick touches: beside it only from its border, under it only from
-    // its bottom two layers, over it always.
-    private static void AddRound(HashSet<(int X, int Y, int Z)> touched, int x, int y, int z)
+    // The bricks a changed voxel in column (x, z) of a brick touches: beside it only from its border, under and over
+    // it always.
+    private static void AddRound(HashSet<(int X, int Y, int Z)> touched, int x, int z)
     {
-        for (int dy = y <= 1 ? -1 : 0; dy <= Above; dy++)
+        for (int dy = -1; dy <= Above; dy++)
         {
             for (int dz = z == 0 ? -1 : 0; dz <= (z == Brick.Size - 1 ? 1 : 0); dz++)
             {
@@ -92,145 +109,344 @@ internal static class VoxelSurface
     }
 
     /// <summary>The surface over a brick of the field.</summary>
-    public static SurfaceMesh Build(VoxelField field, BrickView brick)
+    public static SurfaceMesh Build(VoxelField field, BrickView brick) => new Surface(field, brick).Build();
+
+    // A brick's surface being built, with what it worked out of the water round it: each top's water, each top's
+    // match beside it, each corner's vertex.
+    private sealed class Surface
     {
-        var mesh = new SurfaceMesh();
-        var corners = new Dictionary<(int X, int Y, int Z), int>();
-        int ox = brick.X * Brick.Size;
-        int oy = brick.Y * Brick.Size;
-        int oz = brick.Z * Brick.Size;
-        for (int i = 0; i < Brick.Count; i++)
+        // Most tops one corner's vertex joins: one in each of the four columns round it.
+        private const int CornerTops = 4;
+
+        private readonly VoxelField _field;
+
+        private readonly BrickView _brick;
+
+        private readonly SurfaceMesh _mesh = new();
+
+        // Each top's water, by the top's key (VoxelGrid.Key of its voxel).
+        private readonly Dictionary<long, (float Level, int Bottom, float Depth)> _runs = [];
+
+        // Each top's match beside it, by the way to it (Toward) and the top's key.
+        private readonly Dictionary<long, int?>[] _matches = [[], [], [], []];
+
+        // Each top's corners by which of its four (Way of the corner from the top's voxel) and the top's key: all the
+        // tops a corner joins share it.
+        private readonly Dictionary<long, Corner>[] _corners = [[], [], [], []];
+
+        public Surface(VoxelField field, BrickView brick)
         {
-            if (brick.Water[i] <= VoxelField.Wet)
+            _field = field;
+            _brick = brick;
+        }
+
+        public SurfaceMesh Build()
+        {
+            int ox = _brick.X * Brick.Size;
+            int oy = _brick.Y * Brick.Size;
+            int oz = _brick.Z * Brick.Size;
+            for (int lz = 0; lz < Brick.Size; lz++)
             {
-                continue;
+                for (int lx = 0; lx < Brick.Size; lx++)
+                {
+                    // Down the column, the top of the water the voxel above belongs to.
+                    int? top = null;
+                    for (int ly = Brick.Size - 1; ly >= 0; ly--)
+                    {
+                        int i = Brick.Index(lx, ly, lz);
+                        if (_brick.Water[i] <= VoxelField.Wet)
+                        {
+                            top = null;
+                            continue;
+                        }
+
+                        int x = ox + lx;
+                        int y = oy + ly;
+                        int z = oz + lz;
+                        top = !_field.GoesUp(x, y, z) ? y : top ?? TopOver(x, y, z);
+                        var velocity = new Vec3(_brick.VelocityX[i], _brick.VelocityY[i], _brick.VelocityZ[i]);
+                        if (top == y)
+                        {
+                            Top(x, y, z, velocity);
+                        }
+
+                        DrawSides(x, y, z, top.Value, velocity);
+                    }
+                }
             }
 
-            (int lx, int ly, int lz) = Brick.Place(i);
-            int x = ox + lx;
-            int y = oy + ly;
-            int z = oz + lz;
-            var velocity = new Vec3(brick.VelocityX[i], brick.VelocityY[i], brick.VelocityZ[i]);
-            bool top = !field.GoesUp(x, y, z);
-            if (top)
+            return _mesh;
+        }
+
+        // The top of the water a voxel's water goes on up into, at most DeepestColumn over it.
+        private int TopOver(int x, int y, int z)
+        {
+            int top = y;
+            while (_field.GoesUp(x, top, z) && top - y < DeepestColumn)
             {
-                Top(field, mesh, corners, x, y, z, velocity);
+                top++;
             }
 
+            return top;
+        }
+
+        // A top: four corners, each shared with the tops beside it that its water joins.
+        private void Top(int x, int y, int z, Vec3 velocity)
+        {
+            int a = Vertex(x, z, (x, y, z), velocity);
+            int b = Vertex(x, z + 1, (x, y, z), velocity);
+            int c = Vertex(x + 1, z + 1, (x, y, z), velocity);
+            int d = Vertex(x + 1, z, (x, y, z), velocity);
+            _mesh.Triangles.AddRange([a, b, c, a, c, d]);
+        }
+
+        // The vertex of a top's corner at grid corner (cx, cz), made when first drawn.
+        private int Vertex(int cx, int cz, (int X, int Y, int Z) top, Vec3 velocity)
+        {
+            Corner corner = CornerOf(cx, cz, top);
+            if (corner.Index < 0)
+            {
+                float s = _field.VoxelSize;
+                corner.Index = _mesh.Add(new Vec3(cx * s, corner.Height, cz * s), corner.Depth, corner.Shore, velocity);
+            }
+
+            return corner.Index;
+        }
+
+        // A top's corner at grid corner (cx, cz): the mean level of the tops round it its water joins (through each
+        // other, one in each column at most), how many columns of the four hold them (its shore), and the deepest
+        // water under them.
+        private Corner CornerOf(int cx, int cz, (int X, int Y, int Z) top)
+        {
+            if (_corners[Way(cx - top.X, cz - top.Z)].TryGetValue(VoxelGrid.Key(top.X, top.Y, top.Z), out Corner known))
+            {
+                return known;
+            }
+
+            var tops = new List<(int X, int Y, int Z)>(CornerTops) { top };
+            for (int k = 0; k < tops.Count; k++)
+            {
+                (int x, int y, int z) = tops[k];
+                Join(tops, (x, y, z), x < cx ? 1 : -1, 0);
+                Join(tops, (x, y, z), 0, z < cz ? 1 : -1);
+            }
+
+            float sum = 0f;
+            float depth = 0f;
+            foreach ((int X, int Y, int Z) t in tops)
+            {
+                (float level, _, float under) = Run(t);
+                sum += level;
+                depth = Math.Max(depth, under);
+            }
+
+            var corner = new Corner(sum / tops.Count, tops.Count / 4f, depth);
+            foreach ((int x, int y, int z) in tops)
+            {
+                _corners[Way(cx - x, cz - z)][VoxelGrid.Key(x, y, z)] = corner;
+            }
+
+            return corner;
+        }
+
+        // Adds to a corner's tops the one beside this one (dx, dz) its water joins, unless its column has one.
+        private void Join(List<(int X, int Y, int Z)> tops, (int X, int Y, int Z) top, int dx, int dz)
+        {
+            if (Match(top, dx, dz) is not int y)
+            {
+                return;
+            }
+
+            foreach ((int x, _, int z) in tops)
+            {
+                if (x == top.X + dx && z == top.Z + dz)
+                {
+                    return;
+                }
+            }
+
+            tops.Add((top.X + dx, y, top.Z + dz));
+        }
+
+        // The row of the top in the column beside a top (dx, dz) that is one water with it: each is the other's
+        // nearest the water joins (<see cref="Joins"/>). None when there is none.
+        private int? Match((int X, int Y, int Z) top, int dx, int dz)
+        {
+            Dictionary<long, int?> matches = _matches[Toward(dx, dz)];
+            long key = VoxelGrid.Key(top.X, top.Y, top.Z);
+            if (matches.TryGetValue(key, out int? known))
+            {
+                return known;
+            }
+
+            int? match = Nearest(top, dx, dz) is int y && Nearest((top.X + dx, y, top.Z + dz), -dx, -dz) == top.Y ? y : null;
+            matches[key] = match;
+            return match;
+        }
+
+        // The top in the column beside a top (dx, dz) nearest its row that its water joins, the higher of two as near.
+        private int? Nearest((int X, int Y, int Z) top, int dx, int dz)
+        {
+            int x = top.X + dx;
+            int z = top.Z + dz;
+            // Rows 0, +1, -1, +2, -2... from the top's.
+            for (int k = 0; k <= 2 * MaxStep; k++)
+            {
+                int y = top.Y + ((k % 2 == 1) ? (k + 1) / 2 : -k / 2);
+                if (_field.IsWet(x, y, z) && !_field.GoesUp(x, y, z) && Joins(top, (x, y, z)))
+                {
+                    return y;
+                }
+            }
+
+            return null;
+        }
+
+        // Whether two tops side by side are one water: within a row of each other (a pool, a gentle slope), or the
+        // higher one's water all over the lower top and at most MaxStep over it (a stream down a steep slope).
+        private bool Joins((int X, int Y, int Z) a, (int X, int Y, int Z) b)
+        {
+            ((int X, int Y, int Z) high, (int X, int Y, int Z) low) = a.Y >= b.Y ? (a, b) : (b, a);
+            int step = high.Y - low.Y;
+            return step <= 1 || (step <= MaxStep && Run(high).Bottom > low.Y);
+        }
+
+        // A top's water: its level, the lowest voxel it goes down to (the first without water under it, at most
+        // DeepestColumn down) and its depth there, metres.
+        private (float Level, int Bottom, float Depth) Run((int X, int Y, int Z) top)
+        {
+            long key = VoxelGrid.Key(top.X, top.Y, top.Z);
+            if (_runs.TryGetValue(key, out (float Level, int Bottom, float Depth) known))
+            {
+                return known;
+            }
+
+            (int x, int y, int z) = top;
+            int bottom = y;
+            while (_field.IsWet(x, bottom - 1, z) && _field.GoesUp(x, bottom - 1, z) && y - bottom < DeepestColumn)
+            {
+                bottom--;
+            }
+
+            float level = _field.Level(x, y, z);
+            var run = (level, bottom, level - _field.Floor(x, bottom, z));
+            _runs[key] = run;
+            return run;
+        }
+
+        // The sides of a wet voxel whose water goes up to the top at row top: towards each voxel beside it without
+        // water, unless the water is a sheet too thin for sides, the water beside is one with it (the same sheet),
+        // or the voxel beside is under water standing in its column (ground).
+        private void DrawSides(int x, int y, int z, int top, Vec3 velocity)
+        {
             foreach ((int dx, int dz) in Sides)
             {
-                if (!field.IsWet(x + dx, y, z + dz))
+                if (!_field.IsWet(x + dx, y, z + dz)
+                    && Run((x, top, z)).Depth >= SheetDepth * _field.VoxelSize
+                    && Match((x, top, z), dx, dz) == null
+                    && !UnderWater(x + dx, y, z + dz))
                 {
-                    Side(field, mesh, x, y, z, dx, dz, top, velocity);
+                    Side(x, y, z, top, dx, dz, velocity);
                 }
             }
         }
 
-        return mesh;
-    }
-
-    // A top: four shared corners at the mean level of the tops around each.
-    private static void Top(VoxelField field, SurfaceMesh mesh, Dictionary<(int X, int Y, int Z), int> corners, int x, int y, int z, Vec3 velocity)
-    {
-        int a = Corner(field, mesh, corners, x, y, z, velocity);
-        int b = Corner(field, mesh, corners, x, y, z + 1, velocity);
-        int c = Corner(field, mesh, corners, x + 1, y, z + 1, velocity);
-        int d = Corner(field, mesh, corners, x + 1, y, z, velocity);
-        mesh.Triangles.AddRange([a, b, c, a, c, d]);
-    }
-
-    // The vertex at grid corner (cx, cz) of row y (<see cref="Level"/>), shared by the tops round it.
-    private static int Corner(VoxelField field, SurfaceMesh mesh, Dictionary<(int X, int Y, int Z), int> corners, int cx, int y, int cz, Vec3 velocity)
-    {
-        if (corners.TryGetValue((cx, y, cz), out int index))
+        // Whether water stands over a voxel in its column, within a brick's height: it rests on what fills the voxel
+        // (the ground under a pool on a cliff's top, beside a stream at its foot).
+        private bool UnderWater(int x, int y, int z)
         {
-            return index;
-        }
-
-        (float height, float shore, float depth) = Level(field, cx, y, cz);
-        float s = field.VoxelSize;
-        index = mesh.Add(new Vec3(cx * s, height, cz * s), depth, shore, velocity);
-        corners[(cx, y, cz)] = index;
-        return index;
-    }
-
-    // At grid corner (cx, cz) of row y: the mean level of the tops of the four columns round it (within a voxel of
-    // y), how many of them hold water (its shore), and the deepest water under them.
-    private static (float Height, float Shore, float Depth) Level(VoxelField field, int cx, int y, int cz)
-    {
-        float sum = 0f;
-        int found = 0;
-        float depth = 0f;
-        for (int dz = -1; dz <= 0; dz++)
-        {
-            for (int dx = -1; dx <= 0; dx++)
+            for (int up = 1; up <= Brick.Size; up++)
             {
-                if (TopNear(field, cx + dx, y, cz + dz, out int ty))
+                if (_field.IsWet(x, y + up, z))
                 {
-                    sum += field.Level(cx + dx, ty, cz + dz);
-                    found++;
-                    depth = Math.Max(depth, Depth(field, cx + dx, ty, cz + dz));
+                    return true;
                 }
             }
+
+            return false;
         }
 
-        return (found > 0 ? sum / found : (y + 1) * field.VoxelSize, found / 4f, depth);
-    }
-
-    // The top voxel of a column within a voxel of row y (a wet voxel with no water over it); the one a row up only if
-    // the column's water at row y goes on into it (a pool over a floor is not the one under it).
-    private static bool TopNear(VoxelField field, int x, int y, int z, out int top)
-    {
-        for (top = y + 1; top >= y - 1; top--)
+        // A side towards (dx, dz): from the water's floor in the voxel up to its top, at most up to the surface drawn
+        // over its column there (the top's corners: the side meets the surface, never sticks out over it), facing
+        // out. Where the surface there is under the voxel's floor at one end, the side ends where it crosses the
+        // floor (a triangle); at both, there is none.
+        private void Side(int x, int y, int z, int top, int dx, int dz, Vec3 velocity)
         {
-            if (top == y + 1 && !field.GoesUp(x, y, z))
+            float s = _field.VoxelSize;
+            float floor = _field.Floor(x, y, z);
+
+            // The face's two ends along the side, so that it faces out of the voxel (clockwise seen from outside).
+            (int ax, int az, int bx, int bz) = (dx, dz) switch
             {
-                continue;
+                (1, _) => (x + 1, z, x + 1, z + 1),
+                (-1, _) => (x, z + 1, x, z),
+                (_, 1) => (x + 1, z + 1, x, z + 1),
+                _ => (x, z, x + 1, z),
+            };
+            float highA = CornerOf(ax, az, (x, top, z)).Height;
+            float highB = CornerOf(bx, bz, (x, top, z)).Height;
+            if (y != top)
+            {
+                highA = Math.Min(highA, (y + 1) * s);
+                highB = Math.Min(highB, (y + 1) * s);
             }
 
-            if (field.IsWet(x, top, z) && !field.GoesUp(x, top, z))
+            if (highA <= floor && highB <= floor)
             {
-                return true;
+                return;
+            }
+
+            var endA = new Vec3(ax * s, floor, az * s);
+            var endB = new Vec3(bx * s, floor, bz * s);
+            if (highA <= floor || highB <= floor)
+            {
+                // Where the surface crosses the floor, from end A towards end B.
+                Vec3 crossing = endA + ((endB - endA) * ((floor - highA) / (highB - highA)));
+                if (highA <= floor)
+                {
+                    endA = crossing;
+                }
+                else
+                {
+                    endB = crossing;
+                }
+            }
+
+            int a = _mesh.Add(endA, 1f, 1f, velocity);
+            int b = highA > floor ? _mesh.Add(new Vec3(endA.X, highA, endA.Z), 1f, 1f, velocity) : a;
+            int c = highB > floor ? _mesh.Add(new Vec3(endB.X, highB, endB.Z), 1f, 1f, velocity) : -1;
+            int d = _mesh.Add(endB, 1f, 1f, velocity);
+            if (c < 0)
+            {
+                _mesh.Triangles.AddRange([a, b, d]);
+            }
+            else if (b == a)
+            {
+                _mesh.Triangles.AddRange([a, c, d]);
+            }
+            else
+            {
+                _mesh.Triangles.AddRange([a, b, c, a, c, d]);
             }
         }
-
-        return false;
     }
 
-    // The water's depth over a column from its top voxel down, metres (down to the first voxel without water).
-    private static float Depth(VoxelField field, int x, int top, int z)
+    // Which of a voxel's four corners, 0 or 1 east and 0 or 1 north of its own.
+    private static int Way(int x, int z) => x + (2 * z);
+
+    // Which of the four ways to the column beside a voxel: east, west, north, south.
+    private static int Toward(int dx, int dz) => dx != 0 ? (1 - dx) / 2 : 2 + ((1 - dz) / 2);
+
+    // A corner of the surface: its height, shore and depth, and its vertex once drawn.
+    private sealed class Corner(float height, float shore, float depth)
     {
-        int bottom = top;
-        while (field.IsWet(x, bottom - 1, z) && field.GoesUp(x, bottom - 1, z) && top - bottom < DeepestColumn)
-        {
-            bottom--;
-        }
+        public float Height { get; } = height;
 
-        return field.Level(x, top, z) - field.Floor(x, bottom, z);
-    }
+        public float Shore { get; } = shore;
 
-    // A side towards (dx, dz): from the water's floor in the voxel up to its top (the top's own corners there, so
-    // that it meets the surface drawn, or the voxel's top under more water), facing out.
-    private static void Side(VoxelField field, SurfaceMesh mesh, int x, int y, int z, int dx, int dz, bool top, Vec3 velocity)
-    {
-        float s = field.VoxelSize;
-        float floor = field.Floor(x, y, z);
+        public float Depth { get; } = depth;
 
-        // The face's two ends along the side, so that it faces out of the voxel (clockwise seen from outside).
-        (int ax, int az, int bx, int bz) = (dx, dz) switch
-        {
-            (1, _) => (x + 1, z, x + 1, z + 1),
-            (-1, _) => (x, z + 1, x, z),
-            (_, 1) => (x + 1, z + 1, x, z + 1),
-            _ => (x, z, x + 1, z),
-        };
-        float highA = top ? Level(field, ax, y, az).Height : (y + 1) * s;
-        float highB = top ? Level(field, bx, y, bz).Height : (y + 1) * s;
-        int a = mesh.Add(new Vec3(ax * s, floor, az * s), 1f, 1f, velocity);
-        int b = mesh.Add(new Vec3(ax * s, highA, az * s), 1f, 1f, velocity);
-        int c = mesh.Add(new Vec3(bx * s, highB, bz * s), 1f, 1f, velocity);
-        int d = mesh.Add(new Vec3(bx * s, floor, bz * s), 1f, 1f, velocity);
-        mesh.Triangles.AddRange([a, b, c, a, c, d]);
+        public int Index { get; set; } = -1;
     }
 }
 

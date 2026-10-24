@@ -2,6 +2,16 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.16.6 — 2026-10-23
+
+### Fixed
+- Water running down a slope was drawn as a stair of one-metre blocks, with a wall of water standing at every step
+  and shards along its edges. It is now one smooth sheet down the slope, with sides only where water really ends: a
+  fall's sheet, a pool's edge over a cliff (none into the ground, none along a thin sheet, whose edge fades).
+- Water's surface jumped at each change the server sent, and a thin sheet's patches switched on and off all the
+  time instead of running as a steady stream. The water drawn now moves smoothly from one change to the next, and
+  water too thin to see (under 3 cm) is left out, a patch drawn staying drawn until its water is clearly gone.
+
 ## v0.16.5 — 2026-10-23
 
 ### Fixed
