@@ -1,91 +1,115 @@
-// FlowingWater's water surface, for the built-in render pipeline the game uses.
+// FlowingWater's water surface, for the built-in render pipeline the game uses, with the look of the game's own sea:
+// its textures, colours and settings are copied from the sea's material when the game runs (the defaults here are the
+// sea's, for a preview without the game), and the water is lit, coloured and fogged the way the sea is, so a pool or
+// a river reads as the same water as the sea it runs into. What the sea has not, the flowing water adds: where it
+// runs, its ripples run with it (flow mapping) and it foams with its speed; where it lies still, the ripples drift
+// with the game's wind as the sea's do.
 //
 // The mesh carries the simulation per vertex:
-//   uv0       world x, z (metres): texture coordinates
+//   uv0       world x, z (metres)
 //   uv1       x = water depth (m), y = extra foam 0..1, z = shore 0..1 (0 = the water's very edge)
 //   uv2       x, y = current (m/s, world x and z)
-// Ripples are a normal map dragged along the current with two offset phases blended so the
-// texture never stretches (flow mapping), plus a slow second layer so still water lives too.
-// Seen from afar, a second, larger layer of ripples takes over (the small ones blur to a flat
-// mirror with distance). The water is a body, not a tinted sheet: what lies behind it (the scene,
-// grabbed once a frame) is seen through it, bent by the ripples, each colour dimmed by the water
-// its light crossed: the sun's way down to it and the way back up to the eye (from the scene's
-// depth: red goes first, so deep water turns blue-green), and the light the water itself
-// scatters fills in what is lost. Foam rises with speed,
-// with the surface's slope (from the mesh) and at the shore; the edge fades out to nothing, its
-// light included (premultiplied blending adds reflections even where alpha is 0). The game's fog
-// covers the water's own light as far off as the surface is, not what is seen through it, which was
-// fogged already.
+//
+// Light: what lies behind the surface (the scene, grabbed once a frame, bent by the ripples) is seen through thin
+// water, tinted by the surface colour; deeper water takes the bottom colour instead, from shallow to deep with the
+// water's depth, over DepthFade metres of water behind the surface. The surface itself is lit by the game's lights
+// and sky (smooth, so it mirrors them). At the shore it fades out with the scene's depth behind it, with a band of
+// foam just off the water's edge.
 Shader "FlowingWater/Water"
 {
     Properties
     {
-        _DeepColor ("Colour the water scatters back (seen where it is deep)", Color) = (0.03, 0.11, 0.14, 1)
-        _Absorption ("Light absorbed per metre of water (r, g, b)", Vector) = (0.45, 0.12, 0.09, 0)
-        _SurfaceTint ("Share of the water's colour even where it is thin", Range(0, 1)) = 0.15
-        _Refraction ("Refraction (share of the screen a ripple bends what is behind)", Range(0, 0.1)) = 0.02
-        _NormalMap ("Ripple normals", 2D) = "bump" {}
-        _NormalStrength ("Ripple strength", Range(0, 2)) = 0.45
-        _RippleScale ("Ripple tiling (per metre)", Float) = 0.3
-        _StillScale ("Still ripple tiling (per metre)", Float) = 0.12
-        _StillSpeed ("Still ripple drift (m/s)", Float) = 0.05
-        _FarScale ("Far ripple tiling (per metre)", Float) = 0.06
-        _FarStart ("Far ripples from (m)", Float) = 12
-        _FarRange ("Far ripples full after (m more)", Float) = 40
-        _FarStrength ("Far ripple strength", Range(0, 2)) = 0.4
-        _FlowSpeed ("Texture speed (share of the current)", Float) = 1.0
+        // The sea's own (copied from the game's material at run time).
+        _ColorTop ("Colour of the surface's tops", Color) = (0.315, 0.524, 0.361, 1)
+        _ColorBottom ("Colour deep down", Color) = (0.098, 0.196, 0.169, 1)
+        _ColorBottomShallow ("Colour down in shallow water", Color) = (0.196, 0.176, 0.106, 1)
+        _SurfaceColor ("Tint of what is seen through", Color) = (0.728, 0.728, 0.728, 1)
+        _FoamColor ("Foam colour", Color) = (0.838, 0.838, 0.838, 1)
+        _Glossiness ("Smoothness", Range(0, 1)) = 0.94
+        _Metallic ("Metallic", Range(0, 1)) = 0
+        _Normal ("Ripple normals", 2D) = "bump" {}
+        _FoamTex ("Foam", 2D) = "white" {}
+        _RandomFoamTex ("Scattered foam", 2D) = "white" {}
+        _NormalPower ("Ripple strength", Range(0, 5)) = 0.5
+        _NormalScale ("Ripple tiling (per metre)", Float) = 0.04
+        _WaveVel ("Ripple drift", Float) = 1
+        _DepthFade ("Metres of water that hide what is behind", Float) = 15
+        _ShoreFade ("Shore fade (m)", Float) = 0.1
+        _FoamDepth ("Shore foam band (m)", Float) = 0.2
+        _RefractionScale ("Refraction", Float) = 0.1
+        _RefractionMax ("Refraction at most (share of the screen)", Float) = 0.01
+
+        // The flowing water's own.
+        _DeepWater ("Water this deep (m) takes the deep colour", Float) = 6
+        _FlowTiling ("Running ripples tiling (times the still ones')", Float) = 6
+        _FlowStrength ("Running ripples strength", Range(0, 3)) = 1.4
         _FlowCycle ("Flow cycle (s)", Float) = 1.5
-        _FoamTex ("Foam noise", 2D) = "white" {}
-        _FoamColor ("Foam colour", Color) = (0.92, 0.95, 0.97, 1)
-        _FoamScale ("Foam tiling (per metre)", Float) = 0.6
-        _FoamSpeed ("Current that makes full foam (m/s)", Float) = 4.0
-        _ShoreFoam ("Foam at the shore", Range(0, 1)) = 0.1
-        _Smoothness ("Smoothness (tight sun glints; rougher spreads them into a pale sheen)", Range(0, 1)) = 0.92
-        _Reflection ("Sky reflection strength", Range(0, 1)) = 0.9
-        _EdgeFade ("Edge fade (shore share)", Range(0.01, 1)) = 0.3
+        _FlowFrom ("Current from which the water runs (m/s)", Float) = 0.08
+        _FlowFull ("Current at which it fully runs (m/s)", Float) = 0.5
+        _RapidsSpeed ("Current that makes full foam (m/s)", Float) = 4
+        _RapidsTiling ("Rapids foam tiling (per metre)", Float) = 0.35
+        _ShoreOffset ("Still water thinner than this (m) is not seen", Float) = 0.15
+        _RunningOffset ("Running water thinner than this (m) is not seen", Float) = 0.02
+        _EdgeFade ("Edge fade (shore share of the mesh)", Range(0.01, 1)) = 0.3
     }
 
     SubShader
     {
-        Tags { "Queue" = "Transparent-10" "RenderType" = "Transparent" "IgnoreProjector" = "True" "ForceNoShadowCasting" = "True" }
+        // Drawn as the sea is: transparent, just before it.
+        Tags { "Queue" = "Transparent-101" "RenderType" = "Transparent" "IgnoreProjector" = "True" "ForceNoShadowCasting" = "True" }
         LOD 300
         ZWrite Off
         Cull Back
 
-        // What is behind the water, once a frame for every tile.
+        // What is behind the water, once a frame for every brick.
         GrabPass { "_FlowingWaterBehind" }
 
         CGPROGRAM
-        #pragma surface surf Standard alpha:premul vertex:vert finalcolor:EdgeFade noshadow nolightmap nodynlightmap nodirlightmap nometa nolppv noshadowmask
+        #pragma surface surf Standard alpha:premul vertex:vert finalcolor:Finish noshadow nolightmap nodynlightmap nodirlightmap nometa nolppv noshadowmask
         #pragma target 3.5
-        // A final colour function turns off the fog surface shaders add by themselves: EdgeFade adds it.
         #pragma multi_compile_fog
 
-        sampler2D _NormalMap;
+        sampler2D _Normal;
         sampler2D _FoamTex;
+        sampler2D _RandomFoamTex;
         sampler2D _FlowingWaterBehind;
         UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
-        fixed4 _DeepColor;
+
+        fixed4 _ColorTop;
+        fixed4 _ColorBottom;
+        fixed4 _ColorBottomShallow;
+        fixed4 _SurfaceColor;
         fixed4 _FoamColor;
-        float4 _Absorption;
-        float _SurfaceTint;
-        float _Refraction;
-        float _NormalStrength;
-        float _RippleScale;
-        float _StillScale;
-        float _StillSpeed;
-        float _FarScale;
-        float _FarStart;
-        float _FarRange;
-        float _FarStrength;
-        float _FlowSpeed;
+        float _Glossiness;
+        float _Metallic;
+        float _NormalPower;
+        float _NormalScale;
+        float _WaveVel;
+        float _DepthFade;
+        float _ShoreFade;
+        float _FoamDepth;
+        float _RefractionScale;
+        float _RefractionMax;
+        float _DeepWater;
+        float _FlowTiling;
+        float _FlowStrength;
         float _FlowCycle;
-        float _FoamScale;
-        float _FoamSpeed;
-        float _ShoreFoam;
-        float _Smoothness;
-        float _Reflection;
+        float _FlowFrom;
+        float _FlowFull;
+        float _RapidsSpeed;
+        float _RapidsTiling;
+        float _ShoreOffset;
+        float _RunningOffset;
         float _EdgeFade;
+
+        // The game's own, set for every shader: its two winds (x, z its direction, w its strength) and how far it
+        // is from the first to the second; the sun's direction and the colour the fog takes towards it. Unset (a
+        // preview), the wind is none and the fog takes its own colour.
+        float4 _GlobalWind1;
+        float4 _GlobalWind2;
+        float _GlobalWindAlpha;
+        float4 _SunDir;
+        float4 _SunFogColor;
 
         struct Input
         {
@@ -97,37 +121,6 @@ Shader "FlowingWater/Water"
             float4 grabPos; // the same point in the grabbed image (upside down on some platforms)
         };
 
-        // How much of the surface there is at all: 0 at the water's very edge.
-        float Edge(Input i)
-        {
-            return smoothstep(0.0, _EdgeFade, saturate(i.water.z));
-        }
-
-        // The game's fog over the water's own light (its colour, the sky's reflection, the sun's glints),
-        // as far off as the surface is. Not over the scene seen through it (the emission): grabbed from
-        // the screen, it has its fog already, the whole way to it; fogged again it would go pale twice.
-        // A light's own pass adds no emission and fogs towards black, as the game's fog does in it.
-        // Then the reflections and the scene seen through fade out with the water: premultiplied
-        // blending adds them in full even where the water is fully transparent (a rough edge showed as
-        // a cream band, and the scene was added over itself where something stood just behind the
-        // surface: a bright line round anything through the water). The shading fades with it as well.
-        void EdgeFade(Input i, SurfaceOutputStandard o, inout fixed4 color)
-        {
-        #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
-        #if defined(UNITY_PASS_FORWARDADD)
-            float3 seenThrough = 0.0;
-            float3 fogColour = 0.0;
-        #else
-            float3 seenThrough = o.Emission;
-            float3 fogColour = unity_FogColor.rgb;
-        #endif
-            // The fog's distance as Unity's own takes it: along the view axis.
-            UNITY_CALC_FOG_FACTOR_RAW(i.screenPos.w);
-            color.rgb = lerp(fogColour, color.rgb - seenThrough, saturate(unityFogFactor)) + seenThrough;
-        #endif
-            color.rgb *= o.Alpha;
-        }
-
         void vert(inout appdata_full v, out Input o)
         {
             UNITY_INITIALIZE_OUTPUT(Input, o);
@@ -137,109 +130,141 @@ Shader "FlowingWater/Water"
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
 
-        // One phase of the flow: where the texture has drifted to, and how much this phase counts
-        // (it fades out at the jump back so the reset is never seen).
-        float2 FlowPhase(float2 uv, float2 drift, float offset, out float weight)
-        {
-            float t = frac((_Time.y / _FlowCycle) + offset);
-            weight = 1.0 - abs((2.0 * t) - 1.0);
-            return uv - (drift * t * _FlowCycle) + (offset * float2(0.37, 0.61));
-        }
-
-        // How steeply the surface is seen: 1 from straight above, towards 0 at a grazing look.
-        float Steepness(Input i)
-        {
-            float3 toSurface = i.worldPos - _WorldSpaceCameraPos;
-            return max(abs(toSurface.y) / max(length(toSurface), 0.001), 0.15);
-        }
-
         // The scene's distance from the camera, along its view axis, at a point of the screen.
         float SceneEye(float2 screen)
         {
             return LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, screen));
         }
 
-        // How far the eye looks through water here, metres: from the surface to what the scene has
-        // behind it, at most the water's depth over the angle it is seen at (the scene behind may be
-        // missing, or far off: sky seen through a fall, or the depth texture absent).
-        float Thickness(Input i, float2 screen, float depth)
+        // A wind's direction on the ground, and its strength; none (east, still) where the game set none.
+        float3 Wind(float4 wind)
         {
-            float behind = max(SceneEye(screen) - i.screenPos.w, 0.0) * length(i.worldPos - _WorldSpaceCameraPos) / max(i.screenPos.w, 0.001);
-            return min(behind, depth / Steepness(i));
+            float length2 = dot(wind.xz, wind.xz);
+            return length2 > 1e-6 ? float3(wind.xz * rsqrt(length2), wind.w) : float3(1.0, 0.0, 0.0);
         }
 
-        // How far the ripples bend the view of what is behind: more through more water, less far off;
-        // not at all onto something standing in front of the water (it would be pulled into it).
-        float2 Bend(Input i, float2 screen, float3 normal, float thickness)
+        // The sea's ripples under one wind: a large slow layer and two finer ones, all drifting down the wind.
+        float3 WindRipples(float2 world, float2 along)
         {
-            float2 bend = normal.xy * _Refraction * saturate(thickness) * saturate(10.0 / i.screenPos.w);
-            return SceneEye(screen + bend) < i.screenPos.w ? float2(0.0, 0.0) : bend;
+            float2 uv = float2(dot(world, float2(-along.y, along.x)), dot(world, along)) * _NormalScale;
+            float drift = _Time.x * _WaveVel;
+            float3 large = UnpackNormal(tex2D(_Normal, (uv * 0.2) + float2(0.0, -0.2 * drift)));
+            float3 fine = UnpackNormal(tex2D(_Normal, uv + float2(0.0, -0.22 * drift)));
+            float3 cross = UnpackNormal(tex2D(_Normal, uv + float2(0.01 * drift, -0.2 * drift)));
+            return large + (0.3 * fine) + (0.3 * cross);
+        }
+
+        // One phase of the flow: where the texture has run to, and how much this phase counts (it fades out at the
+        // jump back so the reset is never seen).
+        float2 FlowPhase(float2 uv, float2 run, float offset, out float weight)
+        {
+            float t = frac((_Time.y / _FlowCycle) + offset);
+            weight = 1.0 - abs((2.0 * t) - 1.0);
+            return uv - (run * t * _FlowCycle) + (offset * float2(0.37, 0.61));
+        }
+
+        // Ripples that run with the current, the sea's layers finer (a stream is narrower than the sea's swell):
+        // dragged along at the water's own speed, two phases blended so they never stretch.
+        float3 RunningRipples(float2 world, float2 current)
+        {
+            float scale = _NormalScale * _FlowTiling;
+            float2 uv = world * scale;
+            float2 run = current * scale;
+            float wa;
+            float wb;
+            float2 a = FlowPhase(uv, run, 0.0, wa);
+            float2 b = FlowPhase(uv, run, 0.5, wb);
+            float3 large = (UnpackNormal(tex2D(_Normal, a * 0.2)) * wa) + (UnpackNormal(tex2D(_Normal, b * 0.2)) * wb);
+            float3 fine = (UnpackNormal(tex2D(_Normal, a)) * wa) + (UnpackNormal(tex2D(_Normal, b)) * wb);
+            return large + (0.6 * fine);
+        }
+
+        // The fog over the water as over the sea: the game's fog, towards the sun's colour where one looks at the
+        // sun; over all the water's light, what is seen through included, as the sea's.
+        void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
+        {
+        #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
+        #if defined(UNITY_PASS_FORWARDADD)
+            float3 fogColour = 0.0;
+        #else
+            float sun = saturate(dot(normalize(i.worldPos - _WorldSpaceCameraPos), _SunDir.xyz));
+            float3 sunFog = pow(max(_SunFogColor.rgb, 0.0), 2.2);
+            float3 fogColour = dot(_SunFogColor.rgb, 1.0) > 0.0 ? lerp(unity_FogColor.rgb, sunFog, sun) : unity_FogColor.rgb;
+        #endif
+            UNITY_CALC_FOG_FACTOR_RAW(i.screenPos.w);
+            color.rgb = lerp(fogColour, color.rgb, saturate(unityFogFactor));
+        #endif
+            // Premultiplied: the water's light fades out with the water at its edge.
+            color.rgb *= o.Alpha;
         }
 
         void surf(Input i, inout SurfaceOutputStandard o)
         {
             float depth = max(i.water.x, 0.0);
-            float shore = saturate(i.water.z);
+            float deep = saturate(depth / _DeepWater);
             float speed = length(i.current);
+            float running = smoothstep(_FlowFrom, _FlowFull, speed);
 
-            // Moving ripples, at the current's speed in texture space.
-            float2 drift = i.current * _FlowSpeed * _RippleScale;
-            float2 uv = i.world * _RippleScale;
-            float wa;
-            float wb;
-            float2 uva = FlowPhase(uv, drift, 0.0, wa);
-            float2 uvb = FlowPhase(uv, drift, 0.5, wb);
-            float3 na = UnpackNormal(tex2D(_NormalMap, uva));
-            float3 nb = UnpackNormal(tex2D(_NormalMap, uvb));
-            float3 moving = normalize((na * wa) + (nb * wb));
+            // Ripples: the sea's under the game's wind where the water lies still, running ones where it runs.
+            float3 wind1 = Wind(_GlobalWind1);
+            float3 wind2 = Wind(_GlobalWind2);
+            float3 still = lerp(WindRipples(i.world, wind1.xy), WindRipples(i.world, wind2.xy), _GlobalWindAlpha);
+            float3 ripples = lerp(still, RunningRipples(i.world, i.current) * _FlowStrength, running);
+            // Shallow still water lies flatter, as the sea's does; running water keeps its ripples.
+            float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
+            n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
 
-            // Slow ripples that drift whatever the current, so a still pool is not a mirror.
-            float2 stillUv = (i.world * _StillScale) + (_Time.y * _StillSpeed * _StillScale * float2(0.8, 0.6));
-            float3 still = UnpackNormal(tex2D(_NormalMap, stillUv));
+            // What is behind, bent by the ripples, unless that bends something in front of the water into it.
+            float2 screen = i.screenPos.xy / max(i.screenPos.w, 0.0001);
+            float2 grab = i.grabPos.xy / max(i.grabPos.w, 0.0001);
+            float eye = i.screenPos.w;
+            float2 bend = clamp(n.xy * _RefractionScale * 5.0, -_RefractionMax, _RefractionMax);
+            float straight = SceneEye(screen);
+            float bent = SceneEye(screen + bend);
+            if (bent < eye)
+            {
+                bend = 0.0;
+                bent = straight;
+            }
 
-            float3 n = normalize(float3(moving.xy + (still.xy * 0.6), moving.z * still.z));
-            n.xy *= _NormalStrength * saturate(0.4 + (depth * 2.0));
+            float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
+            float hidden = sqrt(saturate(abs(bent - eye) / _DepthFade));
 
-            // Far off, larger ripples that still read at a distance, dragged along like the rest.
-            float far = saturate((distance(_WorldSpaceCameraPos, i.worldPos) - _FarStart) / _FarRange);
-            float2 farDrift = i.current * _FlowSpeed * _FarScale;
+            // The shore: how much water there is in front of what is behind (the ripples move it a little).
+            float shoreLine = abs(straight - eye) - (0.4 * n.y) - lerp(_ShoreOffset, _RunningOffset, running);
+            float shore = saturate(shoreLine / _ShoreFade);
+            float band = saturate(shoreLine / _FoamDepth);
+
+            float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deep);
+
+            // Scattered foam where the wind blows on open water, as on the sea.
+            float2 wobble = 0.005 * float2(sin(_Time.y + i.worldPos.x), sin((1.5 * _Time.y) + i.worldPos.z));
+            float windFoam = 5.0 * lerp(wind1.z, wind2.z, _GlobalWindAlpha) * deep * (1.0 - running) * tex2D(_RandomFoamTex, (i.world * 0.03) + wobble).r;
+            colour = lerp(colour, _FoamColor.rgb, saturate(windFoam * _FoamColor.a));
+            float gloss = _Glossiness * (1.0 - saturate(windFoam));
+
+            // A band of foam just off the water's edge.
+            float shoreFoam = deep * min(shore, 1.0 - band);
+            colour = lerp(colour, _FoamColor.rgb, saturate(8.0 * tex2D(_FoamTex, (i.world * 0.1) + wobble).r * shoreFoam * _FoamColor.a));
+
+            // Rapids: fast water foams, its foam running with it; the simulation's own foam (falls) on top.
+            float fast = saturate(speed / _RapidsSpeed);
+            float want = saturate((fast * fast * 0.8) + i.water.y);
             float fa;
             float fb;
-            float2 farUv = i.world * _FarScale;
-            float3 fna = UnpackNormal(tex2D(_NormalMap, FlowPhase(farUv, farDrift, 0.25, fa)));
-            float3 fnb = UnpackNormal(tex2D(_NormalMap, FlowPhase(farUv, farDrift, 0.75, fb)));
-            float2 farRipple = normalize((fna * fa) + (fnb * fb)).xy * _FarStrength;
-            n.xy = lerp(n.xy, farRipple, far);
-            o.Normal = normalize(n);
+            float2 foamUv = i.world * _RapidsTiling;
+            float2 foamRun = i.current * _RapidsTiling;
+            float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
+            float rapids = smoothstep(1.0 - want, 1.0 - want + 0.25, noise) * want;
+            colour = lerp(colour, _FoamColor.rgb, rapids);
 
-            // Foam: from speed, from the shore, from the simulation; broken up by the noise,
-            // which drifts with the water like the ripples do.
-            // Foam covers this share of the surface: only fast water (rapids) foams much.
-            float fast = saturate(speed / _FoamSpeed);
-            float foamWant = saturate((fast * fast * 0.7) + ((1.0 - shore) * _ShoreFoam) + i.water.y);
-            float2 foamUv = (i.world * _FoamScale) - (i.current * _FlowSpeed * _FoamScale * frac(_Time.y / (_FlowCycle * 4.0)) * _FlowCycle * 4.0);
-            float foamNoise = tex2D(_FoamTex, foamUv).r;
-            float foam = smoothstep(1.0 - foamWant, 1.0 - foamWant + 0.25, foamNoise) * foamWant;
-
-            // What lies behind, seen through the water: each colour dimmed by the water it crosses,
-            // the light the water scatters filling in the rest; foam hides both.
-            float2 screen = i.screenPos.xy / max(i.screenPos.w, 0.0001);
-            float thickness = Thickness(i, screen, depth);
-            float2 bend = Bend(i, screen, o.Normal, thickness);
-            // The light from what lies behind crossed the water twice: the sun's down to it (the game lit it
-            // as if dry), then back up to the eye.
-            float seen = Thickness(i, screen + bend, depth);
-            float3 through = exp(-_Absorption.rgb * seen * (1.0 + Steepness(i))) * (1.0 - _SurfaceTint);
-            float3 behind = tex2D(_FlowingWaterBehind, (i.grabPos.xy / max(i.grabPos.w, 0.0001)) + bend).rgb;
-            float edge = Edge(i) * saturate(thickness / 0.03);
-
-            o.Albedo = lerp(_DeepColor.rgb * (1.0 - through), _FoamColor.rgb, foam);
-            o.Emission = behind * through * (1.0 - foam);
-            o.Alpha = edge;
-            o.Metallic = 0.0;
-            o.Smoothness = lerp(_Smoothness, 0.35, foam);
-            // Indirect light (the sky's reflection) is what makes shallow water look milky.
-            o.Occlusion = _Reflection;
+            float foam = max(shoreFoam, rapids);
+            o.Albedo = colour;
+            o.Emission = behind * _SurfaceColor.rgb * (1.0 - hidden) * (1.0 - rapids);
+            o.Normal = n;
+            o.Metallic = _Metallic * (1.0 - foam);
+            o.Smoothness = lerp(gloss, 0.1, foam);
+            o.Alpha = shore * shore * smoothstep(0.0, _EdgeFade, saturate(i.water.z));
         }
         ENDCG
     }
