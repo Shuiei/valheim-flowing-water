@@ -256,6 +256,47 @@ internal sealed class Brick
         }
     }
 
+    /// <summary>
+    /// The faces of a voxel water could leave it by, a bit per side as <see cref="Beside"/> (east, west, up, down,
+    /// north, south): those no piece closes, not onto a solid voxel, and not shut against a brick forgotten there. A
+    /// face onto a brick there is none of is open.
+    /// </summary>
+    public byte OpenFaces(int i)
+    {
+        (int x, int y, int z) = Place(i);
+        int open = 0;
+        for (int side = 0; side < 6; side++)
+        {
+            int axis = side >> 1;
+            bool far = (side & 1) == 0;
+            int along = axis == 0 ? x : axis == 1 ? y : z;
+            bool inside = far ? along < Size - 1 : along > 0;
+            int step = axis == 0 ? 1 : axis == 1 ? Size * Size : Size;
+            int bit = 1 << axis;
+            Brick next = inside ? this : Beside[side];
+            int j = inside ? (far ? i + step : i - step) : (far ? i - ((Size - 1) * step) : i + ((Size - 1) * step));
+            bool closed;
+            if (next == null)
+            {
+                // Its own face (east, up, north) closed by a piece, or shut against a brick forgotten there.
+                int face = Face(axis, i);
+                closed = (far && (Closed[i] & bit) != 0) || (_shut[(side * 4) + (face >> 6)] & (1UL << (face & 63))) != 0;
+            }
+            else
+            {
+                // A face belongs to the voxel west, under or south of it.
+                closed = ((far ? Closed[i] : next.Closed[j]) & bit) != 0 || next.Solid[j] >= 1f;
+            }
+
+            if (!closed)
+            {
+                open |= 1 << side;
+            }
+        }
+
+        return (byte)open;
+    }
+
     /// <summary>Forgets which border faces were shut (its solids are read again: they may have opened).</summary>
     public void Unshut() => Array.Clear(_shut, 0, _shut.Length);
 

@@ -129,6 +129,11 @@ internal sealed class WaterBrick : MonoBehaviour
 
     private GpuSurface _gpu;
 
+    // On the card, the water's voxels where it meets the air too (its sides, falls), built beside its grid.
+    private readonly BackgroundBuild<VoxelShell> _shellBuilding = new();
+
+    private ShellRenderer _shell;
+
     private float _lastData = -1f;
 
     private float _dataInterval = 1f;
@@ -346,7 +351,7 @@ internal sealed class WaterBrick : MonoBehaviour
             ByKey.Remove(key);
             if (_drawn)
             {
-                Neighbours(_view, OnCard() ? SurfaceGrid.Readers : VoxelSurface.Round);
+                Neighbours(_view, OnCard() ? CardReaders : VoxelSurface.Round);
             }
         }
 
@@ -365,6 +370,7 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         _gpu?.Dispose();
+        _shell?.Dispose();
 
         // A surface still being built is not drawn, nor data still being read kept; a failure to build or read it is
         // still told, in the game's frame (its log is the game's), from where the brick was.
@@ -372,6 +378,7 @@ internal sealed class WaterBrick : MonoBehaviour
         var frame = TaskScheduler.FromCurrentSynchronizationContext();
         _building.Abandon(failure => Failed(failure, at), frame);
         _gridBuilding.Abandon(failure => Failed(failure, at), frame);
+        _shellBuilding.Abandon(failure => Failed(failure, at), frame);
         _reading.Abandon(failure => ReadFailed(failure, at), frame);
     }
 
@@ -438,10 +445,13 @@ internal sealed class WaterBrick : MonoBehaviour
             // The grids round it read its columns at their edges, its tops near theirs and its water under theirs.
             if (OnCard())
             {
-                Neighbours(_view, SurfaceGrid.Readers);
+                Neighbours(_view, CardReaders);
             }
         }
     }
+
+    // The bricks drawing on the card whose surface or shell reads a brick's water: the grid's readers and the six beside.
+    private static readonly (int X, int Y, int Z)[] CardReaders = [.. SurfaceGrid.Readers.Union(VoxelShell.Readers)];
 
     // Whether the graphics card shapes the surface: the mod's own shader draws it (not the game's material, nor the
     // flat colour for testing).
@@ -507,7 +517,7 @@ internal sealed class WaterBrick : MonoBehaviour
         Taking.Start();
         try
         {
-            Built.Serve(brick => brick == null || brick._building.Done || brick._gridBuilding.Done, InBudget, brick => Timed(brick, b => b.Take()));
+            Built.Serve(brick => brick == null || brick._building.Done || brick._gridBuilding.Done || brick._shellBuilding.Done, InBudget, brick => Timed(brick, b => b.Take()));
         }
         finally
         {
@@ -521,7 +531,7 @@ internal sealed class WaterBrick : MonoBehaviour
             try
             {
                 Waiting.Serve(
-                    brick => brick == null || (!brick._building.Busy && !brick._gridBuilding.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
+                    brick => brick == null || (!brick._building.Busy && !brick._gridBuilding.Busy && !brick._shellBuilding.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
                     InBudget,
                     brick => Timed(brick, b => b.Build()));
             }
@@ -577,7 +587,9 @@ internal sealed class WaterBrick : MonoBehaviour
             VoxelWater.Drawn.Set(_view);
             VoxelField latest = VoxelWater.Field.Near(_view);
             (int x, int y, int z) = (_view.X, _view.Y, _view.Z);
-            if (_gridBuilding.TryStart(() => SurfaceGrid.Build(latest, x, y, z)))
+            bool started = _gridBuilding.TryStart(() => SurfaceGrid.Build(latest, x, y, z));
+            started |= _shellBuilding.TryStart(() => VoxelShell.Build(latest, x, y, z));
+            if (started)
             {
                 Built.Add(this);
             }
@@ -608,6 +620,18 @@ internal sealed class WaterBrick : MonoBehaviour
     // The surface built: its water kept as drawn, the bricks round it whose surface that changes drawn again (and
     // this one, until its ease is done), and the surface handed to the mesh.
     private void Take()
+    {
+        TakeShell();
+        TakeSurface();
+
+        // A build still under way (one finished before it): the brick waits to be served again for it.
+        if (_building.Busy || _gridBuilding.Busy || _shellBuilding.Busy)
+        {
+            Built.Add(this);
+        }
+    }
+
+    private void TakeSurface()
     {
         if (_gridBuilding.TryTake(out SurfaceGrid grid, out Exception gridFailure))
         {
@@ -664,6 +688,7 @@ internal sealed class WaterBrick : MonoBehaviour
     // A built surface handed to the mesh.
     private void Apply(Shape shape)
     {
+        _shell?.Hide();
         // Plain colours (flat), else the game's material: the mod's own shader draws only the card's grid.
         Material own = Flat ? Materials.Plain("FlowingWater flat", new Color(0.1f, 0.3f, 0.9f)) : null;
         Material material = own ?? Materials.Still();
@@ -686,6 +711,31 @@ internal sealed class WaterBrick : MonoBehaviour
         _mesh.SetTriangles(shape.Triangles, 0, false);
         _mesh.bounds = shape.Bounds;
         _renderer.sharedMaterial = material;
+    }
+
+    // The water's voxels where it meets the air, built: drawn on the card, else not (the mesh draws its own sides).
+    private void TakeShell()
+    {
+        if (!_shellBuilding.TryTake(out VoxelShell shell, out Exception failure))
+        {
+            return;
+        }
+
+        if (failure != null)
+        {
+            Failed(failure, transform.position);
+            return;
+        }
+
+        Material material = OnCard() ? Materials.Shell() : null;
+        if (material == null)
+        {
+            _shell?.Hide();
+            return;
+        }
+
+        _shell ??= new ShellRenderer(transform);
+        _shell.Show(shell, material, Lift);
     }
 
     // A grid built, handed to the card: the shared grid drawn with the mod's own shader, the brick's textures blending

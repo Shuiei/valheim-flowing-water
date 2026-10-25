@@ -19,6 +19,10 @@ public static class BuildBundles
 
     public const string MaterialPath = "Assets/FlowingWater/FlowingWater.mat";
 
+    public const string ShellShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterShell.shader";
+
+    public const string ShellMaterialPath = "Assets/FlowingWater/FlowingWaterShell.mat";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -39,43 +43,17 @@ public static class BuildBundles
         }
     }
 
-    // The textures' import settings, the material, and shader variants kept for every fog mode
-    // (with no scene in the build, the default stripping would drop the fog the game uses).
+    // The textures' import settings, the materials (the surface's, returned, and the shell's), and shader variants kept
+    // for every fog mode (with no scene in the build, the default stripping would drop the fog the game uses).
     public static Material Prepare()
     {
         AssetDatabase.Refresh();
         Import(NormalPath, TextureImporterType.NormalMap, true);
         Import(FoamPath, TextureImporterType.SingleChannel, false);
 
-        var shader = AssetDatabase.LoadAssetAtPath<Shader>(ShaderPath);
-        if (shader == null)
-        {
-            throw new InvalidOperationException($"{ShaderPath} did not import");
-        }
-
-        foreach (ShaderMessage message in ShaderUtil.GetShaderMessages(shader))
-        {
-            Debug.Log($"FlowingWater shader {message.severity}: {message.message} (line {message.line}, {message.platform})");
-            if (message.severity == ShaderCompilerMessageSeverity.Error)
-            {
-                throw new InvalidOperationException($"shader error: {message.message} at line {message.line}");
-            }
-        }
-
-        var material = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath);
-        if (material == null)
-        {
-            material = new Material(shader);
-            AssetDatabase.CreateAsset(material, MaterialPath);
-        }
-
-        material.shader = shader;
-        material.name = "FlowingWater";
-        ResetToShaderDefaults(material, shader);
-        material.SetTexture("_Normal", AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath));
-        material.SetTexture("_FoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
+        Material material = MakeMaterial(ShaderPath, MaterialPath, "FlowingWater");
         material.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
-        EditorUtility.SetDirty(material);
+        MakeMaterial(ShellShaderPath, ShellMaterialPath, "FlowingWaterShell");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -85,6 +63,40 @@ public static class BuildBundles
         settings.ApplyModifiedProperties();
 
         AssetDatabase.SaveAssets();
+        return material;
+    }
+
+    // A material of the shader, made or found at its path, its values the shader's defaults, its textures set.
+    private static Material MakeMaterial(string shaderPath, string materialPath, string name)
+    {
+        var shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+        if (shader == null)
+        {
+            throw new InvalidOperationException($"{shaderPath} did not import");
+        }
+
+        foreach (ShaderMessage message in ShaderUtil.GetShaderMessages(shader))
+        {
+            Debug.Log($"FlowingWater shader {name} {message.severity}: {message.message} (line {message.line}, {message.platform})");
+            if (message.severity == ShaderCompilerMessageSeverity.Error)
+            {
+                throw new InvalidOperationException($"{shaderPath} error: {message.message} at line {message.line}");
+            }
+        }
+
+        var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+        if (material == null)
+        {
+            material = new Material(shader);
+            AssetDatabase.CreateAsset(material, materialPath);
+        }
+
+        material.shader = shader;
+        material.name = name;
+        ResetToShaderDefaults(material, shader);
+        material.SetTexture("_Normal", AssetDatabase.LoadAssetAtPath<Texture2D>(NormalPath));
+        material.SetTexture("_FoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
+        EditorUtility.SetDirty(material);
         return material;
     }
 
@@ -115,7 +127,7 @@ public static class BuildBundles
                 default:
                     // A kind of property this does not know how to reset (an integer) would keep the material's old
                     // value unseen: the build stops instead, to be taught it.
-                    throw new InvalidOperationException($"{ShaderPath}: property {name} is a {shader.GetPropertyType(i)}, which the build cannot reset to its default");
+                    throw new InvalidOperationException($"{shader.name}: property {name} is a {shader.GetPropertyType(i)}, which the build cannot reset to its default");
             }
         }
     }
@@ -129,6 +141,15 @@ public static class BuildBundles
         }
 
         importer.textureType = type;
+        if (type == TextureImporterType.SingleChannel)
+        {
+            // Kept in red, where the shaders read it (as in the sea's own textures); Unity's default is alpha.
+            var settings = new TextureImporterSettings();
+            importer.ReadTextureSettings(settings);
+            settings.singleChannelComponent = TextureImporterSingleChannelComponent.Red;
+            importer.SetTextureSettings(settings);
+        }
+
         importer.sRGBTexture = colour && type != TextureImporterType.NormalMap;
         importer.wrapMode = TextureWrapMode.Repeat;
         importer.mipmapEnabled = true;
@@ -146,7 +167,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

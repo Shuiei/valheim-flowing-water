@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.23.0 — 2026-10-24
+
+### Added
+- The water is drawn as the voxels it fills where it meets the air: the sides of water standing open to the air, and
+  water falling from a height as a cascade of white water. You see the water from inside it too.
+
 ## v0.22.1 — 2026-10-24
 
 ### Fixed

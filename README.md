@@ -191,6 +191,12 @@ there to the new grid (same volume), at once when the file is saved.
   between four columns is drawn by one block, the one whose top its first shown corner is. When the server sends a
   block's water again, the card blends from the surface as drawn to the new one over the time between the server's
   sends, so the water moves on smoothly instead of jumping; nothing is built in the game's frame but the textures.
+  Beside the surface, the water is drawn as the voxels it fills where it meets the air: the server sends with each
+  wet voxel which of its faces water could leave by (no piece closing it, no solid beyond), and the block draws a side
+  where its water stands open to the air (from its floor, or the water beside it, up to its level), and water falling
+  through the air as a column through each voxel it falls through, as wide as its water, capped where the fall starts
+  and ends, so a fall is one cascade of white water. These faces and the surface are drawn from both sides: from
+  inside the water, it is still seen.
   With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
   instead: the top of each wet voxel with no water over it, its corners shared with the tops beside it that are one
   water with it, sides where the water ends (a fall's sheet, a pool's edge over a cliff), eased to new water over 0.4

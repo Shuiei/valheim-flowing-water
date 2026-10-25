@@ -27,6 +27,7 @@ public static class PreviewRender
             Water(ground, out float[,] depth, out Vector2[,] current);
             MakeGround(ground);
             MakeWater(ground, depth, current, water);
+            MakeFall(new Vector3(44.5f, 12.2f, 26.5f), 8f, 0.45f, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ShellMaterialPath));
             Light();
 
             Shot(output, "overview", new Vector3(48f, 70f, -30f), new Vector3(48f, 20f, 48f), 1280, 720);
@@ -34,6 +35,7 @@ public static class PreviewRender
             Shot(output, "pool", new Vector3(60f, 24f, 10f), new Vector3(48f, 14f, 22f), 1280, 720);
             Shot(output, "above", new Vector3(52f, 40f, 48f), new Vector3(50f, 26f, 58f), 1280, 720);
             Shot(output, "rivulet", new Vector3(30f, ground[30, 72] + 5f, 72f), new Vector3(22f, ground[22, 58], 58f), 1280, 720);
+            Shot(output, "fall", new Vector3(36f, 18f, 18f), new Vector3(44.5f, 16f, 26.5f), 1280, 720);
             Shot(output, "puddle", new Vector3(78f, ground[78, 34] + 4f, 34f), new Vector3(72f, ground[72, 42], 42f), 1280, 720);
             Debug.Log($"FlowingWater: preview written to {output}");
         }
@@ -282,6 +284,47 @@ public static class PreviewRender
                 triangles.AddRange(new[] { a, c, b, b, c, d });
             }
         }
+    }
+
+    // A fall as the plugin draws one with the shell material: a column of water width metres across from its foot up
+    // height metres, all foam, pouring down (each corner: its place on its face, foam and shown, the current along it).
+    private static void MakeFall(Vector3 foot, float height, float width, Material shell)
+    {
+        var vertices = new List<Vector3>();
+        var normals = new List<Vector3>();
+        var places = new List<Vector2>();
+        var water = new List<Vector2>();
+        var flow = new List<Vector2>();
+        var triangles = new List<int>();
+        float r = width * 0.5f;
+        foreach (Vector3 n in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back })
+        {
+            var across = new Vector3(-n.z, 0f, n.x);
+            int a = vertices.Count;
+            foreach ((float side, float up) in new[] { (-r, 0f), (-r, height), (r, height), (r, 0f) })
+            {
+                Vector3 p = foot + (n * r) + (across * side) + (Vector3.up * up);
+                vertices.Add(p);
+                normals.Add(n);
+                places.Add(new Vector2(Vector3.Dot(p, across), p.y));
+                water.Add(new Vector2(1f, 0.85f));
+                flow.Add(new Vector2(0f, -7f));
+            }
+
+            triangles.AddRange(new[] { a, a + 1, a + 2, a, a + 2, a + 3 });
+        }
+
+        var mesh = new Mesh();
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+        mesh.SetUVs(0, places);
+        mesh.SetUVs(1, water);
+        mesh.SetUVs(2, flow);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateTangents();
+        var go = new GameObject("Fall");
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        go.AddComponent<MeshRenderer>().sharedMaterial = shell;
     }
 
     private static void Light()
