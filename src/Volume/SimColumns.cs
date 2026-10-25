@@ -16,9 +16,17 @@ namespace FlowingWater.Volume;
 /// it), and where the ground it knows under the column is under that water somewhere. Elsewhere (water falling through the air, a
 /// pool under another, water under a roof the cast ground is the roof of) the bricks draw it as they do.
 /// </para>
+/// <para>
+/// When the card draws falls as its own particles (its spray on), a column of water falling through the air from high
+/// over the ground is marked as a fall instead (2 where the card draws it), with the height it falls from in place of
+/// its depth: the card throws falling water from there, and the bricks leave the column to it.
+/// </para>
 /// </summary>
 internal static class SimColumns
 {
+    /// <summary>Whether the card draws a column (the second float): its sheet, or its fall's particles.</summary>
+    public const float Sheet = 1f, Fall = 2f;
+
     /// <summary>A column's top where no water rests.</summary>
     public const float DryTop = -10000f;
 
@@ -58,7 +66,7 @@ internal static class SimColumns
     /// may lie outside), with the ground known under the square's cells (<paramref name="perVoxel"/> to a column's
     /// side; NaN where not cast yet), and the height to cast each column's ground from.
     /// </summary>
-    public static float[] Build(IEnumerable<BrickView> bricks, int x0, int z0, int columns, float voxelSize, float[] bed, int perVoxel, out float[] cast)
+    public static float[] Build(IEnumerable<BrickView> bricks, int x0, int z0, int columns, float voxelSize, float[] bed, int perVoxel, out float[] cast, bool falls = false)
     {
         var stacks = new Dictionary<long, List<BrickView>>();
         foreach (BrickView brick in bricks)
@@ -85,9 +93,9 @@ internal static class SimColumns
             for (int vx = 0; vx < columns; vx++)
             {
                 int x = x0 + vx, z = z0 + vz, k = (vz * columns) + vx;
-                grounds[k] = Ground(bed, columns * perVoxel, perVoxel, vx, vz);
+                grounds[k] = Ground(bed, columns * perVoxel, perVoxel, vx, vz, out float lowest);
                 found[k] = stacks.TryGetValue(((long)(x >> 4) << 32) | (uint)(z >> 4), out List<BrickView> stack)
-                    ? Look(stack, x & 15, z & 15, voxelSize, grounds[k])
+                    ? Look(stack, x & 15, z & 15, voxelSize, grounds[k], lowest)
                     : Column.None;
             }
         }
@@ -102,8 +110,9 @@ internal static class SimColumns
                 bool east = vx + 1 < columns && Shut(column.ClosedEast, column, grounds[k + 1], voxelSize, found[k + 1].ClosedWest, found[k + 1], grounds[k]);
                 bool north = vz + 1 < columns && Shut(column.ClosedNorth, column, grounds[k + columns], voxelSize, found[k + columns].ClosedSouth, found[k + columns], grounds[k]);
                 texels[k * Texel] = column.Top;
-                texels[(k * Texel) + 1] = column.Drawn && GroundUnder(bed, columns * perVoxel, perVoxel, vx, vz, column.Top) ? 1f : 0f;
-                texels[(k * Texel) + 2] = column.Depth;
+                bool fall = falls && !float.IsNaN(column.FallTop);
+                texels[(k * Texel) + 1] = fall ? Fall : column.Drawn && GroundUnder(bed, columns * perVoxel, perVoxel, vx, vz, column.Top) ? Sheet : 0f;
+                texels[(k * Texel) + 2] = fall ? column.FallTop : column.Depth;
                 texels[(k * Texel) + 3] = ((east ? 1 : 0) | (north ? 2 : 0)) + (0.5f * Math.Min(column.Foam, 0.99f));
             }
         }
@@ -119,8 +128,12 @@ internal static class SimColumns
     {
         public static readonly Column None = new(DryTop, 0f, int.MinValue, false, 0f, false, false, false, false);
 
-        public Column(float top, float depth, int row, bool drawn, float foam, bool closedEast, bool closedNorth, bool closedWest, bool closedSouth)
+        // Water falling through the air from this height, high over the ground.
+        public static Column Falling(float top) => new(DryTop, 0f, int.MinValue, false, 0f, false, false, false, false, top);
+
+        public Column(float top, float depth, int row, bool drawn, float foam, bool closedEast, bool closedNorth, bool closedWest, bool closedSouth, float fallTop = float.NaN)
         {
+            FallTop = fallTop;
             Top = top;
             Row = row;
             Depth = depth;
@@ -141,6 +154,9 @@ internal static class SimColumns
 
         public bool Drawn { get; }
 
+        // Where it is a fall, the height it falls from; else NaN.
+        public float FallTop { get; }
+
         public float Foam { get; }
 
         public bool ClosedEast { get; }
@@ -152,9 +168,10 @@ internal static class SimColumns
         public bool ClosedSouth { get; }
     }
 
-    // The column (x, z in its bricks) of a stack of bricks, highest first, with the ground cast under it (NaN where not
-    // all cast yet): its highest run of wet voxels, where it rests, and whether any water lies under it (another layer).
-    private static Column Look(List<BrickView> stack, int x, int z, float voxelSize, float ground)
+    // The column (x, z in its bricks) of a stack of bricks, highest first, with the ground cast under it (its mean and
+    // its lowest; NaN where not all cast yet): its highest run of wet voxels, where it rests, and whether any water lies
+    // under it (another layer).
+    private static Column Look(List<BrickView> stack, int x, int z, float voxelSize, float ground, float lowest)
     {
         // The wet voxels top down, as (brick, index, row): the highest run, then whether more lies under it.
         var run = new List<(BrickView Brick, int Index, int Row)>();
@@ -202,15 +219,22 @@ internal static class SimColumns
 
         // The run rests where its lowest voxel has ground in it, or no water could leave it downward (a solid voxel or a
         // piece under it); else it hangs over the air: running down a step when the ground cast under it is near, else
-        // falling (the bricks draw it; the card keeps no water there).
+        // falling (from its top; the card keeps no water there).
         bool rests = lowBrick.Solid[low] > 0f || (lowBrick.Open[low] & OpenDown) == 0;
         if (!rests)
         {
-            // Not where the ground cast is over the water's bottom: a roof, or a wall (ground not known).
+            // Not where the ground cast is over the water's bottom everywhere: a roof, or a wall (ground not known). How far
+            // it falls goes by the lowest ground under it: a column half over a ledge's top and half beside it falls.
             float bottom = lowRow * voxelSize;
-            if (float.IsNaN(ground) || bottom - ground > StepDrop || ground > bottom)
+            if (float.IsNaN(ground) || lowest > bottom)
             {
                 return Column.None;
+            }
+
+            if (bottom - lowest > StepDrop)
+            {
+                (BrickView topBrick, int topAt, int topRow) = run[0];
+                return Column.Falling((topRow + Math.Min(1f, topBrick.Solid[topAt] + topBrick.Water[topAt])) * voxelSize);
             }
 
             return Of(run[0].Brick, run[0].Index, run[0].Row, ground + depth, depth, !under, lowBrick.VelocityY[low]);
@@ -252,15 +276,18 @@ internal static class SimColumns
         return new Column(level, depth, row, drawn, foam, (open & OpenEast) == 0, (open & OpenNorth) == 0, (open & OpenWest) == 0, (open & OpenSouth) == 0);
     }
 
-    // The mean ground cast under a column's cells; NaN while any is not cast.
-    private static float Ground(float[] bed, int cells, int perVoxel, int vx, int vz)
+    // The mean ground cast under a column's cells, and the lowest; NaN while any is not cast.
+    private static float Ground(float[] bed, int cells, int perVoxel, int vx, int vz, out float lowest)
     {
         float sum = 0f;
+        lowest = float.PositiveInfinity;
         for (int j = 0; j < perVoxel; j++)
         {
             for (int i = 0; i < perVoxel; i++)
             {
-                sum += bed[(((vz * perVoxel) + j) * cells) + (vx * perVoxel) + i];
+                float ground = bed[(((vz * perVoxel) + j) * cells) + (vx * perVoxel) + i];
+                sum += ground;
+                lowest = float.IsNaN(ground) ? float.NaN : Math.Min(lowest, ground);
             }
         }
 

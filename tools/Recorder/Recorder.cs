@@ -511,6 +511,15 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     private IEnumerator Gpu(Site steep, Site gentle, Site flat)
     {
         Note($"flat site {flat}");
+
+        // A fall: a platform of stone 3.5 m high uphill of the flat site, a source on it (the world's generated ground has
+        // no cliff near the spawn).
+        Vector3 towerAt = flat.At(-16f) + (flat.Across * 8f);
+        yield return Go(towerAt);
+        Vector3 tower = Platform(Player.m_localPlayer.transform.position, 3.5f);
+        yield return Go(tower, tower.y);
+        Command("flowingwater remove");
+        Command("flowingwater source 4");
         string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4";
         yield return Go(flat.At(0f));
         Command("flowingwater remove");
@@ -541,6 +550,16 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             Note($"frame rate over the steep stream, {mode}: {(Time.frameCount - frames) / (Time.realtimeSinceStartup - since):0.0} fps");
         }
 
+        // The fall off the platform (its source placed first): falls, splashes and spray as particles, filmed close and
+        // from further off; who draws what.
+        Vector3 fall = tower + new Vector3(0f, -2f, 0f);
+        Vector3 near = tower + (flat.Across * 8f) + (flat.Down * 5f) + new Vector3(0f, -1f, 0f);
+        yield return Burst(near, fall, "cliff-near", 4f, 15);
+        yield return Burst(tower + (flat.Across * 14f) + (flat.Down * 12f) + new Vector3(0f, 4f, 0f), fall, "cliff-far", 3f, 15);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "cliff-colours");
+        Command("flowingwater gpu colours");
+
         // A flood on the flat site: 40 m3/s for six seconds, then gone, seen from the side; then what is left, from above.
         Vector3 flood = flat.At(0f);
         yield return Go(flood);
@@ -559,6 +578,47 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return Burst(from, at, "flood-off", 6f, 12);
         yield return Burst(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-above", 6f, 12);
         Command("flowingwater gpu");
+    }
+
+    // A platform of stone floors 4 m a side, this high over the ground at its middle, built from the ground up (or the
+    // one an earlier run built there: a piece found well over the ground); its top's middle.
+    private Vector3 Platform(Vector3 middle, float height)
+    {
+        if (Physics.Raycast(middle + (Vector3.up * 30f), Vector3.down, out RaycastHit hit, 40f, LayerMask.GetMask("piece"), QueryTriggerInteraction.Ignore)
+            && hit.point.y > middle.y + (height / 2f))
+        {
+            Note(FormattableString.Invariant($"platform already at {hit.point.ToString("F1")}"));
+            return hit.point;
+        }
+
+        GameObject piece = new[] { "stone_floor_2x2", "wood_floor" }.Select(n => ZNetScene.instance.GetPrefab(n)).FirstOrDefault(p => p != null)
+            ?? throw new InvalidOperationException("neither stone_floor_2x2 nor wood_floor found");
+        float goal = middle.y + height;
+        float highest = middle.y;
+        int count = 0;
+        foreach (float dx in new[] { -1f, 1f })
+        {
+            foreach (float dz in new[] { -1f, 1f })
+            {
+                var at = new Vector3(middle.x + dx, middle.y, middle.z + dz);
+                float top = ZoneSystem.instance.GetGroundHeight(at, out float ground) ? ground : middle.y;
+                while (top < goal && count < 120)
+                {
+                    GameObject placed = Instantiate(piece, new Vector3(at.x, top, at.z), Quaternion.identity);
+                    placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
+                    Physics.SyncTransforms();
+                    Bounds bounds = placed.GetComponentsInChildren<Collider>().Where(k => !k.isTrigger).Select(k => k.bounds)
+                        .Aggregate((Bounds?)null, (all, b) => all is { } a ? Grown(a, b) : b) ?? new Bounds(placed.transform.position, Vector3.one);
+                    top = Mathf.Max(top + 0.25f, bounds.max.y);
+                    count++;
+                }
+
+                highest = Mathf.Max(highest, top);
+            }
+        }
+
+        Note(FormattableString.Invariant($"platform of {count} {piece.name} at {middle.ToString("F1")}, top {highest:0.0}"));
+        return new Vector3(middle.x, highest, middle.z);
     }
 
     // Turns the water moved on the graphics card on or off, as its setting in the plugin's file does.

@@ -29,6 +29,12 @@ public static class BuildBundles
 
     public const string SimComputePath = "Assets/FlowingWater/Shaders/FlowingWaterSim.compute";
 
+    public const string SprayShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterSpray.shader";
+
+    public const string SprayMaterialPath = "Assets/FlowingWater/FlowingWaterSpray.mat";
+
+    public const string SprayComputePath = "Assets/FlowingWater/Shaders/FlowingWaterSpray.compute";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -62,7 +68,9 @@ public static class BuildBundles
         MakeMaterial(ShellShaderPath, ShellMaterialPath, "FlowingWaterShell");
         Material sim = MakeMaterial(SimShaderPath, SimMaterialPath, "FlowingWaterSim");
         sim.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
-        CheckCompute(SimComputePath);
+        CheckCompute(SimComputePath, "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed");
+        MakeMaterial(SprayShaderPath, SprayMaterialPath, "FlowingWaterSpray");
+        CheckCompute(SprayComputePath, "EmitFromWater", "Move");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -109,8 +117,8 @@ public static class BuildBundles
         return material;
     }
 
-    // The compute shader the water near the camera is moved with, imported and compiled without errors.
-    private static void CheckCompute(string path)
+    // A compute shader of the water near the camera, imported and compiled without errors, with these kernels.
+    private static void CheckCompute(string path, params string[] kernels)
     {
         var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(path);
         if (compute == null)
@@ -128,7 +136,7 @@ public static class BuildBundles
         }
 
         // A kernel that did not compile is not always told above: each must be there and run here.
-        foreach (string kernel in new[] { "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed" })
+        foreach (string kernel in kernels)
         {
             if (!compute.HasKernel(kernel) || !compute.IsSupported(compute.FindKernel(kernel)))
             {
@@ -204,7 +212,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

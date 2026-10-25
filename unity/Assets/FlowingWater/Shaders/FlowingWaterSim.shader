@@ -77,6 +77,10 @@ Shader "FlowingWater/SimWater"
         #define HIDE_DEPTH 0.01
         #define SHOW_DEPTH 0.02
 
+        // Water this much higher or lower than the water a cell away (m) begins to fade out from it, gone this much more.
+        #define CLIFF_FROM 0.5
+        #define CLIFF_FADE 0.3
+
         float At(sampler2D state, float2 p)
         {
             return tex2Dlod(state, float4(p / _SimCells, 0.0, 0.0)).r;
@@ -99,12 +103,15 @@ Shader "FlowingWater/SimWater"
             // the grid's squares join diagonal ones too), or under its own ground where that is lower: its squares fade
             // out at the water's edge, and never reach up to a cell whose ground is not known (a wall far over everything).
             float wet = -1e9;
+            float drop = 0.0;
             float2 sides[8] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0), float2(1.0, -1.0), float2(-1.0, -1.0) };
             for (int k = 0; k < 8; k++)
             {
                 if (At(_SimH, p + sides[k]) > HIDE_DEPTH * 0.5)
                 {
-                    wet = max(wet, LevelAt(p + sides[k]));
+                    float there = LevelAt(p + sides[k]);
+                    wet = max(wet, there);
+                    drop = max(drop, abs(there - (bed + depth)));
                 }
             }
 
@@ -123,7 +130,10 @@ Shader "FlowingWater/SimWater"
             float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;
-            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)), 0.0);
+            // Water a cell from water much higher or lower (over a ledge, down a fall) is not joined to it: the grid's
+            // squares between them would be a wall of water, drawn by the falls instead.
+            float joined = 1.0 - saturate((drop - CLIFF_FROM) / CLIFF_FADE);
+            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, 0.0);
             o.current = current;
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));

@@ -106,7 +106,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
-| `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water falls or runs steeply |
+| `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
 ### Water on the graphics card
@@ -142,6 +142,24 @@ where), so the waves finer than a voxel are the card's own.
 editor on a dam break, a sloshing tank, a block of water let go on a slope with a block in its way, and a basin
 following a server's level, and writes what it measured (`sim.txt`, with the dam break's depth against Ritter's, and
 what a frame costs the card) and frames.
+
+### Falls, splashes and spray
+
+With `Client.Spray` on, the graphics card also throws particles from the water it moves, only for the look (no water
+is taken for them, nothing is sent):
+
+- **Falls.** Water running over a lip (the ground beyond more than 0.6 m lower than its own) leaves it as streaks of
+  falling water at its own speed, so a stream off a ledge arcs out. Where the server's water falls through the air from
+  high (more than 1.5 m over the ground under it), the blocks no longer draw it near you: the card throws falling
+  water from the height it falls from.
+- **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
+- **Spray.** Water running faster than 3.5 m/s throws fine droplets off its surface.
+
+At most 32768 particles live at once (the oldest give way). Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
+(`tools/sim-preview.sh`, which also runs a shelf of water poured off its lip); drawing them comes on top, and grows
+with how many there are on screen. A wall of water between two levels (a ledge with water on its top and at its
+foot) is left to the falls: the card's surface fades out where the water a cell away is more than half a metre higher
+or lower.
 
 ### Grid size
 
@@ -228,9 +246,9 @@ there to the new grid (same volume), at once when the file is saved.
   write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
   m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
   where it slows. The server's debug map reports what each zone cut and laid down.
-- **White water.** The running water's sound and spray were made for the column water and went with its drawing;
-  the 3D water is silent and sprays nothing until they come back on it in a later version (`Spray` and
-  `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
+- **White water.** The running water's sound was made for the column water and went with its drawing; the 3D water
+  is silent until it comes back on it in a later version (`WaterVolume` waits for it). Its falls, splashes and spray
+  are the graphics card's (see [Falls, splashes and spray](#falls-splashes-and-spray)). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
 - **Client.** Near the camera the graphics card moves the water (see [Water on the graphics card](#water-on-the-graphics-card)) and draws it where it is one layer on the ground; the blocks draw the rest. Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
   card shapes the surface: the block's columns' tops (its highest top in its own rows, else the nearest within three

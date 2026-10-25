@@ -39,6 +39,7 @@ public static class SimPreview
             Slosh();
             Obstacle();
             Follow();
+            Ledge();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -215,6 +216,37 @@ public static class SimPreview
         }
     }
 
+    // Falls, splashes and spray: 2 m of water let go on a shelf 3 m high, running off its lip onto the floor below; the
+    // particles thrown, seen, and counted.
+    private static void Ledge()
+    {
+        float[] bed = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var scene = new Scene("ledge", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath));
+        scene.Spray = spray;
+        Log.AppendLine("Ledge: 2 m of water let go on a shelf 3 m high, running off its lip at x = 20 m.");
+        for (int k = 1; k <= 300; k++)
+        {
+            scene.Step();
+            spray.Step(scene.Grid, Vector2.zero, Frame);
+            if (k % 30 == 0)
+            {
+                int alive = spray.Alive(out int sheets);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s particles {alive} (sheets {sheets})"));
+            }
+
+            if (k is 45 or 60 or 75 or 90 or 120 or 180)
+            {
+                scene.Shot(Inv($"ledge_{k * Frame:0.00}s"), new Vector3(27f, 6f, 6f), new Vector3(21f, 1.5f, 20f));
+            }
+        }
+
+        scene.Spray = null;
+    }
+
     // What a frame costs the card at the game's size (384 cells a side, 96 m of 0.25 m), the square full of moving water:
     // the time of many frames' steps, waited for, over their count.
     private static void Cost()
@@ -260,6 +292,25 @@ public static class SimPreview
                 AsyncGPUReadback.Request(grid.Depth).WaitForCompletion();
                 Log.AppendLine(Inv($"Cost: {cells} cells a side, frames of {1f / frame:0} fps ({grid.Substeps} steps each): {watch.Elapsed.TotalMilliseconds / Frames:0.000} ms a frame"));
             }
+
+            // The particles over that water (moved only, not drawn), at 60 fps once the ring is full.
+            var sprayShader = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+            using var spray = new SprayParticles(sprayShader, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath));
+            for (int k = 0; k < 120; k++)
+            {
+                grid.Step(1f / 60f);
+                spray.Step(grid, Vector2.zero, 1f / 60f);
+            }
+
+            int alive = spray.Alive(out _);
+            var sprayWatch = System.Diagnostics.Stopwatch.StartNew();
+            for (int k = 0; k < 600; k++)
+            {
+                spray.Step(grid, Vector2.zero, 1f / 60f);
+            }
+
+            AsyncGPUReadback.Request(grid.Depth).WaitForCompletion();
+            Log.AppendLine(Inv($"Cost: particles over {cells} cells ({alive} alive of {SprayParticles.Count}): {sprayWatch.Elapsed.TotalMilliseconds / 600:0.000} ms a frame to move"));
         }
     }
 
@@ -322,6 +373,9 @@ public static class SimPreview
 
         public SimGrid Grid { get; }
 
+        // Particles drawn with each shot, if any.
+        public SprayParticles Spray { get; set; }
+
         public void Step() => Grid.Step(Frame);
 
         public float[] Read()
@@ -348,6 +402,14 @@ public static class SimPreview
             camera.fieldOfView = 60f;
             var target = new RenderTexture(1280, 720, 24);
             camera.targetTexture = target;
+            if (Spray != null)
+            {
+                // Drawn with the next render of this camera only.
+                var commands = new CommandBuffer();
+                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6);
+                camera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, commands);
+            }
+
             camera.Render();
             RenderTexture.active = target;
             var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);

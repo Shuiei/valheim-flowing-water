@@ -80,6 +80,41 @@ public class SimColumnsTests
     }
 
     [Fact]
+    public void WaterFallingFromHighIsTheCardsFallWhenItDrawsFalls()
+    {
+        // Rows 4 to 6 half full over the air, the ground 4 m under: a fall from 6.5 m.
+        var brick = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y <= 6; y++)
+        {
+            Wet(brick, 3, y, 3, 0.5f, solid: 0f, open: OpenAll);
+        }
+
+        float[] texels = SimColumns.Build([brick], 0, 0, Columns, 1f, Bed(0f), PerVoxel, out _, falls: true);
+
+        Assert.Equal(SimColumns.DryTop, Top(texels, 3, 3));
+        Assert.Equal(SimColumns.Fall, Drawn(texels, 3, 3));
+        Assert.Equal(6.5f, Depth(texels, 3, 3), 3);
+    }
+
+    [Fact]
+    public void WaterFallingHalfOverALedgeFallsByTheLowerGround()
+    {
+        // A sliver hanging in row 4, half the column's cells under it on a ledge's top at 3.9 m, half on the ground at 0.
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 4, 3, 0.2f, solid: 0f, open: OpenAll);
+        float[] bed = Bed(0f);
+        for (int j = 0; j < PerVoxel; j++)
+        {
+            bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (3 * PerVoxel)] = 3.9f;
+        }
+
+        float[] texels = SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out _, falls: true);
+
+        Assert.Equal(SimColumns.Fall, Drawn(texels, 3, 3));
+        Assert.Equal(4.2f, Depth(texels, 3, 3), 3);
+    }
+
+    [Fact]
     public void APoolUnderAnotherIsLeftToTheBricksAndTheCardKeepsTheHigher()
     {
         BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);

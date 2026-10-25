@@ -62,6 +62,9 @@ internal sealed class GpuWater : IDisposable
 
     private readonly SimGrid _grid;
 
+    // Its falls, splashes and spray (Client.Spray), made when first wanted.
+    private SprayParticles _spray;
+
     private readonly BedCast _cast;
 
     // The ground under each cell as cast (NaN where not yet), and how many times rows of it were cast.
@@ -81,6 +84,11 @@ internal sealed class GpuWater : IDisposable
     private int _buildingVersion;
 
     private int _buildingGround;
+
+    // Whether the build under way, and the last one, mark falls for the card's spray (Client.Spray).
+    private bool _buildingFalls;
+
+    private bool _builtFalls;
 
     private int _builtVersion = -1;
 
@@ -249,6 +257,7 @@ internal sealed class GpuWater : IDisposable
     public void Dispose()
     {
         _cast.Dispose();
+        _spray?.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
 
@@ -275,6 +284,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         _grid.Step(Time.deltaTime);
+        Spray();
         Shader.SetGlobalFloat(OnId, 1f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
@@ -288,6 +298,23 @@ internal sealed class GpuWater : IDisposable
         _properties.SetFloat(LiftId, WaterBrick.Lift);
         _renderer.SetPropertyBlock(_properties);
         _renderer.enabled = true;
+    }
+
+    // The falls, splashes and spray, while Client.Spray is on: thrown from the water just moved, moved, and drawn over
+    // the square (as high as any water).
+    private void Spray()
+    {
+        if (!FlowingWaterPlugin.Settings.Spray.Value || !Materials.Spray(out Material material, out ComputeShader compute))
+        {
+            _spray?.Dispose();
+            _spray = null;
+            return;
+        }
+
+        var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        _spray ??= new SprayParticles(compute, material);
+        _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
+        _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
     // The server's water built for the card, handed to it: the first one seeds it.
@@ -310,6 +337,7 @@ internal sealed class GpuWater : IDisposable
         MarkCastFirst();
         _builtVersion = _buildingVersion;
         _builtGround = _buildingGround;
+        _builtFalls = _buildingFalls;
         if (!_seeded)
         {
             _grid.Seed();
@@ -321,7 +349,8 @@ internal sealed class GpuWater : IDisposable
     // bricks in the square as they are now (a brick's water is never changed in place: new data is a new view).
     private void StartBuild()
     {
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (VoxelWater.Field.Version == _builtVersion && _groundVersion == _builtGround))
+        bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (VoxelWater.Field.Version == _builtVersion && _groundVersion == _builtGround && falls == _builtFalls))
         {
             return;
         }
@@ -341,10 +370,11 @@ internal sealed class GpuWater : IDisposable
         SimWindow w = _window;
         _buildingVersion = VoxelWater.Field.Version;
         _buildingGround = _groundVersion;
+        _buildingFalls = falls;
         _builtAt = Time.time;
         _build = Task.Run(() =>
         {
-            float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast);
+            float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, falls);
             return (texels, cast);
         });
     }
