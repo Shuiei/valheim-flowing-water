@@ -690,6 +690,13 @@ internal sealed class VoxelSolver
             return 0f;
         }
 
+        // A flow that is not a number (from water that was none, emptied since) would stay so for ever, and empty the
+        // voxels on both sides every step: it starts again from rest.
+        if (float.IsNaN(flow))
+        {
+            flow = 0f;
+        }
+
         flow += dt * Gravity * area / s * (brick.Head[i] - other.Head[j]);
         flow /= 1f + (dt * (Damping + (Drag * (flow < 0f ? -flow : flow) / area)));
 

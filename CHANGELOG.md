@@ -2,6 +2,48 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.24.0 — 2026-10-25
+
+### Changed
+- The server simulates only the sources and drains placed by a player who may place them: with `CommandsForEveryone`
+  off, the host's and the admins', checked while they are on the server and remembered after in a file of the
+  server's. Markers placed with the console before this version carry no placer: turn `CommandsForEveryone` on for a
+  moment to allow every marker in the world, or place them again.
+- Less work for the server: a block of water beside a running stream steps only the voxels its neighbour's water can
+  reach, a block sleeps unless a neighbour's water moves at the face between them, a drain looks only in the blocks
+  round it, bricks reading their solids again after a hoe stroke are spread over frames, and the frame's budget is
+  not given up when a step ends in it. Less work in the game too: nothing on a dedicated server or far from water for
+  the game's water checks, fewer uploads per block, no reflection each frame while a tool is in hand.
+- The settings for spray, sound and the stream texture say in the config file that they are unused for now.
+
+### Fixed
+- A single voxel of water that was not a number (from a ground height the game gave as none) froze the whole water
+  for good, the server's frame budget burnt every frame on it. Such water is emptied, counted once in the log, and the
+  rest goes on.
+- A block of water the server could not read back at a start (its blocks capped, or the ground risen under it) was
+  left in the world beside the block made later, drawn for ever, and its water doubled at the next start. A saved
+  block keeps its object now; one that cannot be read back is removed and told of.
+- A corrupt saved block of water stopped the whole water loading on the game's own runtime; it is told of and skipped.
+- A settings file deleted was warned of every second; once.
+- `flowingwater source` with a `DefaultSourceRate` of 0 placed a source the server ignored; the console refuses it
+  and the setting is bounded.
+- Once the blocks' cap had been hit, a source standing where no water has room was never warned of again.
+- A block fed only by water the sea takes was forgotten and made again every half minute for as long as the water
+  ran.
+- A game update giving one of the patched methods a twin would have left every patch of the mod out; such a method
+  is skipped with an error instead. A missing body field would have failed at every character's move; the current
+  is left out with an error instead.
+- Blocks side by side blend to new water on one clock: no step between a block and its neighbour while the surface
+  moves.
+- Water the server keeps inside a solid voxel (a piece built over a pool with nowhere for the water to go) is not
+  drawn, and no one swims in it.
+- A server running another version of the mod is told of once, not once per block per send.
+- The mod's shader, its shell and the sea's look are tried again each world instead of staying off for the whole
+  game after one failure.
+- `E` no longer both uses a door or chest and opens the source-and-drain panel in one press.
+- Pieces scaled by another mod with one number for all three axes are read at that scale.
+- A fixed source or drain whose place is not a number is refused as written wrong.
+
 ## v0.23.0 — 2026-10-24
 
 ### Added

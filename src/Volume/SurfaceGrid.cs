@@ -31,9 +31,6 @@ internal sealed class SurfaceGrid
     /// <summary>Falling this fast, metres a second, the water is all foam.</summary>
     public const float FoamFall = 4f;
 
-    /// <summary>The thinnest water drawn: <see cref="Drawing.HideDepth"/> (kept for the server's sends, which read it here).</summary>
-    public const float HideDepth = Drawing.HideDepth;
-
     /// <summary>
     /// How many bricks over one its grid may read: a column's depth is measured <see cref="VoxelSurface.DeepestColumn"/>
     /// rows down from a top, which may be up to <see cref="Window"/> rows under the brick drawing it.

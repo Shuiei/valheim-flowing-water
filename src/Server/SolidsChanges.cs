@@ -136,8 +136,9 @@ internal sealed class SolidsChanges<TZone, TId>
         int refilled = 0;
         while (_pending.Count > 0)
         {
-            Brick brick = _pending[_pending.Count - 1];
-            _pending.RemoveAt(_pending.Count - 1);
+            int last = _pending.Count - 1;
+            Brick brick = _pending[last];
+            _pending.RemoveAt(last);
             if (grid.Find(brick.X, brick.Y, brick.Z) == brick)
             {
                 grid.Refill(brick);

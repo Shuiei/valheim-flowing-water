@@ -347,6 +347,20 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void TheCapIsLiftedOnceABrickIsForgotten()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 1 };
+        grid.Pour(0, 0, 0, 1f);
+        Assert.Null(grid.Make(1, 0, 0));
+        Assert.True(grid.Capped);
+
+        grid.Forget(grid.Find(0, 0, 0));
+
+        Assert.False(grid.Capped);
+        Assert.NotNull(grid.Make(1, 0, 0));
+    }
+
+    [Fact]
     public void ABrickIsLookedOverAgainOnlyOnceItsWaterChanged()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000));

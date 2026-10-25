@@ -58,6 +58,14 @@ removing one. A character learns the source and drain as soon as it is in a worl
 hosting, or on a server running it), whatever its age, and forgets them on a server without it: the hoe there offers
 only the game's own pieces.
 
+The server checks too, since a player's game could be changed to skip its own check: it simulates a placed source or
+drain only once it knows its placer may place one. While `CommandsForEveryone` is on, anyone's; else one placed by the
+host or an admin, checked while they are on the server and remembered after, in a file of the server's
+(`BepInEx/config/Tie.FlowingWater.<world>.markers`, one marker a line). One placed by someone else, or whose placer is
+not on the server to be checked, is ignored, and the log says so once. Sources and drains placed with the console
+before v0.24 carry no placer: with `CommandsForEveryone` off, turn it on for a moment to allow every marker in the
+world, or place them again. The config's `FixedSources` and `FixedDrains` need no check.
+
 A server can also have sources and drains with no marker placed, from its config: `FixedSources` and
 `FixedDrains` take `x,z,rate` triples separated by `;` (world coordinates, cubic metres per second); a drain may
 add its radius in metres, `x,z,rate,radius`. The server holds every source's and drain's rate, placed or fixed, to
@@ -77,7 +85,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
 | `Server.SendSeconds` | 1 | How often a block of water whose change would show is sent to the players near it |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
-| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still) |
+| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still; what a block lets go of as it goes still is kept for the next to wake) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
 | `Server.MarkerScanSeconds` | 3 | Seconds from the end of one look for new or removed sources and drains to the next (1 to 60; a look over a big world itself takes a few seconds) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
@@ -86,7 +94,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate (the hoe's panel starts from it) |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all (the hoe's panel starts from it) |
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres (the hoe's panel starts from it) |
-| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place, change and remove sources and drains (the server's setting counts; the host and admins always may) |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place, change and remove sources and drains (the server's setting counts, and the server simulates only the sources and drains placed by a player who may; the host and admins always may) |
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
@@ -132,7 +140,8 @@ there to the new grid (same volume), at once when the file is saved.
   slope, over flat ground) it goes only from water standing 3 cm deep, while dry ground lower down is run onto
   freely; so a stream runs down a slope a couple of metres wide instead of fanning out into a sheet, and a sheet
   stops spreading as it thins (water already on wet ground flows as before, and none is lost). Long steps are
-  split so the water stays stable 10 m deep. Each step works only on the part of a block round its water (and its
+  split so the water stays stable 10 m deep. Water that is not a number (a ground height the game gives as none, a
+  brick saved so) is emptied where it is found and counted in the log, the water round it going on. Each step works only on the part of a block round its water (and its
   borders where the next block has water), and a block whose water has barely moved for a second sleeps (skipped)
   until water is poured in, a solid changes or a block beside it moves: still pools cost almost nothing. A source
   pours 0.3 m over its point (the first open voxel there, over the piece it stands on); a drain takes from every

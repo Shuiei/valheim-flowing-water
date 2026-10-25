@@ -36,6 +36,24 @@ public class VoxelSolverTests
     }
 
     [Fact]
+    public void WaterThatIsNotANumberIsEmptiedAndCountedAndTheRestGoesOn()
+    {
+        // Without that, the stiffness and the longest stable step were not numbers either, and the step was worked out
+        // again for ever; and the flows round the voxel stayed so, emptying its neighbours every step.
+        VoxelGrid grid = Box();
+        grid.Pour(3, 0, 3, 2f);
+        grid.Pour(5, 0, 5, float.NaN);
+        var solver = new VoxelSolver(grid);
+
+        solver.Step(2f);
+
+        Assert.True(solver.TakeNotNumbers() > 0);
+        Assert.Equal(0, solver.TakeNotNumbers());
+        Assert.Equal(2f, grid.TotalWater(), 1);
+        Assert.Equal(0f, grid.WaterAt(5, 0, 5) - grid.WaterAt(5, 0, 5));
+    }
+
+    [Fact]
     public void AThinFilmDoesNotSpreadOntoDryGround()
     {
         // Two centimetres of water in one voxel of a dry floor.

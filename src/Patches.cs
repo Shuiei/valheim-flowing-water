@@ -21,6 +21,7 @@ internal static class PrefabPatch
     {
         Prefabs.Register(__instance);
         MarkerPanel.WorldOpened();
+        Materials.WorldOpened();
     }
 }
 

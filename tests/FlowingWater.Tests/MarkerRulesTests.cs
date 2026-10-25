@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using FlowingWater.Server;
@@ -88,6 +89,16 @@ public class MarkerRulesTests
     [InlineData(1000f, 16f)]
     public void ADrainReachesSixteenMetresAtMost(float radius, float reach) =>
         Assert.Equal(reach, MarkerRules.Reach(radius));
+
+    [Theory]
+    [InlineData("NaN,1,2")]
+    [InlineData("1,Infinity,2")]
+    public void AFixedSourceAtAPlaceThatIsNoNumberIsWrittenWrong(string text)
+    {
+        Assert.Empty(_rules.Fixed(text, false, 1f));
+
+        Assert.Contains("is not x,z,rate", Assert.Single(_warnings), StringComparison.Ordinal);
+    }
 
     [Fact]
     public void FixedSourcesAreReadWithTheirRates()

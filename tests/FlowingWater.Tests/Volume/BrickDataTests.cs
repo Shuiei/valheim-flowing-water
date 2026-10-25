@@ -121,11 +121,13 @@ public class BrickDataTests
         byte[] was = BrickData.Look(before, 1f);
         byte[] now = BrickData.Look(after, 1f);
 
-        // The second record is voxel 1's (voxel 0, a trace, has one too).
-        Assert.Equal(1, BrickData.Voxel(now, BrickData.LookBytes));
-        Assert.Equal(100, was[BrickData.LookBytes + BrickData.WaterByte]);
-        Assert.Equal(103, now[BrickData.LookBytes + BrickData.WaterByte]);
-        Assert.Equal(BrickData.Decode(BrickData.Encode(after, 1f)).Water[1], now[BrickData.LookBytes + BrickData.WaterByte] / 200f, 4);
+        // A look holds a record for each voxel with water (the trace rounds to one step before, to none after).
+        int wasAt = Record(was, 1), nowAt = Record(now, 1);
+        Assert.Equal(2 * BrickData.LookBytes, was.Length);
+        Assert.Equal(BrickData.LookBytes, now.Length);
+        Assert.Equal(100, was[wasAt + BrickData.WaterByte]);
+        Assert.Equal(103, now[nowAt + BrickData.WaterByte]);
+        Assert.Equal(BrickData.Decode(BrickData.Encode(after, 1f)).Water[1], now[nowAt + BrickData.WaterByte] / 200f, 4);
         Assert.True(BrickData.Shows(was, now, 2, 3, BrickData.Steps(0.01f, 1f)));
     }
 
@@ -323,5 +325,20 @@ public class BrickDataTests
     {
         float step = (float)Math.Round((float)Math.Sqrt(Math.Min(Math.Abs(speed), BrickData.MaxSpeed) / BrickData.MaxSpeed) * 127f) / 127f;
         return Math.Sign(speed) * step * step * BrickData.MaxSpeed;
+    }
+
+    // Where a voxel's record starts in a look; fails the test when it has none.
+    private static int Record(byte[] look, int voxel)
+    {
+        for (int k = 0; k < look.Length; k += BrickData.LookBytes)
+        {
+            if (BrickData.Voxel(look, k) == voxel)
+            {
+                return k;
+            }
+        }
+
+        Assert.Fail($"voxel {voxel} has no record in the look");
+        return -1;
     }
 }
