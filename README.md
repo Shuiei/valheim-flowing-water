@@ -118,7 +118,9 @@ there to the new grid (same volume), at once when the file is saved.
   when pressed in). The ground fills each voxel from its bottom up to the terrain's height; building pieces, as
   the boxes of their solid colliders, fill the voxels they stand in from below (a floor) and close the faces
   between voxels they separate, so a wall thinner than a voxel holds water, a box on posts holds a pool, and
-  breaking a piece lets the water out. The solids are read again when a piece is built, broken, moved, opened
+  breaking a piece lets the water out. A piece only in a voxel's upper half is that voxel's ceiling (the water on
+  it is in the voxel above), and two voxels side by side pass water only at a height where both have room: a thin
+  sloping plank, a ceiling here and a floor there, keeps the water running down it on top of it. The solids are read again when a piece is built, broken, moved, opened
   or closed (a door), or the ground changes. Water that reaches the sea is the sea's.
 - **Step.** The pipe model in three dimensions: each face between two voxels is a pipe whose flow keeps its
   momentum, sped up by the difference of the two voxels' heads and slowed by drag. A voxel's head is its floor
@@ -132,7 +134,8 @@ there to the new grid (same volume), at once when the file is saved.
   split so the water stays stable 10 m deep. Each step works only on the part of a block round its water (and its
   borders where the next block has water), and a block whose water has barely moved for a second sleeps (skipped)
   until water is poured in, a solid changes or a block beside it moves: still pools cost almost nothing. A source
-  pours at its point (the first open voxel there); a drain takes from every voxel within its radius.
+  pours 0.3 m over its point (the first open voxel there, over the piece it stands on); a drain takes from every
+  voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's heightmap
   builder makes them, plus the players' terrain changes; pieces come from their objects and the prefabs'

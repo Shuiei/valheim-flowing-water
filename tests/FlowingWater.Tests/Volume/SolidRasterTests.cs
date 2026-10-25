@@ -181,6 +181,56 @@ public class SolidRasterTests
         Assert.Equal(36f * 2.5f, grid.TotalWater(), 0);
     }
 
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(30f)]
+    [InlineData(55f)]
+    public void WaterRunningDownAThinSlopingChuteStaysOnItsBed(float heading)
+    {
+        // A chute of 2 m planks 0.13 m thick falling 1 m in 5, with 2 m side walls and closed ends, 8 m up over open
+        // ground, turned across the grid: along it the planks pass in and out of the upper and lower halves of the
+        // voxels they cross. Water poured at its head stays on its bed; none reaches the ground.
+        double a = heading * Math.PI / 180;
+        var along = Norm(new Vec3((float)Math.Cos(a), -0.2f, (float)Math.Sin(a)));
+        var across = new Vec3((float)-Math.Sin(a), 0f, (float)Math.Cos(a));
+        var up = Cross(across, along);
+        var head = new Vec3(2.5f, 8f, 4.5f);
+        var pieces = new List<SolidBox>();
+        for (int k = 0; k < 6; k++)
+        {
+            Vec3 middle = head + (along * ((2 * k) + 1));
+            pieces.Add(new SolidBox(middle - (up * 0.065f), along, up, across, new Vec3(1f, 0.065f, 1f)));
+            foreach (float side in new[] { -1.15f, 1.15f })
+            {
+                pieces.Add(new SolidBox(middle + (up * 1f) + (across * side), along, up, across, new Vec3(1f, 1f, 0.15f)));
+            }
+        }
+
+        foreach (Vec3 end in new[] { head - (along * 0.15f), head + (along * 12.15f) })
+        {
+            pieces.Add(new SolidBox(end + (up * 1f), along, up, across, new Vec3(0.15f, 1f, 1.3f)));
+        }
+
+        var grid = new VoxelGrid(1f, new BoxSolids(pieces));
+        var solver = new VoxelSolver(grid);
+        Vec3 pour = head + (along * 1.5f) + (up * 0.6f);
+        for (float t = 0f; t < 10f; t += 0.1f)
+        {
+            grid.Pour((int)Math.Floor(pour.X), (int)Math.Floor(pour.Y), (int)Math.Floor(pour.Z), 0.1f);
+            solver.Step(0.1f);
+        }
+
+        Run(solver, 10f);
+
+        float fallen = grid.Bricks.Sum(b => Enumerable.Range(0, Brick.Count).Where(i => (b.Y * Brick.Size) + Brick.Place(i).Y < 4).Sum(i => b.Water[i]));
+        Assert.Equal(0f, fallen, 3);
+        Assert.Equal(10f, grid.TotalWater(), 1);
+    }
+
+    private static Vec3 Norm(Vec3 v) => v * (1f / (float)Math.Sqrt(v.Dot(v)));
+
+    private static Vec3 Cross(Vec3 a, Vec3 b) => new((a.Y * b.Z) - (a.Z * b.Y), (a.Z * b.X) - (a.X * b.Z), (a.X * b.Y) - (a.Y * b.X));
+
     private static float Inside(VoxelGrid grid) =>
         Enumerable.Range(2, 6).Sum(x => Enumerable.Range(2, 6).Sum(z => Enumerable.Range(5, 4).Sum(y => grid.WaterAt(x, y, z))));
 

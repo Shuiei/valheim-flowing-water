@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.22.1 — 2026-10-24
+
+### Fixed
+- Water runs down sloping plank floors (chutes, slides, ramps) on top of them instead of leaking through to the
+  ground, and a source standing on a floor pours onto it instead of under it.
+
 ## v0.22.0 — 2026-10-24
 
 ### Added
