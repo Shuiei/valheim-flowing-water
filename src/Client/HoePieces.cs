@@ -199,9 +199,11 @@ internal static class HoePieces
         _removing = false;
         _selectedMarker = null;
         Player player = Player.m_localPlayer;
-        Piece selected = player != null && player.InPlaceMode() ? player.GetSelectedPiece() : null;
+        // The tool in hand shows them whether or not a piece is chosen (the hammer with an empty category, say).
+        bool placing = player != null && player.InPlaceMode();
+        Piece selected = placing ? player.GetSelectedPiece() : null;
         _selectedMarker = selected?.GetComponent<Marker>();
-        PieceTable tool = selected != null ? Tool(player) : null;
+        PieceTable tool = placing ? Tool(player) : null;
         if (tool == null)
         {
             return;
@@ -209,7 +211,7 @@ internal static class HoePieces
 
         (_shown, _removing) = HoeRemoval.Sight(
             hoeInHand: tool == _table,
-            removerChosen: selected.gameObject == Prefabs.Remover,
+            removerChosen: selected != null && selected.gameObject == Prefabs.Remover,
             waterPieceChosen: _selectedMarker != null,
             toolRemovesPieces: tool.m_canRemovePieces);
     }

@@ -10,6 +10,21 @@ namespace FlowingWater.Tests.Volume;
 public class BlendClockTests
 {
     [Fact]
+    public void ResetForgetsTheWaveBeforeSoAClockStartingAgainIsNotAhead()
+    {
+        // A game's clock starts again at each world: a start of 3600 on the clock before would lie an hour ahead.
+        var clock = new BlendClock();
+        clock.Came(3600f);
+
+        clock.Reset();
+        clock.Came(5f);
+
+        Assert.Equal(5f, clock.Start);
+        Assert.Equal(BlendClock.Default, clock.Seconds);
+        Assert.Equal(0.5f, clock.Share(5.5f), 4);
+    }
+
+    [Fact]
     public void TheFirstWaveBlendsForTheDefault()
     {
         var clock = new BlendClock();

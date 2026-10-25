@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace FlowingWater.Volume;
 
@@ -32,10 +33,16 @@ internal sealed class Brick
     private static readonly int[] NoPart = new int[Count];
 
     // The arrays bricks let go of as they fall asleep, kept for those that wake: a brick waking every second or so
-    // beside moving water would otherwise have 96 KB made for it each time.
+    // beside moving water would otherwise have 96 KB made for it each time. Only so many bricks' worth are kept (the
+    // churn of waking and sleeping, not every brick of a pool gone still: that memory is what falling asleep gives
+    // back); the rest go to the collector.
+    private const int MostSpare = 64;
+
     private static readonly ConcurrentBag<float[]> SpareFloats = [];
 
     private static readonly ConcurrentBag<int[]> SpareParts = [];
+
+    private static int _spareCount;
 
     /// <summary>A brick at these brick coordinates (voxel coordinates over 16).</summary>
     public Brick(int x, int y, int z)
@@ -144,12 +151,20 @@ internal sealed class Brick
             return;
         }
 
-        SpareFloats.Add(FlowX);
-        SpareFloats.Add(FlowY);
-        SpareFloats.Add(FlowZ);
-        SpareFloats.Add(Head);
-        SpareFloats.Add(Share);
-        SpareParts.Add(Part);
+        if (Interlocked.Increment(ref _spareCount) <= MostSpare)
+        {
+            SpareFloats.Add(FlowX);
+            SpareFloats.Add(FlowY);
+            SpareFloats.Add(FlowZ);
+            SpareFloats.Add(Head);
+            SpareFloats.Add(Share);
+            SpareParts.Add(Part);
+        }
+        else
+        {
+            Interlocked.Decrement(ref _spareCount);
+        }
+
         FlowX = FlowY = FlowZ = Head = Share = Nothing;
         Part = NoPart;
     }
@@ -162,12 +177,24 @@ internal sealed class Brick
             return;
         }
 
-        FlowX = Spare();
-        FlowY = Spare();
-        FlowZ = Spare();
-        Head = Spare();
-        Share = Spare();
-        Part = SpareParts.TryTake(out int[] part) ? part : new int[Count];
+        if (SpareParts.TryTake(out int[] part))
+        {
+            Interlocked.Decrement(ref _spareCount);
+            Part = part;
+            FlowX = Spare();
+            FlowY = Spare();
+            FlowZ = Spare();
+            Head = Spare();
+            Share = Spare();
+            return;
+        }
+
+        FlowX = new float[Count];
+        FlowY = new float[Count];
+        FlowZ = new float[Count];
+        Head = new float[Count];
+        Share = new float[Count];
+        Part = new int[Count];
     }
 
     // A spare array of floats, cleared, or a new one.

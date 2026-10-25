@@ -256,15 +256,22 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
     }
 
-    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts.
-    // Between two steps, what waited for the step under way has its turn, and the frame's credit is not given up with
-    // a step's end (it was, and the water fell behind the budget with every step that ran over a frame's end).
+    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts. What
+    // waited for a step under way has its turn once that step is done, whatever the credit (a frame over its budget
+    // must not keep a wall just built from the water), and again between two steps of the frame, so that the frame's
+    // credit is not given up with a step's end (it was, and the water fell behind the budget with every step that ran
+    // over a frame's end).
     private void Step(float dt)
     {
         float budget = FlowingWaterPlugin.Settings.StepBudget.Value;
         _pacer.Add(dt, budget);
         _stepWatch.Start();
         _frameWatch.Restart();
+        if (!_solver.InStep && _waited > 0f)
+        {
+            BetweenSteps();
+        }
+
         int chunk = Math.Max(Chunk, _grid.Bricks.Count / Environment.ProcessorCount);
         while (TimeLeft())
         {
@@ -416,7 +423,17 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
                 long key = VoxelGrid.Key(view.X, view.Y, view.Z);
                 if (Mathf.Approximately(view.VoxelSize, _grid.VoxelSize) && adopted.Add(key))
                 {
-                    _objects.Adopt(key, zdo.m_uid);
+                    // With its bytes as the brick's last sent: a still brick, as it was saved, is not sent again.
+                    Brick brick = _grid.Find(view.X, view.Y, view.Z);
+                    if (brick != null)
+                    {
+                        _objects.Adopt(key, zdo.m_uid, brick, zdo.GetByteArray(ZdoKeys.Brick), _grid.VoxelSize);
+                    }
+                    else
+                    {
+                        _objects.Adopt(key, zdo.m_uid);
+                    }
+
                     continue;
                 }
             }

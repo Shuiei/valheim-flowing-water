@@ -5,21 +5,9 @@ using UnityEngine;
 
 namespace FlowingWater.Client;
 
-/// <summary>What the in-game recorder and the console measure of the bricks: their cost, their count, what one draws.</summary>
+/// <summary>What the in-game recorder and the console measure of the bricks: their count and what one draws (their cost is <see cref="BrickFrame"/>'s).</summary>
 internal static class BrickMeasures
 {
-    /// <summary>
-    /// All the milliseconds the bricks took in the game's frames since the game started: the water's cost to the
-    /// player, a frame's being the difference over it.
-    /// </summary>
-    public static double SpentMilliseconds => BrickFrame.SpentMilliseconds;
-
-    /// <summary>The parts of <see cref="SpentMilliseconds"/>: reading data, starting builds, handing meshes over, starting reads.</summary>
-    public static double[] SpentParts => BrickFrame.SpentParts;
-
-    /// <summary>The longest a single brick took starting its read since last asked, milliseconds.</summary>
-    public static double TakeLongestStart() => BrickFrame.TakeLongestStart();
-
     /// <summary>The bricks this game has, and of them those drawn with a surface and its vertices.</summary>
     public static int Census(out int drawn, out int vertices)
     {

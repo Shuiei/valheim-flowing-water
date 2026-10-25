@@ -100,9 +100,6 @@ internal sealed class SolidsWatch
         return _changes.Refill(grid, _solids.Forget, _refillTimeLeft);
     }
 
-    /// <summary>Whether bricks have still to read their solids again (a refill spread over frames is under way).</summary>
-    public bool Refilling => _changes.Any;
-
     // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their solids and
     // heights (but the heights of the pinned zones). A brick there again reads them anew.
     private void Keep(HashSet<Vector2s> zones)

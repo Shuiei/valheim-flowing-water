@@ -210,6 +210,27 @@ public class BrickObjectsTests
     }
 
     [Fact]
+    public void AnObjectAdoptedWithItsBytesIsNotWrittenAgainUntilItsBrickChanges()
+    {
+        // The brick as saved, read back as it was: its first send writes nothing; a change writes it.
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        byte[] data = BrickData.Encode(brick, 1f);
+        world.Objects[7] = data;
+        objects.Adopt(VoxelGrid.Key(0, 0, 0), 7, brick, data, 1f);
+
+        Assert.Equal(0, objects.Publish([brick], 1f));
+        Assert.Empty(world.Written);
+
+        brick.Water[0] = 0.8f;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], 1f));
+        Assert.Equal([7], world.Written);
+        Assert.Equal(0, world.Made);
+    }
+
+    [Fact]
     public void ADryBrickAndOneGoneFromTheGridHaveTheirObjectsDestroyed()
     {
         var world = new World();

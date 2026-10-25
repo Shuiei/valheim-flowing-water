@@ -119,7 +119,7 @@ internal sealed class MarkerScan
             _ids.Add(id);
             long creator = zdo.GetLong(ZDOVars.s_creator, 0L);
             string Where() => $"{(drain ? "Drain" : "Source")} at {zdo.GetPosition()}";
-            if (_rights.Decide(id, everyone, creator, creator == 0L ? null : MayPlace(creator), Where) != MarkerRights.Verdict.Allowed)
+            if (_rights.Decide(id, everyone, creator, creator == 0L ? null : MayPlace(creator, zdo.m_uid.UserID), Where) != MarkerRights.Verdict.Allowed)
             {
                 continue;
             }
@@ -133,19 +133,23 @@ internal sealed class MarkerScan
     }
 
     // Whether the player of this id (the character's, as the game writes it into what they place) may place a source
-    // or drain: the host, or one of the server's admins; null when no player of the id is on the server now.
-    private static bool? MayPlace(long creator)
+    // or drain: the host, or one of the server's admins; null when no player of the id is on the server now, or the
+    // marker was not made by that player's game (its object's id is given out by the game that made it: a marker
+    // naming a placer whose game did not make it is not theirs, and waits). Both the placer and the maker are what a
+    // player's game writes: one changed to write a false pair gets past this, as it would past any check the game's
+    // world allows, so this keeps honest games to the setting rather than stopping a cheat.
+    private static bool? MayPlace(long creator, long madeBy)
     {
         if (Player.m_localPlayer != null && Player.m_localPlayer.GetPlayerID() == creator)
         {
-            return true;
+            return madeBy == ZDOMan.GetSessionID() ? true : null;
         }
 
         foreach (ZNetPeer peer in ZNet.instance.GetPeers())
         {
             if (peer.IsReady() && ZDOMan.instance.GetZDO(peer.m_characterID) is { } character && character.GetLong(ZDOVars.s_playerID, 0L) == creator)
             {
-                return ZNet.instance.IsAdmin(peer.m_socket.GetHostName());
+                return peer.m_uid == madeBy ? ZNet.instance.IsAdmin(peer.m_socket.GetHostName()) : null;
             }
         }
 

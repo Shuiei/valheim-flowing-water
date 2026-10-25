@@ -132,7 +132,7 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "debug":
-                terminal.AddString("flowingwater: " + WaterBrick.DebugInfo(player.transform.position));
+                terminal.AddString("flowingwater: " + BrickMeasures.DebugInfo(player.transform.position));
                 break;
             case "solids":
                 foreach (string line in SolidsView.Around(player.transform.position, FlowingWaterPlugin.Settings.CellSize.Value, FlowingWaterPlugin.Server?.Solids))

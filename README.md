@@ -58,11 +58,14 @@ removing one. A character learns the source and drain as soon as it is in a worl
 hosting, or on a server running it), whatever its age, and forgets them on a server without it: the hoe there offers
 only the game's own pieces.
 
-The server checks too, since a player's game could be changed to skip its own check: it simulates a placed source or
-drain only once it knows its placer may place one. While `CommandsForEveryone` is on, anyone's; else one placed by the
-host or an admin, checked while they are on the server and remembered after, in a file of the server's
+The server checks too, since a player's own setting could be changed to skip the game's check: it simulates a placed
+source or drain only once it knows its placer may place one. While `CommandsForEveryone` is on, anyone's; else one
+placed by the host or an admin, checked while they are on the server and remembered after, in a file of the server's
 (`BepInEx/config/Tie.FlowingWater.<world>.markers`, one marker a line). One placed by someone else, or whose placer is
-not on the server to be checked, is ignored, and the log says so once. Sources and drains placed with the console
+not on the server to be checked, is ignored, and the log says so once. The check goes by what the player's game wrote
+into the marker about who placed it, as the game itself does for every piece: a game changed to write a false placer
+gets past it, as it would past any check the game's world allows, so it keeps honest games to the server's setting
+rather than stopping a cheat. Sources and drains placed with the console
 before v0.24 carry no placer: with `CommandsForEveryone` off, turn it on for a moment to allow every marker in the
 world, or place them again. The config's `FixedSources` and `FixedDrains` need no check.
 
@@ -85,7 +88,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |
 | `Server.SendSeconds` | 1 | How often a block of water whose change would show is sent to the players near it |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
-| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still; what a block lets go of as it goes still is kept for the next to wake) |
+| `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once (about 130 KB each while the water moves, 37 KB once still; what the last few dozen blocks to go still let go of is kept for the next to wake) |
 | `Server.EmptyTileSeconds` | 30 | A block of voxels dry this long is forgotten |
 | `Server.MarkerScanSeconds` | 3 | Seconds from the end of one look for new or removed sources and drains to the next (1 to 60; a look over a big world itself takes a few seconds) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |

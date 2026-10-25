@@ -29,6 +29,7 @@ internal sealed class WaterBrick : MonoBehaviour
     private static readonly (int X, int Y, int Z)[] CardReaders = [.. SurfaceGrid.Readers.Union(VoxelShell.Readers)];
 
     // When the bricks' blends on the card began and how long they take: one clock, so bricks side by side move as one.
+    // On the game's clock since the world's scene loaded (Time.timeSinceLevelLoad), which starts again at each world.
     private static readonly BlendClock Blends = new();
 
     private static bool _settingWatched;
@@ -110,20 +111,8 @@ internal sealed class WaterBrick : MonoBehaviour
     /// <summary>The bricks this game has (some may be gone, destroyed: null).</summary>
     internal static IEnumerable<WaterBrick> All => ByKey.Values;
 
-    /// <inheritdoc cref="BrickMeasures.SpentMilliseconds"/>
-    internal static double SpentMilliseconds => BrickMeasures.SpentMilliseconds;
-
-    /// <inheritdoc cref="BrickMeasures.SpentParts"/>
-    internal static double[] SpentParts => BrickMeasures.SpentParts;
-
-    /// <inheritdoc cref="BrickMeasures.TakeLongestStart"/>
-    internal static double TakeLongestStart() => BrickMeasures.TakeLongestStart();
-
-    /// <inheritdoc cref="BrickMeasures.Census"/>
-    internal static int Census(out int drawn, out int vertices) => BrickMeasures.Census(out drawn, out vertices);
-
-    /// <inheritdoc cref="BrickMeasures.DebugInfo"/>
-    public static string DebugInfo(Vector3 point) => BrickMeasures.DebugInfo(point);
+    /// <summary>A world opens: its scene's clock starts from nothing, and so does the bricks' blend.</summary>
+    internal static void WorldOpened() => Blends.Reset();
 
     /// <summary>The brick's data as last read; null before the first.</summary>
     internal BrickView View { get; private set; }

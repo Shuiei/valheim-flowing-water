@@ -47,4 +47,15 @@ internal sealed class BlendClock
 
     /// <summary>How far the blend under way has gone at this time: 0 at its start, 1 once done.</summary>
     public float Share(float now) => Math.Max(0f, Math.Min(1f, (now - Start) / Seconds));
+
+    /// <summary>
+    /// As new: no wave came yet. For a caller whose clock starts again (a game's, at each world it opens): a start kept
+    /// from the clock before would lie in the future, and nothing would be shown moving until the clock caught up.
+    /// </summary>
+    public void Reset()
+    {
+        _began = false;
+        Start = 0f;
+        Seconds = Default;
+    }
 }

@@ -47,6 +47,11 @@ internal static class Materials
     // open yet), tried again then.
     private static bool _lookTaken;
 
+    // Frames between two looks for the sea's material while it is not found, and the frame of the next.
+    private const int LookRetryFrames = 60;
+
+    private static int _lookRetryFrame;
+
     /// <summary>
     /// A world opens: what could not be made or found in the last one (the bundle, its shaders, the sea's material and
     /// look) has a fresh try, instead of staying missing for the rest of the game. What was made is kept.
@@ -55,6 +60,7 @@ internal static class Materials
     {
         _customTried &= _custom != null;
         _shellTried &= _shell != null;
+        _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
     }
@@ -168,10 +174,18 @@ internal static class Materials
         return copy;
     }
 
-    // The sea's look taken again onto the materials made without it (the sea's material was not found then): once it is.
+    // The sea's look taken again onto the materials made without it (the sea's material was not found then): once it
+    // is, looked for once a second at most (this is asked for every brick every frame, and the look is a search of the
+    // zone prefab).
     private static void TakeSeaLookAgain()
     {
-        if (_lookTaken || ZoneWater() == null)
+        if (_lookTaken || Time.frameCount < _lookRetryFrame)
+        {
+            return;
+        }
+
+        _lookRetryFrame = Time.frameCount + LookRetryFrames;
+        if (ZoneWater() == null)
         {
             return;
         }

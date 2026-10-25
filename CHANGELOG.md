@@ -7,8 +7,10 @@ All notable changes to FlowingWater. Newest first.
 ### Changed
 - The server simulates only the sources and drains placed by a player who may place them: with `CommandsForEveryone`
   off, the host's and the admins', checked while they are on the server and remembered after in a file of the
-  server's. Markers placed with the console before this version carry no placer: turn `CommandsForEveryone` on for a
-  moment to allow every marker in the world, or place them again.
+  server's. It goes by what the player's game writes of the placer, as the game does for every piece, so it keeps
+  honest games to the server's setting rather than stopping a changed one. Markers placed with the console before
+  this version carry no placer: turn `CommandsForEveryone` on for a moment to allow every marker in the world, or
+  place them again.
 - Less work for the server: a block of water beside a running stream steps only the voxels its neighbour's water can
   reach, a block sleeps unless a neighbour's water moves at the face between them, a drain looks only in the blocks
   round it, bricks reading their solids again after a hoe stroke are spread over frames, and the frame's budget is
