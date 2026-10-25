@@ -76,6 +76,28 @@ public class WaterEaseTests
     }
 
     [Fact]
+    public void TheBlendAndWhatIsShownKeepEachVoxelsOpenFaces()
+    {
+        // The open faces are the newest where the newest has water, else those it had: never zeroed, as the sides and
+        // falls are drawn from them.
+        BrickView from = View(1f, (5, 5, 5, 0.4f, 0f), (6, 5, 5, 0.4f, 0f));
+        from.Open[Brick.Index(5, 5, 5)] = 63;
+        from.Open[Brick.Index(6, 5, 5)] = 9;
+        BrickView to = View(1f, (5, 5, 5, 0.6f, 0f));
+        to.Open[Brick.Index(5, 5, 5)] = 5;
+
+        BrickView half = WaterEase.Blend(from, to, 0.5f);
+        Assert.Equal(5, half.Open[Brick.Index(5, 5, 5)]);
+        Assert.Equal(9, half.Open[Brick.Index(6, 5, 5)]);
+
+        BrickView shown = WaterEase.Show(View(1f, (5, 5, 5, 1f, 0f), (5, 6, 5, 0.01f, 0f)), null);
+        Assert.Equal(0, shown.Open[Brick.Index(5, 5, 5)]);
+        BrickView open = View(1f, (5, 5, 5, 1f, 0f), (5, 6, 5, 0.01f, 0f));
+        open.Open[Brick.Index(5, 5, 5)] = 63;
+        Assert.Equal(63, WaterEase.Show(open, null).Open[Brick.Index(5, 5, 5)]);
+    }
+
+    [Fact]
     public void WaterThatGoesKeepsItsFloorWhileItDrains()
     {
         // A voxel on a floor 0.5 into it whose water is gone in the newest data: its floor is the one it had.

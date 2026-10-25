@@ -47,6 +47,18 @@ public class SurfaceGridTests
     }
 
     [Fact]
+    public void WaterKeptInsideASolidVoxelHasNoTop()
+    {
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Water[Brick.Index(2, 0, 2)] = 0.5f;
+        view.Solid[Brick.Index(2, 0, 2)] = 1f;
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(0f, grid.Shown[SurfaceGrid.Index(2, 2)]);
+        Assert.False(grid.Draws);
+    }
+
+    [Fact]
     public void ColumnsBesideTheWaterAreLevelWithItNotTheFloor()
     {
         var view = new BrickView(0, 0, 0, 1f);
