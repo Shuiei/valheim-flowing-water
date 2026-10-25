@@ -140,6 +140,43 @@ internal sealed class VoxelGrid
         return Get(x, y, z);
     }
 
+    /// <summary>
+    /// The voxel water poured at a point (world metres) goes into: its own, or the first open one over it (within four
+    /// bricks); in its own voxel at or over the underside of a piece lying in the voxel's upper half (a floor there is
+    /// that voxel's ceiling, <see cref="Brick.Ceiling"/>), the voxel above, onto the piece, not under it. False when none
+    /// is open, a brick it needs cannot be made (<see cref="MaxBricks"/>), or the point is past the grid's reach.
+    /// </summary>
+    public bool Room(float px, float py, float pz, out int x, out int y, out int z)
+    {
+        float s = VoxelSize;
+        x = (int)Math.Floor(px / s);
+        y = (int)Math.Floor(py / s);
+        z = (int)Math.Floor(pz / s);
+        for (int up = 0; up < Brick.Size * 4; up++, y++)
+        {
+            if (!Within(x >> 4, y >> 4, z >> 4) || Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+            {
+                return false;
+            }
+
+            int i = Brick.Index(x & 15, y & 15, z & 15);
+            if (brick.Solid[i] >= 1f)
+            {
+                continue;
+            }
+
+            float ceiling = brick.Ceiling[i];
+            if (up == 0 && ceiling > 0f && py - (y * s) >= ceiling * s)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Pours this much water into voxel (x, y, z), cubic metres (its brick made if needed).</summary>
     /// <returns>False when its brick could not be made (<see cref="MaxBricks"/>): nothing poured.</returns>
     public bool Pour(int x, int y, int z, float cubicMetres)
@@ -184,6 +221,7 @@ internal sealed class VoxelGrid
     {
         Array.Clear(brick.Solid, 0, Brick.Count);
         Array.Clear(brick.Closed, 0, Brick.Count);
+        Array.Clear(brick.Ceiling, 0, Brick.Count);
         _solids.Fill(brick, VoxelSize);
 
         // What changed by it may have opened its faces onto a brick forgotten beside it.

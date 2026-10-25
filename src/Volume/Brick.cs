@@ -53,6 +53,12 @@ internal sealed class Brick
     /// <summary>Each voxel's faces closed by a piece (<see cref="ClosedX"/>, <see cref="ClosedY"/>, <see cref="ClosedZ"/>).</summary>
     public byte[] Closed { get; } = new byte[Count];
 
+    /// <summary>
+    /// Each voxel's ceiling: the underside of the lowest piece over its upper half, a share of the voxel from its bottom
+    /// (the water on that piece is in the voxel above); 0 where there is none.
+    /// </summary>
+    public float[] Ceiling { get; } = new float[Count];
+
     /// <summary>Water through each voxel's east face, cubic metres a second (positive: going east).</summary>
     public float[] FlowX { get; private set; } = new float[Count];
 

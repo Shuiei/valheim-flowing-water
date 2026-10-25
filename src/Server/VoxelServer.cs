@@ -639,33 +639,13 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return false;
     }
 
-    // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks); false
-    // when none is, a brick it needs cannot be made (MaxBricks), or the point is past the grid's reach.
-    private bool Room(Vector3 point, out int x, out int y, out int z)
-    {
-        float s = _grid.VoxelSize;
-        x = Mathf.FloorToInt(point.x / s);
-        y = Mathf.FloorToInt(point.y / s);
-        z = Mathf.FloorToInt(point.z / s);
-        for (int up = 0; up < Brick.Size * 4; up++, y++)
-        {
-            if (!VoxelGrid.Within(x >> 4, y >> 4, z >> 4) || _grid.Make(x >> 4, y >> 4, z >> 4) is not { } brick)
-            {
-                return false;
-            }
-
-            if (brick.Solid[Brick.Index(x & 15, y & 15, z & 15)] < 1f)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // The voxel water poured at a point goes into (VoxelGrid.Room).
+    private bool Room(Vector3 point, out int x, out int y, out int z) => _grid.Room(point.x, point.y, point.z, out x, out y, out z);
 
     private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
 
-    private static Vector3 PourPoint(Source source) => source.Point + new Vector3(0f, 0.05f, 0f);
+    // A source pours a little over what it stands on, so its water starts on that and not in it or under it.
+    private static Vector3 PourPoint(Source source) => source.Point + new Vector3(0f, 0.3f, 0f);
 
     // A drain takes from every voxel within its reach (its own voxel at least): all of it with no rate, else at most
     // its rate, from each in proportion to its water. Only bricks there are looked in. False when it took nothing.

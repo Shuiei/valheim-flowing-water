@@ -8,6 +8,12 @@ namespace FlowingWater.Volume;
 /// height at the middle of its column, and building pieces, as boxes that fill a voxel from its bottom up to where
 /// they end on the voxel's middle line (a thin floor puts the water's floor at its top) and close the faces between
 /// voxels whose middles they separate (so a wall thinner than a voxel still holds water).
+/// <para>
+/// A piece only in a voxel's upper half is its ceiling: the voxel's water is the water under it, and the water on it
+/// is in the voxel above. Two voxels side by side pass water only at a height where both have room, between the
+/// higher of their floors and the lower of their ceilings: none, and the face between them is closed (a sloping plank
+/// is the ceiling of one voxel and the floor of the next: the water on it does not run under it).
+/// </para>
 /// </summary>
 internal static class SolidRaster
 {
@@ -46,61 +52,84 @@ internal static class SolidRaster
     /// edges (whose share a face there is tested by); none: no ground there.</param>
     public static void Pieces(Brick brick, float voxelSize, IReadOnlyList<SolidBox> boxes, Func<float, float, float> groundAt = null)
     {
+        // Each voxel's ceiling: the lowest underside of a piece over its upper half on its middle line, a share of the
+        // voxel from its bottom (1: none).
+        float[] ceiling = new float[Brick.Count];
+        for (int i = 0; i < ceiling.Length; i++)
+        {
+            ceiling[i] = 1f;
+        }
+
         foreach (SolidBox box in boxes)
         {
-            Over(brick, voxelSize, box, (x, y, z) => Fill(brick, voxelSize, box, x, y, z));
+            Over(brick, voxelSize, box, (x, y, z) => Fill(brick, voxelSize, box, x, y, z, ceiling));
         }
 
-        // A voxel's solid share: from the brick, or worked out from the ground and the boxes past its edges (the
-        // brick there may not exist yet), once each: every box near the edge asks for it.
-        float[] beyond = new float[Edge * Edge * Edge];
-        for (int k = 0; k < beyond.Length; k++)
-        {
-            beyond[k] = float.NaN;
-        }
-
-        float Share(int x, int y, int z)
+        // A voxel's room, from its floor to its ceiling: from the brick, or worked out from the ground and the boxes
+        // past its edges (the brick there may not exist yet), once each: every box near the edge asks for it.
+        var beyond = new (float Floor, float Ceiling)?[Edge * Edge * Edge];
+        (float Floor, float Ceiling) Room(int x, int y, int z)
         {
             if (x < Brick.Size && y < Brick.Size && z < Brick.Size)
             {
-                return brick.Solid[Brick.Index(x, y, z)];
+                int i = Brick.Index(x, y, z);
+                return (brick.Solid[i], ceiling[i]);
             }
 
             int k = (((y * Edge) + z) * Edge) + x;
-            if (float.IsNaN(beyond[k]))
-            {
-                beyond[k] = Beyond(brick, voxelSize, boxes, groundAt, x, y, z);
-            }
-
-            return beyond[k];
+            beyond[k] ??= Beyond(brick, voxelSize, boxes, groundAt, x, y, z);
+            return beyond[k].Value;
         }
 
         foreach (SolidBox box in boxes)
         {
-            Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z, Share));
+            Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z, Room));
+        }
+
+        for (int i = 0; i < ceiling.Length; i++)
+        {
+            if (ceiling[i] < 1f)
+            {
+                brick.Ceiling[i] = brick.Ceiling[i] > 0f ? Math.Min(brick.Ceiling[i], ceiling[i]) : ceiling[i];
+            }
         }
     }
 
     // A ground's share of voxel row y: from its bottom up to the ground.
     private static float GroundShare(float ground, int y, float s) => Math.Min(1f, Math.Max(0f, (ground - (y * s)) / s));
 
-    // The solid share of a voxel past the brick's edge (brick-relative coordinates).
-    private static float Beyond(Brick brick, float s, IReadOnlyList<SolidBox> boxes, Func<float, float, float> groundAt, int x, int y, int z)
+    // The room of a voxel past the brick's edge (brick-relative coordinates): its floor and its ceiling.
+    private static (float Floor, float Ceiling) Beyond(Brick brick, float s, IReadOnlyList<SolidBox> boxes, Func<float, float, float> groundAt, int x, int y, int z)
     {
         Vec3 bottom = Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f);
-        float share = groundAt == null ? 0f : GroundShare(groundAt(bottom.X, bottom.Z), (brick.Y * Brick.Size) + y, s);
+        float floor = groundAt == null ? 0f : GroundShare(groundAt(bottom.X, bottom.Z), (brick.Y * Brick.Size) + y, s);
+        float ceiling = 1f;
         foreach (SolidBox box in boxes)
         {
-            share = Math.Max(share, Standing(box, bottom, s));
+            Meet(box, bottom, s, ref floor, ref ceiling);
         }
 
-        return share;
+        return (floor, ceiling);
     }
 
-    // How far up a voxel a box fills it from below, from the bottom of its middle line (0 when it reaches no lower
-    // than the voxel's middle: a ceiling, not a floor).
-    private static float Standing(SolidBox box, Vec3 bottom, float s) =>
-        box.Span(bottom, bottom + new Vec3(0f, s, 0f), out float enter, out float top) && enter <= 0.5f ? top : 0f;
+    // Where a box meets a voxel's middle line, from its bottom: reaching below the middle, it fills the voxel from
+    // below up to where it ends (a floor); only in its upper half, it is a ceiling over the voxel's room.
+    private static void Meet(SolidBox box, Vec3 bottom, float s, ref float floor, ref float ceiling)
+    {
+        if (!box.Span(bottom, bottom + new Vec3(0f, s, 0f), out float enter, out float leave))
+        {
+            return;
+        }
+
+        if (enter <= 0.5f)
+        {
+            floor = Math.Max(floor, leave);
+        }
+        else
+        {
+            ceiling = Math.Min(ceiling, enter);
+        }
+    }
 
     // Each voxel of the brick whose middle, or the segments from it to the next middles east, up or north, may
     // meet the box.
@@ -134,43 +163,59 @@ internal static class SolidRaster
 
     // A box reaching below a voxel's middle fills it from its bottom up to where it ends on the middle line (a floor
     // lying in it); one only in its upper half is a ceiling over its room, closing the face above instead.
-    private static void Fill(Brick brick, float s, SolidBox box, int x, int y, int z)
+    private static void Fill(Brick brick, float s, SolidBox box, int x, int y, int z, float[] ceiling)
     {
         int i = Brick.Index(x, y, z);
-        brick.Solid[i] = Math.Max(brick.Solid[i], Standing(box, Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f), s));
+        float floor = brick.Solid[i];
+        Meet(box, Corner(brick, s, x, y, z) + new Vec3(s * 0.5f, 0f, s * 0.5f), s, ref floor, ref ceiling[i]);
+        brick.Solid[i] = floor;
     }
 
-    private static void Close(Brick brick, float s, SolidBox box, int x, int y, int z, Func<int, int, int, float> share)
+    private static void Close(Brick brick, float s, SolidBox box, int x, int y, int z, Func<int, int, int, (float Floor, float Ceiling)> room)
     {
         int i = Brick.Index(x, y, z);
-        float own = brick.Solid[i];
-        if (own >= 1f)
+        (float Floor, float Ceiling) own = room(x, y, z);
+        if (own.Floor >= 1f)
         {
             return;
         }
 
         Vec3 corner = Corner(brick, s, x, y, z);
-        float room = OpenMiddle(own, share(x + 1, y, z), s);
-        if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 1.5f, room, s * 0.5f)))
+        if (Side(box, corner, s, own, room(x + 1, y, z), new Vec3(s, 0f, 0f)))
         {
             brick.Closed[i] |= Brick.ClosedX;
         }
 
-        room = OpenMiddle(own, share(x, y, z + 1), s);
-        if (box.Crosses(corner + new Vec3(s * 0.5f, room, s * 0.5f), corner + new Vec3(s * 0.5f, room, s * 1.5f)))
+        if (Side(box, corner, s, own, room(x, y, z + 1), new Vec3(0f, 0f, s)))
         {
             brick.Closed[i] |= Brick.ClosedZ;
         }
 
-        float above = share(x, y + 1, z);
-        if (box.Crosses(corner + new Vec3(s * 0.5f, OpenMiddle(own, own, s), s * 0.5f), corner + new Vec3(s * 0.5f, s + OpenMiddle(above, above, s), s * 0.5f)))
+        (float Floor, float Ceiling) above = room(x, y + 1, z);
+        if (box.Crosses(corner + new Vec3(s * 0.5f, Middle(own, s), s * 0.5f), corner + new Vec3(s * 0.5f, s + Middle(above, s), s * 0.5f)))
         {
             brick.Closed[i] |= Brick.ClosedY;
         }
     }
 
-    // Height of the middle of the room two voxels side by side leave above their solids, from their bottom, metres.
-    private static float OpenMiddle(float share, float other, float s) => (Math.Max(share, other) + 1f) * 0.5f * s;
+    // Whether the face between a voxel and the next one along a way is closed: they have no room at a same height
+    // (one is under a piece the other's water is on), or the box crosses the way between their middles at the middle
+    // of the height where both have room. A solid next voxel takes no water whatever its faces: it is tested at its
+    // top, as it always was.
+    private static bool Side(SolidBox box, Vec3 corner, float s, (float Floor, float Ceiling) own, (float Floor, float Ceiling) next, Vec3 way)
+    {
+        float low = Math.Max(own.Floor, next.Floor), high = Math.Min(own.Ceiling, next.Ceiling);
+        if (high <= low && next.Floor < 1f)
+        {
+            return true;
+        }
+
+        var from = corner + new Vec3(s * 0.5f, (high > low ? (low + high) * 0.5f : low) * s, s * 0.5f);
+        return box.Crosses(from, from + way);
+    }
+
+    // Height of the middle of a voxel's room, from its bottom, metres.
+    private static float Middle((float Floor, float Ceiling) room, float s) => (room.Floor + room.Ceiling) * 0.5f * s;
 
     private static Vec3 Corner(Brick brick, float s, int x, int y, int z) =>
         new Vec3((brick.X * Brick.Size) + x, (brick.Y * Brick.Size) + y, (brick.Z * Brick.Size) + z) * s;
