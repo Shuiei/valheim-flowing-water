@@ -81,6 +81,10 @@ Shader "FlowingWater/SimWater"
         #define CLIFF_FROM 0.5
         #define CLIFF_FADE 0.3
 
+        // A face of the grid steeper than this (the up of its normal) begins to fade, gone at the second.
+        #define STEEP_FROM 0.45
+        #define STEEP_GONE 0.3
+
         float At(sampler2D state, float2 p)
         {
             return tex2Dlod(state, float4(p / _SimCells, 0.0, 0.0)).r;
@@ -147,8 +151,17 @@ Shader "FlowingWater/SimWater"
                 discard;
             }
 
+            // A face of the grid standing up (between water far apart in height: a wet cell and a dry one raised by water
+            // higher beside it) is no water: it fades out as it stands up.
+            float up = abs(normalize(cross(ddy(i.worldPos), ddx(i.worldPos))).y);
+            if (up < STEEP_GONE)
+            {
+                discard;
+            }
+
             Look(i, o);
             DebugColour(o, float3(0.1, 0.3, 1.0));
+            o.Alpha *= saturate((up - STEEP_GONE) / (STEEP_FROM - STEEP_GONE));
         }
         ENDCG
     }

@@ -39,7 +39,8 @@ public static class SimPreview
             Slosh();
             Obstacle();
             Follow();
-            Ledge();
+            Ledge(true);
+            Ledge(false);
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -217,34 +218,71 @@ public static class SimPreview
     }
 
     // Falls, splashes and spray: 2 m of water let go on a shelf 3 m high, running off its lip onto the floor below; the
-    // particles thrown, seen, and counted.
-    private static void Ledge()
+    // particles thrown, seen, and counted. Thrown, the water running over the lip leaves the sheet and lands where the
+    // falling water does (else it runs into the cell past the lip): all the water, on the card and in the air, is
+    // counted, and where it lies on the floor.
+    private static void Ledge(bool throws)
     {
         float[] bed = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
-        using var scene = new Scene("ledge", bed);
+        string name = throws ? "ledge" : "ledge-unthrown";
+        using var scene = new Scene(name, bed);
         scene.Grid.Pulled = false;
+        scene.Grid.Throws = throws;
         scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
         var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
         using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath));
         scene.Spray = spray;
-        Log.AppendLine("Ledge: 2 m of water let go on a shelf 3 m high, running off its lip at x = 20 m.");
+        Log.AppendLine(Inv($"Ledge{(throws ? string.Empty : " (water not thrown)")}: 2 m of water (192 m3) let go on a shelf 3 m high, running off its lip at x = 20 m."));
         for (int k = 1; k <= 300; k++)
         {
             scene.Step();
             spray.Step(scene.Grid, Vector2.zero, Frame);
             if (k % 30 == 0)
             {
-                int alive = spray.Alive(out int sheets);
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s particles {alive} (sheets {sheets})"));
+                int alive = spray.Alive(out int sheets, out float flying);
+                float[] depth = scene.Read();
+                float sheet = depth.Sum() * Dx * Dx;
+                float air = Read(scene.Grid.Airborne).Sum() + (ReadWhole(scene.Grid.Landed).Sum(n => (float)n) / SimGrid.LandScale);
+
+                // The water on the floor: how much, and how far past the lip it lies, on average.
+                float floor = 0f, moment = 0f;
+                for (int j = 0; j < Cells; j++)
+                {
+                    for (int i = 0; i < Cells; i++)
+                    {
+                        float x = (i + 0.5f) * Dx;
+                        if (x > 20f && x < 34f)
+                        {
+                            floor += depth[(j * Cells) + i] * Dx * Dx;
+                            moment += depth[(j * Cells) + i] * Dx * Dx * (x - 20f);
+                        }
+                    }
+                }
+
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s particles {alive} (sheets {sheets}); water {sheet + air + flying:0.00} m3 (sheet {sheet:0.00}, thrown or landed {air:0.000}, flying {flying:0.000}); on the floor {floor:0.00} m3, {(floor > 0f ? moment / floor : 0f):0.00} m past the lip"));
             }
 
-            if (k is 45 or 60 or 75 or 90 or 120 or 180)
+            if (throws && k is 45 or 60 or 75 or 90 or 120 or 180)
             {
                 scene.Shot(Inv($"ledge_{k * Frame:0.00}s"), new Vector3(27f, 6f, 6f), new Vector3(21f, 1.5f, 20f));
             }
         }
 
         scene.Spray = null;
+    }
+
+    private static int[] ReadWhole(RenderTexture texture)
+    {
+        AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
+        request.WaitForCompletion();
+        return request.GetData<int>().ToArray();
+    }
+
+    private static float[] Read(RenderTexture texture)
+    {
+        AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
+        request.WaitForCompletion();
+        return request.GetData<float>().ToArray();
     }
 
     // What a frame costs the card at the game's size (384 cells a side, 96 m of 0.25 m), the square full of moving water:
@@ -302,7 +340,7 @@ public static class SimPreview
                 spray.Step(grid, Vector2.zero, 1f / 60f);
             }
 
-            int alive = spray.Alive(out _);
+            int alive = spray.Alive(out _, out _);
             var sprayWatch = System.Diagnostics.Stopwatch.StartNew();
             for (int k = 0; k < 600; k++)
             {

@@ -357,6 +357,7 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
+        _grid.Throws = _spray != null;
         _grid.Step(Time.deltaTime);
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);

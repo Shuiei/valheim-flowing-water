@@ -145,11 +145,13 @@ what a frame costs the card) and frames.
 
 ### Falls, splashes and spray
 
-With `Client.Spray` on, the graphics card also throws particles from the water it moves, only for the look (no water
-is taken for them, nothing is sent):
+With `Client.Spray` on, the graphics card also throws particles from the water it moves (nothing of them is sent
+anywhere: the server's water still says how much water is where):
 
 - **Falls.** Water running over a lip (the ground beyond more than 0.6 m lower than its own) leaves it as streaks of
-  falling water at its own speed, so a stream off a ledge arcs out. Where the server's water falls through the air from
+  falling water, going over the brink as fast as water does (the square root of gravity times its depth), so a stream
+  off a ledge arcs out. The streaks carry that water: it leaves the card's sheet at the lip and is added where they
+  land, running on the way it fell, so the pool forms where the fall lands, not at the foot of the wall. Where the server's water falls through the air from
   high (more than 1.5 m over the ground under it), or into a pool, the blocks no longer draw it near you: the card
   throws falling water from the height it falls from, and keeps the pool under it. Where the edge of a build crosses a
   voxel, the water on the build and the pool at its foot each keep their own level (the ground found under the card's

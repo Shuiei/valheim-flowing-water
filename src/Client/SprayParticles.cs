@@ -6,8 +6,9 @@ namespace FlowingWater.Client;
 /// <summary>
 /// The falls, splashes and spray of the water the graphics card moves (<see cref="SimGrid"/>), as particles on the card
 /// (the mod's FlowingWaterSpray compute shader): fast water throws droplets, water running over a lip leaves it as
-/// sheets that fall and arc at its own speed, a sheet landing fast throws up a splash. Only the look: no water is taken
-/// from the sheet for them, nor sent anywhere. Needs only Unity, so the Unity project's preview runs it too.
+/// sheets that fall and arc at its own speed carrying it (the card's water thrown, <see cref="SimGrid.Airborne"/>), and
+/// add it to the water where they land; a sheet landing fast throws up a splash. Nothing is sent anywhere. Needs only
+/// Unity, so the Unity project's preview runs it too.
 /// </summary>
 internal sealed class SprayParticles : IDisposable
 {
@@ -22,11 +23,8 @@ internal sealed class SprayParticles : IDisposable
 
     private const float SprayRate = 4f;
 
-    // Lips: ground this much lower than the ground beside it is a fall (m); so many sheets a second for each cubic metre
-    // a second going over it.
-    private const float LipDrop = 0.6f;
-
-    private const float SheetRate = 60f;
+    // Lips: a sheet of falling water for each so much water thrown over one (m³).
+    private const float SheetVolume = 1f / 60f;
 
     // Falls (the server's water falling from high): so many sheets a second for each square metre they cover.
     private const float FallRate = 30f;
@@ -52,7 +50,11 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int SprayFromId = Shader.PropertyToID("_SprayFrom");
     private static readonly int SprayRateId = Shader.PropertyToID("_SprayRate");
     private static readonly int LipDropId = Shader.PropertyToID("_LipDrop");
-    private static readonly int SheetRateId = Shader.PropertyToID("_SheetRate");
+    private static readonly int SheetVolumeId = Shader.PropertyToID("_SheetVolume");
+    private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
+    private static readonly int LandedId = Shader.PropertyToID("_Landed");
+    private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
+    private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
     private static readonly int SplashFromId = Shader.PropertyToID("_SplashFrom");
     private static readonly int SplashDropletsId = Shader.PropertyToID("_SplashDroplets");
     private static readonly int LayersId = Shader.PropertyToID("_Layers");
@@ -109,13 +111,17 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetInt(SeedId, (int)_seed);
         _shader.SetFloat(SprayFromId, SprayFrom);
         _shader.SetFloat(SprayRateId, SprayRate);
-        _shader.SetFloat(LipDropId, LipDrop);
-        _shader.SetFloat(SheetRateId, SheetRate);
+        _shader.SetFloat(LipDropId, SimGrid.LipDrop);
+        _shader.SetFloat(SheetVolumeId, SheetVolume);
         _shader.SetFloat(SplashFromId, SplashFrom);
         _shader.SetInt(SplashDropletsId, SplashDroplets);
         _shader.SetInt(PerVoxelId, grid.PerVoxel);
         _shader.SetFloat(FallRateId, FallRate);
         _shader.SetTexture(_emit, LayersId, grid.Layers);
+        _shader.SetTexture(_emit, AirborneId, grid.Airborne);
+        _shader.SetTexture(_move, LandedId, grid.Landed);
+        _shader.SetTexture(_move, LandedXId, grid.LandedEast);
+        _shader.SetTexture(_move, LandedZId, grid.LandedNorth);
         foreach (int kernel in new[] { _emit, _move })
         {
             _shader.SetBuffer(kernel, ParticlesId, _particles);
@@ -130,19 +136,24 @@ internal sealed class SprayParticles : IDisposable
         _shader.Dispatch(_move, Count / 64, 1, 1);
     }
 
-    /// <summary>How many are alive, and how many of them are sheets (read back from the card: for previews and tests).</summary>
-    public int Alive(out int sheets)
+    /// <summary>
+    /// How many are alive, how many of them are sheets, and the water they carry (m³; read back from the card: for
+    /// previews and tests).
+    /// </summary>
+    public int Alive(out int sheets, out float water)
     {
         float[] data = new float[Count * 12];
         _particles.GetData(data);
         int alive = 0;
         sheets = 0;
+        water = 0f;
         for (int k = 0; k < Count; k++)
         {
             if (data[(k * 12) + 3] < data[(k * 12) + 7])
             {
                 alive++;
                 sheets += Math.Abs(data[(k * 12) + 9] - 1f) < 0.5f ? 1 : 0;
+                water += data[(k * 12) + 10];
             }
         }
 
