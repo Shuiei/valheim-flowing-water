@@ -95,8 +95,21 @@ Shader "FlowingWater/SimWater"
             float depth = At(_SimH, p);
             float bed = At(_SimBed, p);
 
-            // Raised to the water's level; where there is none, a little under the ground (its squares unseen).
-            v.vertex.y = (depth > HIDE_DEPTH * 0.5 ? bed + depth : bed - 0.05) + _Lift;
+            // Raised to the water's level. Where there is none, a little under the water beside it, or under its own ground
+            // where that is lower: its squares fade out at the water's edge, and never reach up to a cell whose ground is
+            // not known (a wall far over everything).
+            float wet = -1e9;
+            float2 sides[4] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0) };
+            for (int k = 0; k < 4; k++)
+            {
+                if (At(_SimH, p + sides[k]) > HIDE_DEPTH * 0.5)
+                {
+                    wet = max(wet, LevelAt(p + sides[k]));
+                }
+            }
+
+            float dry = (wet > -1e8 ? min(bed, wet) : bed) - 0.05;
+            v.vertex.y = (depth > HIDE_DEPTH * 0.5 ? bed + depth : dry) + _Lift;
 
             float east = LevelAt(p + float2(1.0, 0.0)) - LevelAt(p - float2(1.0, 0.0));
             float north = LevelAt(p + float2(0.0, 1.0)) - LevelAt(p - float2(0.0, 1.0));
