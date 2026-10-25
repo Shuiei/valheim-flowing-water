@@ -1,0 +1,176 @@
+using System;
+using System.Linq;
+using FlowingWater.Volume;
+using Xunit;
+
+namespace FlowingWater.Tests.Volume;
+
+/// <summary>
+/// The server's water as the card's water near the camera takes it: a pool resting on the ground is drawn by the card
+/// once the ground under it is known, water falling through the air and a pool under another are left to the bricks,
+/// faces closed by pieces are kept, and the ground is cast from over the water, or well over the water near it.
+/// </summary>
+public class SimColumnsTests
+{
+    private const int Columns = 16;
+
+    private const int PerVoxel = 2;
+
+    private const int OpenAll = 63, OpenDown = 8;
+
+    [Fact]
+    public void APoolOnTheGroundIsDrawnByTheCardOnceItsGroundIsKnown()
+    {
+        // Ground half way up row 0, water to half way up row 2.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 2.5f);
+
+        float[] unknown = Build(brick, Bed(float.NaN), out _);
+        float[] known = Build(brick, Bed(0.5f), out _);
+
+        Assert.Equal(2.5f, Top(known, 3, 3), 3);
+        Assert.Equal(0f, Drawn(unknown, 3, 3));
+        Assert.Equal(1f, Drawn(known, 3, 3));
+        Assert.Equal(SimColumns.DryTop, Top(known, 4, 3));
+    }
+
+    [Fact]
+    public void WaterUnderARoofTheGroundWasCastFromIsLeftToTheBricks()
+    {
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 2.5f);
+
+        float[] texels = Build(brick, Bed(2.8f), out _);
+
+        Assert.Equal(2.5f, Top(texels, 3, 3), 3);
+        Assert.Equal(0f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void WaterFallingThroughTheAirHoldsNoWaterOnTheCard()
+    {
+        // Rows 4 to 6 half full, nothing under them: the lowest's down face is open.
+        var brick = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y <= 6; y++)
+        {
+            Wet(brick, 3, y, 3, 0.5f, solid: 0f, open: OpenAll);
+        }
+
+        float[] texels = Build(brick, Bed(0f), out _);
+
+        Assert.Equal(SimColumns.DryTop, Top(texels, 3, 3));
+        Assert.Equal(0f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void APoolUnderAnotherIsLeftToTheBricksAndTheCardKeepsTheHigher()
+    {
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+
+        // A second pool on a floor at row 5 (a piece closes the face under it).
+        Wet(brick, 3, 5, 3, 0.4f, solid: 0f, open: OpenAll & ~OpenDown);
+
+        float[] texels = Build(brick, Bed(0.5f), out _);
+
+        Assert.Equal(5.4f, Top(texels, 3, 3), 3);
+        Assert.Equal(0f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void WaterFallingIntoAPoolIsLeftToTheBricksAtThePoolsLevel()
+    {
+        // A pool to half way up row 1, and water falling into it from rows 2 and 3 (not full).
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+        Wet(brick, 3, 2, 3, 0.3f, solid: 0f, open: OpenAll);
+        Wet(brick, 3, 3, 3, 0.3f, solid: 0f, open: OpenAll);
+
+        float[] texels = Build(brick, Bed(0.5f), out _);
+
+        Assert.Equal(1.5f, Top(texels, 3, 3), 3);
+        Assert.Equal(0f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void FacesPiecesCloseAtTheWatersLevelAreKeptFromEitherSide()
+    {
+        // A pool whose top voxel's east face is closed, and one beside it (east) whose west face is.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f, open: OpenAll & ~1);
+        Wet(brick, 7, 0, 3, 1f, solid: 0.5f, open: OpenAll);
+        Wet(brick, 7, 1, 3, 0.5f, solid: 0f, open: OpenAll & ~2);
+
+        float[] texels = Build(brick, Bed(0.5f), out _);
+
+        Assert.Equal(1f, Closed(texels, 3, 3));
+        Assert.Equal(1f, Closed(texels, 6, 3));
+        Assert.Equal(0f, Closed(texels, 7, 3));
+    }
+
+    [Fact]
+    public void TheGroundIsCastFromOverTheWaterOrWellOverTheWaterNearIt()
+    {
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 2.5f);
+
+        Build(brick, Bed(0.5f), out float[] cast);
+
+        Assert.Equal(2.5f + SimColumns.CastOverWater, cast[(3 * Columns) + 3], 3);
+        Assert.Equal(2.5f + SimColumns.CastOverNear, cast[(3 * Columns) + 9], 3);
+    }
+
+    [Fact]
+    public void GroundFarFromAnyWaterIsNotCast()
+    {
+        // Voxels of a quarter metre: the reach is 48 voxels, more than the square.
+        var brick = new BrickView(0, 0, 0, 0.25f);
+        Wet(brick, 1, 0, 1, 0.5f, solid: 0.5f, open: OpenAll);
+        float[] texels = SimColumns.Build([brick], 0, 0, 64, 0.25f, [.. Enumerable.Repeat(0f, 64 * 64)], 1, out float[] cast);
+
+        Assert.Equal(64 * 64 * SimColumns.Texel, texels.Length);
+        Assert.False(float.IsNaN(cast[(10 * 64) + 10]));
+        Assert.False(float.IsNaN(cast[(49 * 64) + 49]));
+        Assert.True(float.IsNaN(cast[(50 * 64) + 50]));
+    }
+
+    [Fact]
+    public void BricksOutsideTheSquareAndColumnsWithoutBricksAreDry()
+    {
+        BrickView far = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+        var moved = new BrickView(5, 0, 5, 1f);
+        Array.Copy(far.Water, moved.Water, Brick.Count);
+
+        float[] texels = Build(moved, Bed(0f), out float[] cast);
+
+        Assert.All(Enumerable.Range(0, Columns * Columns), k => Assert.Equal(SimColumns.DryTop, texels[k * SimColumns.Texel]));
+        Assert.All(cast, c => Assert.True(float.IsNaN(c)));
+    }
+
+    // Water from the ground (filling the lowest voxel to groundShare) up to top (in voxels), in one column of a brick at
+    // the origin, of metre voxels; its top voxel's faces open as given.
+    private static BrickView Pool(int x, int z, float groundShare, float top, int open = OpenAll)
+    {
+        var brick = new BrickView(0, 0, 0, 1f);
+        for (int y = 0; y < Math.Ceiling(top); y++)
+        {
+            float solid = y == 0 ? groundShare : 0f;
+            float water = Math.Min(1f, top - y) - solid;
+            Wet(brick, x, y, z, water, solid, y == (int)Math.Ceiling(top) - 1 ? open : OpenAll & ~OpenDown);
+        }
+
+        return brick;
+    }
+
+    private static void Wet(BrickView brick, int x, int y, int z, float water, float solid, int open)
+    {
+        int i = Brick.Index(x, y, z);
+        brick.Water[i] = water;
+        brick.Solid[i] = solid;
+        brick.Open[i] = (byte)open;
+    }
+
+    private static float[] Bed(float height) => [.. Enumerable.Repeat(height, Columns * PerVoxel * Columns * PerVoxel)];
+
+    private static float[] Build(BrickView brick, float[] bed, out float[] cast) => SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out cast);
+
+    private static float Top(float[] texels, int x, int z) => texels[((z * Columns) + x) * SimColumns.Texel];
+
+    private static float Drawn(float[] texels, int x, int z) => texels[(((z * Columns) + x) * SimColumns.Texel) + 1];
+
+    private static float Closed(float[] texels, int x, int z) => texels[(((z * Columns) + x) * SimColumns.Texel) + 3];
+}

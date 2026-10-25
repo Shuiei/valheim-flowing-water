@@ -24,6 +24,9 @@ internal sealed class Settings
         DefaultDrainRadius = config.Bind("Markers", "DefaultDrainRadius", 1f, new ConfigDescription("How far around it a drain takes water, in metres, when placed without a radius.", new AcceptableValueRange<float>(0.25f, 16f)));
         CommandsForEveryone = config.Bind("Commands", "CommandsForEveryone", true, "Whether players who are not admins may use the flowingwater console command. On a server, the server's setting counts (it tells each player); the host and the server's admins always may.");
         CustomShader = config.Bind("Client", "CustomShader", true, "Draw the water with the mod's own shader: the look of the game's sea (its textures, colours and light), with ripples that run with the current and foam on fast water. Off: the game's own sea material, still.");
+        GpuWater = config.Bind("Client", "GpuWater", true, "Move the water near you on the graphics card, between the server's changes, as water moves: a surge runs out over the ground and up the walls, a pool sloshes, waves cross and come back. The server still says how much water is where. Off (or on a card without compute shaders): the water is drawn as the server sends it, easing from one change to the next.");
+        GpuWaterRange = config.Bind("Client", "GpuWaterRange", 96f, new ConfigDescription("Side of the square round you, in metres, whose water the graphics card moves (beyond it the water is drawn as the server sends it).", new AcceptableValueRange<float>(32f, 256f)));
+        GpuWaterCell = config.Bind("Client", "GpuWaterCell", 0.25f, new ConfigDescription("Side of the graphics card's cells, in metres (no larger than the server's voxels): smaller cells give finer waves and fronts and cost the card more (four times for half the side).", new AcceptableValueList<float>(0.125f, 0.25f, 0.5f, 1f)));
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Water faster than this, in metres per second, is drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         Spray = config.Bind("Client", "Spray", true, "Spray where the water falls or runs steeply (rapids, falls).");
@@ -64,6 +67,12 @@ internal sealed class Settings
     public ConfigEntry<bool> CommandsForEveryone { get; }
 
     public ConfigEntry<bool> CustomShader { get; }
+
+    public ConfigEntry<bool> GpuWater { get; }
+
+    public ConfigEntry<float> GpuWaterRange { get; }
+
+    public ConfigEntry<float> GpuWaterCell { get; }
 
     public ConfigEntry<float> CurrentStrength { get; }
 

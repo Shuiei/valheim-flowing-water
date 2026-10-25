@@ -10,8 +10,11 @@ the river follows it.
   in it, float on it, get wet, and are carried by its current; ships are
   placed and sail on it. The game's own water checks (fishing, building, creatures) see it too. Running water
   is silent and throws no spray for now: its sound and spray come back in a later version.
+- Near you, **your graphics card moves the water** between the server's changes, as water moves: let go, it surges
+  out over the ground, runs up the walls and sloshes back; waves cross a pool and come back. The server still says
+  how much water is where (and what you swim in); a card without compute shaders draws it as the server sends it.
 
-**A prototype.** The flow is tuned for rivers and ponds, not for waves. What you build holds water as the terrain
+**A prototype.** The server's flow is tuned for rivers and ponds; the waves are your graphics card's. What you build holds water as the terrain
 does: walls, floors, a pool on posts, a plank chute or slide the water runs down.
 
 ## Install
@@ -57,6 +60,8 @@ again within a couple of seconds. The main ones:
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
 | `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place sources and drains (the server's setting counts) |
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
+| `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes; off = drawn as the server sends it |
+| `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 | `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water rushes down steep ground |

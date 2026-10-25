@@ -43,6 +43,12 @@ internal static class Materials
 
     private static bool _stillMissing;
 
+    private static Material _sim;
+
+    private static ComputeShader _simCompute;
+
+    private static bool _simTried;
+
     /// <summary>
     /// The mod's own water material, from the asset bundle built for this platform and embedded in
     /// the dll; null (logged once) on a platform without one or when it does not load.
@@ -141,6 +147,51 @@ internal static class Materials
         _shell = new Material(material) { name = "FlowingWater shell" };
         TakeSeaLook(_shell);
         return _shell;
+    }
+
+    /// <summary>
+    /// The mod's material for the water moved on the graphics card near the camera, with the sea's look, and the compute
+    /// shader that moves it, from the same bundle as <see cref="Custom"/>; false (logged once) where that has none, or
+    /// the card runs no compute shaders.
+    /// </summary>
+    public static bool Sim(out Material material, out ComputeShader compute)
+    {
+        if (!_simTried)
+        {
+            _simTried = true;
+            LoadSim();
+        }
+
+        material = _sim;
+        compute = _simCompute;
+        return _sim != null && _simCompute != null;
+    }
+
+    private static void LoadSim()
+    {
+        if (!SystemInfo.supportsComputeShaders)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"The graphics card ({SystemInfo.graphicsDeviceType}) runs no compute shaders: the water near you is drawn as the server sends it");
+            return;
+        }
+
+        if (Custom() == null)
+        {
+            return;
+        }
+
+        Material material = _bundle.LoadAsset<Material>("FlowingWaterSim");
+        var compute = _bundle.LoadAsset<ComputeShader>("FlowingWaterSim");
+        if (material == null || material.shader == null || !material.shader.isSupported || compute == null)
+        {
+            FlowingWaterPlugin.Log.LogError($"The water moved on the graphics card is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}, compute shader {(compute == null ? "missing" : "found")}): the water near you is drawn as the server sends it");
+            return;
+        }
+
+        _sim = new Material(material) { name = "FlowingWater sim" };
+        TakeSeaLook(_sim);
+        _simCompute = compute;
+        FlowingWaterPlugin.Log.LogInfo("Water moved on the graphics card loaded from the bundle");
     }
 
     // The sea's look onto the water: its own textures, colours and settings, so the two are the same water. Without

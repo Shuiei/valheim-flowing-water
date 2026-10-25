@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.24.0 — 2026-10-25
+
+### Added
+- Near you, your graphics card now moves the water between the server's changes, as water moves: let go, it surges
+  out over the ground, runs up the walls and sloshes back, and waves cross a pool and come back. The server still
+  says how much water is where, and what you swim in. Settings `Client.GpuWater`, `Client.GpuWaterRange` and
+  `Client.GpuWaterCell`; the console command `flowingwater gpu` tells what it is doing. On a graphics card without
+  compute shaders, the water is drawn as the server sends it.
+
 ## v0.23.0 — 2026-10-24
 
 ### Added

@@ -10,8 +10,8 @@ using UnityEngine;
 namespace FlowingWater;
 
 /// <summary>
-/// A world opens: the plugin's prefabs go into its prefab list before it is indexed, and the source and drain panel, off
-/// after a fault in the last world, has a fresh try.
+/// A world opens: the plugin's prefabs go into its prefab list before it is indexed, and the source and drain panel and
+/// the water moved on the graphics card, off after a fault in the last world, have a fresh try.
 /// </summary>
 [HarmonyPatch(typeof(ZNetScene), "Awake")]
 internal static class PrefabPatch
@@ -21,6 +21,7 @@ internal static class PrefabPatch
     {
         Prefabs.Register(__instance);
         MarkerPanel.WorldOpened();
+        GpuWater.WorldOpened();
     }
 }
 

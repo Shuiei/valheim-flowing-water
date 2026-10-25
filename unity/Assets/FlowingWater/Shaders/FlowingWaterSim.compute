@@ -1,0 +1,388 @@
+// FlowingWater's water near the camera, moved on the graphics card: shallow water over a square of cells around the
+// camera, finer than the server's voxels. The server says how much water is where, every second or so; this moves it
+// in between as water moves: a surge runs out over the ground and up the walls, a pool sloshes, waves cross and come
+// back. Each cell holds a depth over its ground; each face between two cells a speed (a staggered grid). A step:
+//   Fluxes      what crosses each face, at the step's start,
+//   Momentum    the speeds carried along by the water (Stelling and Duinmeijer, so a front runs as fast as it should),
+//               pushed by the difference of the water's levels, slowed by the ground (Manning's friction),
+//   Outflow     each cell's share of what it would give that it has,
+//   Depth       the water moves through the faces, upwind.
+// Once a frame, the water is pulled toward the server's (Reduce, Relax): each voxel column's mean level toward the
+// server's, so the server keeps the say on how much water is where while the waves finer than a voxel stay the card's.
+// Where the server's water is not one layer resting on the ground (a fall, a pool under another), and along the
+// square's edge, the water is the server's as it is.
+#pragma kernel Seed
+#pragma kernel Fluxes
+#pragma kernel Momentum
+#pragma kernel Outflow
+#pragma kernel Depth
+#pragma kernel Reduce
+#pragma kernel Relax
+#pragma kernel WriteBed
+
+// The cells: depth (m), and where a step writes it (each step reads one and writes the other); ground (world height,
+// m), the share of its outflow each can give.
+RWTexture2D<float> _H;
+RWTexture2D<float> _HNext;
+RWTexture2D<float> _Bed;
+RWTexture2D<float> _Scale;
+
+// Speeds through each cell's east and north faces (m/s), and the step's start's, which Momentum reads to write these;
+// what crosses each face then (m times m/s).
+RWTexture2D<float> _U;
+RWTexture2D<float> _V;
+RWTexture2D<float> _UFrom;
+RWTexture2D<float> _VFrom;
+RWTexture2D<float> _QX;
+RWTexture2D<float> _QY;
+
+// Each voxel column's pull toward the server, metres of depth a second.
+RWTexture2D<float> _Pull;
+
+// The server's water, a texel per voxel column: x = its resting top (world height; under -1000 none), y = 1 where the
+// card draws it, z = foam (falls), w = faces closed by pieces (1 east, 2 north).
+Texture2D<float4> _Target;
+
+// The ground's rows cast this frame: _BedRowCount rows from _BedRow, _N each.
+StructuredBuffer<float> _BedRows;
+int _BedRow;
+int _BedRowCount;
+
+int _N;           // cells along a side
+int _PerVoxel;    // cells along a voxel's side
+float _Dx;        // a cell's side, m
+float _Dt;        // the step, s
+float _Gravity;
+float _Friction;  // Manning: gravity times roughness squared
+float _MaxSpeed;  // the fastest a face may carry in a step (half a cell)
+float _MaxDepth;  // the deepest water a face carries as deep (deeper waves would outrun the step)
+float _SeaLevel;  // water on ground under it is the sea's
+float _Relax;     // a second, how much of the difference to the server's level is made up
+float _Drain;     // a second, how much of the water where the server has none goes
+int _Border;      // cells along the square's edge that are the server's water as it is
+
+#define DRY_TOP -1000.0
+#define WET 0.0001
+
+bool Inside(int2 c)
+{
+    return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
+}
+
+int2 Clamped(int2 c)
+{
+    return clamp(c, int2(0, 0), int2(_N - 1, _N - 1));
+}
+
+float4 TargetOf(int2 c)
+{
+    return _Target[c / _PerVoxel];
+}
+
+bool Wet(float4 target)
+{
+    return target.x > DRY_TOP;
+}
+
+float Depth(int2 c)
+{
+    return Inside(c) ? _H[c] : 0.0;
+}
+
+float Level(int2 c)
+{
+    int2 k = Clamped(c);
+    return _Bed[k] + _H[k];
+}
+
+// The speed through the east face of cell c (0 past the square's edge), as carried from.
+float UFrom(int2 c)
+{
+    return Inside(c) ? _UFrom[c] : 0.0;
+}
+
+float VFrom(int2 c)
+{
+    return Inside(c) ? _VFrom[c] : 0.0;
+}
+
+// How high the water stands across the face between cells a and b: from the higher ground to the higher level.
+float FlowDepth(int2 a, int2 b)
+{
+    return max(Level(a), Level(b)) - max(_Bed[Clamped(a)], _Bed[Clamped(b)]);
+}
+
+// What crosses the face between cells a (west or south) and b at this speed, before any share is taken: the depth
+// upwind, no more than stands across the face.
+float FaceFlux(int2 a, int2 b, float speed)
+{
+    if (speed == 0.0 || !Inside(a) || !Inside(b))
+    {
+        return 0.0;
+    }
+
+    int2 from = speed > 0.0 ? a : b;
+    return speed * min(_H[from], max(FlowDepth(a, b), 0.0));
+}
+
+// Whether a piece closes the face on this axis (0 east, 1 north) of cell c: only on a voxel's border.
+bool Closed(int2 c, int axis)
+{
+    int along = axis == 0 ? c.x : c.y;
+    if ((along + 1) % _PerVoxel != 0)
+    {
+        return false;
+    }
+
+    uint bits = (uint)TargetOf(c).w;
+    return (bits & (axis == 0 ? 1u : 2u)) != 0;
+}
+
+// The water as the server has it, still.
+[numthreads(8, 8, 1)]
+void Seed(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float4 target = TargetOf(c);
+    float bed = _Bed[c];
+    _H[c] = Wet(target) && bed >= _SeaLevel ? max(0.0, target.x - bed) : 0.0;
+    _U[c] = 0.0;
+    _V[c] = 0.0;
+}
+
+// What crosses each cell's east and north faces at the step's start, metres times metres a second: the speed times
+// the depth upwind (no more than stands across the face).
+[numthreads(8, 8, 1)]
+void Fluxes(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    _QX[c] = FaceFlux(c, c + int2(1, 0), _UFrom[c]);
+    _QY[c] = FaceFlux(c, c + int2(0, 1), _VFrom[c]);
+}
+
+// The flow through the east (north) face of cell c, as Fluxes found it; 0 past the square's edge.
+float QX(int2 c)
+{
+    return Inside(c) ? _QX[c] : 0.0;
+}
+
+float QY(int2 c)
+{
+    return Inside(c) ? _QY[c] : 0.0;
+}
+
+// How the water carries a face's speed along (Stelling and Duinmeijer's scheme, which keeps the momentum where the flow
+// widens, as at a front running out onto dry ground: the front keeps the speed of the water behind it). Over the space
+// round the face (the halves of the two cells it joins), what comes in through each side brings the speed of the face
+// upwind of it; the change is that momentum less the face's own speed times what comes in, over the water there. Along
+// the face's own axis (dx = 1, 0 for an east face), the flows through the two cells' middles; across it (dy), the
+// flows through the space's sides.
+float Carried(int2 c, int2 dx, int2 dy, float speed, float depth)
+{
+    bool east = dx.x == 1;
+    // Through the middles of the cell behind and the cell ahead: the mean of their faces on this axis.
+    float behind = 0.5 * ((east ? QX(c - dx) : QY(c - dx)) + (east ? QX(c) : QY(c)));
+    float ahead = 0.5 * ((east ? QX(c) : QY(c)) + (east ? QX(c + dx) : QY(c + dx)));
+    float behindSpeed = behind > 0.0 ? (east ? UFrom(c - dx) : VFrom(c - dx)) : speed;
+    float aheadSpeed = ahead > 0.0 ? speed : (east ? UFrom(c + dx) : VFrom(c + dx));
+    float along = (ahead * aheadSpeed) - (behind * behindSpeed) - (speed * (ahead - behind));
+
+    // Through the sides: the two cells' faces across, over and under the space.
+    float over = 0.5 * ((east ? QY(c) : QX(c)) + (east ? QY(c + dx) : QX(c + dx)));
+    float under = 0.5 * ((east ? QY(c - dy) : QX(c - dy)) + (east ? QY(c + dx - dy) : QX(c + dx - dy)));
+    float overSpeed = over > 0.0 ? speed : (east ? UFrom(c + dy) : VFrom(c + dy));
+    float underSpeed = under > 0.0 ? (east ? UFrom(c - dy) : VFrom(c - dy)) : speed;
+    float across = (over * overSpeed) - (under * underSpeed) - (speed * (over - under));
+    return speed - (_Dt * (along + across) / (_Dx * depth));
+}
+
+// A face's new speed: carried along by the water, pushed from the higher level to the lower, slowed by the ground the
+// more the shallower and faster the water is (Manning, by the water's whole speed there); none where no water stands
+// across it or a piece closes it.
+float Moved(int2 c, int2 dx, int2 dy, int axis, float speed, float across)
+{
+    int2 next = c + dx;
+    if (!Inside(next) || Closed(c, axis))
+    {
+        return 0.0;
+    }
+
+    float depth = FlowDepth(c, next);
+    float mean = 0.5 * (Depth(c) + Depth(next));
+    if (depth <= WET || mean <= WET)
+    {
+        return 0.0;
+    }
+
+    speed = Carried(c, dx, dy, speed, mean);
+    speed -= _Gravity * _Dt * (Level(next) - Level(c)) / _Dx;
+    float flowing = max(depth, 0.005);
+    float whole = sqrt((speed * speed) + (across * across));
+    speed /= 1.0 + (_Dt * _Friction * whole / (flowing * pow(flowing, 1.0 / 3.0)));
+    return clamp(speed, -_MaxSpeed, _MaxSpeed);
+}
+
+[numthreads(8, 8, 1)]
+void Momentum(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float vAtU = 0.25 * (VFrom(c) + VFrom(c + int2(1, 0)) + VFrom(c + int2(0, -1)) + VFrom(c + int2(1, -1)));
+    float uAtV = 0.25 * (UFrom(c) + UFrom(c + int2(-1, 0)) + UFrom(c + int2(0, 1)) + UFrom(c + int2(-1, 1)));
+    _U[c] = Moved(c, int2(1, 0), int2(0, 1), 0, _UFrom[c], vAtU);
+    _V[c] = Moved(c, int2(0, 1), int2(1, 0), 1, _VFrom[c], uAtV);
+}
+
+// The share of what a cell would give through its faces this step that it has: the faces carry its depth (upwind),
+// so it is the same at any depth.
+[numthreads(8, 8, 1)]
+void Outflow(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float east = max(0.0, _U[c]);
+    float north = max(0.0, _V[c]);
+    float west = c.x > 0 ? max(0.0, -_U[c + int2(-1, 0)]) : 0.0;
+    float south = c.y > 0 ? max(0.0, -_V[c + int2(0, -1)]) : 0.0;
+    float giving = (east + north + west + south) * _Dt / _Dx;
+    _Scale[c] = giving > 1.0 ? 1.0 / giving : 1.0;
+}
+
+// What crosses the face between cells a (west or south) and b with this speed, metres times metres a second: the depth
+// upwind, no more than stands across the face nor than the step can carry, scaled by that cell's share.
+float Flux(int2 a, int2 b, float speed)
+{
+    if (speed == 0.0 || !Inside(a) || !Inside(b))
+    {
+        return 0.0;
+    }
+
+    int2 from = speed > 0.0 ? a : b;
+    float depth = min(min(_H[from], max(FlowDepth(a, b), 0.0)), _MaxDepth);
+    return speed * depth * _Scale[from];
+}
+
+[numthreads(8, 8, 1)]
+void Depth(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float east = Flux(c, c + int2(1, 0), _U[c]);
+    float west = Flux(c + int2(-1, 0), c, c.x > 0 ? _U[c + int2(-1, 0)] : 0.0);
+    float north = Flux(c, c + int2(0, 1), _V[c]);
+    float south = Flux(c + int2(0, -1), c, c.y > 0 ? _V[c + int2(0, -1)] : 0.0);
+    float h = _H[c] + ((west - east + south - north) * _Dt / _Dx);
+    _HNext[c] = _Bed[c] < _SeaLevel ? 0.0 : max(h, 0.0);
+}
+
+// Each voxel column's pull: how far its cells under the server's level stand below it on average (water to add, or
+// take where above), or, where the server has no water, nothing (that water drains on its own, Relax).
+[numthreads(8, 8, 1)]
+void Reduce(uint3 id : SV_DispatchThreadID)
+{
+    int2 v = (int2)id.xy;
+    int columns = _N / _PerVoxel;
+    if (v.x >= columns || v.y >= columns)
+    {
+        return;
+    }
+
+    float4 target = _Target[v];
+    if (!Wet(target))
+    {
+        _Pull[v] = 0.0;
+        return;
+    }
+
+    float sum = 0.0;
+    float count = 0.0;
+    for (int j = 0; j < _PerVoxel; j++)
+    {
+        for (int i = 0; i < _PerVoxel; i++)
+        {
+            int2 c = (v * _PerVoxel) + int2(i, j);
+            float bed = _Bed[c];
+            if (bed < target.x)
+            {
+                sum += target.x - max(bed + _H[c], bed);
+                count += 1.0;
+            }
+        }
+    }
+
+    _Pull[v] = count > 0.0 ? sum / count : 0.0;
+}
+
+[numthreads(8, 8, 1)]
+void Relax(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float4 target = TargetOf(c);
+    float bed = _Bed[c];
+    float h = _H[c];
+    bool edge = c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+    if (bed < _SeaLevel)
+    {
+        h = 0.0;
+    }
+    else if (edge || target.y < 0.5)
+    {
+        // The server's water as it is: along the edge, and where the card does not draw it.
+        h = Wet(target) ? max(0.0, target.x - bed) : 0.0;
+    }
+    else if (Wet(target))
+    {
+        if (bed < target.x)
+        {
+            h = max(0.0, h + (_Pull[c / _PerVoxel] * _Relax * _Dt));
+        }
+    }
+    else
+    {
+        h -= h * min(1.0, _Drain * _Dt);
+        h = h < WET ? 0.0 : h;
+    }
+
+    _H[c] = h;
+}
+
+// Rows of ground cast on the processor, written in.
+[numthreads(64, 1, 1)]
+void WriteBed(uint3 id : SV_DispatchThreadID)
+{
+    int x = (int)id.x;
+    int r = (int)id.y;
+    if (x >= _N || r >= _BedRowCount)
+    {
+        return;
+    }
+
+    _Bed[int2(x, _BedRow + r)] = _BedRows[(r * _N) + x];
+}
