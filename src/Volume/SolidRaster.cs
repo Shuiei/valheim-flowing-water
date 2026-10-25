@@ -85,6 +85,14 @@ internal static class SolidRaster
         {
             Over(brick, voxelSize, box, (x, y, z) => Close(brick, voxelSize, box, x, y, z, Room));
         }
+
+        for (int i = 0; i < ceiling.Length; i++)
+        {
+            if (ceiling[i] < 1f)
+            {
+                brick.Ceiling[i] = brick.Ceiling[i] > 0f ? Math.Min(brick.Ceiling[i], ceiling[i]) : ceiling[i];
+            }
+        }
     }
 
     // A ground's share of voxel row y: from its bottom up to the ground.

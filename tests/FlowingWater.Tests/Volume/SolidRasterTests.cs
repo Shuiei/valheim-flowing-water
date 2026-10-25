@@ -227,6 +227,70 @@ public class SolidRasterTests
         Assert.Equal(10f, grid.TotalWater(), 1);
     }
 
+    [Fact]
+    public void ASourceOnAFloorHighInItsVoxelPoursOntoTheFloorNotUnderIt()
+    {
+        // A plank floor from 5.67 to 5.8 m: in row 5's upper half, row 5's ceiling; a source on it pours a little over it.
+        var grid = new VoxelGrid(1f, new BoxSolids([SolidBox.Between(new Vec3(2f, 5.67f, 2f), new Vec3(6f, 5.8f, 6f))]));
+
+        Assert.True(grid.Room(3.5f, 5.85f, 3.5f, out int x, out int y, out int z));
+
+        Assert.Equal((3, 6, 3), (x, y, z));
+    }
+
+    [Fact]
+    public void ASourceUnderASlabWithRoomUnderItPoursThere()
+    {
+        // Ground 0.3 m into row 5 and a slab whose underside is 0.9 m into it: a source on the ground pours at 5.6 m,
+        // under the slab, in row 5.
+        var grid = new VoxelGrid(1f, new BoxSolids([
+            SolidBox.Between(new Vec3(0f, 0f, 0f), new Vec3(8f, 5.3f, 8f)),
+            SolidBox.Between(new Vec3(0f, 5.9f, 0f), new Vec3(8f, 6.1f, 8f)),
+        ]));
+
+        Assert.True(grid.Room(3.5f, 5.6f, 3.5f, out int x, out int y, out int z));
+
+        Assert.Equal((3, 5, 3), (x, y, z));
+    }
+
+    [Fact]
+    public void WaterPouredInASolidGoesToTheFirstOpenVoxelOverIt()
+    {
+        var grid = new VoxelGrid(1f, new BoxSolids([SolidBox.Between(new Vec3(0f, 0f, 0f), new Vec3(8f, 3f, 8f))]));
+
+        Assert.True(grid.Room(3.5f, 1.5f, 3.5f, out _, out int y, out _));
+
+        Assert.Equal(3, y);
+    }
+
+    [Fact]
+    public void VoxelsSideBySideWithNoRoomAtASameHeightAreClosedBetween()
+    {
+        // In row 5: a plank over the upper half of voxel 3 (its ceiling at 0.7), a block filling voxel 4 to 0.75.
+        var brick = new Brick(0, 0, 0);
+        SolidRaster.Pieces(brick, 1f, [
+            SolidBox.Between(new Vec3(3f, 5.7f, 3f), new Vec3(4f, 5.8f, 4f)),
+            SolidBox.Between(new Vec3(4f, 5f, 3f), new Vec3(5f, 5.75f, 4f)),
+        ]);
+
+        Assert.Equal(0.7f, brick.Ceiling[Brick.Index(3, 5, 3)], 3);
+        Assert.Equal(0.75f, brick.Solid[Brick.Index(4, 5, 3)], 3);
+        Assert.Equal(Brick.ClosedX, brick.Closed[Brick.Index(3, 5, 3)] & Brick.ClosedX);
+    }
+
+    [Fact]
+    public void VoxelsSideBySideWithRoomAtASameHeightAndNothingBetweenStayOpen()
+    {
+        // The same plank, the block beside it only 0.3 high: both have room from 0.3 to 0.7, and nothing crosses there.
+        var brick = new Brick(0, 0, 0);
+        SolidRaster.Pieces(brick, 1f, [
+            SolidBox.Between(new Vec3(3f, 5.7f, 3f), new Vec3(4f, 5.8f, 4f)),
+            SolidBox.Between(new Vec3(4f, 5f, 3f), new Vec3(5f, 5.3f, 4f)),
+        ]);
+
+        Assert.Equal(0, brick.Closed[Brick.Index(3, 5, 3)] & Brick.ClosedX);
+    }
+
     private static Vec3 Norm(Vec3 v) => v * (1f / (float)Math.Sqrt(v.Dot(v)));
 
     private static Vec3 Cross(Vec3 a, Vec3 b) => new((a.Y * b.Z) - (a.Z * b.Y), (a.Z * b.X) - (a.X * b.Z), (a.X * b.Y) - (a.Y * b.X));

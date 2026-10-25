@@ -639,39 +639,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return false;
     }
 
-    // The voxel water poured at a point goes into: its own, or the first open one over it (within four bricks); false
-    // when none is, a brick it needs cannot be made (MaxBricks), or the point is past the grid's reach. A point over a
-    // piece lying in the upper half of its voxel (a floor there is that voxel's ceiling) pours into the voxel above,
-    // onto the piece, not under it.
-    private bool Room(Vector3 point, out int x, out int y, out int z)
-    {
-        float s = _grid.VoxelSize;
-        x = Mathf.FloorToInt(point.x / s);
-        y = Mathf.FloorToInt(point.y / s);
-        z = Mathf.FloorToInt(point.z / s);
-        for (int up = 0; up < Brick.Size * 4; up++, y++)
-        {
-            if (!VoxelGrid.Within(x >> 4, y >> 4, z >> 4) || _grid.Make(x >> 4, y >> 4, z >> 4) is not { } brick)
-            {
-                return false;
-            }
-
-            int i = Brick.Index(x & 15, y & 15, z & 15);
-            if (brick.Solid[i] >= 1f)
-            {
-                continue;
-            }
-
-            if (up == 0 && (brick.Closed[i] & Brick.ClosedY) != 0 && point.y - (y * s) > 0.5f * s)
-            {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
-    }
+    // The voxel water poured at a point goes into (VoxelGrid.Room).
+    private bool Room(Vector3 point, out int x, out int y, out int z) => _grid.Room(point.x, point.y, point.z, out x, out y, out z);
 
     private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
 
