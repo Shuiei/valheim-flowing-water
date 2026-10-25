@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 namespace FlowingWater.Volume;
 
@@ -196,9 +195,8 @@ internal sealed class VoxelShell
     }
 
     // A voxel being drawn: where it is, its size, the brick's middle (where the corners are measured from), its current.
-    // Never compared with another: it has no equality of its own.
-    [SuppressMessage("Performance", "CA1815:Override equals and operator equals on value types", Justification = "Never compared.")]
-    private readonly struct Voxel
+    // Never compared with another; a record, so that the equality a value type is asked for comes made.
+    private readonly record struct Voxel
     {
         public Voxel(int x, int y, int z, float size, (float X, float Y, float Z) middle, float vx, float vy, float vz)
         {
