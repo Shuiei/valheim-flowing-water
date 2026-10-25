@@ -26,6 +26,9 @@ internal sealed class GpuWater : IDisposable
 
     private const int FreshRows = 4;
 
+    // A row whose water came this far from the height its ground was cast from, metres, is cast again first.
+    private const float CastMoved = 0.25f;
+
     // Shortest time between two builds of the server's water for the card, seconds.
     private const float BuildSeconds = 0.1f;
 
@@ -86,8 +89,13 @@ internal sealed class GpuWater : IDisposable
     private float _builtAt = float.NegativeInfinity;
 
     // The heights each voxel column's ground is cast from (from the last build), the next row to cast, whether the
-    // square's ground was all cast once.
+    // square's ground was all cast once. For each row of cells and voxel column, the height it was last cast from (NaN:
+    // not cast, no water near), and the rows to cast first: water came near them, or rose or fell from that height.
     private float[] _castFrom;
+
+    private readonly float[] _castUsed;
+
+    private readonly bool[] _castFirst;
 
     private int _nextRow;
 
@@ -105,6 +113,13 @@ internal sealed class GpuWater : IDisposable
         }
 
         _cast = new BedCast(window.Cells);
+        _castUsed = new float[window.Cells * window.Columns];
+        _castFirst = new bool[window.Cells];
+        for (int k = 0; k < _castUsed.Length; k++)
+        {
+            _castUsed[k] = float.NaN;
+        }
+
         _ground = new float[window.Cells * window.Cells];
         for (int k = 0; k < _ground.Length; k++)
         {
@@ -292,6 +307,7 @@ internal sealed class GpuWater : IDisposable
 
         _grid.SetTarget(build.Result.Texels);
         _castFrom = build.Result.Cast;
+        MarkCastFirst();
         _builtVersion = _buildingVersion;
         _builtGround = _buildingGround;
         if (!_seeded)
@@ -333,8 +349,25 @@ internal sealed class GpuWater : IDisposable
         });
     }
 
-    // The next rows' ground cast, from the heights the last build gave: quickly until the square's ground was all cast
-    // once, then a few rows a frame, round and round.
+    // The rows whose ground is cast again first: in one of their voxel columns, water came near (cast from no height
+    // before), or its water's height moved more than CastMoved from the one it was cast from (risen over it, it may
+    // stand on what that cast missed; fallen, a floor may lie between).
+    private void MarkCastFirst()
+    {
+        int perVoxel = _window.PerVoxel, columns = _window.Columns;
+        for (int row = 0; row < _window.Cells; row++)
+        {
+            for (int vx = 0; vx < columns && !_castFirst[row]; vx++)
+            {
+                float from = _castFrom[((row / perVoxel) * columns) + vx];
+                float used = _castUsed[(row * columns) + vx];
+                _castFirst[row] = !float.IsNaN(from) && (float.IsNaN(used) || Math.Abs(from - used) > CastMoved);
+            }
+        }
+    }
+
+    // The next rows' ground cast, from the heights the last build gave: those to cast first, else quickly until the
+    // square's ground was all cast once, then a few rows a frame, round and round.
     private void StartCast()
     {
         if (_cast.Busy || _castFrom == null)
@@ -342,16 +375,42 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        int rows = Math.Min(_castOnce ? FreshRows : FirstRows, _window.Cells - _nextRow);
-        float[] from = _castFrom;
-        int perVoxel = _window.PerVoxel, columns = _window.Columns;
-        _cast.Start(_nextRow, rows, (x, z) => from[((z / perVoxel) * columns) + (x / perVoxel)], new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize), _window.CellSize);
-        _nextRow += rows;
-        if (_nextRow >= _window.Cells)
+        int first = Array.IndexOf(_castFirst, true);
+        int row, rows;
+        if (first >= 0)
         {
-            _nextRow = 0;
-            _castOnce = true;
+            row = first;
+            rows = 1;
+            while (rows < FirstRows && row + rows < _window.Cells && _castFirst[row + rows])
+            {
+                rows++;
+            }
         }
+        else
+        {
+            row = _nextRow;
+            rows = Math.Min(_castOnce ? FreshRows : FirstRows, _window.Cells - _nextRow);
+            _nextRow += rows;
+            if (_nextRow >= _window.Cells)
+            {
+                _nextRow = 0;
+                _castOnce = true;
+            }
+        }
+
+        float[] from = _castFrom;
+        float[] used = _castUsed;
+        int perVoxel = _window.PerVoxel, columns = _window.Columns;
+        for (int r = row; r < row + rows; r++)
+        {
+            _castFirst[r] = false;
+            for (int vx = 0; vx < columns; vx++)
+            {
+                used[(r * columns) + vx] = from[((r / perVoxel) * columns) + vx];
+            }
+        }
+
+        _cast.Start(row, rows, (x, z) => from[((z / perVoxel) * columns) + (x / perVoxel)], new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize), _window.CellSize);
     }
 
     // The grid of a square: a point at each cell's centre, its place in cells as its first uv; bounds as high as any

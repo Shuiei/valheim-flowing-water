@@ -126,8 +126,10 @@ where), so the waves finer than a voxel are the card's own.
   square. The square moves with the camera once it is a quarter of the square from its middle.
 - **The ground.** Rays cast straight down onto the terrain and what players built, a few rows of cells a frame on the
   game's worker threads, all of the square in a fraction of a second, then again and again (what is built, a door
-  opened); only near water. Under the water from just over its top, elsewhere from 3 m over the water near it, so
-  walls round a pool hold the card's water; the faces pieces close at the water's level are the server's.
+  opened); only near water. Rows where water comes near, or rises or falls more than 25 cm, are cast first, so a
+  flood's front is the card's as it spreads. Under the water from just over its top, elsewhere from 3 m over the water
+  near it, so walls round a pool hold the card's water; only the faces pieces close at the water's level are walls
+  besides (the server's faces closed by the ground itself, each step of a slope, are left to the ground cast).
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.
