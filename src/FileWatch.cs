@@ -7,7 +7,8 @@ namespace FlowingWater;
 /// <summary>
 /// Whether a file was written since it was last read, without the game: its write time looked at no more than once
 /// every <see cref="Every"/> seconds. A new write time counts once it has held still from one look to the next, so a
-/// file still being written is not read half way.
+/// file still being written is not read half way. It stays to be read, told again at each look, until the reader says
+/// it has read it (<see cref="Read"/>), so a read that failed is tried again.
 /// </summary>
 internal sealed class FileWatch
 {
@@ -17,6 +18,7 @@ internal sealed class FileWatch
     private readonly Func<DateTime> _written;
     private DateTime _read;
     private DateTime _seen;
+    private DateTime _told;
     private float _next;
 
     /// <summary>A watch on a file as it is now (taken as read).</summary>
@@ -24,10 +26,13 @@ internal sealed class FileWatch
     public FileWatch(Func<DateTime> written)
     {
         _written = written;
-        _read = _seen = written();
+        _read = _seen = _told = written();
     }
 
-    /// <summary>Whether the file should be read again: written since it was last read, and not being written now.</summary>
+    /// <summary>Whether the write last told was told before: reading it failed then.</summary>
+    public bool Again { get; private set; }
+
+    /// <summary>Whether the file should be read: written since it was last read, and not being written now.</summary>
     /// <param name="now">Seconds, from any start, going on.</param>
     public bool Changed(float now)
     {
@@ -45,9 +50,13 @@ internal sealed class FileWatch
             return false;
         }
 
-        _read = written;
+        Again = written == _told;
+        _told = written;
         return true;
     }
+
+    /// <summary>The write last told has been read.</summary>
+    public void Read() => _read = _told;
 
     /// <summary>The settings whose value differs from one reading to the next, as "name: was → now", in name order.</summary>
     public static List<string> Changes(IReadOnlyDictionary<string, string> before, IReadOnlyDictionary<string, string> after) =>

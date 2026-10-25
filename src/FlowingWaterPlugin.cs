@@ -106,8 +106,31 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
             return;
         }
 
+        // Not saved while read: BepInEx saves on each setting changed, which, half way through the file, would write it
+        // over without the entries it has not read yet that no setting holds.
         Dictionary<string, string> before = SettingValues();
-        Config.Reload();
+        bool save = Config.SaveOnConfigSet;
+        Config.SaveOnConfigSet = false;
+        try
+        {
+            Config.Reload();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Held by an editor, or not readable now: tried again at the next look, told once.
+            if (!_settingsFile.Again)
+            {
+                Logger.LogWarning($"Settings file {Config.ConfigFilePath} could not be read, tried again each second: {e.Message}");
+            }
+
+            return;
+        }
+        finally
+        {
+            Config.SaveOnConfigSet = save;
+        }
+
+        _settingsFile.Read();
         List<string> changed = FileWatch.Changes(before, SettingValues());
         if (changed.Count > 0)
         {

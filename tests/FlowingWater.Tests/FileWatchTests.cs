@@ -30,7 +30,31 @@ public class FileWatchTests
         written = Start.AddSeconds(10);
         Assert.False(watch.Changed(1f));
         Assert.True(watch.Changed(2f));
+        Assert.False(watch.Again);
+        watch.Read();
         Assert.False(watch.Changed(3f));
+    }
+
+    [Fact]
+    public void AWriteThatCouldNotBeReadIsToldAgainUntilItIs()
+    {
+        DateTime written = Start;
+        var watch = new FileWatch(() => written);
+        written = Start.AddSeconds(10);
+        watch.Changed(1f);
+
+        Assert.True(watch.Changed(2f));
+        Assert.False(watch.Again);
+        Assert.True(watch.Changed(3f));
+        Assert.True(watch.Again);
+        watch.Read();
+        Assert.False(watch.Changed(4f));
+
+        // A new write after it is told for the first time again.
+        written = Start.AddSeconds(20);
+        watch.Changed(5f);
+        Assert.True(watch.Changed(6f));
+        Assert.False(watch.Again);
     }
 
     [Fact]
@@ -44,6 +68,8 @@ public class FileWatchTests
         written = Start.AddSeconds(2);
         Assert.False(watch.Changed(2f));
         Assert.True(watch.Changed(3f));
+        watch.Read();
+        Assert.False(watch.Changed(4f));
     }
 
     [Fact]
