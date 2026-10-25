@@ -153,8 +153,9 @@ there to the new grid (same volume), at the next start or at once with a config 
   ripples) is seen through thin water, tinted as through the sea; deeper water takes the sea's bottom colour, from
   shallow to deep with the water's depth. Still water's ripples drift with the game's wind, as the sea's; running
   water's are dragged along the current in two offset phases (flow mapping), finer than the sea's, and it foams
-  with its speed (rapids) and where the simulation says it falls. The shore fades out over the scene's depth behind
-  it, with a band of foam just off the edge, as the sea's.
+  with its speed (rapids) and where the simulation says it falls. Its edge fades out over the last two centimetres
+  of water in front of the ground, with a band of foam just off it; shallow water a few centimetres deep, a stream
+  from a source or a puddle, is drawn (the sea hides its shallows, ours lies on the water's own top).
 - **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
   can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s. Carrying less, it
   picks ground up from the bed; carrying more, it sets the rest down; where it dries it sets everything down,

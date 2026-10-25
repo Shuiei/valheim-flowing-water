@@ -15,7 +15,7 @@ internal static class Materials
 
     private static readonly string[] SeaColours = ["_ColorTop", "_ColorBottom", "_ColorBottomShallow", "_SurfaceColor", "_FoamColor"];
 
-    private static readonly string[] SeaFloats = ["_Glossiness", "_Metallic", "_NormalPower", "_NormalScale", "_WaveVel", "_DepthFade", "_ShoreFade", "_FoamDepth", "_RefractionScale", "_RefractionMax"];
+    private static readonly string[] SeaFloats = ["_Glossiness", "_Metallic", "_NormalPower", "_NormalScale", "_WaveVel", "_DepthFade", "_FoamDepth", "_RefractionScale", "_RefractionMax"];
 
     // What the game's water materials read from each renderer: the time their waves run on, how far they are drawn.
     private static readonly int WaterTimeId = Shader.PropertyToID("_WaterTime");
