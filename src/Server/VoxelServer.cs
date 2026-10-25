@@ -393,11 +393,12 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {_grid.VoxelSize} m voxels, {bricks:0.0} m³ read from bricks, {tiles:0.0} m³ moved over from column tiles"));
     }
 
-    // Each saved brick's water into the grid. A brick's object of the grid's own voxel size is kept as the brick's
-    // (its next send writes it; the first send finding no brick there destroys it): made anew at every start, the
-    // whole water was sent twice, and one the server could not read into the grid was left beside the one it made
-    // later, drawn for ever and its water doubled at the next start. Objects of another size, unreadable, or past the
-    // grid's reach are destroyed once read.
+    // Each saved brick's water into the grid. A brick's object of the grid's own voxel size, whose brick is in the grid,
+    // is kept as that brick's (its next send writes it, unless it holds the brick as it is): made anew at every start,
+    // the whole water was sent twice, and one the server could not read into the grid was left beside the one it made
+    // later, drawn for ever and its water doubled at the next start. Every other object is destroyed once read: of
+    // another size, unreadable, past the grid's reach, with no room for its water, or a second one at a brick's place
+    // (whose water is not poured again).
     private float LoadBricks()
     {
         float total = 0f;
@@ -407,9 +408,16 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             BrickView view = Read(zdo);
             if (view != null)
             {
-                if (Array.IndexOf(TileData.CellSizes, view.VoxelSize) < 0 || Math.Abs((long)view.X) > VoxelGrid.MaxBrick || Math.Abs((long)view.Y) > VoxelGrid.MaxBrick || Math.Abs((long)view.Z) > VoxelGrid.MaxBrick)
+                bool fits = Array.IndexOf(TileData.CellSizes, view.VoxelSize) >= 0 && Math.Abs((long)view.X) <= VoxelGrid.MaxBrick && Math.Abs((long)view.Y) <= VoxelGrid.MaxBrick && Math.Abs((long)view.Z) <= VoxelGrid.MaxBrick;
+                bool same = fits && Mathf.Approximately(view.VoxelSize, _grid.VoxelSize);
+                long key = same ? VoxelGrid.Key(view.X, view.Y, view.Z) : 0L;
+                if (!fits)
                 {
                     FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels cannot be read into the grid; removed, its water is lost"));
+                }
+                else if (same && adopted.Contains(key))
+                {
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: another object holds the brick at {view.X},{view.Y},{view.Z} already; removed, its water not poured again"));
                 }
                 else if (_load.PourView(view) is { } poured)
                 {
@@ -417,23 +425,12 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
                 }
                 else
                 {
-                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); its water is lost"));
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); removed, its water is lost"));
                 }
 
-                long key = VoxelGrid.Key(view.X, view.Y, view.Z);
-                if (Mathf.Approximately(view.VoxelSize, _grid.VoxelSize) && adopted.Add(key))
+                if (same && _grid.Find(view.X, view.Y, view.Z) is { } brick && adopted.Add(key))
                 {
-                    // With its bytes as the brick's last sent: a still brick, as it was saved, is not sent again.
-                    Brick brick = _grid.Find(view.X, view.Y, view.Z);
-                    if (brick != null)
-                    {
-                        _objects.Adopt(key, zdo.m_uid, brick, zdo.GetByteArray(ZdoKeys.Brick), _grid.VoxelSize);
-                    }
-                    else
-                    {
-                        _objects.Adopt(key, zdo.m_uid);
-                    }
-
+                    _objects.Adopt(key, zdo.m_uid, brick, zdo.GetByteArray(ZdoKeys.Brick), _grid.VoxelSize);
                     continue;
                 }
             }

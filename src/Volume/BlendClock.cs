@@ -35,12 +35,15 @@ internal sealed class BlendClock
     /// <param name="now">Seconds on the caller's clock.</param>
     public void Came(float now)
     {
-        if (_began && now - Start < Shortest)
+        // A time before the start is another clock (the caller's started again, <see cref="Reset"/> not called): a
+        // first wave on it.
+        bool first = !_began || now < Start;
+        if (!first && now - Start < Shortest)
         {
             return;
         }
 
-        Seconds = _began ? Math.Max(Shortest, Math.Min(Longest, now - Start)) : Default;
+        Seconds = first ? Default : Math.Max(Shortest, Math.Min(Longest, now - Start));
         Start = now;
         _began = true;
     }

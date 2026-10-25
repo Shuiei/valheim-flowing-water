@@ -395,8 +395,13 @@ internal sealed class MarkerPanel : MonoBehaviour
             return _panel;
         }
 
+        // The game's own, else one of the mod's. Unity's own null checks (its == on objects), not C#'s ?. and ??,
+        // which the style rule would have: a destroyed object is null to Unity's and not to C#'s.
         TextInput dialog = TextInput.instance;
-        Canvas canvas = dialog?.GetComponentInParent<Canvas>()?.rootCanvas ?? OwnCanvas();
+#pragma warning disable IDE0031 // Use null propagation: not on Unity objects.
+        Canvas gameCanvas = dialog != null ? dialog.GetComponentInParent<Canvas>() : null;
+#pragma warning restore IDE0031
+        Canvas canvas = gameCanvas != null && gameCanvas.rootCanvas != null ? gameCanvas.rootCanvas : OwnCanvas();
         var view = MarkerPanelView.Build(canvas.transform, MarkerPanelView.Style.From(dialog));
         MarkerPanel panel = view.Root.AddComponent<MarkerPanel>();
         panel._view = view;

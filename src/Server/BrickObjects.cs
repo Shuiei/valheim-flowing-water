@@ -29,7 +29,7 @@ internal interface IBrickWorld<TId>
 /// current by a little: a running stream's water stirs all the time) is not packed either, until it adds up to one
 /// that shows, or for <see cref="RefreshSends"/> sends at most; one whose water packs the same is not written again. A send may be spread
 /// over frames (<see cref="Start"/>, <see cref="Send"/>), a few bricks packed at a time; nothing is written until every
-/// brick of it is packed. An object saved with the world is taken over (<see cref="Adopt(long, TId)"/>) so that its brick's next
+/// brick of it is packed. An object saved with the world is taken over (<see cref="Adopt"/>) so that its brick's next
 /// send writes it rather than make a second one beside it.
 /// </summary>
 /// <typeparam name="TId">An object's id.</typeparam>
@@ -76,14 +76,10 @@ internal sealed class BrickObjects<TId>
     public bool Sending => _round != null;
 
     /// <summary>
-    /// Takes over an object of the game's as the brick's at this key (one saved with the world, whatever it holds): the
-    /// brick's next send writes it, and the first send finding no brick there destroys it.
-    /// </summary>
-    public void Adopt(long key, TId id) => _objects[key] = id;
-
-    /// <summary>
-    /// Takes over an object saved with the world as this brick's, with the bytes it holds as the brick's last sent: a
-    /// brick as it was saved (still, its water read back as it was) is not written and sent again at the start.
+    /// Takes over an object saved with the world as this brick's: the brick's next send writes it, and the first send
+    /// finding no brick there destroys it. When the bytes it holds are the brick as it is now (still, its water read
+    /// back where it was), they are the brick's last sent, and it is not written again at the start; when they are not
+    /// (some water moved as it was read back, the ground risen under it), its next send writes it.
     /// </summary>
     /// <param name="key">The brick's key.</param>
     /// <param name="id">The object.</param>
@@ -93,7 +89,15 @@ internal sealed class BrickObjects<TId>
     public void Adopt(long key, TId id, Brick brick, byte[] data, float voxelSize)
     {
         _objects[key] = id;
-        _sent[key] = new Sent(brick, brick.Changes, data, BrickData.Look(brick, voxelSize), 0);
+        byte[] look = BrickData.Look(brick, voxelSize);
+        if (Same(data, BrickData.Encode(brick, voxelSize, look)))
+        {
+            _sent[key] = new Sent(brick, brick.Changes, data, look, 0);
+        }
+        else
+        {
+            _sent.Remove(key);
+        }
     }
 
     /// <summary>

@@ -198,8 +198,12 @@ public class BrickObjectsTests
         var grid = new VoxelGrid(1f, new TestSolids(0));
         grid.Pour(0, 0, 0, 1f);
         var objects = new BrickObjects<int>(world);
-        objects.Adopt(VoxelGrid.Key(0, 0, 0), 7);
-        objects.Adopt(VoxelGrid.Key(5, 0, 0), 8);
+
+        // Adopted with bytes that are not the brick as it is now (its water moved as it was read back): written.
+        objects.Adopt(VoxelGrid.Key(0, 0, 0), 7, grid.Find(0, 0, 0), BrickData.Encode(Wet(0, 0, 0, 0.3f), 1f), 1f);
+
+        // Adopted for a brick that is not in the grid sent: destroyed.
+        objects.Adopt(VoxelGrid.Key(5, 0, 0), 8, new Brick(5, 0, 0), [], 1f);
 
         objects.Publish(grid.Bricks, 1f);
 

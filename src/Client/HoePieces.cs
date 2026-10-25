@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -51,12 +52,34 @@ internal static class HoePieces
     // The source or drain chosen in the hoe this frame, if one is.
     private static Marker _selectedMarker;
 
-    // A method of the player's as a delegate (null when the game has it no more), and a field of theirs by reference.
-    private static TDelegate Method<TDelegate>(string name) where TDelegate : Delegate =>
-        AccessTools.Method(typeof(Player), name) is { } method ? AccessTools.MethodDelegate<TDelegate>(method) : null;
+    // A method of the player's as a delegate, and a field of theirs by reference: null, told of, when the game has it no
+    // more, or has it another way (two of the name, another kind), as a game update may; thrown from here, in the
+    // class's making, nothing of the hoe's would run.
+    private static TDelegate Method<TDelegate>(string name) where TDelegate : Delegate
+    {
+        try
+        {
+            return AccessTools.Method(typeof(Player), name) is { } method ? AccessTools.MethodDelegate<TDelegate>(method) : null;
+        }
+        catch (Exception e) when (e is AmbiguousMatchException or ArgumentException)
+        {
+            FlowingWaterPlugin.Log.LogError($"The game's Player.{name} is not as the hoe's pieces expect (a game update?): {e.Message}");
+            return null;
+        }
+    }
 
-    private static AccessTools.FieldRef<Player, TField> Field<TField>(string name) =>
-        AccessTools.Field(typeof(Player), name) is { } field ? AccessTools.FieldRefAccess<Player, TField>(field) : null;
+    private static AccessTools.FieldRef<Player, TField> Field<TField>(string name)
+    {
+        try
+        {
+            return AccessTools.Field(typeof(Player), name) is { } field ? AccessTools.FieldRefAccess<Player, TField>(field) : null;
+        }
+        catch (ArgumentException e)
+        {
+            FlowingWaterPlugin.Log.LogError($"The game's Player.{name} is not as the hoe's pieces expect (a game update?): {e.Message}");
+            return null;
+        }
+    }
 
     /// <summary>
     /// Whether placed sources and drains show, this frame: the local player holds the hoe with one of its water pieces

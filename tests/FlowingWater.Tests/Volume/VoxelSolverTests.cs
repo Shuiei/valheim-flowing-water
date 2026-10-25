@@ -50,7 +50,7 @@ public class VoxelSolverTests
         Assert.True(solver.TakeNotNumbers() > 0);
         Assert.Equal(0, solver.TakeNotNumbers());
         Assert.Equal(2f, grid.TotalWater(), 1);
-        Assert.Equal(0f, grid.WaterAt(5, 0, 5) - grid.WaterAt(5, 0, 5));
+        Assert.False(float.IsNaN(grid.WaterAt(5, 0, 5)));
     }
 
     [Fact]
