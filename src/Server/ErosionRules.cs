@@ -14,7 +14,7 @@ internal static class ErosionRules
     public const float MinSpeed = 0.6f;
 
     /// <summary>The most the ground may be cut or raised, metres: the game's own limit on terrain changes.</summary>
-    public const float MaxChange = 8f;
+    public const float MaxChange = TerrainChanges.MaxChange;
 
     // Metres of ground carried per metre of water depth, per square metre per second squared of speed above
     // MinSpeed; depth counts up to a metre (a deep pool is no stronger than a deep stream).

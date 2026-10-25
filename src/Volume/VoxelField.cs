@@ -9,8 +9,13 @@ namespace FlowingWater.Volume;
 /// </summary>
 internal sealed class VoxelField
 {
-    /// <summary>Less water than this share of a voxel is drawn as none (one step of the brick data's byte).</summary>
-    public const float Wet = 0.5f / 200f;
+    /// <summary>Less water than this share of a voxel is drawn as none (half a step of the brick data's byte).</summary>
+    public const float Wet = 0.5f / BrickData.Full;
+
+    // A voxel coordinate's bits in a voxel key: ±1,048,575 voxels along each axis.
+    private const int KeyBits = 21;
+
+    private const int KeyMask = (1 << KeyBits) - 1;
 
     private readonly Dictionary<long, BrickView> _bricks = [];
 
@@ -23,6 +28,13 @@ internal sealed class VoxelField
     /// <summary>Counts the changes to the bricks known: while it stays the same, so do they.</summary>
     public int Version { get; private set; }
 
+    /// <summary>
+    /// A voxel's key from its voxel coordinates (not its brick's: <see cref="VoxelGrid.Key"/> is for bricks), 21 bits
+    /// each: 262 km from the world's zero along each axis at 0.25 m voxels, far beyond any Valheim world. Two voxels
+    /// farther apart than that would share a key.
+    /// </summary>
+    public static long VoxelKey(int x, int y, int z) => ((long)(x & KeyMask) << (2 * KeyBits)) | ((long)(y & KeyMask) << KeyBits) | (uint)(z & KeyMask);
+
     /// <summary>Keeps a brick's latest water (it replaces what was known of it).</summary>
     public void Set(BrickView view)
     {
@@ -33,14 +45,14 @@ internal sealed class VoxelField
 
     /// <summary>
     /// A field of only the bricks <see cref="VoxelSurface.Build"/> reads for this one, to build its surface away from
-    /// this field (on another thread, while this one changes): those round it, the one over them, and those under
-    /// them as far down as a column's depth is measured (from a top as low as the tops its corners join, a few rows
-    /// under the brick).
+    /// this field (on another thread, while this one changes): those round it, the ones over them as far as a column's
+    /// top is looked for (<see cref="VoxelSurface.BricksOver"/>), and those under them as far down as a column's depth
+    /// is measured (from a top as low as the tops its corners join, a few rows under the brick).
     /// </summary>
     public VoxelField Near(BrickView view)
     {
         var near = new VoxelField { VoxelSize = VoxelSize };
-        for (int dy = -(VoxelSurface.DeepestColumn / Brick.Size) - 1; dy <= 1; dy++)
+        for (int dy = -(VoxelSurface.DeepestColumn / Brick.Size) - 1; dy <= VoxelSurface.BricksOver; dy++)
         {
             for (int dz = -1; dz <= 1; dz++)
             {
@@ -70,33 +82,41 @@ internal sealed class VoxelField
     /// <summary>The brick at these brick coordinates, or null.</summary>
     public BrickView Find(int x, int y, int z) => _bricks.TryGetValue(VoxelGrid.Key(x, y, z), out BrickView view) ? view : null;
 
-    /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where no brick is known.</summary>
-    public float WaterAt(int x, int y, int z) => Find(x >> 4, y >> 4, z >> 4) is { } view ? view.Water[Brick.Index(x & 15, y & 15, z & 15)] : 0f;
+    /// <summary>The brick holding voxel (x, y, z) and the voxel's index in it; false (no brick) where none is known.</summary>
+    public bool Voxel(int x, int y, int z, out BrickView view, out int index)
+    {
+        view = Find(Brick.Of(x), Brick.Of(y), Brick.Of(z));
+        index = Brick.Index(Brick.In(x), Brick.In(y), Brick.In(z));
+        return view != null;
+    }
 
-    /// <summary>Whether voxel (x, y, z) holds water to draw.</summary>
-    public bool IsWet(int x, int y, int z) => WaterAt(x, y, z) > Wet;
+    /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where no brick is known.</summary>
+    public float WaterAt(int x, int y, int z) => Voxel(x, y, z, out BrickView view, out int i) ? view.Water[i] : 0f;
+
+    /// <summary>
+    /// Whether voxel (x, y, z) holds water to draw: more than <see cref="Wet"/>, and the voxel not all solid (water the
+    /// server keeps inside a piece built over it, with nowhere to go, is not seen).
+    /// </summary>
+    public bool IsWet(int x, int y, int z) => Voxel(x, y, z, out BrickView view, out int i) && IsWet(view, i);
+
+    /// <summary>Whether a brick's voxel holds water to draw (<see cref="IsWet(int, int, int)"/>).</summary>
+    public static bool IsWet(BrickView view, int index) => view.Water[index] > Wet && view.Solid[index] < 1f;
 
     /// <summary>
     /// Whether the water of voxel (x, y, z) goes on into the voxel over it: that one is wet and has no floor in it (a
     /// solid share there is a floor between them, the water over it a pool of its own).
     /// </summary>
-    public bool GoesUp(int x, int y, int z) => IsWet(x, y + 1, z) && Floor(x, y + 1, z) <= (y + 1) * VoxelSize;
+    public bool GoesUp(int x, int y, int z) => Voxel(x, y + 1, z, out BrickView view, out int i) && IsWet(view, i) && view.Solid[i] <= 0f;
 
     /// <summary>The height of the water's top in voxel (x, y, z), metres: on its solid share, at most its top.</summary>
     public float Level(int x, int y, int z)
     {
-        BrickView view = Find(x >> 4, y >> 4, z >> 4);
-        int i = Brick.Index(x & 15, y & 15, z & 15);
-        float fill = view == null ? 0f : Math.Min(1f, view.Solid[i] + view.Water[i]);
+        float fill = Voxel(x, y, z, out BrickView view, out int i) ? Math.Min(1f, view.Solid[i] + view.Water[i]) : 0f;
         return (y + fill) * VoxelSize;
     }
 
     /// <summary>The height of the floor of the water in voxel (x, y, z): the top of its solid share, metres.</summary>
-    public float Floor(int x, int y, int z)
-    {
-        BrickView view = Find(x >> 4, y >> 4, z >> 4);
-        return (y + (view == null ? 0f : view.Solid[Brick.Index(x & 15, y & 15, z & 15)])) * VoxelSize;
-    }
+    public float Floor(int x, int y, int z) => (y + (Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f)) * VoxelSize;
 
     /// <summary>
     /// The surface of the water a point is in or just over (within a voxel), metres: the top of its stack of wet
@@ -179,8 +199,7 @@ internal sealed class VoxelField
             return false;
         }
 
-        BrickView view = Find(ix >> 4, iy >> 4, iz >> 4);
-        int i = Brick.Index(ix & 15, iy & 15, iz & 15);
+        Voxel(ix, iy, iz, out BrickView view, out int i);
         vx = view.VelocityX[i];
         vy = view.VelocityY[i];
         vz = view.VelocityZ[i];

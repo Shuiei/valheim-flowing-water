@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -39,14 +40,51 @@ internal sealed class GroundChanges : MonoBehaviour
         List<float> heights = Heights(heightmap);
         int width = heightmap.m_width;
         Vector3 corner = heightmap.transform.position - new Vector3(width * 0.5f, 0f, width * 0.5f);
+        if (width != ErosionGround.Size)
+        {
+            // Not a zone's heightmap: each point's change is looked up where it falls.
+            for (int z = 0; z <= width; z++)
+            {
+                for (int x = 0; x <= width; x++)
+                {
+                    heights[(z * (width + 1)) + x] += At(new Vector3(corner.x + x, 0f, corner.z + z));
+                }
+            }
+
+            return;
+        }
+
+        // A zone's heightmap: its points are the zone's, and its last row and column the next zones' first. The four
+        // zones' changes are looked up once, not once a point.
+        Vector2s zone = ZoneSystem.GetZone(heightmap.transform.position);
+        short[][] changes =
+        [
+            Points(zone.x, zone.y),
+            Points(zone.x + 1, zone.y),
+            Points(zone.x, zone.y + 1),
+            Points(zone.x + 1, zone.y + 1),
+        ];
+        if (Array.TrueForAll(changes, points => points == null))
+        {
+            return;
+        }
+
         for (int z = 0; z <= width; z++)
         {
             for (int x = 0; x <= width; x++)
             {
-                heights[(z * (width + 1)) + x] += At(new Vector3(corner.x + x, 0f, corner.z + z));
+                short[] points = changes[(x == width ? 1 : 0) + (z == width ? 2 : 0)];
+                if (points != null)
+                {
+                    heights[(z * (width + 1)) + x] += ErosionGround.At(points, x == width ? 0 : x, z == width ? 0 : z);
+                }
             }
         }
     }
+
+    // A zone's change, or null where it has none.
+    private static short[] Points(int zoneX, int zoneZ) =>
+        ByZone.TryGetValue(TileData.Key(new Vector2s(zoneX, zoneZ)), out (GroundChanges _, short[] Points) change) ? change.Points : null;
 
     // A world point's change, metres: from its zone's heightmap point (the point a whole metre from the
     // zone's corner), 0 where the zone has none.

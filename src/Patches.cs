@@ -21,6 +21,8 @@ internal static class PrefabPatch
     {
         Prefabs.Register(__instance);
         MarkerPanel.WorldOpened();
+        Materials.WorldOpened();
+        WaterBrick.WorldOpened();
         GpuWater.WorldOpened();
     }
 }
@@ -119,22 +121,17 @@ internal static class UnderWaterPatch
 /// surface is the one that counts.
 /// </summary>
 [HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class SetLiquidLevelPatch
 {
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
-    private static IEnumerable<MethodBase> TargetMethods()
-    {
-        foreach (Type type in (Type[])[typeof(Character), typeof(Floating), typeof(Fish)])
-        {
-            MethodInfo method = AccessTools.Method(type, "SetLiquidLevel", [typeof(float), typeof(LiquidType), typeof(Component)]);
-            if (method != null)
-            {
-                yield return method;
-            }
-        }
-    }
+    private static readonly Type[] Parameters = [typeof(float), typeof(LiquidType), typeof(Component)];
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(SetLiquidLevelPatch), (typeof(Character), "SetLiquidLevel", Parameters), (typeof(Floating), "SetLiquidLevel", Parameters), (typeof(Fish), "SetLiquidLevel", Parameters));
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
     private static void Prefix(Component __instance, ref float level, LiquidType type)
     {
         // Water volumes also report to objects already destroyed, when a world closes.
@@ -145,13 +142,38 @@ internal static class SetLiquidLevelPatch
     }
 }
 
-/// <summary>A swimming character drifts with the current (its own game simulates it: the owner).</summary>
-[HarmonyPatch(typeof(Character), "UpdateMotion")]
+/// <summary>
+/// A swimming character drifts with the current (its own game simulates it: the owner). Left out, with an error, when
+/// the game's body field is not found: it is looked up as the patch is prepared, not at the first character to move,
+/// where a failure would have been thrown at every one of them.
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
 internal static class CurrentPatch
 {
-    private static readonly AccessTools.FieldRef<Character, Rigidbody> Body = AccessTools.FieldRefAccess<Character, Rigidbody>("m_body");
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(CurrentPatch), (typeof(Character), "UpdateMotion"));
 
-    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls it by name.")]
+    private static AccessTools.FieldRef<Character, Rigidbody> _body;
+
+    private static bool Prepare(MethodBase original)
+    {
+        if (original != null)
+        {
+            return true;
+        }
+
+        if (AccessTools.Field(typeof(Character), "m_body") is not { } field || field.FieldType != typeof(Rigidbody))
+        {
+            FlowingWaterPlugin.Log.LogError("The game's Character.m_body was not found (a game update?): CurrentPatch is left out, the current carries no swimmer");
+            return false;
+        }
+
+        _body = AccessTools.FieldRefAccess<Character, Rigidbody>(field);
+        return Targets.Prepare(original);
+    }
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
     private static void Postfix(Character __instance)
     {
         if (!__instance.IsSwimming() || !__instance.IsOwner() || !VoxelWater.CurrentAt(__instance.transform.position, out Vector3 current))
@@ -159,7 +181,7 @@ internal static class CurrentPatch
             return;
         }
 
-        Rigidbody body = Body(__instance);
+        Rigidbody body = _body(__instance);
         if (body != null)
         {
             body.linearVelocity += current * FlowingWaterPlugin.Settings.CurrentStrength.Value;
@@ -170,9 +192,16 @@ internal static class CurrentPatch
 /// <summary>The game's methods a patch for the sources and drains changes (<see cref="PatchTargets"/>), by name.</summary>
 internal static class GameMethods
 {
-    /// <summary>The methods, each the only one of its name in its type, looked up with Harmony's AccessTools.</summary>
+    /// <summary>
+    /// The methods, each the only one of its name in its type, looked up with Harmony's AccessTools (one given a twin
+    /// by a game update counts as not found: <see cref="PatchTargets"/>).
+    /// </summary>
     public static PatchTargets For(string patch, params (Type Type, string Name)[] methods) =>
-        new(patch, FlowingWaterPlugin.Log.LogError, [.. methods.Select(m => ($"{m.Type.Name}.{m.Name}", (Func<MethodBase>)(() => AccessTools.Method(m.Type, m.Name))))]);
+        For(patch, [.. methods.Select(m => (m.Type, m.Name, (Type[])null))]);
+
+    /// <summary>The methods, each by its parameter types too (null: the only one of its name), looked up with Harmony's AccessTools.</summary>
+    public static PatchTargets For(string patch, params (Type Type, string Name, Type[] Parameters)[] methods) =>
+        new(patch, FlowingWaterPlugin.Log.LogError, [.. methods.Select(m => ($"{m.Type.Name}.{m.Name}", (Func<MethodBase>)(() => AccessTools.Method(m.Type, m.Name, m.Parameters))))]);
 
     /// <summary>
     /// For the patches that refuse a source or drain to a player who may not place or remove one: the player told why in

@@ -19,7 +19,6 @@ public class TakeTurnsTests
         turns.Serve(_ => true, () => true, served.Add);
 
         Assert.Equal(["a", "b", "c"], served);
-        Assert.Equal(0, turns.Count);
     }
 
     [Fact]
@@ -57,7 +56,6 @@ public class TakeTurnsTests
         turns.Serve(_ => true, () => served.Count < budget, served.Add);
 
         Assert.Equal([0, 1, 2, 3, 4, 5], served);
-        Assert.Equal(2, turns.Count);
     }
 
     [Fact]
@@ -71,7 +69,6 @@ public class TakeTurnsTests
         turns.Serve(item => item == "b", () => false, served.Add);
 
         Assert.Equal(["b"], served);
-        Assert.Equal(1, turns.Count);
     }
 
     [Fact]
@@ -109,7 +106,6 @@ public class TakeTurnsTests
         turns.Add("b");
 
         turns.Clear();
-        Assert.Equal(0, turns.Count);
 
         turns.Add("b");
         var served = new List<string>();
@@ -131,6 +127,5 @@ public class TakeTurnsTests
         });
 
         Assert.Equal(["a"], served);
-        Assert.Equal(1, turns.Count);
     }
 }

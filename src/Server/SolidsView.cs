@@ -14,11 +14,14 @@ internal static class SolidsView
     private const int Reach = 12;
 
     /// <summary>The two maps round a point, line by line, with the counts of what they show.</summary>
-    public static IEnumerable<string> Around(Vector3 point, float voxelSize)
+    /// <param name="point">Where.</param>
+    /// <param name="voxelSize">Metres along a voxel's side.</param>
+    /// <param name="solids">The server's solids, when this game is the server (their pieces and heights are read already); else null, and they are read anew.</param>
+    public static IEnumerable<string> Around(Vector3 point, float voxelSize, GameSolids solids)
     {
         // Nothing here is a frame of the water's: its parts are not timed.
         var parts = new FrameParts();
-        var solids = new GameSolids(new ZoneTerrain(parts), parts);
+        solids ??= new GameSolids(new ZoneTerrain(parts), parts);
         var grid = new VoxelGrid(voxelSize, solids);
         int cx = Mathf.FloorToInt(point.x / voxelSize);
         int cy = Mathf.FloorToInt((point.y + 0.1f) / voxelSize);
@@ -36,10 +39,10 @@ internal static class SolidsView
             under.Clear();
             for (int x = cx - Reach; x <= cx + Reach; x++)
             {
-                Brick brick = grid.Get(x >> 4, cy >> 4, z >> 4);
-                int i = Brick.Index(x & 15, cy & 15, z & 15);
-                Brick below = grid.Get(x >> 4, (cy - 1) >> 4, z >> 4);
-                int j = Brick.Index(x & 15, (cy - 1) & 15, z & 15);
+                Brick brick = grid.Get(Brick.Of(x), Brick.Of(cy), Brick.Of(z));
+                int i = Brick.Index(Brick.In(x), Brick.In(cy), Brick.In(z));
+                Brick below = grid.Get(Brick.Of(x), Brick.Of(cy - 1), Brick.Of(z));
+                int j = Brick.Index(Brick.In(x), Brick.In(cy - 1), Brick.In(z));
                 byte closed = brick.Closed[i];
                 bool full = brick.Solid[i] >= 1f;
                 bool floor = (below.Closed[j] & Brick.ClosedY) != 0;

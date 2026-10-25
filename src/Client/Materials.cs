@@ -49,14 +49,38 @@ internal static class Materials
 
     private static bool _simTried;
 
+    // Whether the mod's materials took the sea's look: not while the sea's material could not be found (a world not
+    // open yet), tried again then.
+    private static bool _lookTaken;
+
+    // Frames between two looks for the sea's material while it is not found, and the frame of the next.
+    private const int LookRetryFrames = 60;
+
+    private static int _lookRetryFrame;
+
+    /// <summary>
+    /// A world opens: what could not be made or found in the last one (the bundle, its shaders, the sea's material and
+    /// look) has a fresh try, instead of staying missing for the rest of the game. What was made is kept.
+    /// </summary>
+    public static void WorldOpened()
+    {
+        _customTried &= _custom != null;
+        _shellTried &= _shell != null;
+        _simTried &= _sim != null && _simCompute != null;
+        _lookRetryFrame = 0;
+        _stillMissing = false;
+        _lookTaken = false;
+    }
+
     /// <summary>
     /// The mod's own water material, from the asset bundle built for this platform and embedded in
-    /// the dll; null (logged once) on a platform without one or when it does not load.
+    /// the dll; null (logged once a world) on a platform without one or when it does not load.
     /// </summary>
     public static Material Custom()
     {
         if (_customTried)
         {
+            TakeSeaLookAgain();
             return _custom;
         }
 
@@ -99,7 +123,10 @@ internal static class Materials
             }
         }
 
-        _bundle = AssetBundle.LoadFromMemory(bytes);
+        if (_bundle == null)
+        {
+            _bundle = AssetBundle.LoadFromMemory(bytes);
+        }
 
         if (_bundle == null)
         {
@@ -107,27 +134,24 @@ internal static class Materials
             return null;
         }
 
-        Material material = _bundle.LoadAsset<Material>("FlowingWater");
-        if (material == null || material.shader == null || !material.shader.isSupported)
+        _custom = FromBundle("FlowingWater", "FlowingWater custom", "the game's materials are used");
+        if (_custom != null)
         {
-            FlowingWaterPlugin.Log.LogError($"Water shader from the {platform} bundle is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}): the game's materials are used");
-            return null;
+            FlowingWaterPlugin.Log.LogInfo($"Water shader {_custom.shader.name} loaded from the {platform} bundle");
         }
 
-        _custom = new Material(material) { name = "FlowingWater custom" };
-        FlowingWaterPlugin.Log.LogInfo($"Water shader {material.shader.name} loaded from the {platform} bundle");
-        TakeSeaLook(_custom);
         return _custom;
     }
 
     /// <summary>
     /// The mod's material for the water's voxels where it meets the air (the sides of standing water, falls), from the
-    /// same bundle as <see cref="Custom"/>, with the sea's look; null (logged once) where that has none.
+    /// same bundle as <see cref="Custom"/>, with the sea's look; null (logged once a world) where that has none.
     /// </summary>
     public static Material Shell()
     {
         if (_shellTried)
         {
+            TakeSeaLookAgain();
             return _shell;
         }
 
@@ -137,26 +161,70 @@ internal static class Materials
             return null;
         }
 
-        Material material = _bundle.LoadAsset<Material>("FlowingWaterShell");
+        _shell = FromBundle("FlowingWaterShell", "FlowingWater shell", "the water's sides and falls are not drawn");
+        return _shell;
+    }
+
+    // A material of the bundle's, with a shader this machine draws, copied with the sea's look; null (logged) where
+    // the bundle has none or its shader is not supported here.
+    private static Material FromBundle(string asset, string name, string whatFails)
+    {
+        Material material = _bundle.LoadAsset<Material>(asset);
         if (material == null || material.shader == null || !material.shader.isSupported)
         {
-            FlowingWaterPlugin.Log.LogError($"Water shell shader from the bundle is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}): the water's sides and falls are not drawn");
+            FlowingWaterPlugin.Log.LogError($"Water shader {asset} from the bundle is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}): {whatFails}");
             return null;
         }
 
-        _shell = new Material(material) { name = "FlowingWater shell" };
-        TakeSeaLook(_shell);
-        return _shell;
+        var copy = new Material(material) { name = name };
+        TakeSeaLook(copy);
+        return copy;
+    }
+
+    // The sea's look taken again onto the materials made without it (the sea's material was not found then): once it
+    // is, looked for once a second at most (this is asked for every brick every frame, and the look is a search of the
+    // zone prefab).
+    private static void TakeSeaLookAgain()
+    {
+        if (_lookTaken || Time.frameCount < _lookRetryFrame)
+        {
+            return;
+        }
+
+        _lookRetryFrame = Time.frameCount + LookRetryFrames;
+        if (ZoneWater() == null)
+        {
+            return;
+        }
+
+        if (_custom != null)
+        {
+            TakeSeaLook(_custom);
+        }
+
+        if (_shell != null)
+        {
+            TakeSeaLook(_shell);
+        }
+
+        if (_sim != null)
+        {
+            TakeSeaLook(_sim);
+        }
     }
 
     /// <summary>
     /// The mod's material for the water moved on the graphics card near the camera, with the sea's look, and the compute
-    /// shader that moves it, from the same bundle as <see cref="Custom"/>; false (logged once) where that has none, or
-    /// the card runs no compute shaders.
+    /// shader that moves it, from the same bundle as <see cref="Custom"/>; false (logged once a world) where that has
+    /// none, or the card runs no compute shaders.
     /// </summary>
     public static bool Sim(out Material material, out ComputeShader compute)
     {
-        if (!_simTried)
+        if (_simTried)
+        {
+            TakeSeaLookAgain();
+        }
+        else
         {
             _simTried = true;
             LoadSim();
@@ -180,16 +248,19 @@ internal static class Materials
             return;
         }
 
-        Material material = _bundle.LoadAsset<Material>("FlowingWaterSim");
         var compute = _bundle.LoadAsset<ComputeShader>("FlowingWaterSim");
-        if (material == null || material.shader == null || !material.shader.isSupported || compute == null)
+        if (compute == null)
         {
-            FlowingWaterPlugin.Log.LogError($"The water moved on the graphics card is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}, compute shader {(compute == null ? "missing" : "found")}): the water near you is drawn as the server sends it");
+            FlowingWaterPlugin.Log.LogError("The compute shader that moves the water on the graphics card is missing from the bundle: the water near you is drawn as the server sends it");
             return;
         }
 
-        _sim = new Material(material) { name = "FlowingWater sim" };
-        TakeSeaLook(_sim);
+        _sim = FromBundle("FlowingWaterSim", "FlowingWater sim", "the water near you is drawn as the server sends it");
+        if (_sim == null)
+        {
+            return;
+        }
+
         _simCompute = compute;
         FlowingWaterPlugin.Log.LogInfo("Water moved on the graphics card loaded from the bundle");
     }
@@ -202,9 +273,11 @@ internal static class Materials
         Material sea = ZoneWater();
         if (sea == null)
         {
-            FlowingWaterPlugin.Log.LogWarning("The sea's material was not found: the water is drawn with the shader's own copy of its look");
+            FlowingWaterPlugin.Log.LogWarning("The sea's material was not found: the water is drawn with the shader's own copy of its look until a world is open");
             return;
         }
+
+        _lookTaken = true;
 
         var missing = new List<string>();
         foreach (string name in SeaTextures)

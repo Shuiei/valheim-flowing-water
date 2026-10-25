@@ -137,7 +137,7 @@ public class BrickObjectsTests
 
         // In the dry voxel beside it, a trace thinner than a player's game draws (1 cm), then water it draws.
         brick.Water[1] = 0.004f;
-        brick.Changes++;
+        brick.Wets(1);
         Assert.Equal(0, objects.Publish([brick], VoxelSize));
         brick.Water[1] = 0.05f;
         brick.Changes++;
@@ -187,6 +187,51 @@ public class BrickObjectsTests
 
         // Of the bricks changed in each second, at most four in five were sent (seven in ten as measured).
         Assert.InRange(written, 1, changed * 4 / 5);
+    }
+
+    [Fact]
+    public void AnObjectSavedWithTheWorldIsAdoptedWrittenAndNotMadeAgainAndOneWithNoBrickDestroyed()
+    {
+        var world = new World();
+        world.Objects[7] = [];
+        world.Objects[8] = [];
+        var grid = new VoxelGrid(1f, new TestSolids(0));
+        grid.Pour(0, 0, 0, 1f);
+        var objects = new BrickObjects<int>(world);
+
+        // Adopted with bytes that are not the brick as it is now (its water moved as it was read back): written.
+        objects.Adopt(VoxelGrid.Key(0, 0, 0), 7, grid.Find(0, 0, 0), BrickData.Encode(Wet(0, 0, 0, 0.3f), 1f), 1f);
+
+        // Adopted for a brick that is not in the grid sent: destroyed.
+        objects.Adopt(VoxelGrid.Key(5, 0, 0), 8, new Brick(5, 0, 0), [], 1f);
+
+        objects.Publish(grid.Bricks, 1f);
+
+        Assert.Equal([7], world.Written);
+        Assert.Equal(0, world.Made);
+        Assert.Equal([8], world.Destroyed);
+        Assert.Equal(1f, Water(world, 7), 2);
+    }
+
+    [Fact]
+    public void AnObjectAdoptedWithItsBytesIsNotWrittenAgainUntilItsBrickChanges()
+    {
+        // The brick as saved, read back as it was: its first send writes nothing; a change writes it.
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        Brick brick = Wet(0, 0, 0, 0.5f);
+        byte[] data = BrickData.Encode(brick, 1f);
+        world.Objects[7] = data;
+        objects.Adopt(VoxelGrid.Key(0, 0, 0), 7, brick, data, 1f);
+
+        Assert.Equal(0, objects.Publish([brick], 1f));
+        Assert.Empty(world.Written);
+
+        brick.Water[0] = 0.8f;
+        brick.Changes++;
+        Assert.Equal(1, objects.Publish([brick], 1f));
+        Assert.Equal([7], world.Written);
+        Assert.Equal(0, world.Made);
     }
 
     [Fact]
@@ -418,10 +463,13 @@ public class BrickObjectsTests
         Assert.Equal([1, 2], world.Written);
     }
 
+    // A brick with water in its first voxel, taken into its wet voxels' box as a pour or a step would (a brick looks for
+    // water only within it).
     private static Brick Wet(int x, int y, int z, float water)
     {
         var brick = new Brick(x, y, z);
         brick.Water[0] = water;
+        brick.Wets(0);
         return brick;
     }
 

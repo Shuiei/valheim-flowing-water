@@ -24,6 +24,10 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     private readonly List<ZDO> _found = [];
 
+    // Each zone's terrain-changes object as last found (by the zone's key): looked up by its id first, the zone's
+    // objects searched only when there was none or it is gone.
+    private readonly Dictionary<long, ZDOID> _compilers = [];
+
     // Where the frame's time goes: asking the game for a zone's heights is a part of its own.
     private readonly FrameParts _parts;
 
@@ -46,7 +50,14 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         return Sample(Heights(zone), x, z);
     }
 
-    /// <summary>Like <see cref="HeightAt"/> on heights already fetched with <see cref="Heights"/>.</summary>
+    /// <summary>The ground at a world point (x, z), metres.</summary>
+    public float HeightAt(float x, float z)
+    {
+        Vector2s zone = ZoneSystem.GetZone(new Vector3(x, 0f, z));
+        return HeightAt(zone, x - TileData.OriginX(zone), z - TileData.OriginZ(zone));
+    }
+
+    /// <summary>Like <see cref="HeightAt(Vector2s, float, float)"/> on heights already fetched with <see cref="Heights"/>.</summary>
     public static float Sample(float[] heights, float x, float z)
     {
         int x0 = Mathf.Clamp(Mathf.FloorToInt(x), 0, Pitch - 2);
@@ -66,7 +77,11 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
     public bool Ready(Vector2s zone) => _heights.Ready(zone);
 
     /// <summary>Forgets the zones not among these (by <see cref="TileData.Key"/>): they are made again when read.</summary>
-    public void Keep(HashSet<long> zones) => _heights.Keep(zones);
+    public void Keep(HashSet<long> zones)
+    {
+        _heights.Keep(zones);
+        ZoneCache.Keep(_compilers, zones);
+    }
 
     /// <summary>Rebuilds the zones whose terrain changes moved on since they were read, and tells of each.</summary>
     /// <param name="changed">A zone's heights changed: what was read of them before is out of date.</param>
@@ -100,16 +115,24 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     private ZDO FindChanges(Vector2s zone)
     {
+        long key = TileData.Key(zone);
+        if (_compilers.TryGetValue(key, out ZDOID known) && ZDOMan.instance.GetZDO(known) is { } kept && kept.GetPrefab() == TerrainCompilerHash)
+        {
+            return kept;
+        }
+
         _found.Clear();
         ZDOMan.instance.FindSectorObjects(zone, new SimulationDistance(0, 0), _found);
         foreach (ZDO zdo in _found)
         {
             if (zdo.GetPrefab() == TerrainCompilerHash)
             {
+                _compilers[key] = zdo.m_uid;
                 return zdo;
             }
         }
 
+        _compilers.Remove(key);
         return null;
     }
 }

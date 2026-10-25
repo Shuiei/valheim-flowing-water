@@ -37,6 +37,9 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     internal static Settings Settings { get; private set; }
 
+    /// <summary>The water's server while this game is one (alone, hosting, or dedicated) with a world open; else null.</summary>
+    internal static VoxelServer Server { get; private set; }
+
     /// <summary>Set once the server has read its world's objects (ZNet.LoadWorld), cleared when the world closes.</summary>
     internal static bool WorldLoaded { get; set; }
 
@@ -71,6 +74,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
                 Logger.LogInfo("World closed: water simulation stopped");
                 _server.Close();
                 _server = null;
+                Server = null;
             }
 
             return;
@@ -89,7 +93,8 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
                 return;
             }
 
-            _server = new VoxelServer();
+            _server = new VoxelServer(Path.Combine(Path.GetDirectoryName(Config.ConfigFilePath), $"{PluginId}.{ZNet.instance.GetWorldName()}.markers"));
+            Server = _server;
             Logger.LogInfo("World open: water simulation started");
         }
 
@@ -107,7 +112,12 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     {
         if (!File.Exists(Config.ConfigFilePath))
         {
-            Logger.LogWarning($"Settings file {Config.ConfigFilePath} is gone: the settings stay as they are until it is written again");
+            // Told once: a file that is gone reads as written at one and the same time each second.
+            if (!_settingsFile.Again)
+            {
+                Logger.LogWarning($"Settings file {Config.ConfigFilePath} is gone: the settings stay as they are until it is written again");
+            }
+
             return;
         }
 

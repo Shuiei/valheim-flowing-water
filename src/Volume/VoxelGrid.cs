@@ -60,7 +60,7 @@ internal sealed class VoxelGrid
     /// <summary>Whether water has asked for a brick beyond <see cref="MaxBricks"/> (it stopped spreading).</summary>
     public bool Capped { get; private set; }
 
-    /// <summary>A number that changes each time a brick is made or forgotten.</summary>
+    /// <summary>A number that changes each time a brick is made or forgotten (a brick keeps the one it was made at, <see cref="Brick.MadeAt"/>).</summary>
     public int Version { get; private set; }
 
     /// <summary>The bricks there are.</summary>
@@ -91,6 +91,7 @@ internal sealed class VoxelGrid
         _solids.Fill(brick, VoxelSize);
         _bricks[Key(x, y, z)] = brick;
         Version++;
+        brick.MadeAt = Version;
         for (int side = 0; side < Sides.Length; side++)
         {
             Brick next = Find(x + Sides[side].X, y + Sides[side].Y, z + Sides[side].Z);
@@ -114,8 +115,8 @@ internal sealed class VoxelGrid
     /// <summary>The brick and index of voxel (x, y, z); false where no brick holds it.</summary>
     public bool Locate(int x, int y, int z, out Brick brick, out int index)
     {
-        brick = Find(x >> 4, y >> 4, z >> 4);
-        index = Brick.Index(x & 15, y & 15, z & 15);
+        brick = Find(Brick.Of(x), Brick.Of(y), Brick.Of(z));
+        index = Brick.Index(Brick.In(x), Brick.In(y), Brick.In(z));
         return brick != null;
     }
 
@@ -154,12 +155,12 @@ internal sealed class VoxelGrid
         z = (int)Math.Floor(pz / s);
         for (int up = 0; up < Brick.Size * 4; up++, y++)
         {
-            if (!Within(x >> 4, y >> 4, z >> 4) || Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+            if (!Within(Brick.Of(x), Brick.Of(y), Brick.Of(z)) || Make(Brick.Of(x), Brick.Of(y), Brick.Of(z)) is not { } brick)
             {
                 return false;
             }
 
-            int i = Brick.Index(x & 15, y & 15, z & 15);
+            int i = Brick.Index(Brick.In(x), Brick.In(y), Brick.In(z));
             if (brick.Solid[i] >= 1f)
             {
                 continue;
@@ -181,12 +182,12 @@ internal sealed class VoxelGrid
     /// <returns>False when its brick could not be made (<see cref="MaxBricks"/>): nothing poured.</returns>
     public bool Pour(int x, int y, int z, float cubicMetres)
     {
-        if (Make(x >> 4, y >> 4, z >> 4) is not { } brick)
+        if (Make(Brick.Of(x), Brick.Of(y), Brick.Of(z)) is not { } brick)
         {
             return false;
         }
 
-        int i = Brick.Index(x & 15, y & 15, z & 15);
+        int i = Brick.Index(Brick.In(x), Brick.In(y), Brick.In(z));
         brick.Water[i] += cubicMetres / VoxelVolume;
         brick.EmptyFor = 0f;
         brick.Wets(i);
@@ -273,13 +274,13 @@ internal sealed class VoxelGrid
         // next one going the other way.
         int ox = dx < 0 ? x - 1 : x, oy = dy < 0 ? y - 1 : y, oz = dz < 0 ? z - 1 : z;
         byte bit = dx != 0 ? Brick.ClosedX : dy != 0 ? Brick.ClosedY : Brick.ClosedZ;
-        if (Make(ox >> 4, oy >> 4, oz >> 4) is not { } owner || (owner.Closed[Brick.Index(ox & 15, oy & 15, oz & 15)] & bit) != 0)
+        if (Make(Brick.Of(ox), Brick.Of(oy), Brick.Of(oz)) is not { } owner || (owner.Closed[Brick.Index(Brick.In(ox), Brick.In(oy), Brick.In(oz))] & bit) != 0)
         {
             return null;
         }
 
-        int i = Brick.Index((x + dx) & 15, (y + dy) & 15, (z + dz) & 15);
-        return Make((x + dx) >> 4, (y + dy) >> 4, (z + dz) >> 4) is { } brick && brick.Solid[i] < 1f ? (brick, i) : null;
+        int i = Brick.Index(Brick.In(x + dx), Brick.In(y + dy), Brick.In(z + dz));
+        return Make(Brick.Of(x + dx), Brick.Of(y + dy), Brick.Of(z + dz)) is { } brick && brick.Solid[i] < 1f ? (brick, i) : null;
     }
 
     /// <summary>Asks for the brick at these brick coordinates, to be made after the step (safe from any thread).</summary>
@@ -372,7 +373,8 @@ internal sealed class VoxelGrid
 
     /// <summary>
     /// Forgets the bricks dry for longer than this, with the time since the last call. Called every frame: a brick
-    /// whose water did not change since it was last looked at (asleep) is not looked over again.
+    /// whose water did not change since it was last looked at (asleep) is not looked over again, and one with water
+    /// only within its wet voxels' box. A brick about to be forgotten has every voxel looked at, in case.
     /// </summary>
     /// <param name="dt">Seconds since the last call.</param>
     /// <param name="after">Seconds dry before a brick is forgotten.</param>
@@ -381,10 +383,18 @@ internal sealed class VoxelGrid
         _gone.Clear();
         foreach (Brick brick in _bricks.Values)
         {
-            brick.EmptyFor = brick.HoldsWater() ? 0f : brick.EmptyFor + dt;
+            brick.EmptyFor = brick.HoldsWater() || brick.Fed ? 0f : brick.EmptyFor + dt;
+            brick.Fed = false;
             if (brick.EmptyFor > after)
             {
-                _gone.Add(brick);
+                if (brick.HoldsAnyWater())
+                {
+                    brick.EmptyFor = 0f;
+                }
+                else
+                {
+                    _gone.Add(brick);
+                }
             }
         }
 
@@ -404,6 +414,9 @@ internal sealed class VoxelGrid
     {
         _bricks.Remove(Key(brick.X, brick.Y, brick.Z));
         Version++;
+
+        // Room again: water that asks for a brick now gets one (and a source with no room is told of again).
+        Capped &= _bricks.Count >= MaxBricks;
         for (int side = 0; side < Sides.Length; side++)
         {
             if (brick.Beside[side] is { } next)

@@ -132,10 +132,10 @@ internal static class Commands
                 terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "debug":
-                terminal.AddString("flowingwater: " + WaterBrick.DebugInfo(player.transform.position));
+                terminal.AddString("flowingwater: " + BrickMeasures.DebugInfo(player.transform.position));
                 break;
             case "solids":
-                foreach (string line in SolidsView.Around(player.transform.position, (float)TileData.ZoneMetres / TileData.SizeFor(FlowingWaterPlugin.Settings.CellSize.Value)))
+                foreach (string line in SolidsView.Around(player.transform.position, FlowingWaterPlugin.Settings.CellSize.Value, FlowingWaterPlugin.Server?.Solids))
                 {
                     terminal.AddString(line);
                     FlowingWaterPlugin.Log.LogInfo(line);
@@ -165,7 +165,7 @@ internal static class Commands
                 if (Number(terminal, args, 2, 0f, true, "the lift (m)", out float lift))
                 {
                     WaterBrick.Lift = lift;
-                    terminal.AddString($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level");
+                    terminal.AddString(FormattableString.Invariant($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level"));
                 }
 
                 break;
@@ -188,7 +188,7 @@ internal static class Commands
         float[] values = new float[args.Length - 4];
         for (int i = 0; i < values.Length; i++)
         {
-            if (!float.TryParse(args.Args[4 + i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+            if (!Parse(args.Args[4 + i], out values[i]))
             {
                 return $"{args.Args[4 + i]} is not a number";
             }
@@ -197,26 +197,27 @@ internal static class Commands
         return Materials.Tune(kind, property, values);
     }
 
-    // The number at that place after the command, or the fallback when there is none. A word that
-    // is not a number, or a number out of range (below 0, or 0 when zero is not allowed), is refused
-    // with the reason on the console, and the command does nothing.
+    // The number at that place after the command, or the fallback (a setting's) when there is none. A word that is
+    // not a number, or a number out of range (below 0, or 0 when zero is not allowed), is refused with the reason on
+    // the console, and the command does nothing; so is a fallback out of range (a setting written by hand).
     private static bool Number(Terminal terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
     {
+        bool given = args.Length > place;
+        string text = given ? args.Args[place] : null;
         value = fallback;
-        if (args.Length <= place)
+        if ((!given || Parse(text, out value)) && !float.IsNaN(value) && !float.IsInfinity(value) && (zeroAllowed ? value >= 0f : value > 0f))
         {
             return true;
         }
 
-        string text = args.Args[place];
-        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && !float.IsInfinity(value) && (zeroAllowed ? value >= 0f : value > 0f))
-        {
-            return true;
-        }
-
-        terminal.AddString($"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}, not \"{text}\"; nothing done");
+        terminal.AddString(given
+            ? $"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}, not \"{text}\"; nothing done"
+            : FormattableString.Invariant($"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}: the settings' default is {fallback}; give one, or fix the setting"));
         return false;
     }
+
+    // A number as written on the console, whatever the game's language (a point for the decimals).
+    private static bool Parse(string text, out float value) => float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
     // A source (radius 0) or a drain, under the player.
     private static void Place(Terminal terminal, Player player, string prefabName, float rate, float radius)
@@ -237,19 +238,27 @@ internal static class Commands
         }
 
         var placed = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
-        Marker.Write(placed.GetComponent<ZNetView>().GetZDO(), drain, rate, radius);
+        ZDO zdo = placed.GetComponent<ZNetView>().GetZDO();
+        Marker.Write(zdo, drain, rate, radius);
 
-        terminal.AddString($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s"
-            + (rate > MarkerRules.MaxRate ? $" (the server holds it to {MarkerRules.MaxRate:0} m³/s)" : string.Empty)
-            + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + $" within {radius:0.##} m" : string.Empty));
+        // Placed by this player, as the game writes of a piece the hoe places: the server simulates a marker only once
+        // it knows its placer may place one.
+        zdo.Set(ZDOVars.s_creator, player.GetPlayerID());
+
+        terminal.AddString(FormattableString.Invariant($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s")
+            + (rate > MarkerRules.MaxRate ? FormattableString.Invariant($" (the server holds it to {MarkerRules.MaxRate:0} m³/s)") : string.Empty)
+            + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + FormattableString.Invariant($" within {radius:0.##} m") : string.Empty));
     }
+
+    // How far from the player the command's remove looks for a source or drain, metres.
+    private const float RemoveReach = 5f;
 
     private static void Remove(Terminal terminal, Player player)
     {
-        var marker = Marker.Nearest(player.transform.position, 5f);
+        var marker = Marker.Nearest(player.transform.position, RemoveReach);
         if (marker == null)
         {
-            terminal.AddString("flowingwater: no source or drain within 5 m");
+            terminal.AddString(FormattableString.Invariant($"flowingwater: no source or drain within {RemoveReach:0} m"));
             return;
         }
 

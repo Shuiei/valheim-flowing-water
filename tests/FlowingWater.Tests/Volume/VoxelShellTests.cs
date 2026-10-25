@@ -105,6 +105,18 @@ public class VoxelShellTests
         Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
     }
 
+    [Fact]
+    public void WaterKeptInsideASolidVoxelShowsNothing()
+    {
+        // A piece built over a pool with nowhere for its water to go: the server keeps the water in the solid voxel,
+        // and drawing it would show water inside the piece.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 3, 0, 3, 0.5f, BrickData.AllOpen);
+        view.Solid[Brick.Index(3, 0, 3)] = 1f;
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
     private static void Wet(BrickView view, int x, int y, int z, float water, int open)
     {
         int i = Brick.Index(x, y, z);

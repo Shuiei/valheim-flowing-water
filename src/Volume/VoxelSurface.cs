@@ -33,6 +33,12 @@ internal static class VoxelSurface
     /// </summary>
     public const float SheetDepth = 0.5f;
 
+    /// <summary>
+    /// How many bricks over one its surface reads: the top of the water a voxel's water goes up into is looked for
+    /// through the brick over it (<see cref="VoxelField.Near"/> copies that many).
+    /// </summary>
+    public const int BricksOver = 1;
+
     // Bricks over one whose surface may read it: a column's depth is measured down DeepestColumn voxels from its top,
     // which may be a top some rows under the brick it is in (joined round a corner, at most 3 MaxStep down).
     private const int Above = (DeepestColumn / Brick.Size) + 1;
@@ -124,7 +130,7 @@ internal static class VoxelSurface
 
         private readonly SurfaceMesh _mesh = new();
 
-        // Each top's water, by the top's key (VoxelGrid.Key of its voxel).
+        // Each top's water, by the top's key (VoxelField.VoxelKey of its voxel).
         private readonly Dictionary<long, (float Level, int Bottom, float Depth)> _runs = [];
 
         // Each top's match beside it, by the way to it (Toward) and the top's key.
@@ -178,11 +184,13 @@ internal static class VoxelSurface
             return _mesh;
         }
 
-        // The top of the water a voxel's water goes on up into, at most DeepestColumn over it.
+        // The top of the water a voxel's water goes on up into, as far as the brick over this one (as far as the field
+        // built from reaches, VoxelField.Near): higher water is drawn by the bricks it is in.
         private int TopOver(int x, int y, int z)
         {
             int top = y;
-            while (_field.GoesUp(x, top, z) && top - y < DeepestColumn)
+            int highest = ((_brick.Y + BricksOver + 1) * Brick.Size) - 1;
+            while (top < highest && _field.GoesUp(x, top, z))
             {
                 top++;
             }
@@ -218,7 +226,7 @@ internal static class VoxelSurface
         // water under them.
         private Corner CornerOf(int cx, int cz, (int X, int Y, int Z) top)
         {
-            if (_corners[Way(cx - top.X, cz - top.Z)].TryGetValue(VoxelGrid.Key(top.X, top.Y, top.Z), out Corner known))
+            if (_corners[Way(cx - top.X, cz - top.Z)].TryGetValue(VoxelField.VoxelKey(top.X, top.Y, top.Z), out Corner known))
             {
                 return known;
             }
@@ -243,7 +251,7 @@ internal static class VoxelSurface
             var corner = new Corner(sum / tops.Count, tops.Count / 4f, depth);
             foreach ((int x, int y, int z) in tops)
             {
-                _corners[Way(cx - x, cz - z)][VoxelGrid.Key(x, y, z)] = corner;
+                _corners[Way(cx - x, cz - z)][VoxelField.VoxelKey(x, y, z)] = corner;
             }
 
             return corner;
@@ -273,7 +281,7 @@ internal static class VoxelSurface
         private int? Match((int X, int Y, int Z) top, int dx, int dz)
         {
             Dictionary<long, int?> matches = _matches[Toward(dx, dz)];
-            long key = VoxelGrid.Key(top.X, top.Y, top.Z);
+            long key = VoxelField.VoxelKey(top.X, top.Y, top.Z);
             if (matches.TryGetValue(key, out int? known))
             {
                 return known;
@@ -315,7 +323,7 @@ internal static class VoxelSurface
         // DeepestColumn down) and its depth there, metres.
         private (float Level, int Bottom, float Depth) Run((int X, int Y, int Z) top)
         {
-            long key = VoxelGrid.Key(top.X, top.Y, top.Z);
+            long key = VoxelField.VoxelKey(top.X, top.Y, top.Z);
             if (_runs.TryGetValue(key, out (float Level, int Bottom, float Depth) known))
             {
                 return known;

@@ -31,10 +31,9 @@ internal static class TerrainChanges
         {
             bad = Packed.Read(data, "terrain changes", reader => Read(reader, generated, heights));
         }
-        catch (Exception e) when (e is InvalidDataException or IOException)
+        catch (InvalidDataException e)
         {
-            // Not gzip, cut short, or not the game's format (InvalidDataException); a stream Mono's gzip reader finds
-            // broken (IOException).
+            // Not gzip, cut short (Packed.Read tells both as this, on Mono too), or not the game's format.
             generated.CopyTo(heights, 0);
             return $"terrain changes unreadable ({e.Message}); using the generated ground";
         }
