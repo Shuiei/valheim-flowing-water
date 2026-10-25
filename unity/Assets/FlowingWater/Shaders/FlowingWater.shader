@@ -68,11 +68,11 @@ Shader "FlowingWater/Water"
 
     SubShader
     {
-        // Drawn as the sea is: transparent, just before it.
+        // Drawn as the sea is: transparent, just before it; from both sides, so the water's top is seen from inside it.
         Tags { "Queue" = "Transparent-101" "RenderType" = "Transparent" "IgnoreProjector" = "True" "ForceNoShadowCasting" = "True" }
         LOD 300
         ZWrite Off
-        Cull Back
+        Cull Off
 
         // What is behind the water, once a frame for every brick.
         GrabPass { "_FlowingWaterBehind" }
@@ -139,6 +139,7 @@ Shader "FlowingWater/Water"
             float4 screenPos;
             float4 grabPos; // the same point in the grabbed image (upside down on some platforms)
             float2 cell;    // the point's place in the brick's columns
+            float facing : VFACE;
         };
 
         // Columns along a side of a brick's textures.
@@ -306,6 +307,8 @@ Shader "FlowingWater/Water"
             // Shallow still water lies flatter, as the sea's does; running water keeps its ripples.
             float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
             n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
+            // Seen from under the water, its underside.
+            n.z *= i.facing > 0.0 ? 1.0 : -1.0;
 
             // What is behind, bent by the ripples, unless that bends something in front of the water into it.
             float2 screen = i.screenPos.xy / max(i.screenPos.w, 0.0001);

@@ -9,18 +9,26 @@ namespace FlowingWater.Volume;
 /// pressed in) and, for voxels with water, its solid share (a byte, 255 all solid: where the water's floor is, which
 /// the players' games cannot know) and its velocity (a byte per axis, square-root steps to 16 m/s). From version 2, a
 /// water byte of 255 means more than the byte holds (water pressed in hard, or poured into smaller voxels): its exact
-/// share follows the velocity, as a float, so none is lost. What a voxel's byte rounds off is carried on to the next
-/// voxel with water, so the brick keeps its volume to within a byte's step, however thin its water.
+/// share follows the velocity, as a float, so none is lost. From version 3, a byte of the faces it could leave by
+/// follows (<see cref="Brick.OpenFaces"/>: where its water meets the air, which the players' games cannot know either,
+/// as they cannot know the pieces). What a voxel's byte rounds off is carried on to the next voxel with water, so the
+/// brick keeps its volume to within a byte's step, however thin its water.
 /// </summary>
 internal static class BrickData
 {
     /// <summary>The fastest speed kept, metres a second; faster is kept as this.</summary>
     public const float MaxSpeed = 16f;
 
-    private const byte FormatVersion = 2;
+    private const byte FormatVersion = 3;
 
     // The first version, read still: no exact share follows a water byte of 255 (it is 1.275 of a voxel).
     private const byte FirstVersion = 1;
+
+    // The version before the open faces, read still: every face taken as open.
+    private const byte ExactVersion = 2;
+
+    /// <summary>Every face open (a brick of a version that did not say).</summary>
+    public const byte AllOpen = 63;
 
     private const float Full = 200f;
 
@@ -55,12 +63,17 @@ internal static class BrickData
                 {
                     writer.Write(exact[i]);
                 }
+
+                writer.Write(brick.OpenFaces(i));
             }
         }
     });
 
-    /// <summary>Bytes a voxel in a brick's <see cref="Look"/>: its water, its solid share and its current on each axis.</summary>
-    public const int LookBytes = 5;
+    /// <summary>
+    /// Bytes a voxel in a brick's <see cref="Look"/>: its water, its solid share, its current on each axis and its open
+    /// faces.
+    /// </summary>
+    public const int LookBytes = 6;
 
     /// <summary>The water steps (of 200 a voxel) of the thinnest water a player's game draws, metres deep, in voxels this size.</summary>
     public static int Steps(float metres, float voxelSize) => (int)Math.Ceiling(metres / voxelSize * Full);
@@ -90,6 +103,7 @@ internal static class BrickData
             look[k + 2] = (byte)SpeedByte(x);
             look[k + 3] = (byte)SpeedByte(y);
             look[k + 4] = (byte)SpeedByte(z);
+            look[k + 5] = brick.OpenFaces(i);
         }
 
         return look;
@@ -98,8 +112,9 @@ internal static class BrickData
     /// <summary>
     /// Whether a player would see the brick change from one <see cref="Look"/> to the next: a voxel's water over
     /// <paramref name="visibleSteps"/> (of 200 a voxel: what a player's game draws at all, fading in over it) changing
-    /// by more than <paramref name="waterSteps"/>, its floor at all where it is drawn, or its current on an axis by more
-    /// than <paramref name="speedSteps"/> (of 127, in square-root steps: finer when slow) where it is drawn. Traces too
+    /// by more than <paramref name="waterSteps"/>, its floor or its open faces at all where it is drawn, or its current on
+    /// an axis by more than <paramref name="speedSteps"/> (of 127, in square-root steps: finer when slow) where it is
+    /// drawn. Traces too
     /// thin to draw come and go all along a running stream's edges and bed, and water a hair over or under the
     /// thinnest drawn barely shows: those do not count.
     /// </summary>
@@ -113,12 +128,12 @@ internal static class BrickData
                 continue;
             }
 
-            if (Math.Abs(a - b) > waterSteps || was[k + 1] != now[k + 1])
+            if (Math.Abs(a - b) > waterSteps || was[k + 1] != now[k + 1] || was[k + 5] != now[k + 5])
             {
                 return true;
             }
 
-            for (int axis = 2; axis < LookBytes; axis++)
+            for (int axis = 2; axis <= 4; axis++)
             {
                 if (Math.Abs((sbyte)was[k + axis] - (sbyte)now[k + axis]) > speedSteps)
                 {
@@ -138,9 +153,9 @@ internal static class BrickData
     public static BrickView Decode(byte[] data) => Packed.Read(data, "brick data", reader =>
     {
         byte version = reader.ReadByte();
-        if (version is not (FormatVersion or FirstVersion))
+        if (version is not (FormatVersion or ExactVersion or FirstVersion))
         {
-            throw new InvalidDataException($"brick data version {version}, expected {FirstVersion} or {FormatVersion}");
+            throw new InvalidDataException($"brick data version {version}, expected {FirstVersion} to {FormatVersion}");
         }
 
         var view = new BrickView(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadSingle());
@@ -164,7 +179,7 @@ internal static class BrickData
                 view.VelocityX[i] = Speed(reader.ReadSByte());
                 view.VelocityY[i] = Speed(reader.ReadSByte());
                 view.VelocityZ[i] = Speed(reader.ReadSByte());
-                if (water[i] == More && version >= FormatVersion)
+                if (water[i] == More && version >= ExactVersion)
                 {
                     float share = reader.ReadSingle();
                     if (!(share >= 0f) || float.IsInfinity(share))
@@ -174,6 +189,8 @@ internal static class BrickData
 
                     view.Water[i] = share;
                 }
+
+                view.Open[i] = version >= FormatVersion ? reader.ReadByte() : AllOpen;
             }
         }
 
@@ -270,4 +287,7 @@ internal sealed class BrickView
 
     /// <summary>North.</summary>
     public float[] VelocityZ { get; } = new float[Brick.Count];
+
+    /// <summary>Each voxel with water's faces it could leave by (<see cref="Brick.OpenFaces"/>); 0 where it has none.</summary>
+    public byte[] Open { get; } = new byte[Brick.Count];
 }

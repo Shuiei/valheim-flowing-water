@@ -175,6 +175,53 @@ public class BrickDataTests
     }
 
     [Fact]
+    public void AVoxelsOpenFacesAreSentWithItsWater()
+    {
+        // Water in voxel (5, 5, 5) with a wall on its east face, the voxel west of it closing the face between them,
+        // and solid ground under it: it could leave only up, north and south. One at the brick's east edge, with no
+        // brick beside: every face open but its floor's.
+        var brick = new Brick(0, 0, 0);
+        int i = Brick.Index(5, 5, 5);
+        brick.Water[i] = 0.5f;
+        brick.Closed[i] = Brick.ClosedX;
+        brick.Closed[Brick.Index(4, 5, 5)] = Brick.ClosedX;
+        brick.Solid[Brick.Index(5, 4, 5)] = 1f;
+        int edge = Brick.Index(15, 5, 9);
+        brick.Water[edge] = 0.5f;
+        brick.Solid[Brick.Index(15, 4, 9)] = 1f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.Equal((1 << 2) | (1 << 4) | (1 << 5), view.Open[i]);
+        Assert.Equal(BrickData.AllOpen & ~(1 << 3), view.Open[edge]);
+        Assert.Equal(0, view.Open[Brick.Index(6, 5, 5)]);
+    }
+
+    [Fact]
+    public void ABrickFromBeforeTheOpenFacesIsReadWithEveryFaceOpen()
+    {
+        byte[] stored = Packed.Write(writer =>
+        {
+            writer.Write((byte)2);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(1f);
+            byte[] water = new byte[Brick.Count];
+            water[7] = 100;
+            writer.Write(water);
+            // Its solid share and speeds, and nothing after them.
+            byte[] wet = [0, 0, 0, 0];
+            writer.Write(wet);
+        });
+
+        BrickView view = BrickData.Decode(stored);
+
+        Assert.Equal(0.5f, view.Water[7]);
+        Assert.Equal(BrickData.AllOpen, view.Open[7]);
+    }
+
+    [Fact]
     public void AFirstVersionBrickIsStillRead()
     {
         // Version 1: no exact share after a water byte of 255 (it is 1.275 of a voxel).

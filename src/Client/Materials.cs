@@ -37,6 +37,10 @@ internal static class Materials
 
     private static bool _customTried;
 
+    private static Material _shell;
+
+    private static bool _shellTried;
+
     private static bool _stillMissing;
 
     /// <summary>
@@ -108,6 +112,35 @@ internal static class Materials
         FlowingWaterPlugin.Log.LogInfo($"Water shader {material.shader.name} loaded from the {platform} bundle");
         TakeSeaLook(_custom);
         return _custom;
+    }
+
+    /// <summary>
+    /// The mod's material for the water's voxels where it meets the air (the sides of standing water, falls), from the
+    /// same bundle as <see cref="Custom"/>, with the sea's look; null (logged once) where that has none.
+    /// </summary>
+    public static Material Shell()
+    {
+        if (_shellTried)
+        {
+            return _shell;
+        }
+
+        _shellTried = true;
+        if (Custom() == null)
+        {
+            return null;
+        }
+
+        Material material = _bundle.LoadAsset<Material>("FlowingWaterShell");
+        if (material == null || material.shader == null || !material.shader.isSupported)
+        {
+            FlowingWaterPlugin.Log.LogError($"Water shell shader from the bundle is not supported here (shader {(material == null || material.shader == null ? "missing" : material.shader.name)}): the water's sides and falls are not drawn");
+            return null;
+        }
+
+        _shell = new Material(material) { name = "FlowingWater shell" };
+        TakeSeaLook(_shell);
+        return _shell;
     }
 
     // The sea's look onto the water: its own textures, colours and settings, so the two are the same water. Without
