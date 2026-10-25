@@ -30,7 +30,8 @@ internal static class BrickData
     /// <summary>Every face open (a brick of a version that did not say).</summary>
     public const byte AllOpen = 63;
 
-    private const float Full = 200f;
+    /// <summary>Water steps a full voxel is kept as (a byte holds a little more, for water pressed in).</summary>
+    public const float Full = 200f;
 
     // The water byte that means "more: the exact share follows".
     private const byte More = 255;

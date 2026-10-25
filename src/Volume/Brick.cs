@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 
 namespace FlowingWater.Volume;
 
@@ -15,6 +16,9 @@ internal sealed class Brick
     /// <summary>Voxels in a brick.</summary>
     public const int Count = Size * Size * Size;
 
+    /// <summary>Voxels in a layer of a brick (one row of index steps up).</summary>
+    public const int Layer = Size * Size;
+
     /// <summary>Less water than this share of a voxel is none: it cannot flow, and a brick holding no more is dry.</summary>
     public const float Dry = 1e-5f;
 
@@ -26,6 +30,12 @@ internal sealed class Brick
     private static readonly float[] Nothing = new float[Count];
 
     private static readonly int[] NoPart = new int[Count];
+
+    // The arrays bricks let go of as they fall asleep, kept for those that wake: a brick waking every second or so
+    // beside moving water would otherwise have 96 KB made for it each time.
+    private static readonly ConcurrentBag<float[]> SpareFloats = [];
+
+    private static readonly ConcurrentBag<int[]> SpareParts = [];
 
     /// <summary>A brick at these brick coordinates (voxel coordinates over 16).</summary>
     public Brick(int x, int y, int z)
@@ -122,10 +132,21 @@ internal sealed class Brick
 
     /// <summary>
     /// Lets go of what only stepping uses, as it falls asleep (about three quarters of its memory): its flows, heads,
-    /// shares and part read as none until it wakes.
+    /// shares and part read as none until it wakes. What it lets go of is kept for the next brick to wake.
     /// </summary>
     public void Rest()
     {
+        if (Resting)
+        {
+            return;
+        }
+
+        SpareFloats.Add(FlowX);
+        SpareFloats.Add(FlowY);
+        SpareFloats.Add(FlowZ);
+        SpareFloats.Add(Head);
+        SpareFloats.Add(Share);
+        SpareParts.Add(Part);
         FlowX = FlowY = FlowZ = Head = Share = Nothing;
         Part = NoPart;
     }
@@ -138,12 +159,24 @@ internal sealed class Brick
             return;
         }
 
-        FlowX = new float[Count];
-        FlowY = new float[Count];
-        FlowZ = new float[Count];
-        Head = new float[Count];
-        Share = new float[Count];
-        Part = new int[Count];
+        FlowX = Spare();
+        FlowY = Spare();
+        FlowZ = Spare();
+        Head = Spare();
+        Share = Spare();
+        Part = SpareParts.TryTake(out int[] part) ? part : new int[Count];
+    }
+
+    // A spare array of floats, cleared, or a new one.
+    private static float[] Spare()
+    {
+        if (!SpareFloats.TryTake(out float[] spare))
+        {
+            return new float[Count];
+        }
+
+        Array.Clear(spare, 0, Count);
+        return spare;
     }
 
     /// <summary>Takes voxel i into the box of the wet voxels (water was put there from outside a step).</summary>
@@ -156,6 +189,12 @@ internal sealed class Brick
         WetHigh = none ? (x, y, z) : (Math.Max(WetHigh.X, x), Math.Max(WetHigh.Y, y), Math.Max(WetHigh.Z, z));
         Quiet = 0;
     }
+
+    /// <summary>
+    /// The bricks beside it water asked for this step, a bit a side as <see cref="Beside"/>: each is asked for once a
+    /// step, not once a border voxel. Cleared as the step's part is found.
+    /// </summary>
+    public byte Asked { get; set; }
 
     /// <summary>Whether its wet voxels, as last found, reach its border on this side (0 east ... 5 south).</summary>
     public bool WetTo(int side) => WetHigh.X >= 0 && side switch
@@ -181,7 +220,8 @@ internal sealed class Brick
 
     /// <summary>
     /// Whether any voxel holds more than <see cref="Dry"/>: looked over only when its water changed since (a sleeping
-    /// brick's answer is kept), its wet voxels' box first.
+    /// brick's answer is kept), and only within its wet voxels' box, which every way water comes in keeps (a step's part,
+    /// a pour, a settle into a wet voxel); <see cref="HoldsAnyWater"/> looks over every voxel.
     /// </summary>
     public bool HoldsWater()
     {
@@ -192,8 +232,29 @@ internal sealed class Brick
 
         _held = true;
         _heldAt = Changes;
-        _heldWater = WetInBox() || Array.Exists(Water, w => w > Dry);
+        _heldWater = WetInBox();
         return _heldWater;
+    }
+
+    /// <summary>
+    /// Whether any voxel at all holds more than <see cref="Dry"/>, outside the wet voxels' box too (every voxel looked
+    /// at: for a brick about to be forgotten, not every frame). Water found outside the box is taken into it.
+    /// </summary>
+    public bool HoldsAnyWater()
+    {
+        if (HoldsWater())
+        {
+            return true;
+        }
+
+        int i = Array.FindIndex(Water, w => w > Dry);
+        if (i < 0)
+        {
+            return false;
+        }
+
+        Wets(i);
+        return true;
     }
 
     // Whether a voxel of the wet voxels' box holds water.
@@ -244,8 +305,8 @@ internal sealed class Brick
         for (int face = 0; face < Size * Size; face++)
         {
             int a = face >> 4, b = face & (Size - 1);
-            int own = Index(axis, far ? Size - 1 : 0, a, b);
-            int other = Index(axis, far ? 0 : Size - 1, a, b);
+            int own = LayerIndex(axis, far ? Size - 1 : 0, a, b);
+            int other = LayerIndex(axis, far ? 0 : Size - 1, a, b);
 
             // A face belongs to the voxel west, under or south of it.
             bool closed = ((far ? Closed[own] : next.Closed[other]) & bit) != 0;
@@ -263,20 +324,14 @@ internal sealed class Brick
     /// </summary>
     public byte OpenFaces(int i)
     {
-        (int x, int y, int z) = Place(i);
         int open = 0;
         for (int side = 0; side < 6; side++)
         {
             int axis = side >> 1;
             bool far = (side & 1) == 0;
-            int along = axis == 0 ? x : axis == 1 ? y : z;
-            bool inside = far ? along < Size - 1 : along > 0;
-            int step = axis == 0 ? 1 : axis == 1 ? Size * Size : Size;
             int bit = 1 << axis;
-            Brick next = inside ? this : Beside[side];
-            int j = inside ? (far ? i + step : i - step) : (far ? i - ((Size - 1) * step) : i + ((Size - 1) * step));
             bool closed;
-            if (next == null)
+            if (!Neighbour(i, side, out Brick next, out int j))
             {
                 // Its own face (east, up, north) closed by a piece, or shut against a brick forgotten there.
                 int face = Face(axis, i);
@@ -300,16 +355,39 @@ internal sealed class Brick
     /// <summary>Forgets which border faces were shut (its solids are read again: they may have opened).</summary>
     public void Unshut() => Array.Clear(_shut, 0, _shut.Length);
 
+    /// <summary>
+    /// The voxel beside voxel i on this side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south): in this brick, or in
+    /// the brick beside when i is on the border that way. False, with no brick, when there is none there. The solver's
+    /// hot loops have their own, each one way (<c>East</c>, <c>FromWest</c>...).
+    /// </summary>
+    public bool Neighbour(int i, int side, out Brick other, out int j)
+    {
+        int axis = side >> 1;
+        bool far = (side & 1) == 0;
+        int along = axis == 0 ? i & (Size - 1) : axis == 1 ? i >> 8 : (i >> 4) & (Size - 1);
+        int step = axis == 0 ? 1 : axis == 1 ? Layer : Size;
+        bool inside = far ? along < Size - 1 : along > 0;
+        other = inside ? this : Beside[side];
+        j = inside ? (far ? i + step : i - step) : (far ? i - ((Size - 1) * step) : i + ((Size - 1) * step));
+        return other != null;
+    }
+
     // A border face's number on its side: the voxel's place across the axis (y then z across x, z then x across y,
     // y then x across z).
-    private static int Face(int axis, int i) => axis == 0 ? i >> 4 : axis == 1 ? i & ((Size * Size) - 1) : ((i >> 8) << 4) | (i & (Size - 1));
+    private static int Face(int axis, int i) => axis == 0 ? i >> 4 : axis == 1 ? i & (Layer - 1) : ((i >> 8) << 4) | (i & (Size - 1));
 
     // The voxel at this layer along the axis and place (a, b) across it, as Face numbers it.
-    private static int Index(int axis, int layer, int a, int b) => axis == 0 ? Index(layer, a, b) : axis == 1 ? Index(b, layer, a) : Index(b, a, layer);
+    private static int LayerIndex(int axis, int layer, int a, int b) => axis == 0 ? Index(layer, a, b) : axis == 1 ? Index(b, layer, a) : Index(b, a, layer);
 
     /// <summary>A voxel's index in the brick's arrays: rows along x, then z, then layers up.</summary>
-    public static int Index(int x, int y, int z) => (y * Size * Size) + (z * Size) + x;
+    public static int Index(int x, int y, int z) => (y * Layer) + (z * Size) + x;
 
     /// <summary>The voxel at an index, in the brick (0 to 15 each).</summary>
     public static (int X, int Y, int Z) Place(int index) => (index & (Size - 1), index >> 8, (index >> 4) & (Size - 1));
+
+    /// <summary>The brick coordinate a voxel coordinate (world voxels along an axis) falls in.</summary>
+    public static int Of(int voxel) => voxel >> 4;
+
+    /// <summary>A voxel coordinate's place in its brick (0 to 15).</summary>
+    public static int In(int voxel) => voxel & (Size - 1);
 }
