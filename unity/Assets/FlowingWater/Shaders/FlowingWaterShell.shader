@@ -158,6 +158,7 @@ Shader "FlowingWater/WaterShell"
             o.Metallic = _Metallic * (1.0 - foam);
             o.Smoothness = lerp(_Glossiness, 0.1, foam);
             o.Alpha = saturate(i.water.y) * lerp(0.85, 1.0, foam);
+            DebugColour(o, float3(1.0, 0.9, 0.1));
         }
         ENDCG
     }

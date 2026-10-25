@@ -128,7 +128,7 @@ internal sealed class SimGrid : IDisposable
         _qy = MakeCells("flow north", cells);
         Bed = MakeCells("ground", cells);
         _scale = MakeCells("outflow share", cells);
-        _pull = MakeCells("pull", Columns);
+        _pull = MakeCells("pull", Columns, RenderTextureFormat.ARGBFloat);
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
             name = "FlowingWater sim target",
@@ -184,7 +184,7 @@ internal sealed class SimGrid : IDisposable
 
     /// <summary>
     /// The server's water, a texel per voxel column: its resting top (world height, <see cref="DryTop"/> for none),
-    /// whether the card draws it there, its foam, the faces pieces close (1 east, 2 north).
+    /// whether the card draws it there, its depth (metres), the faces pieces close (1 east, 2 north) plus half its foam.
     /// </summary>
     public Texture2D Target { get; }
 
@@ -371,9 +371,9 @@ internal sealed class SimGrid : IDisposable
 
     private void Dispatch(int kernel, int size) => _shader.Dispatch(kernel, (size + Group - 1) / Group, (size + Group - 1) / Group, 1);
 
-    private static RenderTexture MakeCells(string name, int side)
+    private static RenderTexture MakeCells(string name, int side, RenderTextureFormat format = RenderTextureFormat.RFloat)
     {
-        var texture = new RenderTexture(side, side, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear)
+        var texture = new RenderTexture(side, side, 0, format, RenderTextureReadWrite.Linear)
         {
             name = "FlowingWater sim " + name,
             enableRandomWrite = true,

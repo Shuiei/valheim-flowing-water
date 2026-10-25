@@ -6,13 +6,14 @@ namespace FlowingWater.Volume;
 /// <summary>
 /// The server's water as the water moved on the graphics card near the camera takes it (the plugin's SimGrid), without
 /// the game: for each voxel column of a square, four floats. The top of its water resting on the ground (world height;
-/// <see cref="DryTop"/> where none rests there), whether the card draws it, its foam (falling into it), and the faces
-/// pieces close at that water's level (1 east, 2 north). Beside it, the height to cast down from for the ground under
+/// <see cref="DryTop"/> where none rests there), whether the card draws it, how deep its water is (all of it, metres:
+/// the card keeps that much water there), and the faces pieces close at that water's level (1 east, 2 north) plus half
+/// its foam (falling into it; under 0.5). Beside it, the height to cast down from for the ground under
 /// each column (over its water, or over the water near it, which may run there; NaN where no water is near).
 /// <para>
 /// The card moves water as a sheet over the ground, one level to a place: it draws a column only where the server's
 /// water there is one layer resting on the ground (its lowest voxel has ground in it, or a solid voxel or a piece under
-/// it), and where the ground it knows under the column is under that water. Elsewhere (water falling through the air, a
+/// it), and where the ground it knows under the column is under that water somewhere. Elsewhere (water falling through the air, a
 /// pool under another, water under a roof the cast ground is the roof of) the bricks draw it as they do.
 /// </para>
 /// </summary>
@@ -39,6 +40,15 @@ internal static class SimColumns
 
     // A voxel this full (solid and water) is full: the water over it rests on its water.
     private const float Full = 0.98f;
+
+    // Water hanging over the air no higher than this over the ground cast under it, metres, is running down a step (a
+    // stream down a steep slope goes from voxel to voxel so): the card draws it, as deep as its water, on that ground.
+    // Higher, it is a fall, drawn by the bricks.
+    private const float StepDrop = 1.5f;
+
+    // Water over a pool's first voxel not full, up to this many voxels of it, is spilling in over a step, as above; more
+    // is a fall into the pool, drawn by the bricks.
+    private const int StepVoxels = 2;
 
     // Bits of a voxel's open faces (Brick.OpenFaces): east, west, down, north, south.
     private const int OpenEast = 1, OpenWest = 2, OpenDown = 8, OpenNorth = 16, OpenSouth = 32;
@@ -69,13 +79,15 @@ internal static class SimColumns
         }
 
         var found = new Column[columns * columns];
+        float[] grounds = new float[columns * columns];
         for (int vz = 0; vz < columns; vz++)
         {
             for (int vx = 0; vx < columns; vx++)
             {
-                int x = x0 + vx, z = z0 + vz;
-                found[(vz * columns) + vx] = stacks.TryGetValue(((long)(x >> 4) << 32) | (uint)(z >> 4), out List<BrickView> stack)
-                    ? Look(stack, x & 15, z & 15, voxelSize)
+                int x = x0 + vx, z = z0 + vz, k = (vz * columns) + vx;
+                grounds[k] = Ground(bed, columns * perVoxel, perVoxel, vx, vz);
+                found[k] = stacks.TryGetValue(((long)(x >> 4) << 32) | (uint)(z >> 4), out List<BrickView> stack)
+                    ? Look(stack, x & 15, z & 15, voxelSize, grounds[k])
                     : Column.None;
             }
         }
@@ -87,12 +99,12 @@ internal static class SimColumns
             {
                 int k = (vz * columns) + vx;
                 Column column = found[k];
-                bool east = vx + 1 < columns && found[k + 1].ClosedWest;
-                bool north = vz + 1 < columns && found[k + columns].ClosedSouth;
+                bool east = vx + 1 < columns && Shut(column.ClosedEast, column, grounds[k + 1], voxelSize, found[k + 1].ClosedWest, found[k + 1], grounds[k]);
+                bool north = vz + 1 < columns && Shut(column.ClosedNorth, column, grounds[k + columns], voxelSize, found[k + columns].ClosedSouth, found[k + columns], grounds[k]);
                 texels[k * Texel] = column.Top;
                 texels[(k * Texel) + 1] = column.Drawn && GroundUnder(bed, columns * perVoxel, perVoxel, vx, vz, column.Top) ? 1f : 0f;
-                texels[(k * Texel) + 2] = column.Foam;
-                texels[(k * Texel) + 3] = (column.ClosedEast || east ? 1 : 0) | (column.ClosedNorth || north ? 2 : 0);
+                texels[(k * Texel) + 2] = column.Depth;
+                texels[(k * Texel) + 3] = ((east ? 1 : 0) | (north ? 2 : 0)) + (0.5f * Math.Min(column.Foam, 0.99f));
             }
         }
 
@@ -105,11 +117,13 @@ internal static class SimColumns
     // shares with the columns west and south of it, which they ask for).
     private readonly struct Column
     {
-        public static readonly Column None = new(DryTop, false, 0f, false, false, false, false);
+        public static readonly Column None = new(DryTop, 0f, int.MinValue, false, 0f, false, false, false, false);
 
-        public Column(float top, bool drawn, float foam, bool closedEast, bool closedNorth, bool closedWest, bool closedSouth)
+        public Column(float top, float depth, int row, bool drawn, float foam, bool closedEast, bool closedNorth, bool closedWest, bool closedSouth)
         {
             Top = top;
+            Row = row;
+            Depth = depth;
             Drawn = drawn;
             Foam = foam;
             ClosedEast = closedEast;
@@ -119,6 +133,11 @@ internal static class SimColumns
         }
 
         public float Top { get; }
+
+        public float Depth { get; }
+
+        // The voxel row whose faces are those said closed.
+        public int Row { get; }
 
         public bool Drawn { get; }
 
@@ -133,14 +152,14 @@ internal static class SimColumns
         public bool ClosedSouth { get; }
     }
 
-    // The column (x, z in its bricks) of a stack of bricks, highest first: its highest run of wet voxels, where it rests,
-    // and whether any water lies under it (another layer).
-    private static Column Look(List<BrickView> stack, int x, int z, float voxelSize)
+    // The column (x, z in its bricks) of a stack of bricks, highest first, with the ground cast under it (NaN where not
+    // all cast yet): its highest run of wet voxels, where it rests, and whether any water lies under it (another layer).
+    private static Column Look(List<BrickView> stack, int x, int z, float voxelSize, float ground)
     {
         // The wet voxels top down, as (brick, index, row): the highest run, then whether more lies under it.
         var run = new List<(BrickView Brick, int Index, int Row)>();
         BrickView lowBrick = null;
-        int low = 0;
+        int low = 0, lowRow = 0;
         bool under = false;
         int previous = int.MaxValue;
         foreach (BrickView brick in stack)
@@ -159,7 +178,7 @@ internal static class SimColumns
                     if (!under)
                     {
                         run.Add((brick, i, row));
-                        (lowBrick, low) = (brick, i);
+                        (lowBrick, low, lowRow) = (brick, i, row);
                         previous = row;
                         continue;
                     }
@@ -174,16 +193,32 @@ internal static class SimColumns
             return Column.None;
         }
 
+        // All the run's water, metres deep.
+        float depth = 0f;
+        foreach ((BrickView brick, int i, _) in run)
+        {
+            depth += brick.Water[i] * voxelSize;
+        }
+
         // The run rests where its lowest voxel has ground in it, or no water could leave it downward (a solid voxel or a
-        // piece under it); else it hangs over the air: falling.
+        // piece under it); else it hangs over the air: running down a step when the ground cast under it is near, else
+        // falling (the bricks draw it; the card keeps no water there).
         bool rests = lowBrick.Solid[low] > 0f || (lowBrick.Open[low] & OpenDown) == 0;
         if (!rests)
         {
-            return new Column(DryTop, false, 0f, false, false, false, false);
+            // Not where the ground cast is over the water's bottom: a roof, or a wall (ground not known).
+            float bottom = lowRow * voxelSize;
+            if (float.IsNaN(ground) || bottom - ground > StepDrop || ground > bottom)
+            {
+                return Column.None;
+            }
+
+            return Of(run[0].Brick, run[0].Index, run[0].Row, ground + depth, depth, !under, lowBrick.VelocityY[low]);
         }
 
-        // Its top: up from the lowest voxel while they are full, to the first that is not. Water over that one is
-        // falling into it (drawn by the bricks, the card keeping the water resting there).
+        // Its top: up from the lowest voxel while they are full, to the first that is not. Water over that one spills
+        // into it over a step (a few voxels: the card draws it, as deep as all the water on the run's floor), or falls
+        // into it (more: the bricks draw it, the card keeping the water resting there).
         int top = run.Count - 1;
         while (top > 0 && run[top].Brick.Solid[run[top].Index] + run[top].Brick.Water[run[top].Index] >= Full)
         {
@@ -191,16 +226,50 @@ internal static class SimColumns
         }
 
         (BrickView brickAt, int at, int rowAt) = run[top];
+        if (top is > 0 and <= StepVoxels)
+        {
+            float floor = (lowRow + lowBrick.Solid[low]) * voxelSize;
+            return Of(brickAt, at, rowAt, floor + depth, depth, !under, run[0].Brick.VelocityY[run[0].Index]);
+        }
+
         float fill = Math.Min(1f, brickAt.Solid[at] + brickAt.Water[at]);
-        float level = (rowAt + fill) * voxelSize;
-        float foam = Math.Min(1f, Math.Max(0f, -brickAt.VelocityY[at] / SurfaceGrid.FoamFall));
-        byte open = brickAt.Open[at];
-        bool fallsIn = top > 0;
-        return new Column(level, !under && !fallsIn, foam, (open & OpenEast) == 0, (open & OpenNorth) == 0, (open & OpenWest) == 0, (open & OpenSouth) == 0);
+        return Of(brickAt, at, rowAt, (rowAt + fill) * voxelSize, depth, !under && top == 0, brickAt.VelocityY[at]);
     }
 
-    // Whether the ground known under a column's cells is under its water (at least half of them): the card's water there
-    // stands on it. Not where any is not cast yet, nor where a roof or a floor over the water was cast instead.
+    // Whether a piece closes the face between two columns at the water's level: one says its face is closed there, and
+    // the ground cast beside it is under that voxel's top (the face is closed for water at that height only: closed
+    // onto solid ground, as each step of a slope's ground is, the card's ground holds the water already, and a wall
+    // there at every height would dam the water running down the slope at each voxel).
+    private static bool Shut(bool closedHere, Column here, float groundThere, float voxelSize, bool closedThere, Column there, float groundHere) =>
+        (closedHere && !(groundThere >= ((here.Row + 1) * voxelSize) - 0.02f)) || (closedThere && !(groundHere >= ((there.Row + 1) * voxelSize) - 0.02f));
+
+    // A column whose water's top is at this level, this deep, its faces closed as voxel i's (in this row), foaming as fast
+    // as it falls.
+    private static Column Of(BrickView brick, int i, int row, float level, float depth, bool drawn, float rising)
+    {
+        float foam = Math.Min(1f, Math.Max(0f, -rising / SurfaceGrid.FoamFall));
+        byte open = brick.Open[i];
+        return new Column(level, depth, row, drawn, foam, (open & OpenEast) == 0, (open & OpenNorth) == 0, (open & OpenWest) == 0, (open & OpenSouth) == 0);
+    }
+
+    // The mean ground cast under a column's cells; NaN while any is not cast.
+    private static float Ground(float[] bed, int cells, int perVoxel, int vx, int vz)
+    {
+        float sum = 0f;
+        for (int j = 0; j < perVoxel; j++)
+        {
+            for (int i = 0; i < perVoxel; i++)
+            {
+                sum += bed[(((vz * perVoxel) + j) * cells) + (vx * perVoxel) + i];
+            }
+        }
+
+        return sum / (perVoxel * perVoxel);
+    }
+
+    // Whether the ground known under a column's cells is under its water somewhere: the card's water there stands on it.
+    // Not where any is not cast yet, nor where a roof or a floor just over the water was cast instead (it covers them
+    // all). On a slope, the edge of a thin sheet has ground over its top in the column's uphill cells: still the card's.
     private static bool GroundUnder(float[] bed, int cells, int perVoxel, int vx, int vz, float top)
     {
         int under = 0;
@@ -218,7 +287,7 @@ internal static class SimColumns
             }
         }
 
-        return 2 * under >= perVoxel * perVoxel;
+        return under > 0;
     }
 
     // The height each column's ground is cast from: over its own water, else over the highest water within CastReach

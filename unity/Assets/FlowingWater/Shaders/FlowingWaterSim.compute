@@ -7,10 +7,10 @@
 //               pushed by the difference of the water's levels, slowed by the ground (Manning's friction),
 //   Outflow     each cell's share of what it would give that it has,
 //   Depth       the water moves through the faces, upwind.
-// Once a frame, the water is pulled toward the server's (Reduce, Relax): each voxel column's mean level toward the
-// server's, so the server keeps the say on how much water is where while the waves finer than a voxel stay the card's.
-// Where the server's water is not one layer resting on the ground (a fall, a pool under another), and along the
-// square's edge, the water is the server's as it is.
+// Once a frame, the water is pulled toward the server's (Reduce, Relax): each voxel column's water toward the server's
+// volume there, added or taken where the card's water lies, so the server keeps the say on how much water is where
+// while the shape of the water (its slope down a stream, the waves finer than a voxel) stays the card's.
+// Along the square's edge, the water is the server's as it is.
 #pragma kernel Seed
 #pragma kernel Fluxes
 #pragma kernel Momentum
@@ -36,11 +36,12 @@ RWTexture2D<float> _VFrom;
 RWTexture2D<float> _QX;
 RWTexture2D<float> _QY;
 
-// Each voxel column's pull toward the server, metres of depth a second.
-RWTexture2D<float> _Pull;
+// Each voxel column's pull: x = the depth of water it lacks (over its area, metres; less than 0 where it has too much),
+// y = the card's mean depth there, z = the share of its cells under the server's level.
+RWTexture2D<float4> _Pull;
 
 // The server's water, a texel per voxel column: x = its resting top (world height; under -1000 none), y = 1 where the
-// card draws it, z = foam (falls), w = faces closed by pieces (1 east, 2 north).
+// card draws it, z = its depth (all its water, metres), w = faces closed by pieces (1 east, 2 north) plus half its foam.
 Texture2D<float4> _Target;
 
 // The ground's rows cast this frame: _BedRowCount rows from _BedRow, _N each.
@@ -57,7 +58,7 @@ float _Friction;  // Manning: gravity times roughness squared
 float _MaxSpeed;  // the fastest a face may carry in a step (half a cell)
 float _MaxDepth;  // the deepest water a face carries as deep (deeper waves would outrun the step)
 float _SeaLevel;  // water on ground under it is the sea's
-float _Relax;     // a second, how much of the difference to the server's level is made up
+float _Relax;     // a second, how much of the difference to the server's water is made up
 float _Drain;     // a second, how much of the water where the server has none goes
 int _Border;      // cells along the square's edge that are the server's water as it is
 
@@ -297,8 +298,8 @@ void Depth(uint3 id : SV_DispatchThreadID)
     _HNext[c] = _Bed[c] < _SeaLevel ? 0.0 : max(h, 0.0);
 }
 
-// Each voxel column's pull: how far its cells under the server's level stand below it on average (water to add, or
-// take where above), or, where the server has no water, nothing (that water drains on its own, Relax).
+// Each voxel column's pull: the depth of water it lacks against the server's, how deep the card's water is there, and
+// how many of its cells lie under the server's level; where the server has no water, nothing (it drains, Relax).
 [numthreads(8, 8, 1)]
 void Reduce(uint3 id : SV_DispatchThreadID)
 {
@@ -316,23 +317,47 @@ void Reduce(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    float sum = 0.0;
-    float count = 0.0;
+    float depth = 0.0;
+    float under = 0.0;
     for (int j = 0; j < _PerVoxel; j++)
     {
         for (int i = 0; i < _PerVoxel; i++)
         {
             int2 c = (v * _PerVoxel) + int2(i, j);
-            float bed = _Bed[c];
-            if (bed < target.x)
-            {
-                sum += target.x - max(bed + _H[c], bed);
-                count += 1.0;
-            }
+            depth += _H[c];
+            under += _Bed[c] < target.x ? 1.0 : 0.0;
         }
     }
 
-    _Pull[v] = count > 0.0 ? sum / count : 0.0;
+    float cells = (float)(_PerVoxel * _PerVoxel);
+    float mean = depth / cells;
+    _Pull[v] = float4(target.z - mean, mean, under / cells, 0.0);
+}
+
+// The pull at a cell: between the four voxel columns round it, as far as it is from each one's middle, from those the
+// server has water in (a column with none pulls nothing either way), so the water the server adds or takes comes in
+// smoothly, not a lump to a voxel (which, at a strong source, ran down as a ridge a voxel).
+float4 PullAt(int2 c)
+{
+    int columns = _N / _PerVoxel;
+    float2 q = ((float2(c) + 0.5) / _PerVoxel) - 0.5;
+    int2 a = (int2)floor(q);
+    float2 f = q - a;
+    float4 sum = 0.0;
+    float weight = 0.0;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        int2 v = clamp(a + o, int2(0, 0), int2(columns - 1, columns - 1));
+        float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+        if (Wet(_Target[v]) && w > 0.0)
+        {
+            sum += _Pull[v] * w;
+            weight += w;
+        }
+    }
+
+    return weight > 0.0 ? sum / weight : _Pull[c / _PerVoxel];
 }
 
 [numthreads(8, 8, 1)]
@@ -352,17 +377,29 @@ void Relax(uint3 id : SV_DispatchThreadID)
     {
         h = 0.0;
     }
-    else if (edge || target.y < 0.5)
+    else if (edge)
     {
-        // The server's water as it is: along the edge, and where the card does not draw it.
+        // The server's water as it is along the edge (the water beyond is not moved here). Elsewhere, where the card does
+        // not draw it too, it is only pulled toward the server's, as everywhere: a column the server's changes hand from
+        // the card to the bricks and back never jumps (the grid joins it to the cells round it, which drew a spike).
         h = Wet(target) ? max(0.0, target.x - bed) : 0.0;
     }
     else if (Wet(target))
     {
-        if (bed < target.x)
+        // What the column lacks (or has too much of), added where the card's water lies, as deep as it lies there, so
+        // its shape is kept; where the card has hardly any yet, spread over the cells under the server's level.
+        float4 pull = PullAt(c);
+        float change = pull.x * min(1.0, _Relax * _Dt);
+        if (pull.y > 0.01)
         {
-            h = max(0.0, h + (_Pull[c / _PerVoxel] * _Relax * _Dt));
+            h += change * h / pull.y;
         }
+        else if (bed < target.x && pull.z > 0.0)
+        {
+            h += change / pull.z;
+        }
+
+        h = max(0.0, h);
     }
     else
     {

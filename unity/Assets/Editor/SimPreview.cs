@@ -182,6 +182,7 @@ public static class SimPreview
                 float ground = Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f))));
                 target[v * 4] = ground < top ? top : SimGrid.DryTop;
                 target[(v * 4) + 1] = 1f;
+                target[(v * 4) + 2] = Math.Max(0f, top - ground);
             }
 
             scene.Grid.SetTarget(target);

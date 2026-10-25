@@ -181,6 +181,7 @@ Shader "FlowingWater/Water"
             }
 
             Look(i, o);
+            DebugColour(o, float3(1.0, 0.15, 0.1));
         }
         ENDCG
     }

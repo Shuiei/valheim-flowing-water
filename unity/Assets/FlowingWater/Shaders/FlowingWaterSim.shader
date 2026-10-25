@@ -95,12 +95,12 @@ Shader "FlowingWater/SimWater"
             float depth = At(_SimH, p);
             float bed = At(_SimBed, p);
 
-            // Raised to the water's level. Where there is none, a little under the water beside it, or under its own ground
-            // where that is lower: its squares fade out at the water's edge, and never reach up to a cell whose ground is
-            // not known (a wall far over everything).
+            // Raised to the water's level. Where there is none, a little under the water round it (its eight neighbours:
+            // the grid's squares join diagonal ones too), or under its own ground where that is lower: its squares fade
+            // out at the water's edge, and never reach up to a cell whose ground is not known (a wall far over everything).
             float wet = -1e9;
-            float2 sides[4] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0) };
-            for (int k = 0; k < 4; k++)
+            float2 sides[8] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0), float2(1.0, -1.0), float2(-1.0, -1.0) };
+            for (int k = 0; k < 8; k++)
             {
                 if (At(_SimH, p + sides[k]) > HIDE_DEPTH * 0.5)
                 {
@@ -120,7 +120,7 @@ Shader "FlowingWater/SimWater"
             // The current at the cell's centre: the speeds through its faces either side (u at (i + 1, j + 0.5)).
             float2 current = float2(At(_SimU, p - float2(0.5, 0.0)), At(_SimV, p - float2(0.0, 0.5)));
             float2 world = mul(unity_ObjectToWorld, v.vertex).xz;
-            float foam = tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).z;
+            float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;
             o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)), 0.0);
@@ -138,6 +138,7 @@ Shader "FlowingWater/SimWater"
             }
 
             Look(i, o);
+            DebugColour(o, float3(0.1, 0.3, 1.0));
         }
         ENDCG
     }

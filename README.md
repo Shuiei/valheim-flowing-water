@@ -45,7 +45,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater gpu` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame |
+| `flowingwater gpu [colours]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |

@@ -11,6 +11,20 @@ float2 _FWSimOrigin;
 float _FWSimSize;
 sampler2D _FWSimTarget;
 
+// For testing (console "flowingwater gpu colours"): each part of the water drawn in a colour of its own, to see which
+// draws where (the card's water blue, a brick's surface red, the sides and falls yellow).
+float _FWDebugColours;
+
+void DebugColour(inout SurfaceOutputStandard o, float3 colour)
+{
+    if (_FWDebugColours > 0.5)
+    {
+        o.Albedo = colour;
+        o.Emission = colour * 0.6;
+        o.Alpha = max(o.Alpha, 0.7);
+    }
+}
+
 // Whether the water moved on the card draws the water at this world x, z.
 bool SimDraws(float2 world)
 {

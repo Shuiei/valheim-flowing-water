@@ -40,6 +40,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
     private static readonly int CellSizeId = Shader.PropertyToID("_SimDx");
     private static readonly int LiftId = Shader.PropertyToID("_Lift");
+    private static readonly int DebugColoursId = Shader.PropertyToID("_FWDebugColours");
 
     // The grids drawn, by cells and cell size: each square of that shape draws the same.
     private static readonly Dictionary<(int, float), Mesh> Grids = [];
@@ -130,6 +131,16 @@ internal sealed class GpuWater : IDisposable
 
     /// <summary>A world opens: off after a fault in the last one, it has a fresh try.</summary>
     public static void WorldOpened() => Gate.Reset();
+
+    /// <summary>
+    /// Draws each part of the water in a colour of its own, for testing (console "flowingwater gpu colours"): the card's
+    /// water blue, a brick's surface red, the sides and falls yellow.
+    /// </summary>
+    public static bool DebugColours
+    {
+        get => Shader.GetGlobalFloat(DebugColoursId) > 0.5f;
+        set => Shader.SetGlobalFloat(DebugColoursId, value ? 1f : 0f);
+    }
 
     /// <summary>What it does now, for the console.</summary>
     public static string Describe()

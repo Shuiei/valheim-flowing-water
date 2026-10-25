@@ -28,9 +28,28 @@ public class SimColumnsTests
         float[] known = Build(brick, Bed(0.5f), out _);
 
         Assert.Equal(2.5f, Top(known, 3, 3), 3);
+        Assert.Equal(2f, Depth(known, 3, 3), 3);
         Assert.Equal(0f, Drawn(unknown, 3, 3));
         Assert.Equal(1f, Drawn(known, 3, 3));
         Assert.Equal(SimColumns.DryTop, Top(known, 4, 3));
+    }
+
+    [Fact]
+    public void TheEdgeOfASheetOnASlopeIsTheCardsThoughItsUphillGroundIsOverIt()
+    {
+        // Two centimetres over the ground at the column's downhill side, the slope rising 8 cm across it.
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 0, 3, 0.02f, solid: 0.5f, open: OpenAll);
+        float[] bed = Bed(0.5f);
+        for (int j = 0; j < PerVoxel; j++)
+        {
+            bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (3 * PerVoxel) + 1] = 0.58f;
+        }
+
+        float[] texels = Build(brick, bed, out _);
+
+        Assert.Equal(0.52f, Top(texels, 3, 3), 3);
+        Assert.Equal(1f, Drawn(texels, 3, 3));
     }
 
     [Fact]
@@ -47,7 +66,7 @@ public class SimColumnsTests
     [Fact]
     public void WaterFallingThroughTheAirHoldsNoWaterOnTheCard()
     {
-        // Rows 4 to 6 half full, nothing under them: the lowest's down face is open.
+        // Rows 4 to 6 half full, nothing under them (the lowest's down face is open), the ground 4 m under: a fall.
         var brick = new BrickView(0, 0, 0, 1f);
         for (int y = 4; y <= 6; y++)
         {
@@ -75,12 +94,66 @@ public class SimColumnsTests
     }
 
     [Fact]
+    public void WaterRunningDownAStepIsDrawnByTheCardAsDeepAsItIsOnTheGroundUnderIt()
+    {
+        // A sliver of water in row 2 over the air, the ground cast under it at 1.6 m (a stream down a steep slope).
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 2, 3, 0.1f, solid: 0f, open: OpenAll);
+
+        float[] texels = Build(brick, Bed(1.6f), out _);
+
+        Assert.Equal(1.7f, Top(texels, 3, 3), 3);
+        Assert.Equal(0.1f, Depth(texels, 3, 3), 3);
+        Assert.Equal(1f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void FoamOfWaterFallingIsKeptBesideTheClosedFaces()
+    {
+        // A sliver running down a step at 2 m/s down, its east face closed: half its foam (2 / 4) beside the bit.
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 2, 3, 0.1f, solid: 0f, open: OpenAll & ~1);
+        brick.VelocityY[Brick.Index(3, 2, 3)] = -2f;
+
+        float[] texels = Build(brick, Bed(1.6f), out _);
+
+        Assert.Equal(1f, Closed(texels, 3, 3));
+        Assert.Equal(1.25f, texels[(((3 * Columns) + 3) * SimColumns.Texel) + 3], 3);
+    }
+
+    [Fact]
+    public void WaterSpillingIntoAPoolOverAStepIsDrawnByTheCardOnThePoolsFloor()
+    {
+        // A pool to half way up row 1, and a sheet spilling into it through row 2.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+        Wet(brick, 3, 2, 3, 0.2f, solid: 0f, open: OpenAll);
+
+        float[] texels = Build(brick, Bed(0.5f), out _);
+
+        Assert.Equal(1.7f, Top(texels, 3, 3), 3);
+        Assert.Equal(1f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
+    public void WaterUnderAWallOrRoofCastIsNoStep()
+    {
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 2, 3, 0.1f, solid: 0f, open: OpenAll);
+
+        float[] texels = Build(brick, Bed(10000f), out _);
+
+        Assert.Equal(SimColumns.DryTop, Top(texels, 3, 3));
+        Assert.Equal(0f, Drawn(texels, 3, 3));
+    }
+
+    [Fact]
     public void WaterFallingIntoAPoolIsLeftToTheBricksAtThePoolsLevel()
     {
-        // A pool to half way up row 1, and water falling into it from rows 2 and 3 (not full).
+        // A pool to half way up row 1, and water falling into it from rows 2 to 4 (not full).
         BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
         Wet(brick, 3, 2, 3, 0.3f, solid: 0f, open: OpenAll);
         Wet(brick, 3, 3, 3, 0.3f, solid: 0f, open: OpenAll);
+        Wet(brick, 3, 4, 3, 0.3f, solid: 0f, open: OpenAll);
 
         float[] texels = Build(brick, Bed(0.5f), out _);
 
@@ -101,6 +174,26 @@ public class SimColumnsTests
         Assert.Equal(1f, Closed(texels, 3, 3));
         Assert.Equal(1f, Closed(texels, 6, 3));
         Assert.Equal(0f, Closed(texels, 7, 3));
+    }
+
+    [Fact]
+    public void AFaceClosedOntoSolidGroundIsNoWallForTheCard()
+    {
+        // A pool's top voxel in row 1 whose east face is closed: the ground cast east of it rises over that voxel's top
+        // (a slope's next step), so the face is the ground's, not a piece's.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f, open: OpenAll & ~1);
+        float[] bed = Bed(0.5f);
+        for (int j = 0; j < PerVoxel; j++)
+        {
+            for (int i = 0; i < PerVoxel; i++)
+            {
+                bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (4 * PerVoxel) + i] = 2.1f;
+            }
+        }
+
+        float[] texels = Build(brick, bed, out _);
+
+        Assert.Equal(0f, Closed(texels, 3, 3));
     }
 
     [Fact]
@@ -172,5 +265,8 @@ public class SimColumnsTests
 
     private static float Drawn(float[] texels, int x, int z) => texels[(((z * Columns) + x) * SimColumns.Texel) + 1];
 
-    private static float Closed(float[] texels, int x, int z) => texels[(((z * Columns) + x) * SimColumns.Texel) + 3];
+    private static float Depth(float[] texels, int x, int z) => texels[(((z * Columns) + x) * SimColumns.Texel) + 2];
+
+    // The faces closed (the whole part; half the foam is the rest).
+    private static float Closed(float[] texels, int x, int z) => (float)Math.Floor(texels[(((z * Columns) + x) * SimColumns.Texel) + 3]);
 }
