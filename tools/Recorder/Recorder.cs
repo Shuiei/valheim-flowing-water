@@ -294,6 +294,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "gpu" => Gpu(steep, gentle, FindSite(spawn + new Vector3(0f, 0f, -150f), 0.02f, 0.09f, true) ?? FindSite(spawn + new Vector3(150f, 0f, 0f), 0.02f, 0.09f, false)),
+            "ledge" => Ledge(FindSite(spawn + new Vector3(0f, 0f, -150f), 0.02f, 0.09f, true) ?? FindSite(spawn + new Vector3(150f, 0f, 0f), 0.02f, 0.09f, false)),
             _ => null,
         };
         if (scenario != null)
@@ -578,6 +579,33 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return Burst(from, at, "flood-off", 6f, 12);
         yield return Burst(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-above", 6f, 12);
         Command("flowingwater gpu");
+    }
+
+    // The fall off the gpu scenario's platform, at its edges: the water's voxels and the ground cast there (the console's
+    // "flowingwater gpu columns"), and who draws what, close.
+    private IEnumerator Ledge(Site flat)
+    {
+        yield return Go(flat.At(-16f) + (flat.Across * 8f));
+        Vector3 tower = Platform(Player.m_localPlayer.transform.position, 3.5f);
+        yield return Go(tower, tower.y);
+        Command("flowingwater remove");
+        Command("flowingwater source 4");
+        yield return new WaitForSeconds(30f);
+        Vector3 fall = tower + new Vector3(0f, -2f, 0f);
+        Vector3 near = tower + (flat.Across * 8f) + (flat.Down * 5f) + new Vector3(0f, -1f, 0f);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "ledge-colours");
+        yield return Shot(tower + (flat.Across * -8f) + (flat.Down * -5f) + new Vector3(0f, 1f, 0f), fall, "ledge-colours-back");
+        yield return Burst(near, fall, "ledge-colours", 8f, 5);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "ledge");
+        foreach (Vector3 side in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back })
+        {
+            Vector3 edge = tower + (side * 2f);
+            Note(FormattableString.Invariant($"edge {edge.ToString("F2")}"));
+            yield return Go(edge);
+            Command("flowingwater gpu columns");
+        }
     }
 
     // A platform of stone floors 4 m a side, this high over the ground at its middle, built from the ground up (or the

@@ -89,11 +89,11 @@ public class SimColumnsTests
             Wet(brick, 3, y, 3, 0.5f, solid: 0f, open: OpenAll);
         }
 
-        float[] texels = SimColumns.Build([brick], 0, 0, Columns, 1f, Bed(0f), PerVoxel, out _, falls: true);
+        float[] texels = Falls(brick, Bed(0f), out float[] layers);
 
         Assert.Equal(SimColumns.DryTop, Top(texels, 3, 3));
-        Assert.Equal(SimColumns.Fall, Drawn(texels, 3, 3));
-        Assert.Equal(6.5f, Depth(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(6.5f, FallTop(layers, 3, 3), 3);
     }
 
     [Fact]
@@ -108,10 +108,96 @@ public class SimColumnsTests
             bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (3 * PerVoxel)] = 3.9f;
         }
 
-        float[] texels = SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out _, falls: true);
+        float[] texels = Falls(brick, bed, out float[] layers);
 
-        Assert.Equal(SimColumns.Fall, Drawn(texels, 3, 3));
-        Assert.Equal(4.2f, Depth(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(4.2f, FallTop(layers, 3, 3), 3);
+    }
+
+    [Fact]
+    public void WaterFallingIntoAPoolIsTheCardsPoolUnderItsFallWhenItDrawsFalls()
+    {
+        // A pool to half way up row 1, water falling into it from rows 2 to 4 (not full): the pool's water kept, the
+        // fall thrown from the top of row 4.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+        Wet(brick, 3, 2, 3, 0.3f, solid: 0f, open: OpenAll);
+        Wet(brick, 3, 3, 3, 0.3f, solid: 0f, open: OpenAll);
+        Wet(brick, 3, 4, 3, 0.3f, solid: 0f, open: OpenAll);
+
+        float[] texels = Falls(brick, Bed(0.5f), out float[] layers);
+
+        Assert.Equal(1.5f, Top(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(1f, Depth(texels, 3, 3), 3);
+        Assert.Equal(4.3f, FallTop(layers, 3, 3), 3);
+        Assert.Equal(SimColumns.DryTop, layers[(((3 * Columns) + 3) * SimColumns.LayerTexel) + 1]);
+    }
+
+    [Fact]
+    public void AFallFromHighKeepsThePoolItFallsIntoWhenItDrawsFalls()
+    {
+        // Rows 4 to 6 half full over the air, and under them, apart, a pool to 0.8 m on ground at 0.5 m.
+        BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 0.8f);
+        for (int y = 4; y <= 6; y++)
+        {
+            Wet(brick, 3, y, 3, 0.5f, solid: 0f, open: OpenAll);
+        }
+
+        float[] texels = Falls(brick, Bed(0.5f), out float[] layers);
+
+        Assert.Equal(0.8f, Top(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(0.3f, Depth(texels, 3, 3), 3);
+        Assert.Equal(6.5f, FallTop(layers, 3, 3), 3);
+    }
+
+    [Fact]
+    public void WaterOnALedgeAndThePoolAtItsFootAreEachTheCardsAtTheirOwnLevels()
+    {
+        // A floor half way up row 3 holding water to 3.7 m, a trickle falling through row 1, a pool to 0.8 m on the
+        // ground under it all; the floor's edge crosses the column: half its cells on the floor, half on the ground.
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 3, 3, 0.2f, solid: 0.5f, open: OpenAll);
+        Wet(brick, 3, 1, 3, 0.05f, solid: 0f, open: OpenAll);
+        Wet(brick, 3, 0, 3, 0.3f, solid: 0.5f, open: OpenAll);
+        float[] bed = Bed(0.5f);
+        for (int j = 0; j < PerVoxel; j++)
+        {
+            bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (3 * PerVoxel)] = 3.5f;
+        }
+
+        float[] texels = Falls(brick, bed, out float[] layers);
+        float[] bricks = Build(brick, bed, out _);
+
+        Assert.Equal(3.7f, Top(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(0.25f, Depth(texels, 3, 3), 3);
+        Assert.Equal(0.8f, layers[((3 * Columns) + 3) * SimColumns.LayerTexel], 3);
+        Assert.Equal(2.75f, layers[(((3 * Columns) + 3) * SimColumns.LayerTexel) + 1], 3);
+        Assert.Equal(1.05f, FallTop(layers, 3, 3), 3);
+        Assert.Equal(0f, Drawn(bricks, 3, 3));
+    }
+
+    [Fact]
+    public void CellsOffALedgeTheWaterOnItCrossesAreNotUnderIt()
+    {
+        // Water to 3.7 m on a ledge half way up row 3 (as the server's voxels have it, all the column), but half the
+        // column's cells cast on the ground at its foot, with no water there: none is kept for them.
+        var brick = new BrickView(0, 0, 0, 1f);
+        Wet(brick, 3, 3, 3, 0.2f, solid: 0.5f, open: OpenAll);
+        float[] bed = Bed(0.5f);
+        for (int j = 0; j < PerVoxel; j++)
+        {
+            bed[(((3 * PerVoxel) + j) * Columns * PerVoxel) + (3 * PerVoxel)] = 3.5f;
+        }
+
+        float[] texels = Falls(brick, bed, out float[] layers);
+
+        Assert.Equal(3.7f, Top(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.Sheet, Drawn(texels, 3, 3));
+        Assert.Equal(0.2f, Depth(texels, 3, 3), 3);
+        Assert.Equal(SimColumns.DryTop, layers[((3 * Columns) + 3) * SimColumns.LayerTexel]);
+        Assert.Equal(2.75f, layers[(((3 * Columns) + 3) * SimColumns.LayerTexel) + 1], 3);
     }
 
     [Fact]
@@ -248,7 +334,7 @@ public class SimColumnsTests
         // Voxels of a quarter metre: the reach is 48 voxels, more than the square.
         var brick = new BrickView(0, 0, 0, 0.25f);
         Wet(brick, 1, 0, 1, 0.5f, solid: 0.5f, open: OpenAll);
-        float[] texels = SimColumns.Build([brick], 0, 0, 64, 0.25f, [.. Enumerable.Repeat(0f, 64 * 64)], 1, out float[] cast);
+        float[] texels = SimColumns.Build([brick], 0, 0, 64, 0.25f, [.. Enumerable.Repeat(0f, 64 * 64)], 1, out float[] cast, out _);
 
         Assert.Equal(64 * 64 * SimColumns.Texel, texels.Length);
         Assert.False(float.IsNaN(cast[(10 * 64) + 10]));
@@ -294,7 +380,12 @@ public class SimColumnsTests
 
     private static float[] Bed(float height) => [.. Enumerable.Repeat(height, Columns * PerVoxel * Columns * PerVoxel)];
 
-    private static float[] Build(BrickView brick, float[] bed, out float[] cast) => SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out cast);
+    private static float[] Build(BrickView brick, float[] bed, out float[] cast) => SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out cast, out _);
+
+    // Built for a card that draws falls.
+    private static float[] Falls(BrickView brick, float[] bed, out float[] layers) => SimColumns.Build([brick], 0, 0, Columns, 1f, bed, PerVoxel, out _, out layers, falls: true);
+
+    private static float FallTop(float[] layers, int x, int z) => layers[(((z * Columns) + x) * SimColumns.LayerTexel) + 2];
 
     private static float Top(float[] texels, int x, int z) => texels[((z * Columns) + x) * SimColumns.Texel];
 

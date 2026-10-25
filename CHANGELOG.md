@@ -7,7 +7,8 @@ All notable changes to FlowingWater. Newest first.
 ### Added
 - Water pouring off a ledge now arcs out as a stream and splashes where it lands, falls from high are drawn as falling
   water instead of blocks, and fast water throws spray: all on your graphics card, with `Client.Spray` (on by
-  default) and the water moved on the card.
+  default) and the water moved on the card. The pool at the foot of a fall, and water by the edge of a build, are drawn
+  smooth instead of as slanted blocks. The console's `flowingwater gpu columns` logs the water and ground round you.
 
 ## v0.25.0 — 2026-10-25
 

@@ -55,7 +55,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int SheetRateId = Shader.PropertyToID("_SheetRate");
     private static readonly int SplashFromId = Shader.PropertyToID("_SplashFrom");
     private static readonly int SplashDropletsId = Shader.PropertyToID("_SplashDroplets");
-    private static readonly int TargetId = Shader.PropertyToID("_Target");
+    private static readonly int LayersId = Shader.PropertyToID("_Layers");
     private static readonly int PerVoxelId = Shader.PropertyToID("_PerVoxel");
     private static readonly int FallRateId = Shader.PropertyToID("_FallRate");
 
@@ -115,7 +115,7 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetInt(SplashDropletsId, SplashDroplets);
         _shader.SetInt(PerVoxelId, grid.PerVoxel);
         _shader.SetFloat(FallRateId, FallRate);
-        _shader.SetTexture(_emit, TargetId, grid.Target);
+        _shader.SetTexture(_emit, LayersId, grid.Layers);
         foreach (int kernel in new[] { _emit, _move })
         {
             _shader.SetBuffer(kernel, ParticlesId, _particles);

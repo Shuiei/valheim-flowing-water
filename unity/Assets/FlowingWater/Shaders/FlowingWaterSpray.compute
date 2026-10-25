@@ -3,7 +3,7 @@
 // sheet for them). A ring of particles: each new one takes the next place, the oldest giving way.
 //   EmitFromWater  per cell: fast water throws droplets (rapids); water running over a lip, where the ground beside
 //                  falls away, leaves it as sheets of water at the water's own speed, which fall and arc; where the
-//                  server's water falls from high (a fall the card draws), sheets fall from that height.
+//                  server's water falls through the air (a fall the card draws), sheets fall from its top.
 //   Move           per particle: thrown and falling, slowed by the air; one meeting the water's surface or the ground
 //                  ends there, a sheet that lands fast throwing up a splash.
 #pragma kernel EmitFromWater
@@ -34,9 +34,9 @@ int _N;
 float _Dx;
 float2 _Origin;
 
-// The server's water, a texel per voxel column (FlowingWaterSim.compute's): y = 2 where it falls from high, z the
-// height it falls from; cells along a voxel's side.
-Texture2D<float4> _Target;
+// The server's water's falls, a texel per voxel column (FlowingWaterSim.compute's _Layers): z = the top of water
+// falling through the air over it (under -1000 none); cells along a voxel's side.
+Texture2D<float4> _Layers;
 int _PerVoxel;
 
 // Falls: so many sheets a second for each square metre a fall covers.
@@ -101,19 +101,17 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
 
     uint state = (uint)(c.x * 73856093) ^ (uint)(c.y * 19349663) ^ (_Seed * 83492791u);
 
-    // A fall from high: sheets from its height down through the air, a little apart.
-    float4 target = _Target[c / _PerVoxel];
-    if (target.y > 1.5)
+    // A fall: sheets from its top down through the air, a little apart, over the cells whose ground is under it.
+    float fallTop = _Layers[c / _PerVoxel].z;
+    if (fallTop > -1000.0 && _Bed[c] + _H[c] < fallTop)
     {
         uint n = min(Count(_FallRate * _Dx * _Dx * _Dt, state), 3u);
         for (uint k = 0; k < n; k++)
         {
-            float3 place = float3(_Origin.x + ((c.x + Random(state)) * _Dx), target.z - (0.3 * Random(state)), _Origin.y + ((c.y + Random(state)) * _Dx));
+            float3 place = float3(_Origin.x + ((c.x + Random(state)) * _Dx), fallTop - (0.3 * Random(state)), _Origin.y + ((c.y + Random(state)) * _Dx));
             float3 velocity = float3(Random(state) - 0.5, -0.5 - Random(state), Random(state) - 0.5) * 0.6;
             Add(place, velocity, 4.0, 0.04 + (0.05 * Random(state)), SHEET);
         }
-
-        return;
     }
 
     float h = _H[c];

@@ -45,7 +45,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater gpu [colours]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop |
+| `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
@@ -150,8 +150,10 @@ is taken for them, nothing is sent):
 
 - **Falls.** Water running over a lip (the ground beyond more than 0.6 m lower than its own) leaves it as streaks of
   falling water at its own speed, so a stream off a ledge arcs out. Where the server's water falls through the air from
-  high (more than 1.5 m over the ground under it), the blocks no longer draw it near you: the card throws falling
-  water from the height it falls from.
+  high (more than 1.5 m over the ground under it), or into a pool, the blocks no longer draw it near you: the card
+  throws falling water from the height it falls from, and keeps the pool under it. Where the edge of a build crosses a
+  voxel, the water on the build and the pool at its foot each keep their own level (the ground found under the card's
+  cells says which is which), so the blocks no longer draw a slanted face between them.
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
 - **Spray.** Water running faster than 3.5 m/s throws fine droplets off its surface.
 

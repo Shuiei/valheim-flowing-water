@@ -53,6 +53,7 @@ internal sealed class SimGrid : IDisposable
     private static readonly int QYId = Shader.PropertyToID("_QY");
     private static readonly int PullId = Shader.PropertyToID("_Pull");
     private static readonly int TargetId = Shader.PropertyToID("_Target");
+    private static readonly int LayersId = Shader.PropertyToID("_Layers");
     private static readonly int BedRowsId = Shader.PropertyToID("_BedRows");
     private static readonly int BedRowId = Shader.PropertyToID("_BedRow");
     private static readonly int BedRowCountId = Shader.PropertyToID("_BedRowCount");
@@ -90,6 +91,7 @@ internal sealed class SimGrid : IDisposable
     private readonly RenderTexture _scale;
     private readonly RenderTexture _pull;
     private readonly float[] _targetPixels;
+    private readonly float[] _noLayers;
 
     private ComputeBuffer _bedRows;
 
@@ -143,6 +145,20 @@ internal sealed class SimGrid : IDisposable
 
         Target.SetPixelData(_targetPixels, 0);
         Target.Apply(false);
+        Layers = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
+        {
+            name = "FlowingWater sim layers",
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        _noLayers = new float[Columns * Columns * 4];
+        for (int k = 0; k < _noLayers.Length; k++)
+        {
+            _noLayers[k] = (k & 3) == 3 ? 0f : DryTop;
+        }
+
+        Layers.SetPixelData(_noLayers, 0);
+        Layers.Apply(false);
         SeaLevel = float.NegativeInfinity;
 
         // No ground is known yet: every cell is a wall until its own is written.
@@ -188,6 +204,13 @@ internal sealed class SimGrid : IDisposable
     /// </summary>
     public Texture2D Target { get; }
 
+    /// <summary>
+    /// The server's water's ledges and falls, a texel per voxel column: where a ledge crosses it, the top of the water
+    /// at its foot (<see cref="DryTop"/> for none) and the height under which a cell's ground is at its foot (DryTop: no
+    /// ledge); the top of water falling through the air over it (DryTop for none); nothing.
+    /// </summary>
+    public Texture2D Layers { get; }
+
     /// <summary>The ground's roughness (Manning's: 0.03 a natural bed, as the server's; 0 none, for previews).</summary>
     public float Roughness { get; set; } = 0.03f;
 
@@ -200,16 +223,26 @@ internal sealed class SimGrid : IDisposable
     /// <summary>The substeps the last <see cref="Step"/> took.</summary>
     public int Substeps { get; private set; }
 
-    /// <summary>Sets the server's water (four floats a voxel column, as <see cref="Target"/>'s texels), for the next steps.</summary>
-    public void SetTarget(float[] texels)
+    /// <summary>
+    /// Sets the server's water (four floats a voxel column, as <see cref="Target"/>'s texels, and as many of its ledges
+    /// and falls, as <see cref="Layers"/>'; null: none), for the next steps.
+    /// </summary>
+    public void SetTarget(float[] texels, float[] layers = null)
     {
         if (texels.Length != _targetPixels.Length)
         {
             throw new ArgumentException($"{texels.Length} floats for {Columns * Columns} columns", nameof(texels));
         }
 
+        if (layers != null && layers.Length != _noLayers.Length)
+        {
+            throw new ArgumentException($"{layers.Length} floats for {Columns * Columns} columns", nameof(layers));
+        }
+
         Target.SetPixelData(texels, 0);
         Target.Apply(false);
+        Layers.SetPixelData(layers ?? _noLayers, 0);
+        Layers.Apply(false);
     }
 
     /// <summary>
@@ -257,6 +290,7 @@ internal sealed class SimGrid : IDisposable
         Bind(_seed, VId, _v[_speeds]);
         Bind(_seed, BedId, Bed);
         _shader.SetTexture(_seed, TargetId, Target);
+        _shader.SetTexture(_seed, LayersId, Layers);
         Common();
         Dispatch(_seed, Cells);
     }
@@ -295,11 +329,13 @@ internal sealed class SimGrid : IDisposable
         Bind(_reduce, BedId, Bed);
         Bind(_reduce, PullId, _pull);
         _shader.SetTexture(_reduce, TargetId, Target);
+        _shader.SetTexture(_reduce, LayersId, Layers);
         Dispatch(_reduce, Columns);
         Bind(_relax, HId, _h[_current]);
         Bind(_relax, BedId, Bed);
         Bind(_relax, PullId, _pull);
         _shader.SetTexture(_relax, TargetId, Target);
+        _shader.SetTexture(_relax, LayersId, Layers);
         Dispatch(_relax, Cells);
     }
 
@@ -312,6 +348,7 @@ internal sealed class SimGrid : IDisposable
         }
 
         UnityEngine.Object.Destroy(Target);
+        UnityEngine.Object.Destroy(Layers);
         _bedRows?.Release();
     }
 
