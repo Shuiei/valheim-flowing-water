@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Linq;
 using BepInEx;
 using BepInEx.Logging;
 using FlowingWater.Server;
@@ -27,6 +30,9 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
     private VoxelServer _server;
 
+    // The settings file, read again when it is written (no restart needed).
+    private FileWatch _settingsFile;
+
     internal static ManualLogSource Log { get; private set; }
 
     internal static Settings Settings { get; private set; }
@@ -39,6 +45,7 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     {
         Log = Logger;
         Settings = new Settings(Config);
+        _settingsFile = new FileWatch(() => File.GetLastWriteTimeUtc(Config.ConfigFilePath));
         _harmony = new Harmony(PluginId);
         _harmony.PatchAll(typeof(FlowingWaterPlugin).Assembly);
         ZNet.WorldSaveStarted += OnWorldSave;
@@ -49,6 +56,11 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void Update()
     {
+        if (_settingsFile.Changed(Time.realtimeSinceStartup))
+        {
+            ReadSettingsAgain();
+        }
+
         // The source and drain panel, before the water: a fault in it turns it off and leaves the water's frame be.
         Client.MarkerPanel.Tick();
         if (ZNet.instance == null || ZDOMan.instance == null)
@@ -83,6 +95,51 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
 
         _server.Update(Time.deltaTime);
     }
+
+    // The settings as the file has them now: what reads a setting reads it as it goes (each frame, each scan, each
+    // placing), and what must act at once on a change (the shader, the commands' rights) listens for it.
+    private void ReadSettingsAgain()
+    {
+        if (!File.Exists(Config.ConfigFilePath))
+        {
+            Logger.LogWarning($"Settings file {Config.ConfigFilePath} is gone: the settings stay as they are until it is written again");
+            return;
+        }
+
+        // Not saved while read: BepInEx saves on each setting changed, which, half way through the file, would write it
+        // over without the entries it has not read yet that no setting holds.
+        Dictionary<string, string> before = SettingValues();
+        bool save = Config.SaveOnConfigSet;
+        Config.SaveOnConfigSet = false;
+        try
+        {
+            Config.Reload();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Held by an editor, or not readable now: tried again at the next look, told once.
+            if (!_settingsFile.Again)
+            {
+                Logger.LogWarning($"Settings file {Config.ConfigFilePath} could not be read, tried again each second: {e.Message}");
+            }
+
+            return;
+        }
+        finally
+        {
+            Config.SaveOnConfigSet = save;
+        }
+
+        _settingsFile.Read();
+        List<string> changed = FileWatch.Changes(before, SettingValues());
+        if (changed.Count > 0)
+        {
+            Logger.LogInfo($"Settings read again from {Path.GetFileName(Config.ConfigFilePath)}: {string.Join(", ", changed)}");
+        }
+    }
+
+    private Dictionary<string, string> SettingValues() =>
+        Config.ToDictionary(s => $"{s.Key.Section}.{s.Key.Key}", s => s.Value.GetSerializedValue());
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     private void OnDestroy()
