@@ -28,23 +28,25 @@ internal sealed class SurfaceGrid
     /// <summary>Rows over and under the brick looked at for a column's top when it has none in the brick's own.</summary>
     public const int Window = VoxelSurface.MaxStep;
 
-    /// <summary>Water thinner than this, metres, is not shown.</summary>
-    public const float HideDepth = 0.01f;
-
-    /// <summary>Water this deep, metres, is fully shown; thinner, it fades.</summary>
-    public const float ShowDepth = 0.03f;
-
     /// <summary>Falling this fast, metres a second, the water is all foam.</summary>
     public const float FoamFall = 4f;
 
+    /// <summary>The thinnest water drawn: <see cref="Drawing.HideDepth"/> (kept for the server's sends, which read it here).</summary>
+    public const float HideDepth = Drawing.HideDepth;
+
+    /// <summary>
+    /// How many bricks over one its grid may read: a column's depth is measured <see cref="VoxelSurface.DeepestColumn"/>
+    /// rows down from a top, which may be up to <see cref="Window"/> rows under the brick drawing it.
+    /// </summary>
+    public const int BricksOver = (VoxelSurface.DeepestColumn + Window + Brick.Size - 1) / Brick.Size;
+
     /// <summary>
     /// The bricks whose grid reads a brick's water, from it: those west and south of it (their last columns are its
-    /// first), one under it (a top up to <see cref="Window"/> rows over its own), and those over it as far as a column's
-    /// depth reaches down from a top (<see cref="VoxelSurface.DeepestColumn"/> rows, from a top up to Window rows
-    /// under the brick drawing it).
+    /// first), one under it (a top up to <see cref="Window"/> rows over its own), and those over it up to
+    /// <see cref="BricksOver"/> bricks.
     /// </summary>
     public static IReadOnlyList<(int X, int Y, int Z)> Readers { get; } =
-        [.. from dx in new[] { -1, 0 } from dz in new[] { -1, 0 } from dy in Enumerable.Range(-1, ((VoxelSurface.DeepestColumn + Window + Brick.Size - 1) / Brick.Size) + 2) where dx != 0 || dy != 0 || dz != 0 select (dx, dy, dz)];
+        [.. from dx in new[] { -1, 0 } from dz in new[] { -1, 0 } from dy in Enumerable.Range(-1, BricksOver + 2) where dx != 0 || dy != 0 || dz != 0 select (dx, dy, dz)];
 
     /// <summary>The grid of this brick.</summary>
     public SurfaceGrid(int x, int y, int z, float voxelSize)
@@ -100,6 +102,7 @@ internal sealed class SurfaceGrid
         var grid = new SurfaceGrid(x, y, z, field.VoxelSize);
         int floor = y * Brick.Size;
         bool[] found = new bool[Side * Side];
+        var column = new Column(field);
         for (int j = 0; j < Side; j++)
         {
             for (int i = 0; i < Side; i++)
@@ -107,21 +110,21 @@ internal sealed class SurfaceGrid
                 int vx = (x * Brick.Size) + i;
                 int vz = (z * Brick.Size) + j;
                 int k = Index(i, j);
-                if (!Top(field, vx, vz, floor, out int top, out bool own))
+                column.At(vx, vz);
+                if (!Top(column, floor, out int top, out bool own))
                 {
                     continue;
                 }
 
                 found[k] = true;
-                float level = field.Level(vx, top, vz);
-                float depth = level - field.Floor(vx, Bottom(field, vx, top, vz), vz);
+                float level = column.Level(top);
+                float depth = level - column.Floor(Bottom(column, top));
                 grid.Height[k] = level - (floor * field.VoxelSize);
                 grid.Depth[k] = depth;
-                grid.Shown[k] = Clamp((depth - HideDepth) / (ShowDepth - HideDepth));
+                grid.Shown[k] = Clamp((depth - Drawing.HideDepth) / (Drawing.ShowDepth - Drawing.HideDepth));
                 grid.Own[k] = own ? 1f : 0f;
-                if (field.Find(vx >> 4, top >> 4, vz >> 4) is { } view)
+                if (column.Voxel(top, out BrickView view, out int v))
                 {
-                    int v = Brick.Index(vx & 15, top & 15, vz & 15);
                     grid.CurrentX[k] = view.VelocityX[v];
                     grid.CurrentZ[k] = view.VelocityZ[v];
                     grid.Foam[k] = Clamp(-view.VelocityY[v] / FoamFall);
@@ -231,7 +234,7 @@ internal sealed class SurfaceGrid
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
 
     // The column's top: the highest in the brick's rows, else the nearest within Window rows over or under them.
-    private static bool Top(VoxelField field, int x, int z, int floor, out int top, out bool own)
+    private static bool Top(Column column, int floor, out int top, out bool own)
     {
         int ceiling = floor + Brick.Size - 1;
         top = 0;
@@ -239,7 +242,7 @@ internal sealed class SurfaceGrid
         int nearest = int.MaxValue;
         for (int y = ceiling + Window; y >= floor - Window; y--)
         {
-            if (!field.IsWet(x, y, z) || field.GoesUp(x, y, z))
+            if (!column.IsWet(y) || column.GoesUp(y))
             {
                 continue;
             }
@@ -263,15 +266,66 @@ internal sealed class SurfaceGrid
     }
 
     // The lowest voxel the top's water goes down to: the first without water under it, at most DeepestColumn down.
-    private static int Bottom(VoxelField field, int x, int top, int z)
+    private static int Bottom(Column column, int top)
     {
         int bottom = top;
-        while (top - bottom < VoxelSurface.DeepestColumn && field.IsWet(x, bottom - 1, z) && field.GoesUp(x, bottom - 1, z))
+        while (top - bottom < VoxelSurface.DeepestColumn && column.IsWet(bottom - 1) && column.GoesUp(bottom - 1))
         {
             bottom--;
         }
 
         return bottom;
+    }
+
+    // One column of voxels (x, z) of the field, walked up and down: the brick a row is in is looked up once for all
+    // the rows in it, not once a row (a grid's columns walk some twenty rows each, and a few lookups a row added up to
+    // tens of thousands a grid).
+    private sealed class Column
+    {
+        private readonly VoxelField _field;
+
+        private int _x;
+
+        private int _z;
+
+        // The brick last looked up, and its row in bricks (none yet: one that no row is in).
+        private BrickView _view;
+
+        private int _viewY = int.MinValue;
+
+        public Column(VoxelField field)
+        {
+            _field = field;
+        }
+
+        public void At(int x, int z)
+        {
+            _x = x;
+            _z = z;
+            _viewY = int.MinValue;
+        }
+
+        public bool Voxel(int y, out BrickView view, out int index)
+        {
+            int by = Brick.Of(y);
+            if (by != _viewY)
+            {
+                _viewY = by;
+                _view = _field.Find(Brick.Of(_x), by, Brick.Of(_z));
+            }
+
+            view = _view;
+            index = Brick.Index(Brick.In(_x), Brick.In(y), Brick.In(_z));
+            return view != null;
+        }
+
+        public bool IsWet(int y) => Voxel(y, out BrickView view, out int i) && VoxelField.IsWet(view, i);
+
+        public bool GoesUp(int y) => Voxel(y + 1, out BrickView view, out int i) && VoxelField.IsWet(view, i) && view.Solid[i] <= 0f;
+
+        public float Level(int y) => (y + (Voxel(y, out BrickView view, out int i) ? Math.Min(1f, view.Solid[i] + view.Water[i]) : 0f)) * _field.VoxelSize;
+
+        public float Floor(int y) => (y + (Voxel(y, out BrickView view, out int i) ? view.Solid[i] : 0f)) * _field.VoxelSize;
     }
 
     // Columns with no top take the mean height of those beside them that have one (twice over, so a column two from
