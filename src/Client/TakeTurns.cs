@@ -14,9 +14,6 @@ internal sealed class TakeTurns<T>
 
     private readonly HashSet<T> _queued = [];
 
-    /// <summary>How many wait.</summary>
-    public int Count => _waiting.Count;
-
     /// <summary>Puts this at the back, unless it waits already (then it keeps its place).</summary>
     /// <param name="item">What waits.</param>
     public void Add(T item)
