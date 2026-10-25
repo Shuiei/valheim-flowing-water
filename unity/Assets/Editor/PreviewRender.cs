@@ -33,6 +33,8 @@ public static class PreviewRender
             Shot(output, "stream", new Vector3(30f, 42f, 30f), new Vector3(50f, 30f, 55f), 1280, 720);
             Shot(output, "pool", new Vector3(60f, 24f, 10f), new Vector3(48f, 14f, 22f), 1280, 720);
             Shot(output, "above", new Vector3(52f, 40f, 48f), new Vector3(50f, 26f, 58f), 1280, 720);
+            Shot(output, "rivulet", new Vector3(30f, ground[30, 72] + 5f, 72f), new Vector3(22f, ground[22, 58], 58f), 1280, 720);
+            Shot(output, "puddle", new Vector3(78f, ground[78, 34] + 4f, 34f), new Vector3(72f, ground[72, 42], 42f), 1280, 720);
             Debug.Log($"FlowingWater: preview written to {output}");
         }
         catch (Exception e)
@@ -62,7 +64,8 @@ public static class PreviewRender
         return h;
     }
 
-    // A plausible stream: water along the low line, a pool filling the basin to its rim.
+    // A plausible stream: water along the low line, a pool filling the basin to its rim; on the valley's side a rivulet
+    // a few centimetres deep, as a source's water runs down the ground, and a still puddle as shallow.
     private static void Water(float[,] ground, out float[,] depth, out Vector2[,] current)
     {
         depth = new float[Size + 1, Size + 1];
@@ -76,8 +79,15 @@ public static class PreviewRender
                 float across = Mathf.Abs(x - thalweg);
                 float stream = z > 22 && z < 92 ? Mathf.Max(0f, 0.6f - (across * across * 0.012f)) : 0f;
                 float pool = Mathf.Max(0f, poolLevel - ground[x, z]);
-                float d = Mathf.Max(stream, pool);
+                float rivulet = z > 40 && z < 86 ? Mathf.Max(0f, 0.08f - (Mathf.Abs(x - 22) * 0.03f)) : 0f;
+                float puddle = x >= 70 && x <= 74 && z >= 40 && z <= 44 ? 0.05f : 0f;
+                float d = Mathf.Max(Mathf.Max(stream, pool), Mathf.Max(rivulet, puddle));
                 depth[x, z] = d;
+                if (rivulet > 0f)
+                {
+                    current[x, z] = new Vector2(0f, -1.2f);
+                }
+
                 if (stream > pool && stream > 0f)
                 {
                     float dx = 0.7f * Mathf.Cos(z * 0.07f);

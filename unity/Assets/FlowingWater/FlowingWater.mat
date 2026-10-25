@@ -89,10 +89,8 @@ Material:
     - _RefractionMax: 0.01
     - _RefractionScale: 0.1
     - _RippleScale: 0.3
-    - _RunningOffset: 0.02
-    - _ShoreFade: 0.1
+    - _ShoreFade: 0.02
     - _ShoreFoam: 0.1
-    - _ShoreOffset: 0.15
     - _Smoothness: 0.92
     - _StillScale: 0.12
     - _StillSpeed: 0.05

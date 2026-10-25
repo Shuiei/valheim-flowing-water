@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.21.1 — 2026-10-24
+
+### Fixed
+- Shallow water shows again: a source's stream and puddles a few centimetres deep were drawn see-through, so only
+  deep pools could be seen.
+
 ## v0.21.0 — 2026-10-24
 
 ### Changed

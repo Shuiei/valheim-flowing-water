@@ -17,8 +17,9 @@
 // Light: what lies behind the surface (the scene, grabbed once a frame, bent by the ripples) is seen through thin
 // water, tinted by the surface colour; deeper water takes the bottom colour instead, from shallow to deep with the
 // water's depth, over DepthFade metres of water behind the surface. The surface itself is lit by the game's lights
-// and sky (smooth, so it mirrors them). At the shore it fades out with the scene's depth behind it, with a band of
-// foam just off the water's edge.
+// and sky (smooth, so it mirrors them). Where it meets the ground it fades out over the last ShoreFade metres of
+// water in front of the scene (only that: the surface lies on the water's own top, so shallow water is drawn, unlike
+// the sea's flat plane, which hides its shallows), with a band of foam just off the water's edge.
 Shader "FlowingWater/Water"
 {
     Properties
@@ -38,7 +39,7 @@ Shader "FlowingWater/Water"
         _NormalScale ("Ripple tiling (per metre)", Float) = 0.04
         _WaveVel ("Ripple drift", Float) = 1
         _DepthFade ("Metres of water that hide what is behind", Float) = 15
-        _ShoreFade ("Shore fade (m)", Float) = 0.1
+        _ShoreFade ("Water in front of the ground over which the edge fades (m)", Float) = 0.02
         _FoamDepth ("Shore foam band (m)", Float) = 0.2
         _RefractionScale ("Refraction", Float) = 0.1
         _RefractionMax ("Refraction at most (share of the screen)", Float) = 0.01
@@ -52,8 +53,6 @@ Shader "FlowingWater/Water"
         _FlowFull ("Current at which it fully runs (m/s)", Float) = 0.5
         _RapidsSpeed ("Current that makes full foam (m/s)", Float) = 4
         _RapidsTiling ("Rapids foam tiling (per metre)", Float) = 0.35
-        _ShoreOffset ("Still water thinner than this (m) is not seen", Float) = 0.15
-        _RunningOffset ("Running water thinner than this (m) is not seen", Float) = 0.02
         _EdgeFade ("Edge fade (shown share)", Range(0.01, 1)) = 0.3
 
         // Each brick's (set per renderer).
@@ -120,8 +119,6 @@ Shader "FlowingWater/Water"
         float _FlowFull;
         float _RapidsSpeed;
         float _RapidsTiling;
-        float _ShoreOffset;
-        float _RunningOffset;
         float _EdgeFade;
 
         // The game's own, set for every shader: its two winds (x, z its direction, w its strength) and how far it
@@ -326,8 +323,8 @@ Shader "FlowingWater/Water"
             float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
             float hidden = sqrt(saturate(abs(bent - eye) / _DepthFade));
 
-            // The shore: how much water there is in front of what is behind (the ripples move it a little).
-            float shoreLine = abs(straight - eye) - (0.4 * n.y) - lerp(_ShoreOffset, _RunningOffset, running);
+            // The shore: how much water there is in front of what is behind.
+            float shoreLine = abs(straight - eye);
             float shore = saturate(shoreLine / _ShoreFade);
             float band = saturate(shoreLine / _FoamDepth);
 
@@ -360,7 +357,7 @@ Shader "FlowingWater/Water"
             o.Normal = n;
             o.Metallic = _Metallic * (1.0 - foam);
             o.Smoothness = lerp(gloss, 0.1, foam);
-            o.Alpha = shore * shore * smoothstep(0.0, _EdgeFade, saturate(i.water.z));
+            o.Alpha = shore * smoothstep(0.0, _EdgeFade, saturate(i.water.z));
         }
         ENDCG
     }
