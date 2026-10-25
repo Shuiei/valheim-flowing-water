@@ -45,7 +45,8 @@ drain given a rate (a drain of rate 0 still takes everything that reaches it). A
 
 ## Settings
 
-`BepInEx/config/Tie.FlowingWater.cfg`. The main ones:
+`BepInEx/config/Tie.FlowingWater.cfg`. Saving the file is enough, no restart needed: the server and each game read it
+again within a couple of seconds. The main ones:
 
 | Setting | Default | What |
 |---|---|---|

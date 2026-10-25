@@ -65,7 +65,8 @@ everything that reaches it.
 
 ## Settings
 
-`BepInEx/config/Tie.FlowingWater.cfg`:
+`BepInEx/config/Tie.FlowingWater.cfg`. Saving the file is enough: the server and each game read it again within a
+couple of seconds, no restart needed, and log the settings that changed.
 
 | Setting | Default | What |
 |---|---|---|
@@ -108,7 +109,7 @@ of water on a desktop PC (the game's server runs the same work about 3 times slo
 The data sent to players and the server's memory grow with the blocks. 1 m suits most servers; 0.5 is for builds
 and small streams, 0.25 for tests. The blocks of voxels are stepped in parallel, so the server's cost spreads over
 its cores. Changing the setting moves the water already
-there to the new grid (same volume), at the next start or at once with a config manager.
+there to the new grid (same volume), at once when the file is saved.
 
 ## How it works
 

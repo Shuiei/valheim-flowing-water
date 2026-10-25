@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.22.0 — 2026-10-24
+
+### Added
+- Settings take effect when `Tie.FlowingWater.cfg` is saved, on the server and in each game, without a restart; the
+  log lists the settings that changed.
+
 ## v0.21.1 — 2026-10-24
 
 ### Fixed
