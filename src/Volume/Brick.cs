@@ -278,8 +278,9 @@ internal sealed class Brick
             bool closed;
             if (next == null)
             {
+                // Its own face (east, up, north) closed by a piece, or shut against a brick forgotten there.
                 int face = Face(axis, i);
-                closed = !inside && (_shut[(side * 4) + (face >> 6)] & (1UL << (face & 63))) != 0;
+                closed = (far && (Closed[i] & bit) != 0) || (_shut[(side * 4) + (face >> 6)] & (1UL << (face & 63))) != 0;
             }
             else
             {

@@ -83,7 +83,7 @@ internal sealed class VoxelShell
             int open = view.Open[i];
             if (Falling(field, view, i, x, y, z, open))
             {
-                shell.Fall(field, at, water);
+                shell.Fall(field, at, water, open);
             }
             else
             {
@@ -130,19 +130,23 @@ internal sealed class VoxelShell
         }
     }
 
-    // Water falling: a column through the whole voxel, as wide as its water, capped where the fall starts and ends.
-    private void Fall(VoxelField field, Voxel at, float water)
+    // Water falling: a column through the whole voxel, as wide as its water, capped where the fall starts and ends;
+    // never a side or a cap on a face a piece closes (behind it, it would show through it).
+    private void Fall(VoxelField field, Voxel at, float water, int open)
     {
         float s = at.Size;
         float width = Math.Max(NarrowestFall, Math.Min(WidestFall, (float)Math.Sqrt(water))) * s;
         float bottom = at.Y * s, top = (at.Y + 1) * s;
         float foam = 0.6f + (0.4f * Clamp(-at.VY / FoamFall));
-        foreach ((int dx, int dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+        foreach ((int side, int dx, int dz) in new[] { (0, 1, 0), (1, -1, 0), (4, 0, 1), (5, 0, -1) })
         {
-            at.Side(this, dx, dz, width * 0.5f, bottom, top, foam, 0.85f);
+            if ((open & (1 << side)) != 0)
+            {
+                at.Side(this, dx, dz, width * 0.5f, bottom, top, foam, 0.85f);
+            }
         }
 
-        if (!field.IsWet(at.X, at.Y + 1, at.Z))
+        if ((open & (1 << 2)) != 0 && !field.IsWet(at.X, at.Y + 1, at.Z))
         {
             at.Horizontal(this, top, true, width * 0.5f, foam, 0.85f);
         }
@@ -183,22 +187,16 @@ internal sealed class VoxelShell
         Triangles.Add(a + 3);
     }
 
-    // A voxel being drawn: where it is, its middle's place from the brick's middle, its current.
-    private readonly struct Voxel
+    // A voxel being drawn: where it is, its size, the brick's middle (where the corners are measured from), its current.
+    private readonly struct Voxel : IEquatable<Voxel>
     {
-        private readonly float _mx;
-        private readonly float _mz;
-        private readonly (float X, float Y, float Z) _middle;
-
         public Voxel(int x, int y, int z, float size, (float X, float Y, float Z) middle, float vx, float vy, float vz)
         {
             X = x;
             Y = y;
             Z = z;
             Size = size;
-            _middle = middle;
-            _mx = (x + 0.5f) * size;
-            _mz = (z + 0.5f) * size;
+            Middle = middle;
             VX = vx;
             VY = vy;
             VZ = vz;
@@ -212,18 +210,37 @@ internal sealed class VoxelShell
 
         public float Size { get; }
 
+        public (float X, float Y, float Z) Middle { get; }
+
         public float VX { get; }
 
         public float VY { get; }
 
         public float VZ { get; }
 
+        // Its middle's place, world metres.
+        private float MX => (X + 0.5f) * Size;
+
+        private float MZ => (Z + 0.5f) * Size;
+
+        public static bool operator ==(Voxel a, Voxel b) => a.Equals(b);
+
+        public static bool operator !=(Voxel a, Voxel b) => !a.Equals(b);
+
+        public bool Equals(Voxel other) =>
+            X == other.X && Y == other.Y && Z == other.Z && Size.Equals(other.Size) && Middle.Equals(other.Middle)
+            && VX.Equals(other.VX) && VY.Equals(other.VY) && VZ.Equals(other.VZ);
+
+        public override bool Equals(object obj) => obj is Voxel other && Equals(other);
+
+        public override int GetHashCode() => unchecked((((((X * 397) ^ Y) * 397) ^ Z) * 397) ^ Size.GetHashCode());
+
         // A side facing (dx, dz), reach metres from the voxel's middle, from bottom to top (world heights).
         public void Side(VoxelShell shell, int dx, int dz, float reach, float bottom, float top, float foam, float shown)
         {
             // Across the face, to the right seen from outside (for the east face, north).
             float ax = -dz, az = dx;
-            float fx = _mx + (dx * reach), fz = _mz + (dz * reach);
+            float fx = MX + (dx * reach), fz = MZ + (dz * reach);
             (float X, float Y, float Z) n = (dx, 0f, dz);
             float along = (VX * ax) + (VZ * az);
             float uA = (fx * ax) + (fz * az);
@@ -233,7 +250,7 @@ internal sealed class VoxelShell
                 float side = k < 2 ? -reach : reach;
                 float h = k is 0 or 3 ? bottom : top;
                 float px = fx + (ax * side), pz = fz + (az * side);
-                shell.Corner(px - _middle.X, h - _middle.Y, pz - _middle.Z, n, uA + side, h, foam, shown, along, VY);
+                shell.Corner(px - Middle.X, h - Middle.Y, pz - Middle.Z, n, uA + side, h, foam, shown, along, VY);
             }
 
             shell.Quad();
@@ -249,7 +266,7 @@ internal sealed class VoxelShell
                 : [(-reach, -reach), (reach, -reach), (reach, reach), (-reach, reach)];
             foreach ((float a, float b) in corners)
             {
-                shell.Corner(_mx + a - _middle.X, height - _middle.Y, _mz + b - _middle.Z, n, _mx + a, _mz + b, foam, shown, VX, VZ);
+                shell.Corner(MX + a - Middle.X, height - Middle.Y, MZ + b - Middle.Z, n, MX + a, MZ + b, foam, shown, VX, VZ);
             }
 
             shell.Quad();

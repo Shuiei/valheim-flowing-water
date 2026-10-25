@@ -72,10 +72,28 @@ public class VoxelShellTests
 
         Assert.Equal((4 * 4) + 2, shell.Faces);
         var corners = Corners(shell).ToList();
-        Assert.Equal(4f - 8f, corners.Min(c => c.Y), 3);
-        Assert.Equal(8f - 8f, corners.Max(c => c.Y), 3);
+        // From 4 m to 8 m, measured from the brick's middle at 8 m.
+        Assert.Equal(-4f, corners.Min(c => c.Y), 3);
+        Assert.Equal(0f, corners.Max(c => c.Y), 3);
         Assert.Equal(0.15f, corners.Max(c => c.X) - 0.5f, 3);
         Assert.All(Enumerable.Range(0, shell.Water.Count / 2), k => Assert.Equal(1f, shell.Water[2 * k], 3));
+    }
+
+    [Fact]
+    public void AFallAgainstAWallShowsNoSideOrCapOnTheFacesTheWallCloses()
+    {
+        // Two voxels of falling water with a wall on their east faces, the upper one's top closed by a floor over it.
+        var view = new BrickView(0, 0, 0, 1f);
+        int allButEast = BrickData.AllOpen & ~East;
+        Wet(view, 8, 4, 8, 0.09f, allButEast);
+        Wet(view, 8, 5, 8, 0.09f, allButEast & ~Up);
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        // Three sides each, the bottom cap, no top cap, nothing facing east.
+        Assert.Equal((2 * 3) + 1, shell.Faces);
+        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f));
+        Assert.DoesNotContain(Corners(shell), c => c.Normal == (0f, 1f, 0f));
     }
 
     [Fact]

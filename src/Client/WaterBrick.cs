@@ -531,7 +531,7 @@ internal sealed class WaterBrick : MonoBehaviour
             try
             {
                 Waiting.Serve(
-                    brick => brick == null || (!brick._building.Busy && !brick._gridBuilding.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
+                    brick => brick == null || (!brick._building.Busy && !brick._gridBuilding.Busy && !brick._shellBuilding.Busy && Time.time - brick._drawnAt >= RedrawSeconds),
                     InBudget,
                     brick => Timed(brick, b => b.Build()));
             }
@@ -622,6 +622,17 @@ internal sealed class WaterBrick : MonoBehaviour
     private void Take()
     {
         TakeShell();
+        TakeSurface();
+
+        // A build still under way (one finished before it): the brick waits to be served again for it.
+        if (_building.Busy || _gridBuilding.Busy || _shellBuilding.Busy)
+        {
+            Built.Add(this);
+        }
+    }
+
+    private void TakeSurface()
+    {
         if (_gridBuilding.TryTake(out SurfaceGrid grid, out Exception gridFailure))
         {
             if (gridFailure != null)
@@ -638,7 +649,6 @@ internal sealed class WaterBrick : MonoBehaviour
                 Waiting.Add(this);
             }
 
-            TakeAgain();
             return;
         }
 
@@ -673,7 +683,6 @@ internal sealed class WaterBrick : MonoBehaviour
         }
 
         Apply(shape);
-        TakeAgain();
     }
 
     // A built surface handed to the mesh.
@@ -727,15 +736,6 @@ internal sealed class WaterBrick : MonoBehaviour
 
         _shell ??= new ShellRenderer(transform);
         _shell.Show(shell, material, Lift);
-    }
-
-    // A build still under way when another was taken: the brick waits to be served again for it.
-    private void TakeAgain()
-    {
-        if (_building.Busy || _gridBuilding.Busy || _shellBuilding.Busy)
-        {
-            Built.Add(this);
-        }
     }
 
     // A grid built, handed to the card: the shared grid drawn with the mod's own shader, the brick's textures blending

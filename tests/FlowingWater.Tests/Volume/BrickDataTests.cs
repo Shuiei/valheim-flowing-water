@@ -194,6 +194,10 @@ public class BrickDataTests
 
         Assert.Equal((1 << 2) | (1 << 4) | (1 << 5), view.Open[i]);
         Assert.Equal(BrickData.AllOpen & ~(1 << 3), view.Open[edge]);
+
+        // Its own east face closed by a piece, with still no brick beside it: closed.
+        brick.Closed[edge] = Brick.ClosedX;
+        Assert.Equal(BrickData.AllOpen & ~(1 << 3) & ~(1 << 0), BrickData.Decode(BrickData.Encode(brick, 1f)).Open[edge]);
         Assert.Equal(0, view.Open[Brick.Index(6, 5, 5)]);
     }
 
