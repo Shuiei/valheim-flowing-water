@@ -15,7 +15,8 @@ or the sea takes it. Dig a channel with the pickaxe and the river follows it.
 
 Status: **a prototype.** The flow model is a shallow-water one on a grid of cells (one metre by default,
 fifteen steps a second); it is tuned for rivers and ponds, not for
-waves or splashes. Buildings do not hold water yet: only the terrain does.
+waves or splashes. What players build holds water as the terrain does (walls, floors, a pool on posts, a plank
+chute).
 
 ## Placing water
 

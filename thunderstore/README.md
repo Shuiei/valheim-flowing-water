@@ -10,8 +10,8 @@ the river follows it.
   placed and sail on it. The game's own water checks (fishing, building, creatures) see it too. Running water
   is silent and throws no spray for now: its sound and spray come back in a later version.
 
-**A prototype.** The flow is tuned for rivers and ponds, not for waves. Buildings do not
-hold water yet: only the terrain does.
+**A prototype.** The flow is tuned for rivers and ponds, not for waves. What you build holds water as the terrain
+does: walls, floors, a pool on posts, a plank chute or slide the water runs down.
 
 ## Install
 
