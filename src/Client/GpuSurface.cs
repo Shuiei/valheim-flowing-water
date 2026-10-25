@@ -8,9 +8,9 @@ namespace FlowingWater.Client;
 /// <summary>
 /// A brick's water surface as the graphics card shapes it (the mod's own shader): one fixed grid for every brick of a
 /// voxel size, raised by the shader to the brick's <see cref="SurfaceGrid"/>, held in two small textures per state (the
-/// previous and the next), blended over the time between the server's changes. A new grid coming part way is blended
-/// to from the surface as it is drawn then, so the water never jumps; only the textures change, nothing is built in the
-/// game's frame.
+/// previous and the next), blended over the time between the server's changes (<see cref="BlendClock"/>, one for every
+/// brick). A new grid coming part way is blended to from the surface as it is drawn then, so the water never jumps;
+/// only the textures change, nothing is built in the game's frame.
 /// </summary>
 internal sealed class GpuSurface : IDisposable
 {
@@ -29,16 +29,21 @@ internal sealed class GpuSurface : IDisposable
     // The grid of each voxel size (the server's setting, the same for every brick).
     private static readonly Dictionary<float, Mesh> Grids = [];
 
-    private readonly Texture2D _surfacePrev = Texture("prev surface");
-    private readonly Texture2D _surfaceNext = Texture("next surface");
-    private readonly Texture2D _flowPrev = Texture("prev current");
-    private readonly Texture2D _flowNext = Texture("next current");
     private readonly float[] _pixels = new float[SurfaceGrid.Side * SurfaceGrid.Side * 4];
+
+    // The two textures of each kind change hands: once a blend is done, the next is the previous of the one after.
+    private Texture2D _surfacePrev = Texture("prev surface");
+    private Texture2D _surfaceNext = Texture("next surface");
+    private Texture2D _flowPrev = Texture("prev current");
+    private Texture2D _flowNext = Texture("next current");
 
     private SurfaceGrid _from;
     private SurfaceGrid _to;
     private float _start;
     private float _time = 1f;
+
+    /// <summary>A surface drawing nothing yet, its textures handed to the shader once.</summary>
+    public GpuSurface() => SetTextures();
 
     /// <summary>What the brick's renderer hands the shader.</summary>
     public MaterialPropertyBlock Properties { get; } = new();
@@ -100,26 +105,43 @@ internal sealed class GpuSurface : IDisposable
     }
 
     /// <summary>
-    /// A new grid for the brick, blended to over this long from the surface as it is drawn now.
+    /// A new grid for the brick, blended to from the surface as it is drawn now, from <paramref name="start"/> over
+    /// <paramref name="time"/> seconds (the clock every brick shares, so that bricks side by side move as one).
     /// </summary>
     /// <param name="grid">The brick's new surface.</param>
     /// <param name="now">The time now, as the shader has it (seconds since the scene loaded).</param>
+    /// <param name="start">When the blend began, on the same clock.</param>
     /// <param name="time">How long the blend takes, seconds.</param>
     /// <param name="lift">Metres the surface is drawn higher, for testing.</param>
-    public void Show(SurfaceGrid grid, float now, float time, float lift)
+    public void Show(SurfaceGrid grid, float now, float start, float time, float lift)
     {
-        _from = _to == null ? grid : SurfaceGrid.Blend(_from, _to, (now - _start) / _time);
+        if (_to == null)
+        {
+            // The first grid: drawn as it is, nothing to blend from.
+            _from = grid;
+            Upload(_from, _surfacePrev, _flowPrev);
+        }
+        else if (now - _start >= _time)
+        {
+            // The last blend is done: what was next is drawn whole, and is what the new blend starts from. Its textures
+            // hold it already: they become the previous ones, and only the new grid is uploaded.
+            _from = _to;
+            (_surfacePrev, _surfaceNext) = (_surfaceNext, _surfacePrev);
+            (_flowPrev, _flowNext) = (_flowNext, _flowPrev);
+            SetTextures();
+        }
+        else
+        {
+            _from = SurfaceGrid.Blend(_from, _to, (now - _start) / _time);
+            Upload(_from, _surfacePrev, _flowPrev);
+        }
+
         _to = grid;
-        _start = now;
+        _start = start;
         _time = time;
         Draws = SurfaceGrid.DrawsAny(_from, _to);
-        Upload(_from, _surfacePrev, _flowPrev);
         Upload(_to, _surfaceNext, _flowNext);
-        Properties.SetTexture(SurfacePrevId, _surfacePrev);
-        Properties.SetTexture(SurfaceNextId, _surfaceNext);
-        Properties.SetTexture(FlowPrevId, _flowPrev);
-        Properties.SetTexture(FlowNextId, _flowNext);
-        Properties.SetFloat(BlendStartId, now);
+        Properties.SetFloat(BlendStartId, start);
         Properties.SetFloat(BlendTimeId, time);
         Properties.SetFloat(VoxelSizeId, grid.VoxelSize);
         Properties.SetFloat(LiftId, lift);
@@ -139,6 +161,15 @@ internal sealed class GpuSurface : IDisposable
         filterMode = FilterMode.Bilinear,
         wrapMode = TextureWrapMode.Clamp,
     };
+
+    // The textures as they stand, handed to the shader (once, and again when they change hands).
+    private void SetTextures()
+    {
+        Properties.SetTexture(SurfacePrevId, _surfacePrev);
+        Properties.SetTexture(SurfaceNextId, _surfaceNext);
+        Properties.SetTexture(FlowPrevId, _flowPrev);
+        Properties.SetTexture(FlowNextId, _flowNext);
+    }
 
     private void Upload(SurfaceGrid grid, Texture2D surface, Texture2D flow)
     {

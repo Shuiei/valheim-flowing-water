@@ -12,25 +12,24 @@ namespace FlowingWater.Server;
 /// <summary>
 /// The water on the server, in 3D: a <see cref="VoxelGrid"/> of the CellSize setting, moved by a
 /// <see cref="VoxelSolver"/>, over the ground and building pieces (<see cref="GameSolids"/>, kept up to date by a
-/// <see cref="SolidsWatch"/>). Sources pour at their point, drains take within their reach, the sea takes what
-/// reaches it. Each brick with water is kept in a FlowingWater_Brick object, which the game saves with the world and
-/// sends to the players near it. The water of the column tiles before (FlowingWater_Tile) is moved into voxels once.
+/// <see cref="SolidsWatch"/>). Sources pour at their point, drains take within their reach (<see cref="MarkerScan"/>
+/// finds them), the sea takes what reaches it. Each brick with water is kept in a FlowingWater_Brick object, which the
+/// game saves with the world and sends to the players near it. The water saved is read back as the world opens
+/// (<see cref="WorldLoad"/>), the column tiles of before (FlowingWater_Tile) moved into voxels once.
 /// </summary>
 internal sealed class VoxelServer : IBrickWorld<ZDOID>
 {
     // Longest frame stepped at once, seconds: a hitch is let go rather than stepped in one long go.
     private const float LongestFrame = 0.25f;
 
-    // Bricks a step works through between two looks at the frame's budget.
+    // Fewest bricks a step works through between two looks at the frame's budget (more with many bricks: each part is
+    // handed to the server's processors at once, which costs a little each time).
     private const int Chunk = 32;
 
     // Most water time owed to the water while the server cannot keep up, seconds: past it, time is given up.
     private const float MostOwed = 0.5f;
 
     private const float TerrainRefreshSeconds = 2f;
-
-    // The most of a frame looking for sources and drains may take, milliseconds (a part at least).
-    private const double MarkerBudget = 0.5;
 
     // The most of a frame packing bricks to send may take, milliseconds (a brick at least).
     private const double SendBudget = 2.0;
@@ -43,22 +42,13 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private readonly ZoneTerrain _terrain;
 
-    private readonly GameSolids _solids;
-
     private readonly SolidsWatch _watch;
 
     private readonly BrickObjects<ZDOID> _objects;
 
-    private readonly List<Source> _markers = [];
+    private readonly MarkerScan _markers;
 
     private readonly List<ZDO> _zdos = [];
-
-    // The look for sources and drains, over the whole world, spread over frames.
-    private readonly PrefabPass<ZDO> _markerPass;
-
-    private readonly Stopwatch _markerWatch = new();
-
-    private readonly HashSet<ZDOID> _markersSeen = [];
 
     // The voxels a drain takes from, the list kept from call to call (a drain looks every frame, most often finding
     // none) but emptied after each: it holds no brick a removed drain or a grid made anew would leave reachable.
@@ -98,7 +88,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private VoxelSolver _solver;
 
-    private readonly LookWait _scanWait = new();
+    private WorldLoad _load;
 
     private float _sendTimer;
 
@@ -112,29 +102,32 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private bool _slowWarned;
 
+    private bool _notNumbersWarned;
+
     private float _droppedInAll;
 
     // The points water was poured at that had no room, each told of once.
     private readonly NoRoom<Vector3> _noRoom = new(FlowingWaterPlugin.Log.LogWarning);
 
-    // What a source's or drain's rate and reach may be, each one held or left out told of once.
-    private readonly MarkerRules _rates = new(FlowingWaterPlugin.Log.LogWarning);
-
     // A voxel size refused because some water would have found no room (0: none), not tried again until it changes.
     private float _refusedSize;
 
     /// <summary>A server with an empty grid; the world's water is read on the first update.</summary>
-    public VoxelServer()
+    /// <param name="rightsFile">Where the sources and drains the server allowed are kept (<see cref="MarkerScan"/>).</param>
+    public VoxelServer(string rightsFile)
     {
         _terrain = new ZoneTerrain(_parts);
-        _solids = new GameSolids(_terrain, _parts);
-        _watch = new SolidsWatch(_solids, _terrain);
+        Solids = new GameSolids(_terrain, _parts);
+        _watch = new SolidsWatch(Solids, _terrain);
         _timeLeft = TimeLeft;
         _sendTimeLeft = () => _sendClock.Elapsed.TotalMilliseconds < SendBudget;
-        _markerPass = new PrefabPass<ZDO>([Prefabs.SourceName, Prefabs.DrainName], ZDOMan.instance.GetAllZDOsWithPrefabIterative);
+        _markers = new MarkerScan(rightsFile, _watch.Pinned, _terrain.HeightAt);
         _objects = new BrickObjects<ZDOID>(this);
         NewGrid(SettingVoxelSize());
     }
+
+    /// <summary>What the water sees as solid: the ground and the pieces, as read so far.</summary>
+    public GameSolids Solids { get; }
 
     /// <summary>One frame: sources and drains, the solids' changes, the water moved, the bricks sent.</summary>
     public void Update(float dt)
@@ -160,18 +153,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         ApplyVoxelSize();
-        // The markers found are swapped in once the look is over the whole world. The next look begins that long after
-        // the last one ended: in a world whose look takes longer than that, the look went on every frame.
-        if (_scanWait.Due(dt, FlowingWaterPlugin.Settings.MarkerScanSeconds.Value, _markerPass.Busy) && _markerPass.Start())
+        if (_markers.Update(dt, _parts))
         {
-            _scanWait.Began();
-        }
-
-        _parts.Into(WaterPart.Markers);
-        _markerWatch.Restart();
-        if (_markerPass.Run(() => _markerWatch.Elapsed.TotalMilliseconds < MarkerBudget))
-        {
-            ScanMarkers();
+            _noRoom.Pouring(point => _markers.Markers.Any(m => !m.Drain && PourPoint(m) == point));
         }
 
         _parts.Into(WaterPart.Terrain);
@@ -183,26 +167,16 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         _parts.Into(WaterPart.Other);
-
-        // While a step is under way (it stopped at the frame's budget), nothing else changes the grid or reads it.
         dt = Mathf.Min(dt, LongestFrame);
-        // Their time waits with them.
-        _waited += dt;
-        if (!_solver.InStep)
-        {
-            _parts.Into(WaterPart.Watch);
-            _refilled += _watch.Update(_waited, _grid);
-            _parts.Into(WaterPart.ForgetDry);
-            _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
-            _parts.Into(WaterPart.Other);
-            _waited = 0f;
-        }
 
+        // The solids watch and forgetting dry bricks wait for a step under way (nothing else changes the grid during
+        // one), their time with them: they have their turn between steps.
+        _waited += dt;
         _grid.MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value;
         _solver.SeaLevel = ZoneSystem.instance.m_waterLevel;
-        // Work that waited for a step under way gets its end: no new step is begun.
-        Step(dt, _waited > 0f);
+        Step(dt);
         WarnCapped();
+        WarnNotNumbers();
 
         // A send is spread over frames, a few bricks packed in each, and may go on while a step is under way (a brick
         // whose water the step changes after it was packed counts a change, and is sent again next time).
@@ -241,7 +215,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private bool Markers(float dt)
     {
         bool acted = false;
-        foreach (Source marker in _markers)
+        foreach (Source marker in _markers.Markers)
         {
             WaterPart was = _parts.Into(marker.Drain ? WaterPart.Drain : WaterPart.Pour);
             acted |= marker.Drain ? Drain(marker, dt) : Pour(marker, dt);
@@ -251,7 +225,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return acted;
     }
 
-    private bool TimeLeft() => _pacer.Left(_frameWatch.Elapsed.TotalMilliseconds) > 0.0;
+    private bool TimeLeft() => _pacer.Left((float)_frameWatch.Elapsed.TotalMilliseconds) > 0f;
 
     // A step's state after going on with it: done, its sources and drains for its time; not done, its time owed again;
     // nothing to step, its sources and drains still act for its time, and if none did, the rest of the time owed
@@ -278,24 +252,38 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     {
         while (_solver.InStep)
         {
-            Ended(_solver.Advance(_length, () => true, int.MaxValue));
+            Ended(_solver.Advance(_length, static () => true, int.MaxValue));
         }
     }
 
-    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts; with
-    // noNewStep, only the one under way is gone on with.
-    private void Step(float dt, bool noNewStep)
+    // The water's steps this frame: as many as the frame owes, a part at a time while the budget's credit lasts. What
+    // waited for a step under way has its turn once that step is done, whatever the credit (a frame over its budget
+    // must not keep a wall just built from the water), and again between two steps of the frame, so that the frame's
+    // credit is not given up with a step's end (it was, and the water fell behind the budget with every step that ran
+    // over a frame's end).
+    private void Step(float dt)
     {
-        double budget = FlowingWaterPlugin.Settings.StepBudget.Value;
+        float budget = FlowingWaterPlugin.Settings.StepBudget.Value;
         _pacer.Add(dt, budget);
         _stepWatch.Start();
         _frameWatch.Restart();
+        if (!_solver.InStep && _waited > 0f)
+        {
+            BetweenSteps();
+        }
+
+        int chunk = Math.Max(Chunk, _grid.Bricks.Count / Environment.ProcessorCount);
         while (TimeLeft())
         {
             if (!_solver.InStep)
             {
+                if (_waited > 0f)
+                {
+                    BetweenSteps();
+                }
+
                 float step = _solver.MaxStep;
-                if (noNewStep || !_pacer.Take(step))
+                if (!_pacer.Take(step))
                 {
                     break;
                 }
@@ -303,10 +291,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
                 _length = step;
             }
 
-            Ended(_solver.Advance(_length, _timeLeft, Chunk));
+            Ended(_solver.Advance(_length, _timeLeft, chunk));
         }
 
-        double spent = _frameWatch.Elapsed.TotalMilliseconds;
+        float spent = (float)_frameWatch.Elapsed.TotalMilliseconds;
         _pacer.Spent(spent);
         _longestFrame = Math.Max(_longestFrame, spent);
         _stepWatch.Stop();
@@ -320,6 +308,18 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             _slowWarned = true;
             FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: the water needs more than StepBudget ({budget:0} ms a frame) and slows down to keep the server's frames short"));
         }
+    }
+
+    // With no step under way: the solids' changes (pieces built or broken, the ground changed) and the dry bricks
+    // forgotten, for the time they waited.
+    private void BetweenSteps()
+    {
+        _parts.Into(WaterPart.Watch);
+        _refilled += _watch.Update(_waited, _grid);
+        _parts.Into(WaterPart.ForgetDry);
+        _grid.ForgetDry(_waited, FlowingWaterPlugin.Settings.EmptyTileSeconds.Value);
+        _parts.Into(WaterPart.Other);
+        _waited = 0f;
     }
 
     /// <summary>
@@ -342,8 +342,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private void NewGrid(float voxelSize)
     {
-        _grid = new VoxelGrid(voxelSize, _solids) { MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value };
+        _grid = new VoxelGrid(voxelSize, Solids) { MaxBricks = FlowingWaterPlugin.Settings.MaxBricks.Value };
         _solver = new VoxelSolver(_grid, _parts);
+        _load = new WorldLoad(_grid);
     }
 
     // A ZDO kept from frame to frame may be someone else's by now: the game hands a destroyed object's ZDO out again.
@@ -392,85 +393,52 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {_grid.VoxelSize} m voxels, {bricks:0.0} m³ read from bricks, {tiles:0.0} m³ moved over from column tiles"));
     }
 
+    // Each saved brick's water into the grid. A brick's object of the grid's own voxel size, whose brick is in the grid,
+    // is kept as that brick's (its next send writes it, unless it holds the brick as it is): made anew at every start,
+    // the whole water was sent twice, and one the server could not read into the grid was left beside the one it made
+    // later, drawn for ever and its water doubled at the next start. Every other object is destroyed once read: of
+    // another size, unreadable, past the grid's reach, with no room for its water, or a second one at a brick's place
+    // (whose water is not poured again).
     private float LoadBricks()
     {
         float total = 0f;
+        var adopted = new HashSet<long>();
         foreach (ZDO zdo in All(Prefabs.BrickName))
         {
             BrickView view = Read(zdo);
-            if (view == null)
+            if (view != null)
             {
-                continue;
+                bool fits = Array.IndexOf(TileData.CellSizes, view.VoxelSize) >= 0 && Math.Abs((long)view.X) <= VoxelGrid.MaxBrick && Math.Abs((long)view.Y) <= VoxelGrid.MaxBrick && Math.Abs((long)view.Z) <= VoxelGrid.MaxBrick;
+                bool same = fits && Mathf.Approximately(view.VoxelSize, _grid.VoxelSize);
+                long key = same ? VoxelGrid.Key(view.X, view.Y, view.Z) : 0L;
+                if (!fits)
+                {
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels cannot be read into the grid; removed, its water is lost"));
+                }
+                else if (same && adopted.Contains(key))
+                {
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: another object holds the brick at {view.X},{view.Y},{view.Z} already; removed, its water not poured again"));
+                }
+                else if (_load.PourView(view) is { } poured)
+                {
+                    total += poured;
+                }
+                else
+                {
+                    FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); removed, its water is lost"));
+                }
+
+                if (same && _grid.Find(view.X, view.Y, view.Z) is { } brick && adopted.Add(key))
+                {
+                    _objects.Adopt(key, zdo.m_uid, brick, zdo.GetByteArray(ZdoKeys.Brick), _grid.VoxelSize);
+                    continue;
+                }
             }
 
-            // A brick of a voxel size the setting cannot have, or beyond the grid's reach, is left as it was.
-            if (Array.IndexOf(TileData.CellSizes, view.VoxelSize) < 0 || Math.Abs((long)view.X) > VoxelGrid.MaxBrick || Math.Abs((long)view.Y) > VoxelGrid.MaxBrick || Math.Abs((long)view.Z) > VoxelGrid.MaxBrick)
-            {
-                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: brick {view.X},{view.Y},{view.Z} of {view.VoxelSize} m voxels cannot be read into the grid; left as it is"));
-                continue;
-            }
-
-            // Only a brick whose every voxel of water found room is taken over; another is kept as it is.
-            if (PourView(view) is not { } poured)
-            {
-                FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water brick {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); left as it is"));
-                continue;
-            }
-
-            total += poured;
             DestroyZdo(zdo);
         }
 
         return total;
-    }
-
-    // A saved brick's water into the grid: as it was when the voxels are the same size, else poured at each voxel's
-    // middle into the new grid's voxels. Nothing is poured (null) unless every voxel of water finds room.
-    private float? PourView(BrickView view)
-    {
-        float s = view.VoxelSize;
-        float volume = s * s * s;
-        var water = new List<(Vector3 Point, float Volume)>();
-        for (int i = 0; i < Brick.Count; i++)
-        {
-            if (view.Water[i] > Brick.Dry)
-            {
-                (int x, int y, int z) = Brick.Place(i);
-                water.Add((new Vector3(((view.X * Brick.Size) + x + 0.5f) * s, ((view.Y * Brick.Size) + y + 0.5f) * s, ((view.Z * Brick.Size) + z + 0.5f) * s), view.Water[i] * volume));
-            }
-        }
-
-        return PourAll(water);
-    }
-
-    // Water poured at points, all of it or none: null (nothing poured) unless each finds room, under the brick cap.
-    private float? PourAll(List<(Vector3 Point, float Volume)> water)
-    {
-        // Bricks made only to look for room are forgotten again when the water does not go in: they would hold
-        // places under MaxBricks for nothing.
-        var before = new HashSet<Brick>(_grid.Bricks);
-        var pours = new List<(int X, int Y, int Z, float Volume)>();
-        foreach ((Vector3 point, float volume) in water)
-        {
-            if (!Room(point, out int x, out int y, out int z))
-            {
-                foreach (Brick made in _grid.Bricks.Where(b => !before.Contains(b)).ToList())
-                {
-                    _grid.Forget(made);
-                }
-
-                return null;
-            }
-
-            pours.Add((x, y, z, volume));
-        }
-
-        foreach ((int x, int y, int z, float cubicMetres) in pours)
-        {
-            _grid.Pour(x, y, z, cubicMetres);
-        }
-
-        return pours.Sum(p => p.Volume);
     }
 
     private static BrickView Read(ZDO zdo)
@@ -478,6 +446,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         byte[] data = zdo.GetByteArray(ZdoKeys.Brick);
         if (data == null)
         {
+            FlowingWaterPlugin.Log.LogInfo($"Water brick {zdo.m_uid}: empty, removed");
             return null;
         }
 
@@ -487,7 +456,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
         catch (InvalidDataException e)
         {
-            FlowingWaterPlugin.Log.LogWarning($"Water brick {zdo.m_uid}: unreadable, its water is lost ({e.Message})");
+            FlowingWaterPlugin.Log.LogWarning($"Water brick {zdo.m_uid}: unreadable, removed; its water is lost ({e.Message})");
             return null;
         }
     }
@@ -506,7 +475,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             else if (TileWater(zdo, bytes) is { } water)
             {
                 // Like a saved brick: a tile whose water cannot all find room is left as it is, to try again.
-                if (PourAll(water) is not { } poured)
+                if (_load.PourAll(water) is not { } poured)
                 {
                     FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water tile {zdo.m_uid}: some of its water finds no room in the grid (solid all the way up, or MaxBricks reached); kept, not drawn, to try again at the next start"));
                     continue;
@@ -523,7 +492,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     }
 
     // An old column tile's water: each cell's, at the ground in its middle; null (told of) when its data is unreadable.
-    private List<(Vector3 Point, float Volume)> TileWater(ZDO zdo, byte[] bytes)
+    private List<(Vec3 Point, float Volume)> TileWater(ZDO zdo, byte[] bytes)
     {
         float[] depths;
         int side;
@@ -538,23 +507,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         Vector2s zone = ZoneSystem.GetZone(zdo.GetPosition());
-        float cell = (float)TileData.ZoneMetres / side;
-        var water = new List<(Vector3 Point, float Volume)>();
-        for (int z = 0; z < side; z++)
-        {
-            for (int x = 0; x < side; x++)
-            {
-                float depth = depths[(z * side) + x];
-                if (depth > 0f)
-                {
-                    float wx = TileData.OriginX(zone) + (x * cell);
-                    float wz = TileData.OriginZ(zone) + (z * cell);
-                    water.Add((new Vector3(wx, Ground(wx, wz) + 0.01f, wz), depth * cell * cell));
-                }
-            }
-        }
-
-        return water;
+        return WorldLoad.TileWater(depths, side, TileData.OriginX(zone), TileData.OriginZ(zone), TileData.ZoneMetres, _terrain.HeightAt);
     }
 
     private List<ZDO> All(string prefab)
@@ -589,11 +542,12 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         List<BrickView> views = [.. _grid.Bricks.Select(b => BrickData.Decode(BrickData.Encode(b, s)))];
         VoxelGrid oldGrid = _grid;
         VoxelSolver oldSolver = _solver;
+        WorldLoad oldLoad = _load;
         NewGrid(size);
         float total = 0f, lost = 0f;
         foreach (BrickView view in views)
         {
-            if (PourView(view) is { } poured)
+            if (_load.PourView(view) is { } poured)
             {
                 total += poured;
             }
@@ -609,6 +563,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         {
             _grid = oldGrid;
             _solver = oldSolver;
+            _load = oldLoad;
             _refusedSize = size;
             FlowingWaterPlugin.Log.LogWarning(FormattableString.Invariant($"Water: voxels of {size} m refused: {lost:0.0} m³ would find no room in them; the water stays in voxels of {s} m"));
             return;
@@ -623,7 +578,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     // Water poured at a point: into its voxel, or the first open one over it when the point is in a solid.
     private bool PourAt(Vector3 point, float cubicMetres)
     {
-        if (Room(point, out int x, out int y, out int z))
+        if (_grid.Room(point.x, point.y, point.z, out int x, out int y, out int z))
         {
             _noRoom.Room(point);
             return _grid.Pour(x, y, z, cubicMetres);
@@ -638,9 +593,6 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
         return false;
     }
-
-    // The voxel water poured at a point goes into (VoxelGrid.Room).
-    private bool Room(Vector3 point, out int x, out int y, out int z) => _grid.Room(point.x, point.y, point.z, out x, out y, out z);
 
     private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
 
@@ -669,27 +621,40 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         int cy = Mathf.FloorToInt((drain.Point.y + 0.05f) / s);
         int cz = Mathf.FloorToInt(drain.Point.z / s);
         float there = 0f;
-        foreach (Brick brick in _grid.Bricks)
-        {
-            int x0 = brick.X * Brick.Size;
-            int y0 = brick.Y * Brick.Size;
-            int z0 = brick.Z * Brick.Size;
-            if (x0 > cx + reach || x0 + Brick.Size <= cx - reach || y0 > cy + reach || y0 + Brick.Size <= cy - reach || z0 > cz + reach || z0 + Brick.Size <= cz - reach)
-            {
-                continue;
-            }
 
-            for (int i = 0; i < Brick.Count; i++)
+        // The voxels within its reach, by the bricks holding them (looked up; a drain of the default reach has eight at
+        // most round it, however many bricks the world has).
+        for (int bx = Brick.Of(cx - reach); bx <= Brick.Of(cx + reach); bx++)
+        {
+            for (int by = Brick.Of(cy - reach); by <= Brick.Of(cy + reach); by++)
             {
-                (int x, int y, int z) = Brick.Place(i);
-                int dx = x0 + x - cx;
-                int dy = y0 + y - cy;
-                int dz = z0 + z - cz;
-                bool within = ((dx * dx) + (dy * dy) + (dz * dz)) * s * s <= drain.Radius * drain.Radius || (dx == 0 && dy == 0 && dz == 0);
-                if (within && brick.Water[i] > 0f)
+                for (int bz = Brick.Of(cz - reach); bz <= Brick.Of(cz + reach); bz++)
                 {
-                    _drained.Add((brick, i));
-                    there += brick.Water[i];
+                    if (!VoxelGrid.Within(bx, by, bz) || _grid.Find(bx, by, bz) is not { } brick)
+                    {
+                        continue;
+                    }
+
+                    int x0 = Math.Max(bx * Brick.Size, cx - reach), x1 = Math.Min((bx * Brick.Size) + Brick.Size - 1, cx + reach);
+                    int y0 = Math.Max(by * Brick.Size, cy - reach), y1 = Math.Min((by * Brick.Size) + Brick.Size - 1, cy + reach);
+                    int z0 = Math.Max(bz * Brick.Size, cz - reach), z1 = Math.Min((bz * Brick.Size) + Brick.Size - 1, cz + reach);
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        for (int z = z0; z <= z1; z++)
+                        {
+                            for (int x = x0; x <= x1; x++)
+                            {
+                                int dx = x - cx, dy = y - cy, dz = z - cz;
+                                bool within = ((dx * dx) + (dy * dy) + (dz * dz)) * s * s <= drain.Radius * drain.Radius || (dx == 0 && dy == 0 && dz == 0);
+                                int i = Brick.Index(Brick.In(x), Brick.In(y), Brick.In(z));
+                                if (within && brick.Water[i] > 0f)
+                                {
+                                    _drained.Add((brick, i));
+                                    there += brick.Water[i];
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -720,58 +685,14 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
     }
 
-    private float Ground(float x, float z)
+    // Water that is not a number is emptied by the solver as it finds it (counted once a frame here); told of once.
+    private void WarnNotNumbers()
     {
-        Vector2s zone = ZoneSystem.GetZone(new Vector3(x, 0f, z));
-        return _terrain.HeightAt(zone, x - TileData.OriginX(zone), z - TileData.OriginZ(zone));
-    }
-
-    // The sources and drains a whole look found, and the config's, in place of the last ones.
-    private void ScanMarkers()
-    {
-        int before = _markers.Count;
-        _markers.Clear();
-        _markersSeen.Clear();
-        _watch.Pinned.Clear();
-        Collect(Prefabs.SourceName, false, FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
-        Collect(Prefabs.DrainName, true, FlowingWaterPlugin.Settings.DefaultDrainRate.Value);
-        CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
-        CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
-        _noRoom.Pouring(point => _markers.Exists(m => !m.Drain && PourPoint(m) == point));
-        if (_markers.Count != before)
+        int emptied = _solver.TakeNotNumbers();
+        if (emptied > 0 && !_notNumbersWarned)
         {
-            FlowingWaterPlugin.Log.LogInfo($"Water: {_markers.Count} sources and drains");
-        }
-    }
-
-    private void Collect(string prefab, bool drain, float defaultRate)
-    {
-        float defaultRadius = FlowingWaterPlugin.Settings.DefaultDrainRadius.Value;
-        int hash = prefab.GetStableHashCode();
-        foreach (ZDO zdo in _markerPass.Found(prefab))
-        {
-            // One gone during the look, or found twice (gone, then made again as another object), is left out.
-            if (!zdo.IsValid() || zdo.GetPrefab() != hash || !_markersSeen.Add(zdo.m_uid))
-            {
-                continue;
-            }
-
-            float radius = drain ? MarkerRules.Reach(zdo.GetFloat(ZdoKeys.Radius, defaultRadius)) : 0f;
-            if (_rates.TryRate(zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, zdo.GetPosition().ToString(), zdo.m_uid.ToString(), out float rate))
-            {
-                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
-            }
-        }
-    }
-
-    // The config's fixed sources or drains, on the ground there: its zone's heights are kept for the next look, though
-    // no brick may be near (an idle drain).
-    private void CollectFixed(string list, bool drain)
-    {
-        foreach ((float x, float z, float rate, float radius) in _rates.Fixed(list, drain, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value))
-        {
-            _watch.Pinned.Add(ZoneSystem.GetZone(new Vector3(x, 0f, z)));
-            _markers.Add(new Source(new Vector3(x, Ground(x, z), z), rate, drain, radius));
+            _notNumbersWarned = true;
+            FlowingWaterPlugin.Log.LogWarning($"Water: {emptied} voxels held water that is not a number (a ground height that is none, or a brick saved so); they were emptied and the water round them goes on. No more such are told of");
         }
     }
 
@@ -806,7 +727,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels ({_solver.Awake} awake, looked over {_solver.TakeLooks()} times), {_grid.TotalWater():0.0} m³, {_markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels ({_solver.Awake} awake, looked over {_solver.TakeLooks()} times), {_grid.TotalWater():0.0} m³, {_markers.Markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
         text.Append('\n').Append(_parts.Report());
         _stepWatch.Reset();
         _sendWatch.Reset();
@@ -830,25 +751,5 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         FlowingWaterPlugin.Log.LogInfo(text.ToString());
-    }
-
-    // A source or drain: where, how much a second, and a drain's reach.
-    private sealed class Source
-    {
-        public Source(Vector3 point, float rate, bool drain, float radius)
-        {
-            Point = point;
-            Rate = rate;
-            Drain = drain;
-            Radius = radius;
-        }
-
-        public Vector3 Point { get; }
-
-        public float Rate { get; }
-
-        public bool Drain { get; }
-
-        public float Radius { get; }
     }
 }

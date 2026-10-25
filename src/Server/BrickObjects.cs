@@ -29,7 +29,8 @@ internal interface IBrickWorld<TId>
 /// current by a little: a running stream's water stirs all the time) is not packed either, until it adds up to one
 /// that shows, or for <see cref="RefreshSends"/> sends at most; one whose water packs the same is not written again. A send may be spread
 /// over frames (<see cref="Start"/>, <see cref="Send"/>), a few bricks packed at a time; nothing is written until every
-/// brick of it is packed.
+/// brick of it is packed. An object saved with the world is taken over (<see cref="Adopt"/>) so that its brick's next
+/// send writes it rather than make a second one beside it.
 /// </summary>
 /// <typeparam name="TId">An object's id.</typeparam>
 internal sealed class BrickObjects<TId>
@@ -47,8 +48,9 @@ internal sealed class BrickObjects<TId>
 
     private readonly Dictionary<long, TId> _objects = [];
 
-    // What each brick's object was last written with: its look then, and the sends its changes were held back since.
-    private readonly Dictionary<long, (Brick Brick, int Changes, int Hash, byte[] Look, int Held)> _sent = [];
+    // What each brick's object was last written with: its bytes and its look then, and the sends its changes were held
+    // back since.
+    private readonly Dictionary<long, Sent> _sent = [];
 
     // The send under way: its bricks, how many are packed, those holding water, and what they packed to (null: none
     // under way).
@@ -61,7 +63,8 @@ internal sealed class BrickObjects<TId>
 
     private readonly HashSet<long> _kept = [];
 
-    private readonly List<(Brick Brick, long Key, byte[] Data, int Hash, int Changes, byte[] Look, int Held)> _packed = [];
+    // The bricks packed so far: what to write (null: its object keeps what it has) and what it was last sent as.
+    private readonly List<(long Key, byte[] Data, Sent Sent)> _packed = [];
 
     /// <summary>Objects kept for the game's objects given.</summary>
     public BrickObjects(IBrickWorld<TId> world)
@@ -71,6 +74,31 @@ internal sealed class BrickObjects<TId>
 
     /// <summary>Whether a send is under way.</summary>
     public bool Sending => _round != null;
+
+    /// <summary>
+    /// Takes over an object saved with the world as this brick's: the brick's next send writes it, and the first send
+    /// finding no brick there destroys it. When the bytes it holds are the brick as it is now (still, its water read
+    /// back where it was), they are the brick's last sent, and it is not written again at the start; when they are not
+    /// (some water moved as it was read back, the ground risen under it), its next send writes it.
+    /// </summary>
+    /// <param name="key">The brick's key.</param>
+    /// <param name="id">The object.</param>
+    /// <param name="brick">The brick read back from it.</param>
+    /// <param name="data">The bytes it holds.</param>
+    /// <param name="voxelSize">Metres along a voxel's side.</param>
+    public void Adopt(long key, TId id, Brick brick, byte[] data, float voxelSize)
+    {
+        _objects[key] = id;
+        byte[] look = BrickData.Look(brick, voxelSize);
+        if (Same(data, BrickData.Encode(brick, voxelSize, look)))
+        {
+            _sent[key] = new Sent(brick, brick.Changes, data, look, 0);
+        }
+        else
+        {
+            _sent.Remove(key);
+        }
+    }
 
     /// <summary>
     /// Sends every changed brick now, and destroys the objects of the bricks that hold no water or are gone; a send
@@ -149,15 +177,15 @@ internal sealed class BrickObjects<TId>
     {
         _round = null;
         int written = 0;
-        foreach ((Brick brick, long key, byte[] data, int hash, int changes, byte[] look, int held) in _packed)
+        foreach ((long key, byte[] data, Sent sent) in _packed)
         {
             if (data != null)
             {
-                _world.Write(Object(brick, key), data);
+                _world.Write(Object(sent.Brick, key), data);
                 written++;
             }
 
-            _sent[key] = (brick, changes, hash, look, held);
+            _sent[key] = sent;
         }
 
         Forget([.. _objects.Keys.Where(k => !_kept.Contains(k))]);
@@ -179,28 +207,27 @@ internal sealed class BrickObjects<TId>
     private bool Pack(Brick brick, long key, float voxelSize)
     {
         bool live = _objects.TryGetValue(key, out TId known) && _world.IsBrick(known);
-        bool sent = _sent.TryGetValue(key, out (Brick Brick, int Changes, int Hash, byte[] Look, int Held) was) && was.Brick == brick;
+        bool sent = _sent.TryGetValue(key, out Sent was) && was.Brick == brick;
         if (live && sent && was.Changes == brick.Changes && was.Held == 0)
         {
-            _packed.Add((brick, key, null, was.Hash, was.Changes, was.Look, was.Held));
+            _packed.Add((key, null, was));
             return true;
         }
 
-        if (!Array.Exists(brick.Water, w => w > Brick.Dry))
+        if (!brick.HoldsWater())
         {
             return false;
         }
 
         byte[] look = BrickData.Look(brick, voxelSize);
-        if (!_exact && live && sent && was.Held + 1 < RefreshSends && !BrickData.Shows(was.Look, look, WaterSteps, SpeedSteps, BrickData.Steps(SurfaceGrid.HideDepth, voxelSize)))
+        if (!_exact && live && sent && was.Held + 1 < RefreshSends && !BrickData.Shows(was.Look, look, WaterSteps, SpeedSteps, BrickData.Steps(Drawing.HideDepth, voxelSize)))
         {
-            _packed.Add((brick, key, null, was.Hash, brick.Changes, was.Look, was.Held + 1));
+            _packed.Add((key, null, new Sent(brick, brick.Changes, was.Data, was.Look, was.Held + 1)));
             return true;
         }
 
-        byte[] data = BrickData.Encode(brick, voxelSize);
-        int hash = Hash(data);
-        _packed.Add((brick, key, !live || !sent || was.Hash != hash ? data : null, hash, brick.Changes, look, 0));
+        byte[] data = BrickData.Encode(brick, voxelSize, look);
+        _packed.Add((key, !live || !sent || !Same(was.Data, data) ? data : null, new Sent(brick, brick.Changes, data, look, 0)));
         return true;
     }
 
@@ -231,14 +258,46 @@ internal sealed class BrickObjects<TId>
         }
     }
 
-    private static int Hash(byte[] data)
+    // Whether two bricks' bytes are the same (a hash of them was, once in a few billion, the same for different water).
+    private static bool Same(byte[] a, byte[] b)
     {
-        int hash = data.Length;
-        foreach (byte b in data)
+        if (a.Length != b.Length)
         {
-            hash = unchecked((hash * 31) + b);
+            return false;
         }
 
-        return hash;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // What a brick's object was last written with: the brick (one made again at the same place is another), its count
+    // of changes, its bytes and look, and the sends its changes were held back since.
+    private sealed class Sent
+    {
+        public Sent(Brick brick, int changes, byte[] data, byte[] look, int held)
+        {
+            Brick = brick;
+            Changes = changes;
+            Data = data;
+            Look = look;
+            Held = held;
+        }
+
+        public Brick Brick { get; }
+
+        public int Changes { get; }
+
+        public byte[] Data { get; }
+
+        public byte[] Look { get; }
+
+        public int Held { get; }
     }
 }

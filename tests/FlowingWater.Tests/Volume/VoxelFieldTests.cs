@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using FlowingWater.Volume;
 using Xunit;
@@ -130,6 +131,50 @@ public class VoxelFieldTests
         Assert.True(field.VelocityAt(2.5f, 0.5f, 2.5f, out float vx, out _, out float vz));
         Assert.Equal((1.5f, -0.5f), (vx, vz));
         Assert.False(field.VelocityAt(5.5f, 0.5f, 2.5f, out _, out _, out _));
+    }
+
+    [Fact]
+    public void WaterInsideASolidVoxelIsNotWet()
+    {
+        // The server keeps water in a voxel a piece was built over when it had nowhere to go: no one swims in a wall.
+        VoxelField field = Field((5, 5, 5, 1f, 1f), (5, 6, 5, 0.5f, 0f));
+
+        Assert.False(field.IsWet(5, 5, 5));
+        Assert.True(field.IsWet(5, 6, 5));
+        Assert.False(field.GoesUp(5, 4, 5));
+        Assert.Equal(float.NegativeInfinity, field.SurfaceAt(5.5f, 5.5f, 5.5f));
+        Assert.Equal(6.5f, field.SurfaceAt(5.5f, 6.5f, 5.5f), 4);
+    }
+
+    [Fact]
+    public void AVoxelIsFoundInItsBrickWithItsIndex()
+    {
+        VoxelField field = Field((5, 5, 5, 0.5f, 0f));
+
+        Assert.True(field.Voxel(5, 5, 5, out BrickView view, out int i));
+        Assert.Equal(Brick.Index(5, 5, 5), i);
+        Assert.Equal(0.5f, view.Water[i]);
+        Assert.False(field.Voxel(-1, 5, 5, out view, out i));
+        Assert.Null(view);
+        Assert.Equal(Brick.Index(15, 5, 5), i);
+    }
+
+    [Fact]
+    public void VoxelKeysTellVoxelsApartEitherSideOfTheWorldsZero()
+    {
+        var keys = new HashSet<long>();
+        foreach (int x in new[] { -17, -1, 0, 1, 16, 1_000_000 })
+        {
+            foreach (int y in new[] { -1, 0, 30, 64 })
+            {
+                foreach (int z in new[] { -17, -1, 0, 1, 16 })
+                {
+                    Assert.True(keys.Add(VoxelField.VoxelKey(x, y, z)));
+                }
+            }
+        }
+
+        Assert.Equal(VoxelField.VoxelKey(3, 4, 5), VoxelField.VoxelKey(3, 4, 5));
     }
 
     [Fact]

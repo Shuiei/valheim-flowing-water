@@ -347,6 +347,20 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void TheCapIsLiftedOnceABrickIsForgotten()
+    {
+        var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 1 };
+        grid.Pour(0, 0, 0, 1f);
+        Assert.Null(grid.Make(1, 0, 0));
+        Assert.True(grid.Capped);
+
+        grid.Forget(grid.Find(0, 0, 0));
+
+        Assert.False(grid.Capped);
+        Assert.NotNull(grid.Make(1, 0, 0));
+    }
+
+    [Fact]
     public void ABrickIsLookedOverAgainOnlyOnceItsWaterChanged()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000));
@@ -359,7 +373,8 @@ public class VoxelGridTests
         wet.Water[0] = 0f;
         wet.Changes++;
 
-        // Water put in the dry one outside its wet voxels' box (a step counts it too): it is wet.
+        // Water put in the dry one outside its wet voxels' box (nothing of the water's does that; a step counts a
+        // change too): found as it is about to be forgotten, it is wet.
         dry.Water[Brick.Index(9, 9, 9)] = 0.5f;
         dry.Changes++;
         grid.ForgetDry(10f, 8f);

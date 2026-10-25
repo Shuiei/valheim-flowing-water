@@ -43,6 +43,18 @@ public class PatchTargetsTests
     }
 
     [Fact]
+    public void AMethodWithATwinOfItsNameCountsAsNotFound()
+    {
+        PatchTargets targets = Targets(("Player.Twins", () => throw new AmbiguousMatchException("two")), ("Player.First", () => First));
+
+        Assert.True(targets.Prepare(null));
+
+        Assert.Equal([First], targets.Found);
+        string error = Assert.Single(_errors);
+        Assert.Contains("Player.Twins was not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WithNoneFoundThePatchIsLeftOutWithAnErrorNamingThem()
     {
         PatchTargets targets = Targets(("Player.Gone", () => null), ("Player.AlsoGone", () => null));

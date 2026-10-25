@@ -34,6 +34,21 @@ public class SolidsChangesTests
     }
 
     [Fact]
+    public void ARefillIsSpreadOverCallsWhileTheFramesTimeIsShort()
+    {
+        (VoxelGrid grid, Fills fills) = Grid();
+        var changes = new SolidsChanges<int, int>(z => z);
+        changes.All();
+
+        Assert.Equal(1, changes.Refill(grid, _ => { }, () => false));
+        Assert.True(changes.Any);
+        Assert.Equal(3, changes.Refill(grid, _ => { }, () => true));
+
+        Assert.False(changes.Any);
+        Assert.Equal(4, fills.Bricks.Count);
+    }
+
+    [Fact]
     public void ThePlaceTakesInTheVoxelRoundABrick()
     {
         // A piece of 0.5 m reach standing 1.2 m past brick 1's east face: within the voxel round it.

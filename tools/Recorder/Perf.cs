@@ -35,14 +35,15 @@ public sealed partial class Recorder
     {
         // The player stands on each spring, in its water: drowning there is not what is measured.
         Player.m_localPlayer.SetGodMode(true);
-        Type bricks = AccessTools.TypeByName("FlowingWater.Client.WaterBrick");
-        _waterSpent = bricks == null ? null : AccessTools.Property(bricks, "SpentMilliseconds");
-        _waterCensus = bricks == null ? null : AccessTools.Method(bricks, "Census");
-        _waterParts = bricks == null ? null : AccessTools.Property(bricks, "SpentParts");
-        _longestStart = bricks == null ? null : AccessTools.Method(bricks, "TakeLongestStart");
+        Type frame = AccessTools.TypeByName("FlowingWater.Client.BrickFrame");
+        Type measures = AccessTools.TypeByName("FlowingWater.Client.BrickMeasures");
+        _waterSpent = frame == null ? null : AccessTools.Property(frame, "SpentMilliseconds");
+        _waterCensus = measures == null ? null : AccessTools.Method(measures, "Census");
+        _waterParts = frame == null ? null : AccessTools.Property(frame, "SpentParts");
+        _longestStart = frame == null ? null : AccessTools.Method(frame, "TakeLongestStart");
         if (_waterSpent == null || _waterCensus == null || _waterParts == null)
         {
-            throw new InvalidOperationException("the mod's water measures (WaterBrick.SpentMilliseconds, SpentParts, Census) not found: is it the mod of this branch?");
+            throw new InvalidOperationException("the mod's water measures (BrickFrame.SpentMilliseconds, SpentParts, BrickMeasures.Census) not found: is it the mod of this branch?");
         }
 
         float seconds = Seconds("FW_REC_PERF_SECONDS", 20f);

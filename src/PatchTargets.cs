@@ -6,10 +6,10 @@ namespace FlowingWater;
 
 /// <summary>
 /// The game's methods a patch for the sources and drains changes, looked up when Harmony prepares the patch: those not
-/// found (a game update changed them) are named in one error and left out, the others still patched, and a patch with
-/// none found is not applied. Harmony would otherwise throw at it, and every patch of the plugin after it, the water's
-/// among them, would be left out too. Without the game (each method is looked up by a function given), so that it is
-/// tested.
+/// found (a game update changed them, or gave one a twin of the same name, which a look-up by name alone cannot tell
+/// apart) are named in one error and left out, the others still patched, and a patch with none found is not applied.
+/// Harmony would otherwise throw at it, and every patch of the plugin after it, the water's among them, would be left
+/// out too. Without the game (each method is looked up by a function given), so that it is tested.
 /// </summary>
 internal sealed class PatchTargets
 {
@@ -50,7 +50,18 @@ internal sealed class PatchTargets
         var missing = new List<string>();
         foreach ((string name, Func<MethodBase> find) in _methods)
         {
-            if (find() is { } method)
+            MethodBase method;
+            try
+            {
+                method = find();
+            }
+            catch (AmbiguousMatchException)
+            {
+                // More than one method of the name now: as good as none, told of as such.
+                method = null;
+            }
+
+            if (method != null)
             {
                 found.Add(method);
             }

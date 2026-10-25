@@ -32,7 +32,10 @@ internal static class Packed
     /// <param name="data">The bytes.</param>
     /// <param name="what">What they hold, for the error.</param>
     /// <param name="read">Reads it, throwing <see cref="InvalidDataException"/> when it is not that.</param>
-    /// <exception cref="InvalidDataException">The bytes are not gzip, or end too soon, or <paramref name="read"/> refused them.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The bytes are not gzip (on Mono, the game's runtime, its gzip reader says so with an IOException, not the
+    /// InvalidDataException .NET's throws: both are this), or end too soon, or <paramref name="read"/> refused them.
+    /// </exception>
     public static T Read<T>(byte[] data, string what, Func<BinaryReader, T> read)
     {
         try
@@ -44,6 +47,10 @@ internal static class Packed
         catch (EndOfStreamException e)
         {
             throw new InvalidDataException(what + " cut short", e);
+        }
+        catch (IOException e)
+        {
+            throw new InvalidDataException(what + " unreadable: " + e.Message, e);
         }
     }
 }

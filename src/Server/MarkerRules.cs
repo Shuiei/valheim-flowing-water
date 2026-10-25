@@ -49,14 +49,26 @@ internal sealed class MarkerRules
     /// <param name="key">Which one it is: a marker's object, a fixed one's text.</param>
     /// <param name="used">The rate given.</param>
     /// <returns>Whether it is usable.</returns>
-    public bool TryRate(float rate, bool drain, string where, string key, out float used)
+    public bool TryRate(float rate, bool drain, string where, string key, out float used) => TryRate(rate, drain, () => where, key, out used);
+
+    /// <summary>
+    /// As <see cref="TryRate(float, bool, string, string, out float)"/>, with where it is given only when a warning
+    /// needs it (markers are looked at every few seconds, and warned of once).
+    /// </summary>
+    /// <param name="rate">Cubic metres a second, as written.</param>
+    /// <param name="drain">A drain (whose rate may be 0: it takes everything), else a source.</param>
+    /// <param name="where">Where it is, for the warnings.</param>
+    /// <param name="key">Which one it is: a marker's object, a fixed one's text.</param>
+    /// <param name="used">The rate given.</param>
+    /// <returns>Whether it is usable.</returns>
+    public bool TryRate(float rate, bool drain, Func<string> where, string key, out float used)
     {
         used = 0f;
         if (float.IsNaN(rate) || float.IsInfinity(rate) || (drain ? rate < 0f : rate <= 0f))
         {
             if (_ignored.Add(key))
             {
-                _warn(FormattableString.Invariant($"{Kind(drain)} at {where}: rate {rate} is not usable; ignored"));
+                _warn(FormattableString.Invariant($"{Kind(drain)} at {where()}: rate {rate} is not usable; ignored"));
             }
 
             return false;
@@ -65,7 +77,7 @@ internal sealed class MarkerRules
         used = Math.Min(rate, MaxRate);
         if (rate > MaxRate && _capped.Add(key))
         {
-            _warn(FormattableString.Invariant($"{Kind(drain)} at {where}: rate {rate} m³/s is more than the most a source or drain may have; {MaxRate} m³/s used"));
+            _warn(FormattableString.Invariant($"{Kind(drain)} at {where()}: rate {rate} m³/s is more than the most a source or drain may have; {MaxRate} m³/s used"));
         }
 
         return true;
@@ -74,7 +86,7 @@ internal sealed class MarkerRules
     /// <summary>
     /// The config's fixed sources or drains: "x,z,rate; x,z,rate", a drain with its radius if it has one,
     /// "x,z,rate,radius" (else <paramref name="defaultRadius"/>). Those written wrong or with a rate not usable are
-    /// told of and left out; the rest come with their rate and reach as <see cref="TryRate"/> and
+    /// told of and left out; the rest come with their rate and reach as <see cref="TryRate(float, bool, string, string, out float)"/> and
     /// <see cref="MaxDrainRadius"/> give them (a source's reach is 0).
     /// </summary>
     /// <param name="list">The setting's text.</param>
@@ -100,26 +112,29 @@ internal sealed class MarkerRules
             }
             else if (TryRate(rate, drain, trimmed, trimmed, out float used))
             {
-                found.Add((x, z, used, drain ? Math.Min(radius, MaxDrainRadius) : 0f));
+                found.Add((x, z, used, drain ? Reach(radius) : 0f));
             }
         }
 
         return found;
     }
 
-    // "x,z,rate", or "x,z,rate,radius" for a drain (a radius over 0).
+    // "x,z,rate", or "x,z,rate,radius" for a drain (a radius over 0). A place that is no number (NaN, endless) is
+    // written wrong: it would pin a zone that is none.
     private static bool Parse(string text, bool drain, float defaultRadius, out float x, out float z, out float rate, out float radius)
     {
         string[] parts = text.Split(',');
         radius = defaultRadius;
         x = z = rate = 0f;
         return parts.Length >= 3 && parts.Length <= (drain ? 4 : 3)
-            && Number(parts[0], out x) && Number(parts[1], out z) && Number(parts[2], out rate)
+            && Place(parts[0], out x) && Place(parts[1], out z) && Number(parts[2], out rate)
             && (parts.Length == 3 || (Number(parts[3], out radius) && radius > 0f));
     }
 
     private static bool Number(string text, out float value) =>
         float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
+    private static bool Place(string text, out float value) => Number(text, out value) && !float.IsNaN(value) && !float.IsInfinity(value);
 
     private static string Kind(bool drain) => drain ? "Drain" : "Source";
 }

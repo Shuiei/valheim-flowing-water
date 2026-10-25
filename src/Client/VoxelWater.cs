@@ -51,7 +51,7 @@ internal static class VoxelWater
     public static bool RayToSurface(Vector3 origin, Vector3 direction, float within, out Vector3 hit)
     {
         Vector3 d = direction.normalized;
-        if (Field.RayToSurface(origin.x, origin.y, origin.z, d.x, d.y, d.z, within, out float distance))
+        if (Field.Bricks.Count > 0 && Field.RayToSurface(origin.x, origin.y, origin.z, d.x, d.y, d.z, within, out float distance))
         {
             hit = origin + (d * distance);
             return true;
@@ -71,9 +71,18 @@ internal static class VoxelWater
     /// </summary>
     public static VoxelField Drawn { get; } = new();
 
-    /// <summary>The surface of the water a point is in or just over; <see cref="NoWater"/> where there is none.</summary>
+    /// <summary>
+    /// The surface of the water a point is in or just over; <see cref="NoWater"/> where there is none. With no brick
+    /// known (a dedicated server, whose bricks are the server's own; a game far from any water) it costs a comparison:
+    /// the game's own water checks ask it for every character and thing, each physics step.
+    /// </summary>
     public static float SurfaceAt(Vector3 point)
     {
+        if (Field.Bricks.Count == 0)
+        {
+            return NoWater;
+        }
+
         float surface = Field.SurfaceAt(point.x, point.y, point.z);
         return float.IsNegativeInfinity(surface) ? NoWater : surface;
     }
@@ -82,7 +91,7 @@ internal static class VoxelWater
     public static bool CurrentAt(Vector3 point, out Vector3 current)
     {
         current = Vector3.zero;
-        if (!Field.VelocityAt(point.x, point.y, point.z, out float x, out _, out float z))
+        if (Field.Bricks.Count == 0 || !Field.VelocityAt(point.x, point.y, point.z, out float x, out _, out float z))
         {
             return false;
         }

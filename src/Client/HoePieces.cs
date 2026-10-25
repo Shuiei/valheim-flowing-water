@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -20,19 +21,20 @@ internal static class HoePieces
 
     private const int IconSize = 64;
 
-    // The game's own listings of the pieces a player knows and their tool offers (null if the game has them no more).
-    private static readonly MethodInfo UpdateKnownRecipes = AccessTools.Method(typeof(Player), "UpdateKnownRecipesList");
+    // The game's own listings of the pieces a player knows and their tool offers (null if the game has them no more),
+    // as delegates: looked up once, called as the game's own code would be, not through reflection each time.
+    private static readonly Action<Player> UpdateKnownRecipes = Method<Action<Player>>("UpdateKnownRecipesList");
 
-    private static readonly MethodInfo UpdateAvailablePieces = AccessTools.Method(typeof(Player), "UpdateAvailablePiecesList");
+    private static readonly Action<Player> UpdateAvailablePieces = Method<Action<Player>>("UpdateAvailablePiecesList");
 
     // The pieces and recipes the player knows, kept in their character: where the source and drain are forgotten.
-    private static readonly FieldInfo KnownRecipes = AccessTools.Field(typeof(Player), "m_knownRecipes");
+    private static readonly AccessTools.FieldRef<Player, HashSet<string>> KnownRecipes = Field<HashSet<string>>("m_knownRecipes");
 
     // The pieces of the tool in the player's hand: whether it is the hoe (null if the game has it no more).
-    private static readonly FieldInfo BuildPieces = AccessTools.Field(typeof(Player), "m_buildPieces");
+    private static readonly AccessTools.FieldRef<Player, PieceTable> BuildPieces = Field<PieceTable>("m_buildPieces");
 
     // The game's remove at what the player aims at, as the hammer's (its checks, effects and swing).
-    private static readonly MethodInfo RemovePiece = AccessTools.Method(typeof(Player), "RemovePiece");
+    private static readonly Func<Player, bool> RemovePiece = Method<Func<Player, bool>>("RemovePiece");
 
     private static NextPlacement _next;
 
@@ -46,6 +48,38 @@ internal static class HoePieces
     private static bool _shown;
 
     private static bool _removing;
+
+    // The source or drain chosen in the hoe this frame, if one is.
+    private static Marker _selectedMarker;
+
+    // A method of the player's as a delegate, and a field of theirs by reference: null, told of, when the game has it no
+    // more, or has it another way (two of the name, another kind), as a game update may; thrown from here, in the
+    // class's making, nothing of the hoe's would run.
+    private static TDelegate Method<TDelegate>(string name) where TDelegate : Delegate
+    {
+        try
+        {
+            return AccessTools.Method(typeof(Player), name) is { } method ? AccessTools.MethodDelegate<TDelegate>(method) : null;
+        }
+        catch (Exception e) when (e is AmbiguousMatchException or ArgumentException)
+        {
+            FlowingWaterPlugin.Log.LogError($"The game's Player.{name} is not as the hoe's pieces expect (a game update?): {e.Message}");
+            return null;
+        }
+    }
+
+    private static AccessTools.FieldRef<Player, TField> Field<TField>(string name)
+    {
+        try
+        {
+            return AccessTools.Field(typeof(Player), name) is { } field ? AccessTools.FieldRefAccess<Player, TField>(field) : null;
+        }
+        catch (ArgumentException e)
+        {
+            FlowingWaterPlugin.Log.LogError($"The game's Player.{name} is not as the hoe's pieces expect (a game update?): {e.Message}");
+            return null;
+        }
+    }
 
     /// <summary>
     /// Whether placed sources and drains show, this frame: the local player holds the hoe with one of its water pieces
@@ -71,6 +105,16 @@ internal static class HoePieces
         {
             Look();
             return _removing;
+        }
+    }
+
+    /// <summary>The source or drain chosen as the hoe's piece by the local player, this frame; null when none is.</summary>
+    public static Marker SelectedMarker
+    {
+        get
+        {
+            Look();
+            return _selectedMarker;
         }
     }
 
@@ -161,11 +205,11 @@ internal static class HoePieces
 
     /// <summary>A click with the remover: the game's remove at what the player aims at (only a source or drain goes).</summary>
     /// <returns>Whether one was removed.</returns>
-    public static bool RemoveAimed(Player player) => (bool)RemovePiece.Invoke(player, []);
+    public static bool RemoveAimed(Player player) => RemovePiece(player);
 
-    private static PieceTable Tool(Player player) => BuildPieces?.GetValue(player) as PieceTable;
+    private static PieceTable Tool(Player player) => BuildPieces == null ? null : BuildPieces(player);
 
-    // Once a frame: whether the tool in hand shows placed sources and drains, and marks the one aimed at.
+    // Once a frame: the piece chosen, whether the tool in hand shows placed sources and drains, and marks the one aimed at.
     private static void Look()
     {
         if (_shownFrame == Time.frameCount)
@@ -176,18 +220,22 @@ internal static class HoePieces
         _shownFrame = Time.frameCount;
         _shown = false;
         _removing = false;
+        _selectedMarker = null;
         Player player = Player.m_localPlayer;
-        PieceTable tool = player != null && player.InPlaceMode() ? Tool(player) : null;
+        // The tool in hand shows them whether or not a piece is chosen (the hammer with an empty category, say).
+        bool placing = player != null && player.InPlaceMode();
+        Piece selected = placing ? player.GetSelectedPiece() : null;
+        _selectedMarker = selected?.GetComponent<Marker>();
+        PieceTable tool = placing ? Tool(player) : null;
         if (tool == null)
         {
             return;
         }
 
-        Piece selected = player.GetSelectedPiece();
         (_shown, _removing) = HoeRemoval.Sight(
             hoeInHand: tool == _table,
             removerChosen: selected != null && selected.gameObject == Prefabs.Remover,
-            waterPieceChosen: selected != null && selected.GetComponent<Marker>() != null,
+            waterPieceChosen: _selectedMarker != null,
             toolRemovesPieces: tool.m_canRemovePieces);
     }
 
@@ -214,7 +262,7 @@ internal static class HoePieces
         Player player = Player.m_localPlayer;
         if (player != null && !Commands.ModHere)
         {
-            if (KnownRecipes?.GetValue(player) is HashSet<string> known)
+            if (KnownRecipes != null && KnownRecipes(player) is { } known)
             {
                 MarkerKnowledge.Sync(modHere: false, known, Prefabs.HoeTools.Select(t => t.GetComponent<Piece>().m_name));
             }
@@ -246,12 +294,12 @@ internal static class HoePieces
             return;
         }
 
-        UpdateKnownRecipes.Invoke(player, []);
-        UpdateAvailablePieces.Invoke(player, []);
+        UpdateKnownRecipes(player);
+        UpdateAvailablePieces(player);
     }
 
     // A source: a drop of water. A drain: a dark whirl taking it in. The remover: a drop crossed out. Drawn here, no file.
-    private static Sprite Icon(string kind, System.Func<float, float, Color32> paint)
+    private static Sprite Icon(string kind, Func<float, float, Color32> paint)
     {
         var texture = new Texture2D(IconSize, IconSize, TextureFormat.RGBA32, false) { name = $"FlowingWater {kind} icon" };
         var pixels = new Color32[IconSize * IconSize];

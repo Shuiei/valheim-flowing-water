@@ -20,17 +20,28 @@ internal static class SolidRaster
     // Voxels along an axis of a brick and the layer past its far edge (a face there is tested by that layer's share).
     private const int Edge = Brick.Size + 1;
 
-    /// <summary>Fills the brick's voxels up to the ground.</summary>
+    /// <summary>
+    /// Fills the brick's voxels up to the ground. A ground height that is not a number fills its column whole (solid,
+    /// holding no water): it would otherwise make every head and flow round it no number either.
+    /// </summary>
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
     /// <param name="groundAt">The ground's height at a point (world x, z), metres.</param>
-    public static void Ground(Brick brick, float voxelSize, Func<float, float, float> groundAt)
+    /// <returns>How many columns' ground was not a number.</returns>
+    public static int Ground(Brick brick, float voxelSize, Func<float, float, float> groundAt)
     {
+        int notNumbers = 0;
         for (int z = 0; z < Brick.Size; z++)
         {
             for (int x = 0; x < Brick.Size; x++)
             {
                 float ground = groundAt(((brick.X * Brick.Size) + x + 0.5f) * voxelSize, ((brick.Z * Brick.Size) + z + 0.5f) * voxelSize);
+                if (float.IsNaN(ground))
+                {
+                    notNumbers++;
+                    ground = float.PositiveInfinity;
+                }
+
                 for (int y = 0; y < Brick.Size; y++)
                 {
                     int i = Brick.Index(x, y, z);
@@ -38,6 +49,8 @@ internal static class SolidRaster
                 }
             }
         }
+
+        return notNumbers;
     }
 
     /// <summary>

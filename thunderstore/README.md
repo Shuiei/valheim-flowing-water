@@ -39,7 +39,9 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 
 The host and the server's admins may always use the command and the hoe's source and drain; other players while
-the **server's** `CommandsForEveryone` is on (their own config does not count). On a server without FlowingWater the
+the **server's** `CommandsForEveryone` is on (their own config does not count). The server simulates only the sources
+and drains placed by a player who may: with `CommandsForEveryone` off, the host's and the admins', checked while they
+are on the server and remembered after. On a server without FlowingWater the
 hoe offers only the game's own pieces; any character learns the source and drain back where the mod is. A source gives at most 100 m³/s, and so does a
 drain given a rate (a drain of rate 0 still takes everything that reaches it). A server can also have sources and drains with no marker placed, from its config (`FixedSources`,
 `FixedDrains`).
@@ -55,7 +57,7 @@ again within a couple of seconds. The main ones:
 | `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m. Smaller gives finer water: moving water costs about 3× at 0.5 and 15× at 0.25 (measured on a 20 × 20 m pool; more water, more cost), still water stays cheap |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
-| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place sources and drains (the server's setting counts) |
+| `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place sources and drains (the server's setting counts, and it simulates only what a player who may placed) |
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |

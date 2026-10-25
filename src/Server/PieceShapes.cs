@@ -12,10 +12,6 @@ namespace FlowingWater.Server;
 /// </summary>
 internal sealed class PieceShapes
 {
-    private static readonly int StateHash = "state".GetStableHashCode();
-
-    private static readonly int ScaleHash = "scale".GetStableHashCode();
-
     private readonly Dictionary<int, Shape> _byPrefab = [];
 
     private readonly int _pieceLayer = LayerMask.NameToLayer("piece");
@@ -28,14 +24,14 @@ internal sealed class PieceShapes
     public void AddBoxes(ZDO zdo, List<SolidBox> boxes)
     {
         Shape shape = Of(zdo.GetPrefab());
-        if (shape.Boxes.Length == 0 || (shape.Door && zdo.GetInt(StateHash) != 0))
+        if (shape.Boxes.Length == 0 || (shape.Door && zdo.GetInt(ZDOVars.s_state) != 0))
         {
             return;
         }
 
         Vector3 position = zdo.GetPosition();
         Quaternion rotation = zdo.GetRotation();
-        Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
+        Vector3 scale = Scale(zdo);
         foreach (Box box in shape.Boxes)
         {
             Vector3 x = rotation * Vector3.Scale(box.AxisX, scale);
@@ -53,7 +49,7 @@ internal sealed class PieceShapes
     /// <summary>
     /// How far the solid boxes of the game's pieces reach from their place, metres: the farthest of its piece prefabs,
     /// unscaled (measured the first time this is asked). Known before a zone's pieces are read, so that a zone holding
-    /// a long piece is never left out; a piece scaled to reach farther is told by <see cref="Reach"/>.
+    /// a long piece is never left out; a piece scaled to reach farther is told by <see cref="Reach(ZDO)"/>.
     /// </summary>
     public float Farthest
     {
@@ -77,19 +73,23 @@ internal sealed class PieceShapes
         }
     }
 
-    /// <summary>A piece's scale (one where it was not scaled).</summary>
-    public static Vector3 Scale(ZDO zdo) => zdo.GetVec3(ScaleHash, Vector3.one);
+    /// <summary>
+    /// A piece's scale (one where it was not scaled): as the game reads it when a piece wakes, its scale, or else the
+    /// one number a mod scaling pieces may have written for all three.
+    /// </summary>
+    public static Vector3 Scale(ZDO zdo) => zdo.GetVec3(ZDOVars.s_scaleHash, Vector3.one * zdo.GetFloat(ZDOVars.s_scaleScalarHash, 1f));
 
     /// <summary>How far the piece's solid boxes reach from its place at most, metres (its scale taken in).</summary>
-    public float Reach(ZDO zdo)
-    {
-        Vector3 scale = zdo.GetVec3(ScaleHash, Vector3.one);
-        return Of(zdo.GetPrefab()).Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
-    }
+    public float Reach(ZDO zdo) => Reach(zdo, Scale(zdo));
+
+    /// <summary>How far the piece's solid boxes reach from its place at most, metres, at this scale (<see cref="Scale"/>, read already).</summary>
+    public float Reach(ZDO zdo, Vector3 scale) => Of(zdo.GetPrefab()).Reach * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
 
     /// <summary>How many solid boxes a prefab has (0: water ignores it).</summary>
     public int Count(int prefab) => Of(prefab).Boxes.Length;
 
+    // A prefab's shape, read once. With no scene to read it from (the world closing, or not open yet), no shape, and
+    // nothing kept: it is read when there is one.
     private Shape Of(int prefab)
     {
         if (_byPrefab.TryGetValue(prefab, out Shape shape))
@@ -97,13 +97,20 @@ internal sealed class PieceShapes
             return shape;
         }
 
-        GameObject source = ZNetScene.instance?.GetPrefab(prefab);
+        if (ZNetScene.instance == null)
+        {
+            return None;
+        }
+
+        GameObject source = ZNetScene.instance.GetPrefab(prefab);
         shape = source == null || source.GetComponent<Piece>() == null
-            ? new Shape([], false)
+            ? None
             : new Shape(Read(source), source.GetComponent<Door>() != null);
         _byPrefab[prefab] = shape;
         return shape;
     }
+
+    private static readonly Shape None = new([], false);
 
     // The prefab's solid colliders as boxes in its own space: axes carry the colliders' scale, half sizes are of
     // the unscaled collider.
