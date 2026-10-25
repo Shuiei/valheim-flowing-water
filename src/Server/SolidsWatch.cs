@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FlowingWater.Volume;
 using UnityEngine;
@@ -23,7 +24,8 @@ internal sealed class SolidsWatch
     // piece standing in one may reach the brick. Zones holding pieces scaled to reach farther are looked over too.
     private const float Reach = 4f;
 
-    private static readonly int StateHash = "state".GetStableHashCode();
+    // The most of a frame bricks reading their solids again may take, milliseconds (a brick at least), after the look.
+    private const double RefillBudget = 2.0;
 
     private readonly GameSolids _solids;
 
@@ -36,6 +38,8 @@ internal sealed class SolidsWatch
     private readonly ZoneScan<Vector2s, ZDO> _scan;
 
     private readonly System.Diagnostics.Stopwatch _lookWatch = new();
+
+    private readonly Func<bool> _lookTimeLeft, _refillTimeLeft;
 
     private float _timer;
 
@@ -54,6 +58,8 @@ internal sealed class SolidsWatch
         _solids = solids;
         _terrain = terrain;
         _scan = new ZoneScan<Vector2s, ZDO>((zone, found) => ZDOMan.instance.FindSectorObjects(zone, new SimulationDistance(0, 0), found), Read, _changes.Looked, PartObjects);
+        _lookTimeLeft = () => _lookWatch.Elapsed.TotalMilliseconds < LookBudget;
+        _refillTimeLeft = () => _lookWatch.Elapsed.TotalMilliseconds < LookBudget + RefillBudget;
         ZDOMan.instance.m_onZDODestroyed += Destroyed;
     }
 
@@ -90,9 +96,12 @@ internal sealed class SolidsWatch
         }
 
         _lookWatch.Restart();
-        _scan.Run(() => _lookWatch.Elapsed.TotalMilliseconds < LookBudget);
-        return _changes.Refill(grid, _solids.Forget);
+        _scan.Run(_lookTimeLeft);
+        return _changes.Refill(grid, _solids.Forget, _refillTimeLeft);
     }
+
+    /// <summary>Whether bricks have still to read their solids again (a refill spread over frames is under way).</summary>
+    public bool Refilling => _changes.Any;
 
     // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their solids and
     // heights (but the heights of the pinned zones). A brick there again reads them anew.
@@ -130,7 +139,8 @@ internal sealed class SolidsWatch
     {
         if (zdo.IsValid() && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
         {
-            _changes.Found(zdo.m_uid, At(zdo.GetPosition()), _solids.Shapes.Reach(zdo), unchecked((((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(StateHash)) * 31) + PieceShapes.Scale(zdo).GetHashCode()));
+            Vector3 scale = PieceShapes.Scale(zdo);
+            _changes.Found(zdo.m_uid, At(zdo.GetPosition()), _solids.Shapes.Reach(zdo, scale), unchecked((((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(ZDOVars.s_state)) * 31) + scale.GetHashCode()));
         }
     }
 

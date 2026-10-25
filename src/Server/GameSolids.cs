@@ -29,6 +29,8 @@ internal sealed class GameSolids : ISolids
     // Where the frame's time goes: a brick reading its solids is a part of its own, whoever asked for it.
     private readonly FrameParts _parts;
 
+    private bool _notNumbersTold;
+
     /// <summary>Solids over this terrain, their reading timed in these parts.</summary>
     public GameSolids(ZoneTerrain terrain, FrameParts parts)
     {
@@ -52,19 +54,30 @@ internal sealed class GameSolids : ISolids
     public void Fill(Brick brick, float voxelSize)
     {
         WaterPart was = _parts.Into(WaterPart.Solids);
-        SolidRaster.Ground(brick, voxelSize, Ground);
+        int notNumbers = SolidRaster.Ground(brick, voxelSize, _terrain.HeightAt);
+        if (notNumbers > 0 && !_notNumbersTold)
+        {
+            _notNumbersTold = true;
+            FlowingWaterPlugin.Log.LogWarning($"Water: the ground's height under brick {brick.X},{brick.Y},{brick.Z} is not a number in {notNumbers} columns (the game's heightmap?); they are taken as solid, and no more such are told of");
+        }
+
         _near.Clear();
         float span = Brick.Size * voxelSize;
+
         // The zones whose pieces may reach the brick or the voxel round it: as far as the game's pieces reach, past that
-        // voxel; and the pieces reaching farther, wherever they are known.
+        // voxel; and the pieces reaching farther, wherever they are known. Of their boxes, only those reaching the
+        // brick's own surroundings (a voxel round it, and the voxel over that the raster tests): a big base by the
+        // water would have every brick near it try every box of nine zones.
         float margin = Shapes.Farthest + voxelSize;
         Vector2s first = ZoneSystem.GetZone(new Vector3((brick.X * span) - margin, 0f, (brick.Z * span) - margin));
         Vector2s last = ZoneSystem.GetZone(new Vector3(((brick.X + 1) * span) + margin, 0f, ((brick.Z + 1) * span) + margin));
+        var low = new Vec3((brick.X * span) - (2f * voxelSize), (brick.Y * span) - (2f * voxelSize), (brick.Z * span) - (2f * voxelSize));
+        var high = new Vec3(((brick.X + 1) * span) + (2f * voxelSize), ((brick.Y + 1) * span) + (2f * voxelSize), ((brick.Z + 1) * span) + (2f * voxelSize));
         for (int zz = first.y; zz <= last.y; zz++)
         {
             for (int zx = first.x; zx <= last.x; zx++)
             {
-                _near.AddRange(Boxes(new Vector2s(zx, zz)).Near);
+                Near(Boxes(new Vector2s(zx, zz)).Near, low, high);
             }
         }
 
@@ -72,11 +85,23 @@ internal sealed class GameSolids : ISolids
         _farZonesNow.AddRange(_farZones);
         foreach (Vector2s zone in _farZonesNow)
         {
-            _near.AddRange(Boxes(zone).Far);
+            Near(Boxes(zone).Far, low, high);
         }
 
-        SolidRaster.Pieces(brick, voxelSize, _near, Ground);
+        SolidRaster.Pieces(brick, voxelSize, _near, _terrain.HeightAt);
         _parts.Into(was);
+    }
+
+    // The boxes whose bounds reach into the box from low to high, added to those near the brick.
+    private void Near(List<SolidBox> boxes, Vec3 low, Vec3 high)
+    {
+        foreach (SolidBox box in boxes)
+        {
+            if (box.Overlaps(low, high))
+            {
+                _near.Add(box);
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -138,12 +163,5 @@ internal sealed class GameSolids : ISolids
 
         _boxesByZone[key] = boxes;
         return boxes;
-    }
-
-    private float Ground(float x, float z)
-    {
-        var point = new Vector3(x, 0f, z);
-        Vector2s zone = ZoneSystem.GetZone(point);
-        return _terrain.HeightAt(zone, x - TileData.OriginX(zone), z - TileData.OriginZ(zone));
     }
 }

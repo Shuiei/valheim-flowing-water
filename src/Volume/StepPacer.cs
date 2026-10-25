@@ -11,7 +11,7 @@ internal sealed class StepPacer
 {
     private readonly float _mostOwed;
 
-    private double _credit;
+    private float _credit;
 
     /// <summary>A pacer that gives up owed time past <paramref name="mostOwed"/> seconds.</summary>
     public StepPacer(float mostOwed)
@@ -29,7 +29,7 @@ internal sealed class StepPacer
     /// A frame of <paramref name="seconds"/> went by, with a <paramref name="budget"/> (milliseconds) for the water:
     /// the water owes that much more time, and the credit grows by the budget (up to one frame's).
     /// </summary>
-    public void Add(float seconds, double budget)
+    public void Add(float seconds, float budget)
     {
         Owed += seconds;
         GiveUpPastTheLimit();
@@ -65,10 +65,10 @@ internal sealed class StepPacer
     }
 
     /// <summary>Milliseconds of credit left once the frame has spent <paramref name="spent"/> on the water.</summary>
-    public double Left(double spent) => _credit - spent;
+    public float Left(float spent) => _credit - spent;
 
     /// <summary>The frame spent this many milliseconds on the water.</summary>
-    public void Spent(double milliseconds) => _credit -= milliseconds;
+    public void Spent(float milliseconds) => _credit -= milliseconds;
 
     // Owed time past the limit is given up (and counted).
     private void GiveUpPastTheLimit()

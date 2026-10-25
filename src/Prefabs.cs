@@ -40,25 +40,26 @@ internal static class Prefabs
     /// <summary>A marker's sphere's radius, metres; it sits on the point it was placed at.</summary>
     public const float MarkerRadius = 0.3f;
 
-    public static readonly int TileHash = TileName.GetStableHashCode();
-
     public static readonly int SourceHash = SourceName.GetStableHashCode();
 
     public static readonly int DrainHash = DrainName.GetStableHashCode();
-
-    public static readonly int GroundHash = GroundName.GetStableHashCode();
 
     public static readonly int BrickHash = BrickName.GetStableHashCode();
 
     private static GameObject _root;
 
+    // The hoe's pieces, kept from the build: they are asked for each time the game lists the hoe's pieces.
+    private static GameObject[] _markers, _hoeTools;
+
+    private static GameObject _remover;
+
     /// <summary>The source's and drain's prefabs, made the first time they are asked for.</summary>
-    public static IEnumerable<GameObject> Markers
+    public static IReadOnlyList<GameObject> Markers
     {
         get
         {
             Built();
-            return [_root.transform.Find(SourceName).gameObject, _root.transform.Find(DrainName).gameObject];
+            return _markers;
         }
     }
 
@@ -68,12 +69,19 @@ internal static class Prefabs
         get
         {
             Built();
-            return _root.transform.Find(RemoverName).gameObject;
+            return _remover;
         }
     }
 
     /// <summary>The pieces added to the hoe: the source, the drain and the remover.</summary>
-    public static IEnumerable<GameObject> HoeTools => [.. Markers, Remover];
+    public static IReadOnlyList<GameObject> HoeTools
+    {
+        get
+        {
+            Built();
+            return _hoeTools;
+        }
+    }
 
     /// <summary>Adds the networked prefabs to a ZNetScene about to wake up (before it indexes its list).</summary>
     public static void Register(ZNetScene scene)
@@ -107,9 +115,13 @@ internal static class Prefabs
         // each start): it is kept, not drawn. Drawn, it showed water no one could swim in over the bricks.
         Networked(TileName);
 
-        MarkerPiece(Networked(SourceName), false);
-        MarkerPiece(Networked(DrainName), true);
-        RemoverPiece();
+        GameObject source = Networked(SourceName);
+        GameObject drain = Networked(DrainName);
+        MarkerPiece(source, false);
+        MarkerPiece(drain, true);
+        _remover = RemoverPiece();
+        _markers = [source, drain];
+        _hoeTools = [source, drain, _remover];
         Networked(GroundName).AddComponent<GroundChanges>();
         GameObject brick = Networked(BrickName);
         brick.AddComponent<MeshFilter>();
@@ -155,7 +167,7 @@ internal static class Prefabs
     // The hoe's remover: an ordinary piece, not of the game's remove kind (whose button the game's menu shows only in a
     // menu with tags, as the hammer's, not the hoe's). Its ghost has nothing to draw; a click with it removes the
     // source or drain aimed at instead of placing anything (RemoverClickPatch).
-    private static void RemoverPiece()
+    private static GameObject RemoverPiece()
     {
         var remover = new GameObject(RemoverName);
         remover.transform.SetParent(_root.transform, false);
@@ -163,6 +175,7 @@ internal static class Prefabs
         piece.m_name = MarkerValues.RemoverName;
         piece.m_description = MarkerValues.RemoverDescription;
         piece.m_canBeRemoved = false;
+        return remover;
     }
 
     // A trigger box on the game's water layer under the object: what lets characters and things swim in it.

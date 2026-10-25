@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FlowingWater.Volume;
@@ -91,8 +92,12 @@ internal sealed class VoxelSolver
 
     private float[] _idleQuiet = [];
 
-    // Each brick's part found, by index (made once: a look is taken every frame).
-    private readonly Action<int> _part;
+    // Each brick's part found, by index, and each phase's work on the k-th column or brick (made once: a part of a
+    // step is run every frame, and a closure made for each would be given to the collector by the thousand).
+    private readonly Action<int> _part, _heads, _flows, _shares, _scale, _apply;
+
+    // Voxels whose water, or the ground under them, was found not to be a number, and emptied (told of by the server).
+    private int _notNumbers;
 
     // The looks over the bricks since last asked.
     private int _looks;
@@ -120,6 +125,11 @@ internal sealed class VoxelSolver
         _grid = grid;
         _parts = parts ?? new FrameParts();
         _part = k => Part(_bricks[k]);
+        _heads = k => _deepest[k] = Heads(_columns[k], _grid.VoxelSize, _headsStiffness);
+        _flows = k => Flows(_bricks[k], _length, _grid.VoxelSize);
+        _shares = k => Shares(_bricks[k], _length, _grid.VoxelSize);
+        _scale = k => Scale(_bricks[k]);
+        _apply = k => Apply(_bricks[k], _length, _grid.VoxelSize);
     }
 
     /// <summary>Whether a step is under way (<see cref="Advance"/> stopped in it): the grid must not change.</summary>
@@ -130,6 +140,12 @@ internal sealed class VoxelSolver
 
     /// <summary>Water whose voxel's top is at or below this level (metres) is gone: the sea takes it.</summary>
     public float SeaLevel { get; set; } = float.NegativeInfinity;
+
+    /// <summary>
+    /// How many voxels were found holding water that is not a number (or endless) since last asked, and emptied, and
+    /// forgets them. A step never stops on one: the water round it goes on.
+    /// </summary>
+    public int TakeNotNumbers() => Interlocked.Exchange(ref _notNumbers, 0);
 
     /// <summary>
     /// The longest step kept stable, seconds: a wave crosses at most half a voxel in it, in water as deep as
@@ -293,29 +309,15 @@ internal sealed class VoxelSolver
     // One phase of the step under way, over columns (heads) or bricks from..to.
     private void Run(int phase, int from, int to)
     {
-        float s = _grid.VoxelSize;
-        float dt = _length;
         WaterPart was = _parts.Into(Parts[phase]);
-        switch (phase)
+        Parallel.For(from, to, phase switch
         {
-            case HeadsPhase:
-                float stiffness = _headsStiffness;
-                Parallel.For(from, to, k => _deepest[k] = Heads(_columns[k], s, stiffness));
-                break;
-            case FlowsPhase:
-                Parallel.For(from, to, k => Flows(_bricks[k], dt, s));
-                break;
-            case SharesPhase:
-                Parallel.For(from, to, k => Shares(_bricks[k], dt, s));
-                break;
-            case ScalePhase:
-                Parallel.For(from, to, k => Scale(_bricks[k]));
-                break;
-            default:
-                Parallel.For(from, to, k => Apply(_bricks[k], dt, s));
-                break;
-        }
-
+            HeadsPhase => _heads,
+            FlowsPhase => _flows,
+            SharesPhase => _shares,
+            ScalePhase => _scale,
+            _ => _apply,
+        });
         _parts.Into(was);
     }
 
@@ -348,6 +350,14 @@ internal sealed class VoxelSolver
         float deepest = 0f;
         foreach (float column in _deepest)
         {
+            // Water that is not a number would make the stiffness, and the longest stable step, none either: the heads
+            // would be worked out again for ever. It is counted here and emptied as the step is applied.
+            if (float.IsNaN(column) || float.IsInfinity(column))
+            {
+                Interlocked.Increment(ref _notNumbers);
+                continue;
+            }
+
             deepest = Math.Max(deepest, column);
         }
 
@@ -392,12 +402,13 @@ internal sealed class VoxelSolver
         brick.Asleep = false;
         brick.Wake();
         brick.Changes++;
+        brick.Asked = 0;
 
         (int wlx, int wly, int wlz) = brick.WetLow;
         (int whx, int why, int whz) = brick.WetHigh;
         bool wet = whx >= 0;
         int lx = wet ? Math.Max(0, wlx - 1) : Brick.Size, ly = wet ? Math.Max(0, wly - 1) : Brick.Size, lz = wet ? Math.Max(0, wlz - 1) : Brick.Size;
-        int hx = wet ? Math.Min(Brick.Size - 1, whx + 1) : -1, hy = wet ? Math.Min(Brick.Size - 1, why + 1) : -1, hz = wet ? Math.Min(Brick.Size - 1, whz + 1) : -1;
+        int hx = wet ? Math.Min(Last, whx + 1) : -1, hy = wet ? Math.Min(Last, why + 1) : -1, hz = wet ? Math.Min(Last, whz + 1) : -1;
         for (int side = 0; side < 6; side++)
         {
             if (brick.Beside[side] is not { } next || !next.WetTo(side ^ 1))
@@ -405,16 +416,19 @@ internal sealed class VoxelSolver
                 continue;
             }
 
-            // The whole border layer facing it.
+            // The border layer facing it, only as far across as its wet voxels reach (a voxel more): its water comes
+            // over face to face. The whole layer took the part out to a slab, or the whole brick between two wet
+            // neighbours, however little water this brick held.
             int axis = side / 2;
-            int layer = side % 2 == 0 ? Brick.Size - 1 : 0;
-            (int fx, int fy, int fz) = axis == 0 ? (layer, -1, -1) : axis == 1 ? (-1, layer, -1) : (-1, -1, layer);
-            lx = Math.Min(lx, fx < 0 ? 0 : fx);
-            hx = Math.Max(hx, fx < 0 ? Brick.Size - 1 : fx);
-            ly = Math.Min(ly, fy < 0 ? 0 : fy);
-            hy = Math.Max(hy, fy < 0 ? Brick.Size - 1 : fy);
-            lz = Math.Min(lz, fz < 0 ? 0 : fz);
-            hz = Math.Max(hz, fz < 0 ? Brick.Size - 1 : fz);
+            int layer = side % 2 == 0 ? Last : 0;
+            (int nlx, int nly, int nlz) = next.WetLow;
+            (int nhx, int nhy, int nhz) = next.WetHigh;
+            lx = Math.Min(lx, axis == 0 ? layer : Math.Max(0, nlx - 1));
+            hx = Math.Max(hx, axis == 0 ? layer : Math.Min(Last, nhx + 1));
+            ly = Math.Min(ly, axis == 1 ? layer : Math.Max(0, nly - 1));
+            hy = Math.Max(hy, axis == 1 ? layer : Math.Min(Last, nhy + 1));
+            lz = Math.Min(lz, axis == 2 ? layer : Math.Max(0, nlz - 1));
+            hz = Math.Max(hz, axis == 2 ? layer : Math.Min(Last, nhz + 1));
         }
 
         (int llx, int lly, int llz) = brick.LastLow;
@@ -444,7 +458,9 @@ internal sealed class VoxelSolver
         brick.PartCount = count;
     }
 
-    // A brick sleeps when it and every brick beside it with water have been quiet long enough.
+    // A brick sleeps when it and every brick beside it whose water reaches the face between them have been quiet long
+    // enough: water moving in a brick beside it comes over only through that face, and a brick is looked at every
+    // step, so one whose water reaches the face wakes this one the step after.
     private static bool Sleeps(Brick brick)
     {
         if (brick.Quiet < SecondsToSleep)
@@ -452,9 +468,9 @@ internal sealed class VoxelSolver
             return false;
         }
 
-        foreach (Brick next in brick.Beside)
+        for (int side = 0; side < 6; side++)
         {
-            if (next != null && next.WetHigh.X >= 0 && next.Quiet < SecondsToSleep)
+            if (brick.Beside[side] is { } next && next.WetTo(side ^ 1) && next.Quiet < SecondsToSleep)
             {
                 return false;
             }
@@ -622,7 +638,7 @@ internal sealed class VoxelSolver
             }
 
             int y = i >> 8;
-            WantBeside(brick, i & (Brick.Size - 1), y, (i >> 4) & (Brick.Size - 1), i);
+            WantBeside(brick, i & Last, y, (i >> 4) & Last, i);
             fx[i] = hasEast ? Flow(brick, i, y, 0, east, e, dt, s, fx[i]) : 0f;
             fy[i] = hasUp ? Flow(brick, i, y, 1, up, u, dt, s, fy[i]) : 0f;
             fz[i] = hasNorth ? Flow(brick, i, y, 2, north, n, dt, s, fz[i]) : 0f;
@@ -635,19 +651,20 @@ internal sealed class VoxelSolver
     // A wet voxel on the brick's edge asks for the bricks its water may go into: not through a face the brick closes,
     // nor one into a brick forgotten there that was solid or closed it (it would be made, found dry and forgotten
     // again for as long as the water moves). Past the grid's reach there is nothing: that face holds the water as a
-    // closed one does.
+    // closed one does. Each brick beside is asked for once a step (the asking takes a lock), not once a border voxel.
     private void WantBeside(Brick brick, int x, int y, int z, int i)
     {
-        if (brick.Water[i] <= Brick.Dry || (x > 0 && x < Brick.Size - 1 && y > 0 && y < Brick.Size - 1 && z > 0 && z < Brick.Size - 1))
+        if (brick.Water[i] <= Brick.Dry || (x > 0 && x < Last && y > 0 && y < Last && z > 0 && z < Last))
         {
             return;
         }
 
         for (int side = 0; side < 6; side++)
         {
-            if (brick.Beside[side] == null && Crosses(x, y, z, side) && !brick.Shuts(side, i))
+            if (brick.Beside[side] == null && (brick.Asked & (1 << side)) == 0 && Crosses(x, y, z, side) && !brick.Shuts(side, i))
             {
                 (int dx, int dy, int dz) = Offset(side);
+                brick.Asked |= (byte)(1 << side);
                 if (VoxelGrid.Within(brick.X + dx, brick.Y + dy, brick.Z + dz))
                 {
                     _grid.Want(brick.X + dx, brick.Y + dy, brick.Z + dz);
@@ -775,6 +792,7 @@ internal sealed class VoxelSolver
         float[] fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ, waters = brick.Water;
         int count = brick.PartCount, bottom = brick.Y * Brick.Size;
         int lx = Brick.Size, ly = Brick.Size, lz = Brick.Size, hx = -1, hy = -1, hz = -1;
+        bool fed = false;
         for (int k = 0; k < count; k++)
         {
             int i = part[k];
@@ -782,7 +800,24 @@ internal sealed class VoxelSolver
             float net = FromWest(brick, i) + FromBelow(brick, i) + FromSouth(brick, i) - fx[i] - fy[i] - fz[i];
             int y = i >> 8;
             float water = waters[i] + (net * perVolume);
-            water = water < 0f || (bottom + y + 1) * s <= SeaLevel ? 0f : water;
+            if (float.IsNaN(water) || float.IsInfinity(water))
+            {
+                // Not a number (nor is anything worked out from it): emptied and counted, the water round it going on.
+                Interlocked.Increment(ref _notNumbers);
+                water = 0f;
+            }
+            else if ((bottom + y + 1) * s <= SeaLevel)
+            {
+                // The sea's. A brick fed only here never holds water at a frame's end: that it was fed keeps it from being
+                // forgotten as dry and made again (its solids read again) every so many seconds for as long as the water runs.
+                fed |= water > Brick.Dry;
+                water = 0f;
+            }
+            else if (water < 0f)
+            {
+                water = 0f;
+            }
+
             waters[i] = water;
             if (water > Brick.Dry)
             {
@@ -795,6 +830,7 @@ internal sealed class VoxelSolver
         // The wet voxels are all in the part (water only moves into it), so their box is found here.
         brick.WetLow = (lx, ly, lz);
         brick.WetHigh = (hx, hy, hz);
+        brick.Fed |= fed;
 
         // Its water may be sent while the step goes on (a part at a time): the change is counted when it is made too.
         brick.Changes++;

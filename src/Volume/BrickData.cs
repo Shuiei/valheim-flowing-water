@@ -39,7 +39,16 @@ internal static class BrickData
     /// <summary>The brick as bytes.</summary>
     /// <param name="brick">The brick.</param>
     /// <param name="voxelSize">Metres along a voxel's side.</param>
-    public static byte[] Encode(Brick brick, float voxelSize) => Packed.Write(writer =>
+    public static byte[] Encode(Brick brick, float voxelSize) => Encode(brick, voxelSize, Look(brick, voxelSize));
+
+    /// <summary>
+    /// The brick as bytes, from its <see cref="Look"/> taken just now (what a send weighs the change by: the bytes it
+    /// holds are the ones kept, so they are not worked out twice).
+    /// </summary>
+    /// <param name="brick">The brick, as it was when the look was taken.</param>
+    /// <param name="voxelSize">Metres along a voxel's side.</param>
+    /// <param name="look">Its look, <see cref="Look"/>.</param>
+    public static byte[] Encode(Brick brick, float voxelSize, byte[] look) => Packed.Write(writer =>
     {
         writer.Write(FormatVersion);
         writer.Write(brick.X);
@@ -47,48 +56,81 @@ internal static class BrickData
         writer.Write(brick.Z);
         writer.Write(voxelSize);
 
-        // A voxel's velocity is kept when its water byte is not 0: the reader goes by the same byte.
-        byte[] water = WaterBytes(brick, out float[] exact);
-        writer.Write(water);
-        float area = voxelSize * voxelSize;
-        for (int i = 0; i < Brick.Count; i++)
+        // Every voxel's water byte first, then, for each with water, its look's other bytes and, where the byte says
+        // More, its exact share (worked out again only then: a look has none).
+        byte[] water = _encodeWater ??= new byte[Brick.Count];
+        Array.Clear(water, 0, Brick.Count);
+        bool more = false;
+        for (int k = 0; k < look.Length; k += LookBytes)
         {
-            if (water[i] > 0)
-            {
-                (float x, float y, float z) = Velocity(brick, i, area);
-                writer.Write((byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f));
-                writer.Write(SpeedByte(x));
-                writer.Write(SpeedByte(y));
-                writer.Write(SpeedByte(z));
-                if (water[i] == More)
-                {
-                    writer.Write(exact[i]);
-                }
+            water[Voxel(look, k)] = look[k + WaterByte];
+            more |= look[k + WaterByte] == More;
+        }
 
-                writer.Write(brick.OpenFaces(i));
+        writer.Write(water, 0, Brick.Count);
+        float[] exact = more ? Exact(brick) : null;
+        for (int k = 0; k < look.Length; k += LookBytes)
+        {
+            writer.Write(look, k + SolidByte, LookBytes - SolidByte - 1);
+            if (look[k + WaterByte] == More)
+            {
+                writer.Write(exact[Voxel(look, k)]);
             }
+
+            writer.Write(look[k + OpenByte]);
         }
     });
 
     /// <summary>
-    /// Bytes a voxel in a brick's <see cref="Look"/>: its water, its solid share, its current on each axis and its open
-    /// faces.
+    /// Bytes a voxel takes in a brick's <see cref="Look"/>: its index (two bytes), its water, its solid share, its
+    /// current on each axis and its open faces.
     /// </summary>
-    public const int LookBytes = 6;
+    public const int LookBytes = 8;
+
+    /// <summary>Where a voxel's water byte is in its <see cref="LookBytes"/>, after its index.</summary>
+    public const int WaterByte = 2;
+
+    /// <summary>Where a voxel's solid byte is in its <see cref="LookBytes"/>.</summary>
+    public const int SolidByte = 3;
+
+    /// <summary>Where a voxel's current bytes are in its <see cref="LookBytes"/>: east, up, north.</summary>
+    public const int SpeedByte0 = 4;
+
+    /// <summary>Where a voxel's open faces byte is in its <see cref="LookBytes"/>.</summary>
+    public const int OpenByte = 7;
+
+    // Scratch for the water bytes, the shares they were rounded from and the bytes an Encode gathers: one of each a
+    // thread (bricks are packed on the main thread, but nothing here need know that), made once.
+    [ThreadStatic]
+    private static byte[] _waterScratch;
+
+    [ThreadStatic]
+    private static float[] _exactScratch;
+
+    [ThreadStatic]
+    private static byte[] _encodeWater;
 
     /// <summary>The water steps (of 200 a voxel) of the thinnest water a player's game draws, metres deep, in voxels this size.</summary>
     public static int Steps(float metres, float voxelSize) => (int)Math.Ceiling(metres / voxelSize * Full);
 
     /// <summary>
-    /// The brick as a player sees it, <see cref="LookBytes"/> a voxel, rounded as <see cref="Encode"/> rounds them: what a
-    /// send compares with the brick as last sent, to know whether the change would show (<see cref="Shows"/>) before
-    /// packing it at all.
+    /// The brick as a player sees it, <see cref="LookBytes"/> for each voxel with water (in index order, no bytes for
+    /// the dry ones), rounded as <see cref="Encode(Brick, float)"/> rounds them: what a send compares with the brick as last sent, to
+    /// know whether the change would show (<see cref="Shows"/>) before packing it at all, and what it is then packed
+    /// from.
     /// </summary>
     public static byte[] Look(Brick brick, float voxelSize)
     {
-        byte[] look = new byte[Brick.Count * LookBytes];
-        float area = voxelSize * voxelSize;
         byte[] waters = WaterBytes(brick, out _);
+        int wet = 0;
+        for (int i = 0; i < Brick.Count; i++)
+        {
+            wet += waters[i] > 0 ? 1 : 0;
+        }
+
+        byte[] look = new byte[wet * LookBytes];
+        float area = voxelSize * voxelSize;
+        int k = 0;
         for (int i = 0; i < Brick.Count; i++)
         {
             byte water = waters[i];
@@ -98,17 +140,22 @@ internal static class BrickData
             }
 
             (float x, float y, float z) = Velocity(brick, i, area);
-            int k = i * LookBytes;
-            look[k] = water;
-            look[k + 1] = (byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f);
-            look[k + 2] = (byte)SpeedByte(x);
-            look[k + 3] = (byte)SpeedByte(y);
-            look[k + 4] = (byte)SpeedByte(z);
-            look[k + 5] = brick.OpenFaces(i);
+            look[k] = (byte)i;
+            look[k + 1] = (byte)(i >> 8);
+            look[k + WaterByte] = water;
+            look[k + SolidByte] = (byte)Math.Round(Math.Min(1f, Math.Max(0f, brick.Solid[i])) * 255f);
+            look[k + SpeedByte0] = (byte)SpeedByte(x);
+            look[k + SpeedByte0 + 1] = (byte)SpeedByte(y);
+            look[k + SpeedByte0 + 2] = (byte)SpeedByte(z);
+            look[k + OpenByte] = brick.OpenFaces(i);
+            k += LookBytes;
         }
 
         return look;
     }
+
+    /// <summary>The voxel the record at byte k of a <see cref="Look"/> is of.</summary>
+    public static int Voxel(byte[] look, int k) => look[k] | (look[k + 1] << 8);
 
     /// <summary>
     /// Whether a player would see the brick change from one <see cref="Look"/> to the next: a voxel's water over
@@ -117,36 +164,56 @@ internal static class BrickData
     /// an axis by more than <paramref name="speedSteps"/> (of 127, in square-root steps: finer when slow) where it is
     /// drawn. Traces too
     /// thin to draw come and go all along a running stream's edges and bed, and water a hair over or under the
-    /// thinnest drawn barely shows: those do not count.
+    /// thinnest drawn barely shows: those do not count. A voxel in one look and not the other reads as dry there.
     /// </summary>
     public static bool Shows(byte[] was, byte[] now, int waterSteps, int speedSteps, int visibleSteps)
     {
-        for (int k = 0; k < now.Length; k += LookBytes)
+        int a = 0, b = 0;
+        while (a < was.Length || b < now.Length)
         {
-            int a = Math.Max(0, was[k] - visibleSteps), b = Math.Max(0, now[k] - visibleSteps);
-            if (a == 0 && b == 0)
-            {
-                continue;
-            }
-
-            if (Math.Abs(a - b) > waterSteps || was[k + 1] != now[k + 1] || was[k + 5] != now[k + 5])
+            int ia = a < was.Length ? Voxel(was, a) : int.MaxValue;
+            int ib = b < now.Length ? Voxel(now, b) : int.MaxValue;
+            int ka = ia <= ib ? a : -1, kb = ib <= ia ? b : -1;
+            if (Differs(was, ka, now, kb, waterSteps, speedSteps, visibleSteps))
             {
                 return true;
             }
 
-            for (int axis = 2; axis <= 4; axis++)
+            a += ia <= ib ? LookBytes : 0;
+            b += ib <= ia ? LookBytes : 0;
+        }
+
+        return false;
+    }
+
+    // Whether one voxel's record (k; none, all bytes 0, when -1) differs from the other's so that it shows.
+    private static bool Differs(byte[] was, int ka, byte[] now, int kb, int waterSteps, int speedSteps, int visibleSteps)
+    {
+        int a = Math.Max(0, At(was, ka, WaterByte) - visibleSteps), b = Math.Max(0, At(now, kb, WaterByte) - visibleSteps);
+        if (a == 0 && b == 0)
+        {
+            return false;
+        }
+
+        if (Math.Abs(a - b) > waterSteps || At(was, ka, SolidByte) != At(now, kb, SolidByte) || At(was, ka, OpenByte) != At(now, kb, OpenByte))
+        {
+            return true;
+        }
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (Math.Abs((sbyte)At(was, ka, SpeedByte0 + axis) - (sbyte)At(now, kb, SpeedByte0 + axis)) > speedSteps)
             {
-                if (Math.Abs((sbyte)was[k + axis] - (sbyte)now[k + axis]) > speedSteps)
-                {
-                    return true;
-                }
+                return true;
             }
         }
 
         return false;
     }
 
-    /// <summary>The brick kept by <see cref="Encode"/>.</summary>
+    private static byte At(byte[] look, int k, int field) => k < 0 ? (byte)0 : look[k + field];
+
+    /// <summary>The brick kept by <see cref="Encode(Brick, float)"/>.</summary>
     /// <exception cref="InvalidDataException">
     /// The bytes are not that (or of another version), or hold a voxel size or a share of water that is not a number,
     /// endless, or below 0.
@@ -204,20 +271,21 @@ internal static class BrickData
     /// </summary>
     public static (float X, float Y, float Z) Velocity(Brick brick, int i, float faceArea)
     {
-        (int x, int y, int z) = Brick.Place(i);
-        float west = x > 0 ? brick.FlowX[i - 1] : brick.Beside[1]?.FlowX[i + Brick.Size - 1] ?? 0f;
-        float under = y > 0 ? brick.FlowY[i - (Brick.Size * Brick.Size)] : brick.Beside[3]?.FlowY[i + ((Brick.Size - 1) * Brick.Size * Brick.Size)] ?? 0f;
-        float south = z > 0 ? brick.FlowZ[i - Brick.Size] : brick.Beside[5]?.FlowZ[i + ((Brick.Size - 1) * Brick.Size)] ?? 0f;
+        float west = brick.Neighbour(i, 1, out Brick other, out int j) ? other.FlowX[j] : 0f;
+        float under = brick.Neighbour(i, 3, out other, out j) ? other.FlowY[j] : 0f;
+        float south = brick.Neighbour(i, 5, out other, out j) ? other.FlowZ[j] : 0f;
         float half = 0.5f / faceArea;
         return ((brick.FlowX[i] + west) * half, (brick.FlowY[i] + under) * half, (brick.FlowZ[i] + south) * half);
     }
 
     // Each voxel's water in steps of 1/Full, what each rounds off carried on into the next so the brick's volume is
-    // kept, and the exact share each was rounded from (kept as is where the byte says More).
+    // kept, and the exact share each was rounded from (kept as is where the byte says More). Both in scratch arrays
+    // of the thread's, read before it is asked again.
     private static byte[] WaterBytes(Brick brick, out float[] exact)
     {
-        byte[] water = new byte[Brick.Count];
-        exact = new float[Brick.Count];
+        byte[] water = _waterScratch ??= new byte[Brick.Count];
+        exact = _exactScratch ??= new float[Brick.Count];
+        Array.Clear(water, 0, Brick.Count);
         float carried = 0f;
         for (int i = 0; i < Brick.Count; i++)
         {
@@ -225,11 +293,12 @@ internal static class BrickData
             // not a number: it is kept as none, as it always was.
             if (!(brick.Water[i] > 0f) || float.IsInfinity(brick.Water[i]))
             {
+                exact[i] = 0f;
                 continue;
             }
 
             float share = brick.Water[i] + carried;
-            water[i] = (byte)Math.Max(0, Math.Min(More, (int)Math.Round(share * Full)));
+            water[i] = (byte)Math.Min(More, Math.Round(share * Full));
             exact[i] = share;
             carried = water[i] == More ? 0f : share - (water[i] / Full);
         }
@@ -237,8 +306,20 @@ internal static class BrickData
         return water;
     }
 
+    // The exact share of each voxel's water, as WaterBytes finds them.
+    private static float[] Exact(Brick brick)
+    {
+        WaterBytes(brick, out float[] exact);
+        return exact;
+    }
+
     private static sbyte SpeedByte(float speed)
     {
+        if (float.IsNaN(speed))
+        {
+            return 0;
+        }
+
         float step = (float)Math.Sqrt(Math.Min(Math.Abs(speed), MaxSpeed) / MaxSpeed) * 127f;
         return (sbyte)((int)Math.Round(step) * Math.Sign(speed));
     }

@@ -14,12 +14,12 @@ public class StepPacerTests
     public void AFrameTakesTheStepsItOwesAndKeepsTheRest()
     {
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.1f, 8.0);
+        pacer.Add(0.1f, 8f);
 
         Assert.Equal(2, Steps(pacer, 0.04f, cost: 1.0));
         Assert.Equal(0.02f, pacer.Owed, 4);
 
-        pacer.Add(0.02f, 8.0);
+        pacer.Add(0.02f, 8f);
         Assert.Equal(1, Steps(pacer, 0.04f, cost: 1.0));
     }
 
@@ -27,7 +27,7 @@ public class StepPacerTests
     public void StepsStopWhenTheFramesBudgetIsSpent()
     {
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.4f, 8.0);
+        pacer.Add(0.4f, 8f);
 
         Assert.Equal(3, Steps(pacer, 0.04f, cost: 3.0));
         Assert.Equal(0.28f, pacer.Owed, 4);
@@ -41,7 +41,7 @@ public class StepPacerTests
         int steps = 0;
         for (int frame = 0; frame < 30; frame++)
         {
-            pacer.Add(0.02f, 2.0);
+            pacer.Add(0.02f, 2f);
             steps += Steps(pacer, 0.04f, cost: 5.0);
         }
 
@@ -52,8 +52,8 @@ public class StepPacerTests
     public void TimeOwedPastTheLimitIsGivenUp()
     {
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.3f, 8.0);
-        pacer.Add(0.3f, 8.0);
+        pacer.Add(0.3f, 8f);
+        pacer.Add(0.3f, 8f);
 
         Assert.Equal(0.5f, pacer.Owed, 4);
         Assert.Equal(0.1f, pacer.TakeDropped(), 4);
@@ -64,7 +64,7 @@ public class StepPacerTests
     public void AStepNotDoneIsOwedAgain()
     {
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.1f, 8.0);
+        pacer.Add(0.1f, 8f);
 
         Assert.True(pacer.Take(0.04f));
         pacer.Return(0.04f);
@@ -75,7 +75,7 @@ public class StepPacerTests
     public void AllTheOwedTimeIsTakenAtOnce()
     {
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.1f, 8.0);
+        pacer.Add(0.1f, 8f);
         Assert.True(pacer.Take(0.04f));
 
         Assert.Equal(0.06f, pacer.TakeAll(), 4);
@@ -89,9 +89,9 @@ public class StepPacerTests
         // A step taken spans frames that owe the limit again, then is not done: owed time stays at the limit, and
         // what went past is counted as given up.
         var pacer = new StepPacer(0.5f);
-        pacer.Add(0.5f, 8.0);
+        pacer.Add(0.5f, 8f);
         Assert.True(pacer.Take(0.04f));
-        pacer.Add(0.04f, 8.0);
+        pacer.Add(0.04f, 8f);
         Assert.Equal(0f, pacer.TakeDropped(), 4);
 
         pacer.Return(0.04f);

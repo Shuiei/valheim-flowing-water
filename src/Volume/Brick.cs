@@ -121,6 +121,9 @@ internal sealed class Brick
     /// <summary>Whether it sleeps this step: skipped, and no water crosses its faces.</summary>
     public bool Asleep { get; set; }
 
+    /// <summary>The grid's <see cref="VoxelGrid.Version"/> when it was made: later than a version, it was made since.</summary>
+    public int MadeAt { get; set; }
+
     /// <summary>
     /// Counts the changes to its water: each step that works on it (or lets its flows go as it falls asleep), and
     /// water or solids put in from outside a step. While it stays the same, so does the brick's data.
@@ -209,6 +212,12 @@ internal sealed class Brick
 
     /// <summary>Seconds it has held no water, to forget it.</summary>
     public float EmptyFor { get; set; }
+
+    /// <summary>
+    /// Whether water came into it since last looked at (<see cref="VoxelGrid.ForgetDry"/>), the sea's or not: a brick
+    /// the sea takes every drop from holds none at a frame's end, yet is not dry.
+    /// </summary>
+    public bool Fed { get; set; }
 
     // Whether it held water when last looked, and its count of changes then: a brick unchanged since (asleep) is not
     // looked over again.

@@ -359,7 +359,8 @@ public class VoxelGridTests
         wet.Water[0] = 0f;
         wet.Changes++;
 
-        // Water put in the dry one outside its wet voxels' box (a step counts it too): it is wet.
+        // Water put in the dry one outside its wet voxels' box (nothing of the water's does that; a step counts a
+        // change too): found as it is about to be forgotten, it is wet.
         dry.Water[Brick.Index(9, 9, 9)] = 0.5f;
         dry.Changes++;
         grid.ForgetDry(10f, 8f);

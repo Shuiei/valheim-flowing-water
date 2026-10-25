@@ -27,14 +27,17 @@ internal sealed class SolidsChanges<TZone, TId>
     // The pieces of the zone being looked at, found so far (a cleared dictionary kept to be used again).
     private Dictionary<TId, (Vec3 At, float Reach, int Look)> _now = [];
 
+    // The bricks still to read their solids again for the places taken up last (a refill is spread over frames).
+    private readonly List<Brick> _pending = [];
+
     /// <summary>Changes in zones known by this key (<see cref="ZoneCache"/>).</summary>
     public SolidsChanges(Func<TZone, long> key)
     {
         _key = key;
     }
 
-    /// <summary>Whether anything changed since the bricks last read their solids.</summary>
-    public bool Any => _places.Count > 0;
+    /// <summary>Whether anything changed since the bricks last read their solids, or some have still to.</summary>
+    public bool Any => _places.Count > 0 || _pending.Count > 0;
 
     /// <summary>One piece of the zone being looked at: where it stands, how far it reaches, its turn and state.</summary>
     public void Found(TId id, Vec3 at, float reach, int look) => _now[id] = (at, reach, look);
@@ -88,34 +91,65 @@ internal sealed class SolidsChanges<TZone, TId>
     /// <summary>Forgets the pieces last looked at in the zones not among these (by key): a look there is a first again.</summary>
     public void Keep(HashSet<long> zones) => ZoneCache.Keep(_pieces, zones);
 
-    /// <summary>The changed zones' solids forgotten, then the bricks meeting a changed place read theirs again.</summary>
+    /// <summary>The changed zones' solids forgotten, then every brick meeting a changed place reads theirs again, now.</summary>
     /// <param name="grid">The bricks.</param>
     /// <param name="forget">Forgets what was read of a zone's solids.</param>
     /// <returns>How many bricks read their solids again.</returns>
-    public int Refill(VoxelGrid grid, Action<TZone> forget)
-    {
-        if (!Any)
-        {
-            return 0;
-        }
+    public int Refill(VoxelGrid grid, Action<TZone> forget) => Refill(grid, forget, static () => true);
 
-        foreach (TZone zone in _zones)
+    /// <summary>
+    /// The changed zones' solids forgotten, then the bricks meeting a changed place read theirs again while
+    /// <paramref name="timeLeft"/> says so (one at least: a hoe's stroke by a big pool would otherwise have every brick
+    /// of it read the ground and the pieces again in one frame); the rest go on at the next call. A brick forgotten
+    /// meanwhile is left out; a place changed meanwhile is taken up once these are done.
+    /// </summary>
+    /// <param name="grid">The bricks.</param>
+    /// <param name="forget">Forgets what was read of a zone's solids.</param>
+    /// <param name="timeLeft">Whether the frame has time for another brick.</param>
+    /// <returns>How many bricks read their solids again.</returns>
+    public int Refill(VoxelGrid grid, Action<TZone> forget, Func<bool> timeLeft)
+    {
+        if (_pending.Count == 0)
         {
-            forget(zone);
+            if (_places.Count == 0)
+            {
+                return 0;
+            }
+
+            foreach (TZone zone in _zones)
+            {
+                forget(zone);
+            }
+
+            foreach (Brick brick in grid.Bricks)
+            {
+                if (Near(brick, grid.VoxelSize))
+                {
+                    _pending.Add(brick);
+                }
+            }
+
+            _zones.Clear();
+            _places.Clear();
         }
 
         int refilled = 0;
-        foreach (Brick brick in new List<Brick>(grid.Bricks))
+        while (_pending.Count > 0)
         {
-            if (Near(brick, grid.VoxelSize))
+            Brick brick = _pending[_pending.Count - 1];
+            _pending.RemoveAt(_pending.Count - 1);
+            if (grid.Find(brick.X, brick.Y, brick.Z) == brick)
             {
                 grid.Refill(brick);
                 refilled++;
             }
+
+            if (!timeLeft())
+            {
+                break;
+            }
         }
 
-        _zones.Clear();
-        _places.Clear();
         return refilled;
     }
 

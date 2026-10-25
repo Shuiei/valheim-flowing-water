@@ -121,9 +121,11 @@ public class BrickDataTests
         byte[] was = BrickData.Look(before, 1f);
         byte[] now = BrickData.Look(after, 1f);
 
-        Assert.Equal(100, was[BrickData.LookBytes]);
-        Assert.Equal(103, now[BrickData.LookBytes]);
-        Assert.Equal(BrickData.Decode(BrickData.Encode(after, 1f)).Water[1], now[BrickData.LookBytes] / 200f, 4);
+        // The second record is voxel 1's (voxel 0, a trace, has one too).
+        Assert.Equal(1, BrickData.Voxel(now, BrickData.LookBytes));
+        Assert.Equal(100, was[BrickData.LookBytes + BrickData.WaterByte]);
+        Assert.Equal(103, now[BrickData.LookBytes + BrickData.WaterByte]);
+        Assert.Equal(BrickData.Decode(BrickData.Encode(after, 1f)).Water[1], now[BrickData.LookBytes + BrickData.WaterByte] / 200f, 4);
         Assert.True(BrickData.Shows(was, now, 2, 3, BrickData.Steps(0.01f, 1f)));
     }
 
