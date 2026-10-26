@@ -195,6 +195,14 @@ float CascadeStreaks(float2 world, float2 current, float speed)
     return RunningFoam(uv, float2(0.0, speed * CASCADE_ALONG));
 }
 
+// Shallow still water (none of it as the water runs: running water looks as it did): it keeps this share of its
+// ripples at least; what is seen through it takes the shallow colour (times SHALLOW_TINT, never brighter than it is)
+// over SHALLOW_ABSORB metres of it, and thinner than that it is this share as glossy.
+#define SHALLOW_RIPPLES 0.5
+#define SHALLOW_TINT 3.0
+#define SHALLOW_ABSORB 0.8
+#define SHALLOW_GLOSS 0.85
+
 // The water's look at a point the shader draws.
 void Look(Input i, inout SurfaceOutputStandard o)
 {
@@ -209,8 +217,9 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float3 wind2 = Wind(_GlobalWind2);
     float3 still = lerp(WindRipples(i.world, wind1.xy), WindRipples(i.world, wind2.xy), _GlobalWindAlpha);
     float3 ripples = lerp(still, RunningRipples(i.world, i.current) * _FlowStrength, running);
-    // Shallow still water lies flatter, as the sea's does; running water keeps its ripples.
-    float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
+    // Shallow still water lies flatter, as the sea's does, but keeps half its ripples (flatter, a pool over grass was a
+    // mirror of the sky, pale as ice); running water keeps them all.
+    float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, lerp(SHALLOW_RIPPLES, 0.2, running), 1.0), running)));
     n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
 
     // The fine waves, lit only: their slope tips the surface.
@@ -236,7 +245,9 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // RunningClarity as clear), and the shallower it takes the deep colour (RunningDeep, not DeepWater).
     float clarity = lerp(1.0, _RunningClarity, running);
     float deepColour = saturate(depth / lerp(_DeepWater, _RunningDeep, running));
+    // What is behind, seen through the water's depth: tinted toward its shallow colour as the water takes the light.
     float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
+    behind *= lerp(1.0, saturate(_ColorBottomShallow.rgb * SHALLOW_TINT), saturate(depth / SHALLOW_ABSORB) * (1.0 - running));
     float hidden = sqrt(saturate(abs(bent - eye) / (_DepthFade * clarity)));
     // A cascade is full of air: little of what is behind shows through it.
     hidden = lerp(hidden, 1.0, 0.85 * cascade);
@@ -254,7 +265,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float2 wobble = 0.005 * float2(sin(_Time.y + i.worldPos.x), sin((1.5 * _Time.y) + i.worldPos.z));
     float windFoam = 5.0 * lerp(wind1.z, wind2.z, _GlobalWindAlpha) * deep * (1.0 - running) * tex2D(_RandomFoamTex, (i.world * 0.03) + wobble).r;
     colour = lerp(colour, _FoamColor.rgb, saturate(windFoam * _FoamColor.a));
-    float gloss = _Glossiness * (1.0 - saturate(windFoam));
+    // Thin water mirrors the sky less sharply (its film over the ground is never as smooth as a pool's top).
+    float gloss = _Glossiness * (1.0 - saturate(windFoam)) * lerp(lerp(SHALLOW_GLOSS, 1.0, saturate(depth / SHALLOW_ABSORB)), 1.0, running);
 
     // A band of foam just off the water's edge.
     float shoreFoam = deep * min(shore, 1.0 - band);
