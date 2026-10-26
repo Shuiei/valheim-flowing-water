@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -11,11 +12,14 @@ namespace FlowingWater.Tests;
 /// </summary>
 public class SettingsDocsTests
 {
+    // The longest a match may take (the files are the repository's own, short).
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(1);
+
     // A setting bound in Settings.cs: config.Bind("Section", "Key", ...).
-    private static readonly Regex Bound = new("config\\.Bind\\(\"(?<section>\\w+)\", \"(?<key>\\w+)\"", RegexOptions.Compiled);
+    private static readonly Regex Bound = new("config\\.Bind\\(\"(?<section>\\w+)\", \"(?<key>\\w+)\"", RegexOptions.Compiled, Patience);
 
     // A setting named in a document's table: a row starting with `Section.Key` (or `Key`, for the top section's).
-    private static readonly Regex Row = new("^\\| `(?<name>[\\w.]+)` \\|", RegexOptions.Compiled | RegexOptions.Multiline);
+    private static readonly Regex Row = new("^\\| `(?<name>[\\w.]+)` \\|", RegexOptions.Compiled | RegexOptions.Multiline, Patience);
 
     [Fact]
     public void TheReadmeTellsEverySetting()
