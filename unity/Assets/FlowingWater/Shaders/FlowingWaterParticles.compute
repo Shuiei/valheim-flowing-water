@@ -1,0 +1,1059 @@
+// FlowingWater's particle water (a prototype): water as particles on the graphics card, for the water the sheet of
+// shallow water cannot be (FlowingWaterSim.compute): water going over a lip, a dam bursting, a splash, something
+// pushed through it. Position based fluids (Macklin and Müller, 2013): each particle is a litre or so of water; each
+// step guesses where every particle goes, then pulls the guesses a few times until the water round each is as dense as
+// water at rest (no denser, no thinner), and takes each particle's speed from where it ended up. Neighbours are found
+// through a hashed grid of cells the smoothing radius wide (Green, 2008): the particles are counted into buckets by
+// their cell, the buckets' starts summed up, and the particles sorted into them, each step.
+// The particles are the water near the camera where the card draws it, made from the server's water and held to it
+// (_Own): each frame the particles in each voxel column are counted (CountColumns), a column with fewer than the
+// server's water there is worth gets new ones under its surface (Fill, a share of what it lacks a frame, as the sheet
+// is pulled), and one with more loses a share of its own; so the server keeps the say on how much water is where,
+// while how it moves is the particles' own. A particle under the sea's level is the sea's, one in the square's edge
+// band is the bricks' (they draw there). Nothing is sent anywhere.
+// A step (a substep of a frame):
+//   ClearCounts  every bucket empty,
+//   Predict      each particle falls and moves on as it went; its bucket, and its place in it (one gone has none),
+//   ScanBlocks   the buckets' starts, a block of buckets at a time; the blocks' sums,
+//   ScanSums     the blocks' starts,
+//   AddSums      each bucket's start in all,
+//   Scatter      the particles in their buckets' order (into the other buffer): the gone ones left out,
+//   Settle       how many are left, and the drawing's arguments,
+//   then, so many times:
+//   Lambda       how far each particle's water is from rest, and the pull that would mend it,
+//   Displace     where the pulls of a particle and its neighbours move it,
+//   Apply        moved, and kept out of the ground, the walls and a sphere,
+//   Finish       its speed from where it ended up, smoothed a little among neighbours (XSPH), and it is there (into
+//                the other buffer); or gone, where the server's water is less.
+// Once a frame, before the steps: ClearColumns, CountColumns, Fill, and Spout (water sources: the frame's water of each
+// comes out all round its rim, outward, at the speed its rate pushes it through).
+#pragma kernel ClearColumns
+#pragma kernel CountColumns
+#pragma kernel Fill
+#pragma kernel Spout
+#pragma kernel ClearCounts
+#pragma kernel Predict
+#pragma kernel ScanBlocks
+#pragma kernel ScanSums
+#pragma kernel AddSums
+#pragma kernel Scatter
+#pragma kernel Settle
+#pragma kernel Lambda
+#pragma kernel Displace
+#pragma kernel Apply
+#pragma kernel Finish
+
+// A particle: where it is (m, world) and its cell's key (the bits of place.w: KeyOf, set as it is hashed; GONE once it
+// is gone; anything else before its first step), where this step would put it and its pull (lambda, m2), its speed
+// (m/s) and the water round it as a share of water at rest.
+struct Particle
+{
+    float4 place;
+    float4 predicted;
+    float4 velocity;
+};
+
+// The particles a kernel works on, and the other buffer (Scatter and Finish write the particles into it); how many
+// there are (x: the first so many of the buffer; y: how many the step keeps, counted as they are sorted) of the room
+// there is; the drawing's arguments (points, six a particle; 1; 0; 0).
+RWStructuredBuffer<Particle> _Particles;
+RWStructuredBuffer<Particle> _Sorted;
+RWStructuredBuffer<uint> _Alive;
+RWStructuredBuffer<uint> _Args;
+uint _Capacity;
+#define GONE 0xFFFFFFFFu
+
+bool Gone(Particle p)
+{
+    return asuint(p.place.w) == GONE;
+}
+
+// The server's water the particles are held to, while they own the square (_Own): a texel a voxel column (the card's
+// SimColumns: x its resting top, world height, under DRY_TOP none; y 1 where the card draws it; z its depth, all its
+// water resting), _PerVoxel cells to a column's side; the particles counted in each column this frame, and the share of
+// its particles a column with too many loses this frame; the share of what a column lacks that a frame fills; cells
+// along the square's edge the bricks draw instead (no particle stays there); the sea's level (a particle under it is
+// the sea's); a particle's water (m3).
+int _Own;
+Texture2D<float4> _Target;
+int _PerVoxel;
+RWTexture2D<int> _ColumnCount;
+// The highest particle in the water of each column (a lone one falling through the air is not the water's top), as
+// TopCode has it (0: none).
+RWTexture2D<int> _ColumnTop;
+#define IN_WATER 0.5
+RWTexture2D<float> _ColumnLoss;
+float _Pull;
+int _Border;
+float _SeaLevel;
+float _Litre;
+uint _Seed;
+#define DRY_TOP -1000.0
+
+// A column fills with at most so many new particles a frame, and from its bed up while it holds less than this share
+// of its water (else just under its surface, where they are not seen coming).
+#define MOST_FILLED 32u
+
+// A water source the particles come out of: its rim's centre and radius (the marker's, a particle's radius out from
+// it); the speed out of it (m/s) and its rate (m3/s).
+struct Spring
+{
+    float4 ring;
+    float4 flow;
+};
+
+StructuredBuffer<Spring> _Spouts;
+uint _SpoutCount;
+// The frame's seconds (the spouts' water a frame).
+float _Frame;
+#define MOST_SPOUTED 256u
+
+// The buckets: how many particles each holds, where each starts in the sorted order, and the sums of the blocks of
+// buckets the scan goes by; each particle's bucket and its place in it.
+RWStructuredBuffer<uint> _Counts;
+RWStructuredBuffer<uint> _Starts;
+RWStructuredBuffer<uint> _BlockSums;
+RWStructuredBuffer<uint> _Hashes;
+RWStructuredBuffer<uint> _Slots;
+uint _Buckets;
+uint _Blocks;
+
+// Where the pulls move each particle this round (m).
+RWStructuredBuffer<float4> _Delta;
+
+// The ground: the card's water's (FlowingWaterSim.compute's _Bed), a world height per cell, from the square's south-west
+// corner (world x, z), cells along a side; a wall where it is over WALL. Water never goes over _Top (world height).
+Texture2D<float> _Bed;
+int _N;
+float _Dx;
+float2 _Origin;
+float _Top;
+#define WALL 5000.0
+
+// The particles' size: half their spacing at rest (m), kept from the ground and the walls; ground higher than a
+// particle by more than this (m) is a wall to it, not a step it rides up.
+float _Radius;
+float _StepUp;
+
+// What players built, as the bricks have it (ParticleSolids): a byte a voxel over the square, _SolidColumns a side of
+// _VoxelSize metres from the square's corner, _SolidRows rows up from world height _SolidY0: SOLID where the voxel is
+// solid, and a bit for each of its faces a piece closes (a wall thinner than a voxel: east, west, up, down, north,
+// south); none where no brick is (the ground alone holds there). A particle keeps a radius out of a solid voxel (a roof
+// from under it, a floor on posts) and on its side of a closed face (a wall).
+int _SolidsOn;
+Texture3D<float> _Solids;
+#define SOLID 128u
+#define CLOSED_EAST 1u
+#define CLOSED_WEST 2u
+#define CLOSED_UP 4u
+#define CLOSED_DOWN 8u
+#define CLOSED_NORTH 16u
+#define CLOSED_SOUTH 32u
+int _SolidColumns;
+int _SolidRows;
+float _VoxelSize;
+float _SolidY0;
+
+// The smoothing radius (m), its square, the kernels' constants (poly6's 315 / (64 pi h^9), spiky's 45 / (pi h^6)), and
+// the weights of water at rest: the sum of the smoothing kernel over a lattice of particles at their spacing, and the
+// sum of the squared gradients there, which the relaxation is a share of.
+float _H;
+float _H2;
+float _Poly6K;
+float _SpikyK;
+float _RestWeight;
+float _Relaxation;
+
+// The ground and the walls stand in for the water they keep out: the particles there would be as dense as any at
+// rest, with water on every side; the part of the smoothing kernel's ball beyond a wall is counted as that water
+// (_RestNumber: particles in a cubic metre at rest, over the weight of water at rest).
+float _RestNumber;
+
+// Macklin and Müller's artificial pressure, keeping particles from clumping where the water is thin: its strength (m2)
+// and the kernel's weight at the distance it is measured against.
+float _CorrK;
+float _CorrW;
+
+// XSPH: how much of its neighbours' speed each particle takes (share); and the fastest any particle goes (m/s): a
+// speed from a mended guess, not from falling or flowing, is held there instead of thrown on into the next step.
+float _Viscosity;
+float _MaxSpeed;
+
+float _Dt;
+float _Gravity;
+
+// A sphere the water meets (xyz its centre, w its radius; none under 0).
+float4 _Sphere;
+
+// The bodies in the water (ships' hulls, players, creatures: ParticleWater.Body): a box each, its centre, its half
+// extents along its own axes, and two of those axes (the third across them); a sphere where kind is 2 (half.x its
+// radius). A particle keeps a radius out of each, out through the nearest face: a hull sweeping on shoves the water
+// ahead and aside as far as it moved, so the water takes the hull's speed.
+struct Body
+{
+    float4 centre;
+    float4 half;
+    float4 axisX;
+    float4 axisY;
+};
+
+StructuredBuffer<Body> _Bodies;
+uint _BodyCount;
+#define BODY_SPHERE 2.0
+
+#define THREADS 256
+#define SCAN 1024
+
+// The smoothing kernels (Müller et al., 2003): poly6 by the squared distance, spiky's gradient by the offset.
+float Poly6(float d2)
+{
+    float a = max(_H2 - d2, 0.0);
+    return _Poly6K * a * a * a;
+}
+
+float3 Spiky(float3 r)
+{
+    float d = length(r);
+    float a = max(_H - d, 0.0);
+    return d > 1e-6 ? -_SpikyK * a * a * (r / d) : float3(0.0, 0.0, 0.0);
+}
+
+// The share of water at rest a wall d metres away (d from 0 to the radius) stands in for: the kernel's weight over
+// the ball's cap beyond the wall, times the particles a cubic metre holds, over the weight at rest; and the slope of
+// that share as the wall comes nearer (a slice of the ball, at d). Poly6 over a slice at height z of the ball is
+// 315 (h2 - z2)^4 / (256 h^9); its integral over the cap from d to h, the polynomial below.
+float CapShare(float d)
+{
+    d = clamp(d, 0.0, _H);
+    float h2 = _H2, h4 = h2 * h2, h6 = h4 * h2, h8 = h4 * h4;
+    float z = d, z3 = z * z * z, z5 = z3 * z * z, z7 = z5 * z * z, z9 = z7 * z * z;
+    float atD = (h8 * z) - (4.0 / 3.0 * h6 * z3) + (6.0 / 5.0 * h4 * z5) - (4.0 / 7.0 * h2 * z7) + (z9 / 9.0);
+    float atH = h8 * _H * (1.0 - (4.0 / 3.0) + (6.0 / 5.0) - (4.0 / 7.0) + (1.0 / 9.0));
+    return _RestNumber * 315.0 / (256.0 * h8 * _H) * (atH - atD);
+}
+
+float CapSlope(float d)
+{
+    d = clamp(d, 0.0, _H);
+    float a = _H2 - (d * d);
+    return _RestNumber * 315.0 * a * a * a * a / (256.0 * _H2 * _H2 * _H2 * _H2 * _H);
+}
+
+float GroundAt(float2 xz);
+
+// What the ground under a place and the walls beside it stand in for: the share of water at rest they add to the
+// density there, and the gradient of that share (toward each wall as it comes nearer, as a neighbour's would be).
+void Boundary(float3 x, out float share, out float3 gradient, out float gradients)
+{
+    share = 0.0;
+    gradient = 0.0;
+    gradients = 0.0;
+    float d = x.y - GroundAt(x.xz);
+    if (d < _H)
+    {
+        float3 g = float3(0.0, -CapSlope(d), 0.0);
+        share += CapShare(d);
+        gradient += g;
+        gradients += dot(g, g);
+    }
+
+    int2 c = clamp((int2)floor((x.xz - _Origin) / _Dx), 0, _N - 1);
+    float2 cellLo = _Origin + (c * _Dx), cellHi = cellLo + _Dx;
+    int2 sides[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+    float gaps[4] = { x.x - cellLo.x, cellHi.x - x.x, x.z - cellLo.y, cellHi.y - x.z };
+    for (int s = 0; s < 4; s++)
+    {
+        int2 next = c + sides[s];
+        bool wall = next.x < 0 || next.y < 0 || next.x >= _N || next.y >= _N || _Bed[next] > x.y + _StepUp - _Radius;
+        if (wall && gaps[s] < _H)
+        {
+            float3 g = float3(sides[s].x, 0.0, sides[s].y) * CapSlope(gaps[s]);
+            share += CapShare(gaps[s]);
+            gradient += g;
+            gradients += dot(g, g);
+        }
+    }
+}
+
+int3 CellOf(float3 p)
+{
+    return (int3)floor(p / _H);
+}
+
+uint HashOf(int3 c)
+{
+    return (((uint)c.x * 73856093u) ^ ((uint)c.y * 19349663u) ^ ((uint)c.z * 83492791u)) & (_Buckets - 1u);
+}
+
+// A cell's key, its coordinates packed (ten bits each: cells 200 m apart share one, far beyond a neighbour's reach): a
+// neighbour is counted only where its key is the cell's, so two cells sharing a bucket, or one bucket met twice among
+// the 27, never count a particle twice or at all wrongly (never GONE: the top bit is cleared).
+uint KeyOf(int3 c)
+{
+    return ((((uint)c.x & 0x3FFu) << 20) | (((uint)c.y & 0x3FFu) << 10) | ((uint)c.z & 0x3FFu)) & 0x7FFFFFFFu;
+}
+
+// A random number in [0, 1) from a seed, which it moves on (PCG hash).
+float Random(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return word / 4294967296.0;
+}
+
+uint Alive()
+{
+    return min(_Alive[0], _Capacity);
+}
+
+bool InSquare(int2 c)
+{
+    return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
+}
+
+// A height as the columns' tops hold it: millimetres over 4 km down, so the highest wins an integer max.
+int TopCode(float y)
+{
+    return (int)clamp((y + 4096.0) * 1024.0, 1.0, 2.0e9);
+}
+
+float TopOf(int code)
+{
+    return (code / 1024.0) - 4096.0;
+}
+
+int2 ColumnOf(float3 place)
+{
+    return clamp((int2)floor((place.xz - _Origin) / (_Dx * _PerVoxel)), 0, (_N / _PerVoxel) - 1);
+}
+
+// Whether a cell is in the square's edge band, which the bricks draw.
+bool InBorder(int2 c)
+{
+    return c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+}
+
+// The ground under a place: between the cells' centres (a slope is smooth), unless the cells round it step by more than
+// a particle rides up (a wall, a ledge: then the cell's own, so the wall's height is not lent to the floor beside it).
+float GroundAt(float2 xz)
+{
+    float2 at = ((xz - _Origin) / _Dx) - 0.5;
+    int2 c = (int2)floor(at);
+    float2 f = at - c;
+    int2 c00 = clamp(c, 0, _N - 1), c11 = clamp(c + 1, 0, _N - 1);
+    float b00 = _Bed[c00], b10 = _Bed[int2(c11.x, c00.y)], b01 = _Bed[int2(c00.x, c11.y)], b11 = _Bed[c11];
+    float lowest = min(min(b00, b10), min(b01, b11)), highest = max(max(b00, b10), max(b01, b11));
+    if (highest - lowest > _StepUp)
+    {
+        return _Bed[clamp((int2)floor((xz - _Origin) / _Dx), 0, _N - 1)];
+    }
+
+    return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+}
+
+uint BuiltAt(int3 v)
+{
+    bool inside = v.x >= 0 && v.y >= 0 && v.z >= 0 && v.x < _SolidColumns && v.y < _SolidRows && v.z < _SolidColumns;
+    return inside ? (uint)round(_Solids[v] * 255.0) : 0u;
+}
+
+bool SolidAt(int3 v)
+{
+    return (BuiltAt(v) & SOLID) != 0u;
+}
+
+// A particle held on its side of its voxel's closed faces: one that crossed a closed face this step is put back just
+// inside it (the way it came), and one against a closed face is kept a radius from it.
+float3 Faces(float3 rel, float3 beforeRel)
+{
+    int3 v = (int3)floor(rel / _VoxelSize);
+    int3 was = (int3)floor(beforeRel / _VoxelSize);
+    float3 lo = float3(v) * _VoxelSize, hi = lo + _VoxelSize;
+    if (any(v != was))
+    {
+        uint from = BuiltAt(was);
+        float3 lastLo = float3(was) * _VoxelSize, lastHi = lastLo + _VoxelSize;
+        bool crossed = (v.x > was.x && (from & CLOSED_EAST) != 0u) || (v.x < was.x && (from & CLOSED_WEST) != 0u)
+            || (v.y > was.y && (from & CLOSED_UP) != 0u) || (v.y < was.y && (from & CLOSED_DOWN) != 0u)
+            || (v.z > was.z && (from & CLOSED_NORTH) != 0u) || (v.z < was.z && (from & CLOSED_SOUTH) != 0u);
+        if (crossed)
+        {
+            rel = clamp(rel, lastLo + _Radius, lastHi - _Radius);
+            v = was;
+            lo = lastLo;
+            hi = lastHi;
+        }
+    }
+
+    uint faces = BuiltAt(v);
+    rel.x = (faces & CLOSED_EAST) != 0u ? min(rel.x, hi.x - _Radius) : rel.x;
+    rel.x = (faces & CLOSED_WEST) != 0u ? max(rel.x, lo.x + _Radius) : rel.x;
+    rel.y = (faces & CLOSED_UP) != 0u ? min(rel.y, hi.y - _Radius) : rel.y;
+    rel.y = (faces & CLOSED_DOWN) != 0u ? max(rel.y, lo.y + _Radius) : rel.y;
+    rel.z = (faces & CLOSED_NORTH) != 0u ? min(rel.z, hi.z - _Radius) : rel.z;
+    rel.z = (faces & CLOSED_SOUTH) != 0u ? max(rel.z, lo.z + _Radius) : rel.z;
+    return rel;
+}
+
+// A place kept a radius out of what players built: in a solid voxel, out through its nearest face with room beyond
+// (none: back where the step started); then a radius from the solid voxels beside, above and below.
+float3 Solids(float3 x, float3 before)
+{
+    if (_SolidsOn == 0)
+    {
+        return x;
+    }
+
+    float3 rel = float3(x.x - _Origin.x, x.y - _SolidY0, x.z - _Origin.y);
+    int3 v = (int3)floor(rel / _VoxelSize);
+    if (v.y < 0 || v.y >= _SolidRows)
+    {
+        return x;
+    }
+
+    float3 lo = float3(v) * _VoxelSize, hi = lo + _VoxelSize;
+    if (SolidAt(v))
+    {
+        int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
+        float pushes[6] = { rel.x - lo.x, hi.x - rel.x, rel.y - lo.y, hi.y - rel.y, rel.z - lo.z, hi.z - rel.z };
+        float best = 1e9;
+        float3 to = rel;
+        for (int s = 0; s < 6; s++)
+        {
+            if (!SolidAt(v + sides[s]) && pushes[s] < best)
+            {
+                best = pushes[s];
+                to = rel + (float3(sides[s]) * (pushes[s] + _Radius));
+            }
+        }
+
+        if (best >= 1e9)
+        {
+            return before;
+        }
+
+        rel = to;
+        v = (int3)floor(rel / _VoxelSize);
+        lo = float3(v) * _VoxelSize;
+        hi = lo + _VoxelSize;
+    }
+
+    rel.x = SolidAt(v + int3(-1, 0, 0)) ? max(rel.x, lo.x + _Radius) : rel.x;
+    rel.x = SolidAt(v + int3(1, 0, 0)) ? min(rel.x, hi.x - _Radius) : rel.x;
+    rel.y = SolidAt(v + int3(0, -1, 0)) ? max(rel.y, lo.y + _Radius) : rel.y;
+    rel.y = SolidAt(v + int3(0, 1, 0)) ? min(rel.y, hi.y - _Radius) : rel.y;
+    rel.z = SolidAt(v + int3(0, 0, -1)) ? max(rel.z, lo.z + _Radius) : rel.z;
+    rel.z = SolidAt(v + int3(0, 0, 1)) ? min(rel.z, hi.z - _Radius) : rel.z;
+    rel = Faces(rel, float3(before.x - _Origin.x, before.y - _SolidY0, before.z - _Origin.y));
+    return float3(rel.x + _Origin.x, rel.y + _SolidY0, rel.z + _Origin.y);
+}
+
+// A place kept out of the ground, the square's walls, its top, what players built and the sphere: a particle in a cell
+// whose ground is a wall to it is put back out through the nearest face of the cell with room beyond (none: back where
+// the step started, never up onto the wall, which would throw it); then it stands on the ground where it is under it.
+// A particle under the ground put back on it: pushed out along the ground's slope (its normal), not straight up, so
+// that on a slope it slides down as water does (straight up, a lone particle would sit on any slope for good, and a
+// pool pressed outward would creep up its banks and stay); straight up where the ground is steep (a wall's face, a
+// step: the walls' own pushes are Collide's).
+float3 OnGround(float3 x)
+{
+    float ground = GroundAt(x.xz);
+    float under = (ground + _Radius) - x.y;
+    if (under <= 0.0)
+    {
+        return x;
+    }
+
+    float e = 0.5 * _Dx;
+    float gx = GroundAt(x.xz + float2(e, 0.0)) - GroundAt(x.xz - float2(e, 0.0));
+    float gz = GroundAt(x.xz + float2(0.0, e)) - GroundAt(x.xz - float2(0.0, e));
+    float3 n = normalize(float3(-gx, 2.0 * e, -gz));
+    if (n.y < 0.5)
+    {
+        x.y = ground + _Radius;
+        return x;
+    }
+
+    x += n * (under * n.y);
+    x.y = max(x.y, GroundAt(x.xz) + _Radius);
+    return x;
+}
+
+float3 Collide(float3 x, float3 before)
+{
+    float2 lo = _Origin + _Radius, hi = _Origin + (_N * _Dx) - _Radius;
+    x.xz = clamp(x.xz, lo, hi);
+    x.y = min(x.y, _Top);
+
+    int2 c = clamp((int2)floor((x.xz - _Origin) / _Dx), 0, _N - 1);
+    if (_Bed[c] > x.y + _StepUp - _Radius)
+    {
+        float2 cellLo = _Origin + (c * _Dx), cellHi = cellLo + _Dx;
+        float best = 1e9;
+        float2 to = x.xz;
+        int2 sides[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+        float pushes[4] = { x.x - cellLo.x, cellHi.x - x.x, x.z - cellLo.y, cellHi.y - x.z };
+        for (int s = 0; s < 4; s++)
+        {
+            int2 next = c + sides[s];
+            bool room = next.x >= 0 && next.y >= 0 && next.x < _N && next.y < _N && _Bed[next] <= x.y + _StepUp - _Radius;
+            if (room && pushes[s] < best)
+            {
+                best = pushes[s];
+                to = x.xz + (float2(sides[s]) * (pushes[s] + _Radius));
+            }
+        }
+
+        x.xz = best < 1e9 ? clamp(to, lo, hi) : before.xz;
+        c = clamp((int2)floor((x.xz - _Origin) / _Dx), 0, _N - 1);
+    }
+
+    // Kept a radius from the walls beside its cell, as from the ground (not only put back once through a face: that
+    // would be a jump of a radius, a kick of metres a second).
+    float2 cellLo2 = _Origin + (c * _Dx), cellHi2 = cellLo2 + _Dx;
+    int2 beside[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+    for (int b = 0; b < 4; b++)
+    {
+        int2 next = c + beside[b];
+        bool wall = next.x >= 0 && next.y >= 0 && next.x < _N && next.y < _N && _Bed[next] > x.y + _StepUp - _Radius;
+        if (wall)
+        {
+            float2 face = beside[b].x < 0 ? float2(cellLo2.x, 0.0) : beside[b].x > 0 ? float2(cellHi2.x, 0.0) : beside[b].y < 0 ? float2(0.0, cellLo2.y) : float2(0.0, cellHi2.y);
+            if (beside[b].x != 0)
+            {
+                x.x = beside[b].x < 0 ? max(x.x, face.x + _Radius) : min(x.x, face.x - _Radius);
+            }
+            else
+            {
+                x.z = beside[b].y < 0 ? max(x.z, face.y + _Radius) : min(x.z, face.y - _Radius);
+            }
+        }
+    }
+
+    x = Solids(x, before);
+    x = OnGround(x);
+
+    if (_Sphere.w > 0.0)
+    {
+        float3 away = x - _Sphere.xyz;
+        float d = length(away);
+        float least = _Sphere.w + _Radius;
+        if (d < least)
+        {
+            x = _Sphere.xyz + (d > 1e-6 ? away / d : float3(0.0, 1.0, 0.0)) * least;
+        }
+    }
+
+    for (uint b = 0u; b < _BodyCount; b++)
+    {
+        Body body = _Bodies[b];
+        float3 d = x - body.centre.xyz;
+        if (body.centre.w > 1.5)
+        {
+            float dist = length(d);
+            float least = body.half.x + _Radius;
+            x = dist < least ? body.centre.xyz + ((dist > 1e-6 ? d / dist : float3(0.0, 1.0, 0.0)) * least) : x;
+            continue;
+        }
+
+        float3 ax = body.axisX.xyz, ay = body.axisY.xyz, az = cross(ax, ay);
+        float3 local = float3(dot(d, ax), dot(d, ay), dot(d, az));
+        float3 ext = body.half.xyz + _Radius;
+        if (all(abs(local) < ext))
+        {
+            float3 pen = ext - abs(local);
+            float3 side = float3(local.x < 0.0 ? -1.0 : 1.0, local.y < 0.0 ? -1.0 : 1.0, local.z < 0.0 ? -1.0 : 1.0);
+            if (pen.x <= pen.y && pen.x <= pen.z)
+            {
+                local.x = side.x * ext.x;
+            }
+            else if (pen.y <= pen.z)
+            {
+                local.y = side.y * ext.y;
+            }
+            else
+            {
+                local.z = side.z * ext.z;
+            }
+
+            x = body.centre.xyz + (ax * local.x) + (ay * local.y) + (az * local.z);
+        }
+    }
+
+    // A body pushed the particle: not into the ground nor out of the square (a hull pressing water onto the bed).
+    x.xz = clamp(x.xz, lo, hi);
+    x = OnGround(x);
+    x.xz = clamp(x.xz, lo, hi);
+    return x;
+}
+
+[numthreads(8, 8, 1)]
+void ClearColumns(uint3 id : SV_DispatchThreadID)
+{
+    int2 v = (int2)id.xy;
+    int columns = _N / _PerVoxel;
+    if (v.x < columns && v.y < columns)
+    {
+        _ColumnCount[v] = 0;
+        _ColumnTop[v] = 0;
+        _ColumnLoss[v] = 0.0;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void CountColumns(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    if (!Gone(p))
+    {
+        int2 v = ColumnOf(p.place.xyz);
+        InterlockedAdd(_ColumnCount[v], 1);
+        if (p.velocity.w >= IN_WATER)
+        {
+            InterlockedMax(_ColumnTop[v], TopCode(p.place.y));
+        }
+    }
+}
+
+// A column's particles brought toward the server's water there: a share (_Pull) of what it lacks made (the share's
+// fraction of a particle as a chance of one more, so a column short of a few particles gains them at the rate, not one
+// a frame), laid on the water the column holds (just over its highest particle), still, so the pool rises from below
+// and nothing is dropped into the midst of the water, where the pulls would throw it out at the speed cap; a share of
+// what it has too many of marked for Finish to let go. Columns the card does not draw (the bricks do: water falling,
+// under a roof, the edge band) are worth nothing: their particles go.
+[numthreads(8, 8, 1)]
+void Fill(uint3 id : SV_DispatchThreadID)
+{
+    int2 v = (int2)id.xy;
+    int columns = _N / _PerVoxel;
+    if (v.x >= columns || v.y >= columns)
+    {
+        return;
+    }
+
+    float4 target = _Target[v];
+    int2 first = v * _PerVoxel;
+    bool drawn = target.y > 0.5 && target.x > DRY_TOP && !InBorder(first) && !InBorder(first + (_PerVoxel - 1));
+    float column = _Dx * _PerVoxel;
+    float worth = drawn ? target.z * column * column / _Litre : 0.0;
+    int have = _ColumnCount[v];
+    float lack = worth - have;
+    if (lack < 0.0)
+    {
+        _ColumnLoss[v] = have > 0 ? saturate(-lack * _Pull / have) : 0.0;
+        return;
+    }
+
+    uint state = (uint)(v.x * 73856093) ^ (uint)(v.y * 19349663) ^ (_Seed * 83492791u);
+    float share = lack * _Pull;
+    uint n = min((uint)floor(share + Random(state)), MOST_FILLED);
+    if (n == 0u)
+    {
+        return;
+    }
+
+    // The column's water comes this high now: the new particles go just over it (a radius and a half up: clear of the
+    // water at rest, so no pull throws them, and no higher, so they are not a rain of drops over the pool), a hair
+    // apart from each other.
+    int topCode = _ColumnTop[v];
+    float over = topCode > 0 ? TopOf(topCode) + (1.5 * _Radius) : -1.0e9;
+    for (uint k = 0u; k < n; k++)
+    {
+        // A cell of the column with ground under the water (a wall's, or ground over the top, holds none).
+        int2 c = first + int2((int)(Random(state) * _PerVoxel), (int)(Random(state) * _PerVoxel));
+        c = clamp(c, first, first + (_PerVoxel - 1));
+        float bed = _Bed[c];
+        float top = target.x;
+        if (bed >= WALL || top - bed < 2.0 * _Radius)
+        {
+            continue;
+        }
+
+        uint at;
+        InterlockedAdd(_Alive[0], 1u, at);
+        if (at >= _Capacity)
+        {
+            break;
+        }
+
+        // On the ground as the particles feel it (between the cells' centres: a slope), not the cell's own height, which
+        // would set the particle in the slope and have the push out of it throw it.
+        float2 xz = float2(_Origin.x + ((c.x + Random(state)) * _Dx), _Origin.y + ((c.y + Random(state)) * _Dx));
+        float y = max(GroundAt(xz) + _Radius, over) + ((k + Random(state)) * _Radius * 0.5);
+        float3 place = float3(xz.x, y, xz.y);
+        Particle p;
+        p.place = float4(place, 1.0);
+        p.predicted = float4(place, 0.0);
+        p.velocity = float4(0.0, 0.0, 0.0, 0.0);
+        _Particles[at] = p;
+    }
+}
+
+// A source's water this frame, as particles out of its rim: all round it (the golden angle from one to the next, so
+// any few are spread evenly), outward at the source's speed, a little above and below the rim's height. No more a
+// frame than the rim passes (a ring of particles a frame, each the frame's way along: more would be set in each
+// other and thrown everywhere by the pulls); the rest of a big source's water comes as the column's fill, as the
+// server has it. The particle's way this frame is spread over the frame, so a ring is not a lockstep shell.
+[numthreads(1, 1, 1)]
+void Spout(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SpoutCount)
+    {
+        return;
+    }
+
+    Spring s = _Spouts[id.x];
+    uint state = (id.x * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
+    uint n = min((uint)floor((s.flow.y * _Frame / _Litre) + Random(state)), MOST_SPOUTED);
+    uint fits = max(1u, (uint)floor(6.2831853 * s.ring.w / (2.0 * _Radius))) * max(1u, (uint)floor((s.flow.x * _Frame / (2.0 * _Radius)) + 0.5));
+    n = min(n, fits);
+    float2 lo = _Origin + _Radius, hi = _Origin + (_N * _Dx) - _Radius;
+    // Out over the water the source stands in, not into it (a particle set in water at rest is thrown out of it): the
+    // rim's height, or just over the column's water where that is higher.
+    int topCode = _ColumnTop[ColumnOf(s.ring.xyz)];
+    float rim = max(s.ring.y, topCode > 0 ? TopOf(topCode) + (1.5 * _Radius) : -1.0e9);
+    for (uint k = 0u; k < n; k++)
+    {
+        uint at;
+        InterlockedAdd(_Alive[0], 1u, at);
+        if (at >= _Capacity)
+        {
+            break;
+        }
+
+        float angle = at * 2.39996323;
+        float3 outward = float3(cos(angle), 0.0, sin(angle));
+        float3 place = float3(s.ring.x, rim, s.ring.z) + (outward * (s.ring.w + (Random(state) * s.flow.x * _Frame))) + float3(0.0, Random(state) * _Radius, 0.0);
+        place.xz = clamp(place.xz, lo, hi);
+        place.y = max(place.y, GroundAt(place.xz) + _Radius);
+        Particle p;
+        p.place = float4(place, 1.0);
+        p.predicted = float4(place, 0.0);
+        p.velocity = float4(outward * s.flow.x, 0.0);
+        _Particles[at] = p;
+    }
+}
+
+[numthreads(SCAN, 1, 1)]
+void ClearCounts(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Buckets)
+    {
+        _Counts[id.x] = 0u;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Predict(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    if (Gone(p))
+    {
+        _Slots[i] = GONE;
+        return;
+    }
+
+    float3 v = p.velocity.xyz + (float3(0.0, -_Gravity, 0.0) * _Dt);
+    float3 x = p.place.xyz + (v * _Dt);
+    int3 cell = CellOf(x);
+    p.velocity.xyz = v;
+    p.predicted.xyz = x;
+    p.place.w = asfloat(KeyOf(cell));
+    _Particles[i] = p;
+
+    uint h = HashOf(cell);
+    uint slot;
+    InterlockedAdd(_Counts[h], 1u, slot);
+    _Hashes[i] = h;
+    _Slots[i] = slot;
+}
+
+// Hillis and Steele's scan over a group's SCAN values, in shared memory: each thread's inclusive sum.
+groupshared uint scanA[SCAN];
+groupshared uint scanB[SCAN];
+
+uint ScanGroup(uint value, uint t)
+{
+    scanA[t] = value;
+    GroupMemoryBarrierWithGroupSync();
+    bool toB = true;
+    for (uint offset = 1u; offset < SCAN; offset <<= 1u)
+    {
+        if (toB)
+        {
+            scanB[t] = t >= offset ? scanA[t] + scanA[t - offset] : scanA[t];
+        }
+        else
+        {
+            scanA[t] = t >= offset ? scanB[t] + scanB[t - offset] : scanB[t];
+        }
+
+        toB = !toB;
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    return toB ? scanA[t] : scanB[t];
+}
+
+[numthreads(SCAN, 1, 1)]
+void ScanBlocks(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+    uint value = id.x < _Buckets ? _Counts[id.x] : 0u;
+    uint inclusive = ScanGroup(value, thread.x);
+    if (id.x < _Buckets)
+    {
+        _Starts[id.x] = inclusive - value;
+    }
+
+    if (thread.x == SCAN - 1u)
+    {
+        _BlockSums[group.x] = inclusive;
+    }
+}
+
+[numthreads(SCAN, 1, 1)]
+void ScanSums(uint3 id : SV_DispatchThreadID)
+{
+    uint value = id.x < _Blocks ? _BlockSums[id.x] : 0u;
+    uint inclusive = ScanGroup(value, id.x);
+    if (id.x < _Blocks)
+    {
+        _BlockSums[id.x] = inclusive - value;
+    }
+
+    // The last block's sum in all: the particles this step keeps.
+    if (id.x == _Blocks - 1u)
+    {
+        _Alive[1] = inclusive;
+    }
+}
+
+[numthreads(SCAN, 1, 1)]
+void AddSums(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID)
+{
+    if (id.x < _Buckets)
+    {
+        _Starts[id.x] += _BlockSums[group.x];
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Scatter(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive() || _Slots[i] == GONE)
+    {
+        return;
+    }
+
+    _Sorted[_Starts[_Hashes[i]] + _Slots[i]] = _Particles[i];
+}
+
+[numthreads(1, 1, 1)]
+void Settle(uint3 id : SV_DispatchThreadID)
+{
+    uint kept = min(_Alive[1], _Capacity);
+    _Alive[0] = kept;
+    _Alive[1] = 0u;
+    _Args[0] = kept * 6u;
+    _Args[1] = 1u;
+    _Args[2] = 0u;
+    _Args[3] = 0u;
+}
+
+// The particles in the 27 cells round a place: each kernel's loop body, with j the neighbour's index, only those whose
+// key is the cell's (the bucket may hold another cell's, or be one met already among the 27).
+#define NEIGHBOURS(centre) \
+    int3 cell = CellOf(centre); \
+    for (int dz = -1; dz <= 1; dz++) \
+    for (int dy = -1; dy <= 1; dy++) \
+    for (int dx = -1; dx <= 1; dx++) \
+    { \
+        int3 near = cell + int3(dx, dy, dz); \
+        uint bucket = HashOf(near); \
+        uint key = KeyOf(near); \
+        uint from = _Starts[bucket], to = from + _Counts[bucket]; \
+        for (uint j = from; j < to; j++) \
+        if (asuint(_Particles[j].place.w) == key)
+
+[numthreads(THREADS, 1, 1)]
+void Lambda(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    float3 xi = p.predicted.xyz;
+    float density = 0.0;
+    float3 gradient = 0.0;
+    float gradients = 0.0;
+    NEIGHBOURS(xi)
+        {
+            float3 r = xi - _Particles[j].predicted.xyz;
+            float d2 = dot(r, r);
+            if (d2 < _H2)
+            {
+                density += Poly6(d2);
+                if (j != i)
+                {
+                    float3 g = Spiky(r) / _RestWeight;
+                    gradient += g;
+                    gradients += dot(g, g);
+                }
+            }
+        }
+    }
+
+    float wallShare;
+    float3 wallGradient;
+    float wallGradients;
+    Boundary(xi, wallShare, wallGradient, wallGradients);
+    gradient += wallGradient;
+    gradients += wallGradients + dot(gradient, gradient);
+    float share = (density / _RestWeight) + wallShare;
+    // Only water denser than at rest is pushed apart: thinner water (the surface, spray) is not pulled together (Macklin
+    // and Müller pull it, against their artificial pressure; the two together are far stiffer than a frame's step
+    // bears here, and water at rest stays at rest without them).
+    float constraint = max(share - 1.0, 0.0);
+    p.predicted.w = -constraint / (gradients + _Relaxation);
+    p.velocity.w = share;
+    _Particles[i] = p;
+}
+
+[numthreads(THREADS, 1, 1)]
+void Displace(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    float3 xi = p.predicted.xyz;
+    float lambda = p.predicted.w;
+    float3 delta = 0.0;
+    NEIGHBOURS(xi)
+        {
+            if (j == i)
+            {
+                continue;
+            }
+
+            Particle q = _Particles[j];
+            float3 r = xi - q.predicted.xyz;
+            float d2 = dot(r, r);
+            if (d2 < _H2)
+            {
+                float w = Poly6(d2) / _CorrW;
+                float corr = -_CorrK * w * w * w * w;
+                delta += (lambda + q.predicted.w + corr) * Spiky(r);
+            }
+        }
+    }
+
+    delta /= _RestWeight;
+
+    // The ground and the walls push back as a neighbour that does not move would.
+    float wallShare;
+    float3 wallGradient;
+    float wallGradients;
+    Boundary(xi, wallShare, wallGradient, wallGradients);
+    delta += lambda * wallGradient;
+
+    // Never further than a particle's radius in one round: a bad guess is mended over the rounds, not thrown.
+    float most = _Radius;
+    float size = length(delta);
+    delta = size > most ? delta * (most / size) : delta;
+    _Delta[i] = float4(delta, 0.0);
+}
+
+[numthreads(THREADS, 1, 1)]
+void Apply(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    p.predicted.xyz = Collide(p.predicted.xyz + _Delta[i].xyz, p.place.xyz);
+    _Particles[i] = p;
+}
+
+[numthreads(THREADS, 1, 1)]
+void Finish(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= Alive())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    float3 xi = p.predicted.xyz;
+    float3 vi = (xi - p.place.xyz) / _Dt;
+    float3 smoothing = 0.0;
+    NEIGHBOURS(xi)
+        {
+            if (j == i)
+            {
+                continue;
+            }
+
+            Particle q = _Particles[j];
+            float3 r = xi - q.predicted.xyz;
+            float d2 = dot(r, r);
+            if (d2 < _H2)
+            {
+                float3 vj = (q.predicted.xyz - q.place.xyz) / _Dt;
+                smoothing += (vj - vi) * Poly6(d2);
+            }
+        }
+    }
+
+    float3 v = vi + (_Viscosity * smoothing / _RestWeight);
+    float speed = length(v);
+    v = speed > _MaxSpeed ? v * (_MaxSpeed / speed) : v;
+    p.velocity.xyz = v;
+    p.place.xyz = xi;
+
+    // How much the particle is spray: in the air (clear of the ground: a thin sheet sliding down a slope is water,
+    // however spread out) with little water round it. The drawing foams it by this (the pull it held this step is
+    // done with).
+    bool clear = xi.y > GroundAt(xi.xz) + (2.0 * _Radius);
+    p.predicted.w = clear ? saturate(1.0 - ((p.velocity.w - 0.1) / 0.3)) : 0.0;
+
+    // Held to the server's water: under the sea's level the particle is the sea's; in the square's edge band it is
+    // the bricks' (they draw there); in a column with too many, it goes with the share the column loses this frame,
+    // unless it is in the air (a spout's jet, a splash: it is the water's once it lands).
+    if (_Own != 0)
+    {
+        int2 c = clamp((int2)floor((xi.xz - _Origin) / _Dx), 0, _N - 1);
+        uint state = (i * 9781u) ^ (_Seed * 6271u);
+        bool inAir = p.velocity.w < IN_WATER && clear;
+        if (xi.y < _SeaLevel || InBorder(c) || (!inAir && Random(state) < _ColumnLoss[ColumnOf(xi)]))
+        {
+            p.place.w = asfloat(GONE);
+        }
+    }
+
+    _Sorted[i] = p;
+}

@@ -76,6 +76,18 @@ internal sealed class GpuWater : IDisposable
     // Its falls, splashes and spray (Client.Spray), made when first wanted.
     private SprayParticles _spray;
 
+    // The particle water (a prototype): poured by the console, kept out of the card's ground, drawn as water over the
+    // scene by the camera.
+    private ParticleWater _particles;
+
+    private readonly List<(Vector3 At, float Rate)> _sources = [];
+
+    private readonly List<ParticleWater.Spout> _spouts = [];
+
+    private static readonly List<ParticleWater.Spout> NoSpouts = [];
+
+    private ParticleSurface _surface;
+
     private readonly BedCast _cast;
 
     // The ground under each cell as cast (NaN where not yet), and how many times a cast changed it.
@@ -90,7 +102,7 @@ internal sealed class GpuWater : IDisposable
     private readonly MaterialPropertyBlock _properties = new();
 
     // The build of the server's water for the card under way, and what it was built from.
-    private Task<(float[] Texels, float[] Layers, float[] Cast)> _build;
+    private Task<(float[] Texels, float[] Layers, float[] Cast, byte[] Solids, bool AnySolid)> _build;
 
     // The bricks in the square the build under way, and the last one, were made from (a brick's water is never changed
     // in place: new data is a new view, so the same views are the same water); the ground's version each was made with.
@@ -107,6 +119,28 @@ internal sealed class GpuWater : IDisposable
     private bool _buildingFalls;
 
     private bool _builtFalls;
+
+    // What players built, for the particle water: the bricks' solid voxels round the camera's height (the row the
+    // last build started from; built again once the camera is 8 m from it), as the build gathers them.
+    private readonly ParticleSolids _solids = new();
+
+    private readonly List<ParticleWater.Body> _bodies = new(ParticleWater.MostBodies);
+
+    private Ship[] _ships = [];
+
+    private readonly List<(Rigidbody Body, Collider[] Colliders)> _rigidbodies = [];
+
+    private int _shipsLookedFor = -60;
+
+    private int _buildingBase;
+
+    private int _builtBase = int.MinValue;
+
+    // The square the solids were taken for: the particles get them only while it is the square (the square moved on,
+    // they would stand the move's columns away from the pieces until the next build).
+    private SimWindow _solidsWindow;
+
+    private float _cameraY;
 
     private int _builtGround = -1;
 
@@ -196,6 +230,40 @@ internal sealed class GpuWater : IDisposable
     {
         get => Shader.GetGlobalFloat(DebugColoursId) > 0.5f;
         set => Shader.SetGlobalFloat(DebugColoursId, value ? 1f : 0f);
+    }
+
+    /// <summary>
+    /// Pours a block of particle water, so many cubic metres, 1.5 m over a place (the console's "flowingwater particles",
+    /// for testing the prototype): what was poured, or why nothing was.
+    /// </summary>
+    public static string Pour(Vector3 at, float cubicMetres)
+    {
+        if (_water == null)
+        {
+            return "no particle water: " + Describe();
+        }
+
+        if (!Materials.Particles(out Material material, out _, out ComputeShader compute))
+        {
+            return "no particle water: its shaders did not load (see the log)";
+        }
+
+        _water._particles ??= new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value, FlowingWaterPlugin.Settings.ParticleSize.Value);
+        if (_water._particles.Count >= _water._particles.Capacity)
+        {
+            return FormattableString.Invariant($"no room: {_water._particles.Capacity} particles already (flowingwater particles clear)");
+        }
+        float side = Mathf.Pow(Mathf.Max(cubicMetres, 0.001f), 1f / 3f);
+        var min = new Vector3(at.x - (side / 2f), at.y + 1.5f, at.z - (side / 2f));
+        int added = _water._particles.Add(min, min + new Vector3(side, side, side));
+        return FormattableString.Invariant($"poured {added} particles ({added * _water._particles.Litre:0.##} m³) in a block {side:0.##} m on a side, 1.5 m over you; {_water._particles.Count} of {_water._particles.Capacity} in all{(_water._particles.Owned ? " (held to the server's water: it drains away where the server has none)" : string.Empty)}");
+    }
+
+    /// <summary>Every particle of the particle water gone.</summary>
+    public static string ClearParticles()
+    {
+        _water?._particles?.Clear();
+        return "the particle water is gone";
     }
 
     /// <summary>What it does now, for the console.</summary>
@@ -326,6 +394,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         _water ??= Made(window, material, compute);
+        _water._cameraY = camera.y;
         _water.Frame(NearBricks);
     }
 
@@ -382,6 +451,9 @@ internal sealed class GpuWater : IDisposable
     {
         _cast.Dispose();
         _spray?.Dispose();
+        _surface?.Dispose();
+        _particles?.Dispose();
+        _solids.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
 
@@ -410,6 +482,26 @@ internal sealed class GpuWater : IDisposable
         StartCast();
         if (!_seeded)
         {
+            return;
+        }
+
+        // The particle water as the water near the camera: the sheet is neither moved nor drawn then, nor its spray; the
+        // bricks still draw beyond the square and where the card draws nothing (the texels say where).
+        bool own = Particles();
+        if (own)
+        {
+            if (_spray != null)
+            {
+                _spray.Dispose();
+                _spray = null;
+                _grid.ClearThrown();
+            }
+
+            Shader.SetGlobalFloat(OnId, 1f);
+            Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
+            Shader.SetGlobalFloat(SizeId, _window.Size);
+            Shader.SetGlobalTexture(TargetId, _grid.Target);
+            _renderer.enabled = false;
             return;
         }
 
@@ -458,6 +550,61 @@ internal sealed class GpuWater : IDisposable
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
+    // The particle water: with Client.ParticleWater on, the water near the camera itself (made then, if not yet by the
+    // console, held to the server's water); else what the console poured, if any. Kept out of the card's ground as
+    // cast now (a square that moved keeps the particles where they are in the world), pushed aside by the bodies in it,
+    // moved, and drawn as water by the game's camera. Whether the particles own the water near the camera.
+    private bool Particles()
+    {
+        bool own = FlowingWaterPlugin.Settings.ParticleWater.Value;
+        if (_particles == null && own && Materials.Particles(out Material material, out _, out ComputeShader compute))
+        {
+            _particles = new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value, FlowingWaterPlugin.Settings.ParticleSize.Value);
+        }
+
+        if (_particles == null)
+        {
+            return false;
+        }
+
+        var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
+        _particles.SetOwner(own ? _grid.Target : null, _window.PerVoxel, SimGrid.BorderCells, _grid.SeaLevel);
+        bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
+        _particles.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
+        _particles.SetBodies(Bodies(origin));
+        // The sources' water comes out as particles only where the particles are the water (not beside the sheet's own).
+        _particles.SetSpouts(own ? Spouts(origin) : NoSpouts);
+
+        _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
+        Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
+        if (camera != null && Materials.Particles(out _, out Material surface, out _))
+        {
+            _surface ??= new ParticleSurface();
+            _surface.Render(camera, _particles, surface);
+        }
+
+        return own;
+    }
+
+    // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to
+    // see: their water comes as the square's other water does).
+    private List<ParticleWater.Spout> Spouts(Vector2 origin)
+    {
+        Marker.Sources(_sources);
+        _spouts.Clear();
+        float size = _window.Cells * _window.CellSize;
+        foreach ((Vector3 at, float rate) in _sources)
+        {
+            if (at.x >= origin.x && at.z >= origin.y && at.x < origin.x + size && at.z < origin.y + size && _spouts.Count < ParticleWater.MostSpouts)
+            {
+                _spouts.Add(ParticleWater.Spout.At(at + (Vector3.up * Prefabs.MarkerRadius), Prefabs.MarkerRadius, rate, 0.5f * _particles.Spacing));
+            }
+        }
+
+        return _spouts;
+    }
+
     // The server's water built for the card, handed to it: the first one seeds it.
     private void TakeBuild()
     {
@@ -466,7 +613,7 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        Task<(float[] Texels, float[] Layers, float[] Cast)> build = _build;
+        Task<(float[] Texels, float[] Layers, float[] Cast, byte[] Solids, bool AnySolid)> build = _build;
         _build = null;
 
         // Built for the square before it moved: not taken (the next is built for the square as it is); had it failed,
@@ -494,6 +641,12 @@ internal sealed class GpuWater : IDisposable
         _builtBricks = _buildingBricks;
         _builtGround = _buildingGround;
         _builtFalls = _buildingFalls;
+        if (build.Result.Solids != null)
+        {
+            _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
+            _builtBase = _buildingBase;
+            _solidsWindow = _buildingWindow;
+        }
         if (!_seeded)
         {
             _grid.Seed();
@@ -506,7 +659,10 @@ internal sealed class GpuWater : IDisposable
     private void StartBuild(List<BrickView> near)
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && _builtBricks != null && near.SequenceEqual(_builtBricks)))
+        bool solids = _particles != null || FlowingWaterPlugin.Settings.ParticleWater.Value;
+        int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+        bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
         }
@@ -518,12 +674,157 @@ internal sealed class GpuWater : IDisposable
         _buildingWindow = w;
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
+        _buildingBase = rebased ? baseRow : _builtBase;
+        int solidsBase = _buildingBase;
         _builtAt = Time.time;
         _build = Task.Run(() =>
         {
             float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, out float[] layers, falls);
-            return (texels, layers, cast);
+            bool any = false;
+            byte[] built = solids ? Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any) : null;
+            return (texels, layers, cast, built, any);
         });
+    }
+
+    // The bodies in the square this frame, for the particle water, as many as fit in this order: every ship as the box
+    // its hull floats by (the game's own; the hull is what the water is for, so ships come first), every character
+    // (players, creatures) as the box of its capsule, and every other rigid body (carts, things dropped, felled trees)
+    // as the box round each of its colliders.
+    private List<ParticleWater.Body> Bodies(Vector2 origin)
+    {
+        _bodies.Clear();
+        float size = _window.Size;
+        var square = new Bounds(new Vector3(origin.x + (size / 2f), 0f, origin.y + (size / 2f)), new Vector3(size, 100000f, size));
+        LookForBodies();
+        AddShips(square);
+        AddCharacters(square);
+        AddRigidbodies(square);
+        return _bodies;
+    }
+
+    // The ships and the other rigid bodies (with their colliders), looked for once a second (they come and go slowly).
+    private void LookForBodies()
+    {
+        if (Time.frameCount - _shipsLookedFor < 60)
+        {
+            return;
+        }
+
+        _shipsLookedFor = Time.frameCount;
+        _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
+        _rigidbodies.Clear();
+        foreach (Rigidbody body in UnityEngine.Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None))
+        {
+            if (!body.isKinematic && body.GetComponentInParent<Ship>() == null && body.GetComponentInParent<Character>() == null)
+            {
+                _rigidbodies.Add((body, body.GetComponentsInChildren<Collider>()));
+            }
+        }
+    }
+
+    private bool RoomForBodies() => _bodies.Count < ParticleWater.MostBodies;
+
+    private void AddShips(Bounds square)
+    {
+        foreach (Ship ship in _ships)
+        {
+            BoxCollider hull = ship?.m_floatCollider;
+            if (hull == null || !hull.bounds.Intersects(square) || !RoomForBodies())
+            {
+                continue;
+            }
+
+            Transform t = hull.transform;
+            _bodies.Add(ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation));
+        }
+    }
+
+    private void AddCharacters(Bounds square)
+    {
+        foreach (Character character in Character.GetAllCharacters())
+        {
+            if (character == null || !RoomForBodies())
+            {
+                continue;
+            }
+
+            Transform t = character.transform;
+            if (!square.Contains(new Vector3(t.position.x, 0f, t.position.z)))
+            {
+                continue;
+            }
+
+            CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
+            Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
+            float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
+            float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
+            _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
+        }
+    }
+
+    // Each solid collider of the rest (a cart is several) that reaches into the square and is not too small to matter
+    // (under 10 cm across).
+    private void AddRigidbodies(Bounds square)
+    {
+        foreach ((Rigidbody body, Collider[] colliders) in _rigidbodies)
+        {
+            if (body == null)
+            {
+                continue;
+            }
+
+            foreach (Collider collider in colliders)
+            {
+                if (collider == null || collider.isTrigger || !RoomForBodies())
+                {
+                    continue;
+                }
+
+                Bounds bounds = collider.bounds;
+                if (bounds.Intersects(square) && (bounds.size.x >= 0.1f || bounds.size.z >= 0.1f))
+                {
+                    _bodies.Add(ParticleWater.Body.Box(bounds.center, bounds.extents, Quaternion.identity));
+                }
+            }
+        }
+    }
+
+    // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,
+    // z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by ParticleSolids.Index: a byte a
+    // voxel, ParticleSolids.Solid where the voxel is more than half solid, and the bits of the faces a piece closes
+    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is.
+    private static byte[] Solids(List<BrickView> bricks, int x0, int z0, int columns, int baseRow, out bool any)
+    {
+        byte[] solids = new byte[columns * ParticleSolids.Rows * columns];
+        any = false;
+        foreach (BrickView brick in bricks)
+        {
+            int bx = (brick.X * Brick.Size) - x0, by = (brick.Y * Brick.Size) - baseRow, bz = (brick.Z * Brick.Size) - z0;
+            if (bx + Brick.Size <= 0 || bx >= columns || bz + Brick.Size <= 0 || bz >= columns || by + Brick.Size <= 0 || by >= ParticleSolids.Rows)
+            {
+                continue;
+            }
+
+            for (int y = Math.Max(0, -by); y < Brick.Size && by + y < ParticleSolids.Rows; y++)
+            {
+                for (int z = Math.Max(0, -bz); z < Brick.Size && bz + z < columns; z++)
+                {
+                    for (int x = Math.Max(0, -bx); x < Brick.Size && bx + x < columns; x++)
+                    {
+                        int i = Brick.Index(x, y, z);
+                        int closed = ~brick.Open[i] & BrickData.AllOpen;
+                        byte built = (byte)((brick.Solid[i] > 0.5f ? ParticleSolids.Solid : 0) | closed);
+                        if (built != 0)
+                        {
+                            solids[ParticleSolids.Index(columns, bx + x, by + y, bz + z)] = built;
+                            any = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return solids;
     }
 
     // The server's water as last built handed to the card, but for the columns it does not draw yet (SimHandover).

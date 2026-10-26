@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | solids | gpu [colours|columns] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | solids | gpu [colours|columns] | particles [m3|clear|spheres|full] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
@@ -192,6 +192,27 @@ internal static class Commands
                 else
                 {
                     terminal.AddString("flowingwater: " + GpuWater.Describe());
+                }
+
+                break;
+            case "particles":
+                if (args.Length > 2 && args.Args[2].Equals("clear", StringComparison.OrdinalIgnoreCase))
+                {
+                    terminal.AddString("flowingwater: " + GpuWater.ClearParticles());
+                }
+                else if (args.Length > 2 && args.Args[2].Equals("spheres", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParticleSurface.Spheres = !ParticleSurface.Spheres;
+                    terminal.AddString("flowingwater: the particle water drawn as " + (ParticleSurface.Spheres ? "spheres" : "water"));
+                }
+                else if (args.Length > 2 && args.Args[2].Equals("full", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParticleSurface.Scale = ParticleSurface.Scale < 1f ? 1f : 0.5f;
+                    terminal.AddString("flowingwater: the particle water's surface drawn at " + (ParticleSurface.Scale < 1f ? "half the screen's size" : "the screen's full size"));
+                }
+                else if (Number(terminal, args, 2, 2f, false, "the water poured (m³)", out float poured))
+                {
+                    terminal.AddString("flowingwater: " + GpuWater.Pour(player.transform.position, poured));
                 }
 
                 break;

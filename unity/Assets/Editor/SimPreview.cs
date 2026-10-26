@@ -27,6 +27,13 @@ public static class SimPreview
 
     private static readonly StringBuilder Log = new();
 
+    // Where a scene's shots go (the particle preview's sheet scene sets it for its own).
+    internal static string Output
+    {
+        get => _output;
+        set => _output = value;
+    }
+
     public static void Run()
     {
         try
@@ -845,29 +852,90 @@ public static class SimPreview
         }
     }
 
-    private static float[] Ground(Func<float, float, float> height) => Field((x, z) => height(x, z));
+    private static float[] Ground(Func<float, float, float> height) => Field(Cells, Dx, (x, z) => height(x, z));
 
-    private static float[] Depths(Func<float, float, float> depth) => Field(depth);
+    private static float[] Depths(Func<float, float, float> depth) => Field(Cells, Dx, depth);
 
-    // A value per cell, at its centre (world x, z from the square's corner).
-    private static float[] Field(Func<float, float, float> at)
+    // A value per cell of a square of cells a side, each dx metres, at its centre (world x, z from the square's corner).
+    internal static float[] Field(int cells, float dx, Func<float, float, float> at)
     {
-        float[] values = new float[Cells * Cells];
-        for (int j = 0; j < Cells; j++)
+        float[] values = new float[cells * cells];
+        for (int j = 0; j < cells; j++)
         {
-            for (int i = 0; i < Cells; i++)
+            for (int i = 0; i < cells; i++)
             {
-                values[(j * Cells) + i] = at((i + 0.5f) * Dx, (j + 0.5f) * Dx);
+                values[(j * cells) + i] = at((i + 0.5f) * dx, (j + 0.5f) * dx);
             }
         }
 
         return values;
     }
 
+    // What a camera drew into its texture, written as a PNG of that name in the output folder; the camera, its
+    // texture and the image are gone after.
+    internal static void Save(Camera camera, RenderTexture target, string file)
+    {
+        RenderTexture.active = target;
+        var image = new Texture2D(target.width, target.height, TextureFormat.RGB24, false);
+        image.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
+        image.Apply();
+        File.WriteAllBytes(Path.Combine(_output, file + ".png"), image.EncodeToPNG());
+        RenderTexture.active = null;
+        camera.targetTexture = null;
+        UnityEngine.Object.DestroyImmediate(camera.gameObject);
+        UnityEngine.Object.DestroyImmediate(target);
+        UnityEngine.Object.DestroyImmediate(image);
+    }
+
+    // The ground as a mesh, a checker of 2 m squares: a point per cell, at its centre and height.
+    internal static void MakeGround(float[] bed, int cells, float dx)
+    {
+        var vertices = new Vector3[cells * cells];
+        var uvs = new Vector2[cells * cells];
+        for (int k = 0; k < vertices.Length; k++)
+        {
+            float x = ((k % cells) + 0.5f) * dx, z = ((k / cells) + 0.5f) * dx;
+            vertices[k] = new Vector3(x, bed[k], z);
+            uvs[k] = new Vector2(x / 4f, z / 4f);
+        }
+
+        var mesh = new Mesh { indexFormat = IndexFormat.UInt32, vertices = vertices, uv = uvs, triangles = Triangles(cells) };
+        mesh.RecalculateNormals();
+        var checker = new Texture2D(2, 2, TextureFormat.RGB24, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
+        checker.SetPixels(new[] { new Color(0.62f, 0.58f, 0.48f), new Color(0.48f, 0.45f, 0.38f), new Color(0.48f, 0.45f, 0.38f), new Color(0.62f, 0.58f, 0.48f) });
+        checker.Apply();
+        var ground = new GameObject("Ground");
+        ground.AddComponent<MeshFilter>().sharedMesh = mesh;
+        ground.AddComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { mainTexture = checker };
+    }
+
+    internal static int[] Triangles(int side)
+    {
+        int[] triangles = new int[(side - 1) * (side - 1) * 6];
+        int t = 0;
+        for (int j = 0; j < side - 1; j++)
+        {
+            for (int i = 0; i < side - 1; i++)
+            {
+                int a = (j * side) + i;
+                int b = a + side;
+                triangles[t++] = a;
+                triangles[t++] = b;
+                triangles[t++] = b + 1;
+                triangles[t++] = a;
+                triangles[t++] = b + 1;
+                triangles[t++] = a + 1;
+            }
+        }
+
+        return triangles;
+    }
+
     private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 
-    // A scene: the ground as a mesh, the sim's water drawn over it with the plugin's material, a light, a camera.
-    private sealed class Scene : IDisposable
+    // A scene: the ground as a mesh, the sim's water drawn over it with the plugin's material, a light, a camera (the
+    // particle preview's sheet scene uses it too).
+    internal sealed class Scene : IDisposable
     {
         private readonly string _name;
 
@@ -893,7 +961,7 @@ public static class SimPreview
             Shader.SetGlobalFloat("_FWSimSize", Cells * Dx);
             Shader.SetGlobalTexture("_FWSimTarget", Grid.Target);
             _water = new Material(AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SimMaterialPath));
-            MakeGround(bed);
+            MakeGround(bed, Cells, Dx);
             MakeWater();
             var sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
@@ -906,6 +974,9 @@ public static class SimPreview
 
         // Particles drawn with each shot, if any.
         public SprayParticles Spray { get; set; }
+
+        // Particle water drawn with each shot, if any (as water, with the mod's particle surface material).
+        public ParticleWater Particles { get; set; }
 
         public void Step() => Grid.Step(Frame);
 
@@ -956,44 +1027,21 @@ public static class SimPreview
                 camera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, commands);
             }
 
-            camera.Render();
-            RenderTexture.active = target;
-            var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);
-            image.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
-            image.Apply();
-            File.WriteAllBytes(Path.Combine(_output, file + ".png"), image.EncodeToPNG());
-            RenderTexture.active = null;
-            camera.targetTexture = null;
-            UnityEngine.Object.DestroyImmediate(camera.gameObject);
-            UnityEngine.Object.DestroyImmediate(target);
-            UnityEngine.Object.DestroyImmediate(image);
+            if (Particles != null)
+            {
+                using var surface = new ParticleSurface();
+                surface.Render(camera, Particles, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath));
+                camera.Render();
+            }
+            else
+            {
+                camera.Render();
+            }
+
+            Save(camera, target, file);
         }
 
         public void Dispose() => Grid.Dispose();
-
-        // The ground, a checker of 2 m squares (rock where it rises past 5 m).
-        private static void MakeGround(float[] bed)
-        {
-            var vertices = new Vector3[Cells * Cells];
-            var uvs = new Vector2[Cells * Cells];
-            for (int j = 0; j < Cells; j++)
-            {
-                for (int i = 0; i < Cells; i++)
-                {
-                    vertices[(j * Cells) + i] = new Vector3((i + 0.5f) * Dx, bed[(j * Cells) + i], (j + 0.5f) * Dx);
-                    uvs[(j * Cells) + i] = new Vector2((i + 0.5f) * Dx / 4f, (j + 0.5f) * Dx / 4f);
-                }
-            }
-
-            var mesh = new Mesh { indexFormat = IndexFormat.UInt32, vertices = vertices, uv = uvs, triangles = Triangles(Cells) };
-            mesh.RecalculateNormals();
-            var checker = new Texture2D(2, 2, TextureFormat.RGB24, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
-            checker.SetPixels(new[] { new Color(0.62f, 0.58f, 0.48f), new Color(0.48f, 0.45f, 0.38f), new Color(0.48f, 0.45f, 0.38f), new Color(0.62f, 0.58f, 0.48f) });
-            checker.Apply();
-            var ground = new GameObject("Ground");
-            ground.AddComponent<MeshFilter>().sharedMesh = mesh;
-            ground.AddComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { mainTexture = checker };
-        }
 
         private void MakeWater()
         {
@@ -1013,28 +1061,6 @@ public static class SimPreview
             var water = new GameObject(_name + " water");
             water.AddComponent<MeshFilter>().sharedMesh = mesh;
             water.AddComponent<MeshRenderer>().sharedMaterial = _water;
-        }
-
-        private static int[] Triangles(int side)
-        {
-            int[] triangles = new int[(side - 1) * (side - 1) * 6];
-            int t = 0;
-            for (int j = 0; j < side - 1; j++)
-            {
-                for (int i = 0; i < side - 1; i++)
-                {
-                    int a = (j * side) + i;
-                    int b = a + side;
-                    triangles[t++] = a;
-                    triangles[t++] = b;
-                    triangles[t++] = b + 1;
-                    triangles[t++] = a;
-                    triangles[t++] = b + 1;
-                    triangles[t++] = a + 1;
-                }
-            }
-
-            return triangles;
         }
     }
 }

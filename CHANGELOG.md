@@ -8,6 +8,17 @@ All notable changes to FlowingWater. Newest first.
 - `flowingwater wipe` takes all the mod's water out of the world and removes every placed source and drain in one go
   (the server config's fixed ones stay), for the host and the server's admins only. On a server the request goes to
   the server, which answers on your console with how much water went.
+- A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
+  a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
+  on), the water near you is particles of water instead of the sheet: made from the server's water and held to it
+  (a pool rises from below as the server fills it and sinks as it drains), moving as water moves (it falls, breaks
+  up, splashes and pools), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
+  a pool, a wall holds it in), pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
+  they move through it, and coming out of a placed source all round it, as fast as its rate pushes it. The sheet and
+  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.25 m, or 0.5 for a slow
+  graphics card, at an eighth of the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
+  the setting, drawn as water with the sea's look (foam where it splashes); `clear` takes it away, `spheres` shows
+  the particles themselves.
 
 ## v0.37.0 — 2026-10-26
 

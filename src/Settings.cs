@@ -32,6 +32,9 @@ internal sealed class Settings
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Unused for now (it was the column water's): water faster than this, in metres per second, was drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         Spray = config.Bind("Client", "Spray", true, "With the water moved on the graphics card (Client.GpuWater), its falls, splashes and spray as particles on the card: water running over a lip falls and arcs, a fall landing splashes, fast water throws droplets.");
+        ParticleCapacity = config.Bind("Client", "ParticleCapacity", 65536, new ConfigDescription("Particles of the particle water at most: no more water is made near you once they are all in use, until some goes. More costs the graphics card more; a change takes effect when the water near you is made again (moving far, or a world opening).", new AcceptableValueRange<int>(4096, 262144)));
+        ParticleWater = config.Bind("Client", "ParticleWater", false, "A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, and is pushed aside by you, creatures and ships). The sheet and its spray are not drawn near you then. The console's \"flowingwater particles\" pours some whatever this is.");
+        ParticleSize = config.Bind("Client", "ParticleSize", 0.25f, new ConfigDescription("Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again.", new AcceptableValueList<float>(0.25f, 0.5f)));
         WaterVolume = config.Bind("Client", "WaterVolume", 0.7f, new ConfigDescription("Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent), within the game's sound-effects volume.", new AcceptableValueRange<float>(0f, 1f)));
         FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("Unused for now (it was the column water's): how fast the stream texture ran.", new AcceptableValueRange<float>(0f, 5f)));
     }
@@ -86,6 +89,12 @@ internal sealed class Settings
     public ConfigEntry<float> FlowTextureSpeed { get; }
 
     public ConfigEntry<bool> Spray { get; }
+
+    public ConfigEntry<bool> ParticleWater { get; }
+
+    public ConfigEntry<float> ParticleSize { get; }
+
+    public ConfigEntry<int> ParticleCapacity { get; }
 
     public ConfigEntry<float> WaterVolume { get; }
 }
