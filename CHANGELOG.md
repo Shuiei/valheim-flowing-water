@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.24.1 — 2026-10-26
+
+### Fixed
+- Water that dried up just before the world was saved no longer comes back at the next start, and the server no longer
+  warns of a second object holding a block of water after a restart.
+
 ## v0.24.0 — 2026-10-25
 
 ### Changed
