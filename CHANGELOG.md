@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.38.0 — 2026-10-26
+
+### Added
+- `flowingwater wipe` takes all the mod's water out of the world and removes every placed source and drain in one go
+  (the server config's fixed ones stay), for the host and the server's admins only. On a server the request goes to
+  the server, which answers on your console with how much water went.
+
 ## v0.37.0 — 2026-10-26
 
 ### Added

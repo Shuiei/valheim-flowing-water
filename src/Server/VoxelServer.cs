@@ -340,6 +340,48 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         _sendWatch.Stop();
     }
 
+    /// <summary>
+    /// All the mod's water gone from the world, and every placed source and drain with it: the grid empty, the bricks'
+    /// objects destroyed (and any old column tile), the markers' objects destroyed and forgotten at once (the config's
+    /// fixed sources and drains stay, and pour again). The objects' destruction is sent out to the players' games before
+    /// this returns.
+    /// </summary>
+    /// <returns>The cubic metres gone, and the sources and drains removed.</returns>
+    public (float Water, int Markers) Wipe()
+    {
+        FinishStep();
+        float water = _grid.TotalWater();
+        int markers = 0;
+        foreach (string prefab in new[] { Prefabs.SourceName, Prefabs.DrainName })
+        {
+            foreach (ZDO zdo in All(prefab))
+            {
+                DestroyZdo(zdo);
+                markers++;
+            }
+        }
+
+        foreach (ZDO zdo in All(Prefabs.TileName))
+        {
+            DestroyZdo(zdo);
+        }
+
+        _objects.Drop();
+        foreach (ZDO zdo in All(Prefabs.BrickName))
+        {
+            DestroyZdo(zdo);
+        }
+
+        // Sent out now, not at the frame's end: a look for markers ending this frame would find the destroyed sources
+        // and drains still there and keep them pouring till the next look, and a save taken now would keep it all.
+        _lateDestroys.Flush();
+        _drained.Clear();
+        NewGrid(_grid.VoxelSize);
+        _markers.DropPlaced();
+        FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: wiped, {water:0.0} m³ and {markers} sources and drains gone"));
+        return (water, markers);
+    }
+
     /// <summary>Stops listening to the world (it closes).</summary>
     public void Close() => _watch.Close();
 

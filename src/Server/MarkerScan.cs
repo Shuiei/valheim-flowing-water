@@ -63,6 +63,17 @@ internal sealed class MarkerScan
     /// <summary>The sources and drains as the last whole look found them (and the config's).</summary>
     public IReadOnlyList<Source> Markers => _markers;
 
+    /// <summary>
+    /// The placed sources and drains forgotten at once (they were just destroyed: not left pouring till the next look
+    /// finds them gone); the config's fixed ones stay.
+    /// </summary>
+    public void DropPlaced()
+    {
+        _markers.Clear();
+        CollectFixed(FlowingWaterPlugin.Settings.FixedSources.Value, false);
+        CollectFixed(FlowingWaterPlugin.Settings.FixedDrains.Value, true);
+    }
+
     /// <summary>One frame of looking; true when a look ended and <see cref="Markers"/> was swapped in anew.</summary>
     public bool Update(float dt, FrameParts parts)
     {
