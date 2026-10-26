@@ -60,6 +60,7 @@ Shader "FlowingWater/ParticleSurface"
             sampler2D _ParticleDepth;
             float4 _ParticleDepth_TexelSize;
             sampler2D _ParticleThickness;
+            float4 _ParticleThickness_TexelSize;
             sampler2D _Normal;
             fixed4 _ColorBottom;
             fixed4 _ColorBottomShallow;
@@ -118,6 +119,27 @@ Shader "FlowingWater/ParticleSurface"
                 return tex2D(_ParticleDepth, uv).r;
             }
 
+            // The water seen through at a pixel and its air, smoothed over a ring a particle's size wide at that
+            // distance: the spheres' chords read as one body of water, not each sphere's own.
+            float2 Thick(float2 uv, float eye)
+            {
+                float scale = unity_CameraProjection._m11 * _ScreenParams.y * 0.5;
+                float radius = clamp(1.5 * _FWParticleSize * scale / eye, 1.0, 40.0);
+                float2 texel = _ParticleThickness_TexelSize.xy * radius;
+                float2 sum = tex2D(_ParticleThickness, uv).rg * 2.0;
+                float weights = 2.0;
+                for (int k = 0; k < 8; k++)
+                {
+                    float a = k * 0.785398;
+                    float2 ring = float2(cos(a), sin(a));
+                    sum += tex2D(_ParticleThickness, uv + (ring * texel)).rg;
+                    sum += tex2D(_ParticleThickness, uv + (ring * texel * 0.5)).rg * 1.5;
+                    weights += 2.5;
+                }
+
+                return sum / weights;
+            }
+
             // The surface's slope at a pixel from the distances round it: each way the neighbour nearer in distance (not
             // across a step), so the silhouette keeps a clean edge.
             float3 Slope(float2 uv, float2 ndc, float eye, float3 here)
@@ -155,7 +177,7 @@ Shader "FlowingWater/ParticleSurface"
 
                 // Up on the screen is up in view space; a platform drawing into a texture upside down flips it.
                 float2 ndc = float2(i.ndc.x, i.ndc.y * _ProjectionParams.x);
-                float2 thick = tex2D(_ParticleThickness, uv).rg;
+                float2 thick = Thick(uv, eye);
                 float thickness = max(thick.r, 0.0);
                 float air = saturate(thick.g / max(thickness, 0.001));
                 float3 here = Place(ndc, eye);
@@ -185,17 +207,24 @@ Shader "FlowingWater/ParticleSurface"
                 float3 lit = max(ambient + (sunColour * saturate(dot(worldN, sun))), _LeastLight * ShadeSH9(float4(0.0, 1.0, 0.0, 1.0)));
                 float3 colour = (behind * through * _SurfaceColor.rgb) + (body * (1.0 - through) * lit);
 
-                // The sky in the surface, more the flatter one looks along it; the sun's glint.
+                // The sky in the surface, more the flatter one looks along it (a soft mip of the probe, its brightness
+                // held: the sun's disk in it would otherwise blaze over metres of water); the sun's glint on its own.
                 float fresnel = 0.02 + (0.98 * pow(1.0 - saturate(dot(worldN, toCamera)), 5.0));
                 float3 reflected = reflect(-toCamera, worldN);
-                float3 sky = DecodeHDR(UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflected, 0.0), unity_SpecCube0_HDR);
+                float3 sky = DecodeHDR(UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflected, 3.0), unity_SpecCube0_HDR);
+                sky = min(sky, 2.0);
                 colour = lerp(colour, sky, fresnel * _Glossiness);
                 float glint = pow(saturate(dot(worldN, normalize(sun + toCamera))), 256.0) * _Glossiness;
                 colour += sunColour * glint;
 
-                // Foam where the water is air (the churn of a fall), not on a lone drop: a drop is clear water, seen through.
+                // Foam where the water seen through is nearly all air (the churn of a fall, a splash, a jet), not on a
+                // lone drop (clear water, seen through), nor on a pool's surface or a thin stream over the ground (half
+                // of rest round their particles: water). Lit as the sea's foam is (its colour under the light), not
+                // brighter than the light.
                 float lone = saturate(1.0 - (thickness / max(2.0 * _FWParticleSize, 0.01)));
-                colour = lerp(colour, _FoamColor.rgb * (ambient + (0.6 * sunColour)), saturate(air * 1.5) * (1.0 - lone));
+                float foam = smoothstep(0.7, 0.95, air) * (1.0 - lone) * _FoamColor.a;
+                float3 foamLit = _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
+                colour = lerp(colour, foamLit, foam);
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.
 #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)

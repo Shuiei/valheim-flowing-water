@@ -25,6 +25,8 @@ internal sealed class ParticleSurface : IDisposable
     private static readonly int ParticleDepthId = Shader.PropertyToID("_ParticleDepth");
     private static readonly int ParticleThicknessId = Shader.PropertyToID("_ParticleThickness");
     private static readonly int BlurDirectionId = Shader.PropertyToID("_BlurDirection");
+    private static readonly int BlurRadiusId = Shader.PropertyToID("_BlurRadius");
+    private static readonly int BlurFalloffId = Shader.PropertyToID("_BlurFalloff");
     private static readonly int SunDirId = Shader.PropertyToID("_FWSunDir");
     private static readonly int SunColourId = Shader.PropertyToID("_FWSunColour");
     private static readonly int ParticleSizeId = Shader.PropertyToID("_FWParticleSize");
@@ -80,6 +82,10 @@ internal sealed class ParticleSurface : IDisposable
 
         Sun();
         Shader.SetGlobalFloat(ParticleSizeId, water.Spacing);
+        // The spheres melt into one surface when smoothed over a few of them, and a step kept between two bodies of
+        // water is deeper than a sphere's own curve.
+        water.Material.SetFloat(BlurRadiusId, 3f * water.Spacing);
+        water.Material.SetFloat(BlurFalloffId, 2.5f * water.Spacing);
         if (Spheres)
         {
             _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);

@@ -322,8 +322,12 @@ internal sealed class ParticleWater : IDisposable
     /// <summary>Ground higher than a particle by more than this (m) is a wall to it, not a step it rides up.</summary>
     public float StepUp { get; set; } = 0.35f;
 
-    /// <summary>The fastest any particle goes (m/s): a speed from a mended guess is held there, not thrown on.</summary>
-    public float MaxSpeed { get; set; } = 25f;
+    /// <summary>
+    /// The fastest any particle goes (m/s): a speed from a mended guess is held there, not thrown on. A drop falls no
+    /// faster than about 9 m/s in air; so a particle thrown by a pull (set in water at rest, caught between two
+    /// bodies) flies a few metres, not thirty.
+    /// </summary>
+    public float MaxSpeed { get; set; } = 12f;
 
     /// <summary>
     /// With an owner (<see cref="SetOwner"/>), the share of what a column lacks or has too much of that one second
@@ -820,7 +824,7 @@ internal sealed class ParticleWater : IDisposable
 
         Columns();
         _shader.SetTexture(_fill, TargetId, _target ?? _noTarget);
-        foreach (int kernel in new[] { _clearColumns, _countColumns, _fill, _finish })
+        foreach (int kernel in new[] { _clearColumns, _countColumns, _fill, _spout, _finish })
         {
             _shader.SetTexture(kernel, ColumnCountId, _columnCount);
             _shader.SetTexture(kernel, ColumnTopId, _columnTop);

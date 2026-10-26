@@ -19,6 +19,7 @@ Shader "FlowingWater/Particles"
         // The flowing water's own (as FlowingWater.shader's).
         // The particles' own.
         _Size ("A particle's drawn radius (m)", Float) = 0.08
+        // Set by ParticleSurface from the particles' size each frame.
         _BlurRadius ("The surface smoothed over this far (m)", Float) = 0.4
         _BlurFalloff ("A step in distance this deep (m) is kept, not smoothed over", Float) = 0.25
         _SphereColor ("Spheres' colour (testing)", Color) = (0.2, 0.45, 0.6, 1)
@@ -27,6 +28,7 @@ Shader "FlowingWater/Particles"
     CGINCLUDE
     #include "UnityCG.cginc"
 
+    // A particle as the compute shader leaves it after a step: its place, its spray share (predicted.w, FlowingWaterParticles.compute's Finish) and its density share (velocity.w).
     struct Particle
     {
         float4 place;
@@ -36,6 +38,9 @@ Shader "FlowingWater/Particles"
 
     StructuredBuffer<Particle> _Particles;
     float _Size;
+    // A particle's water's side (m), as ParticleSurface sets it: the spheres are drawn larger than the water they are,
+    // so that they overlap into one surface.
+    float _FWParticleSize;
     UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
     // The sun as the game sets it for every shader (none: the scene's light), and its colour as ParticleSurface sets it.
@@ -49,7 +54,8 @@ Shader "FlowingWater/Particles"
         float4 pos : SV_POSITION;
         float2 uv : TEXCOORD0;
         float3 centre : TEXCOORD1;
-        float density : TEXCOORD2;
+        // The particle's spray share (1: a drop in the air; 0: water, however thin, on the ground or in a pool).
+        float air : TEXCOORD2;
         float4 screen : TEXCOORD3;
     };
 
@@ -73,7 +79,7 @@ Shader "FlowingWater/Particles"
         o.pos = mul(UNITY_MATRIX_P, float4(corner, 1.0));
         o.uv = q * 1.1;
         o.centre = centre;
-        o.density = p.velocity.w;
+        o.air = p.predicted.w;
         o.screen = ComputeScreenPos(o.pos);
         return o;
     }
@@ -190,9 +196,12 @@ Shader "FlowingWater/Particles"
                     discard;
                 }
 
-                float chord = 2.0 * _Size * normal.z;
-                float air = 1.0 - saturate((i.density - 0.4) / 0.4);
-                return float4(chord, chord * air, 0.0, 0.0);
+                // The chord is scaled down by how much more the sphere holds than the particle's water, so the chords
+                // of a pool add up to its depth, not to four times it; with it, how much of it is spray (the solver's
+                // own account: in the air with little water round it).
+                float fill = (_FWParticleSize * _FWParticleSize * _FWParticleSize) / (4.18879 * _Size * _Size * _Size);
+                float chord = 2.0 * _Size * normal.z * fill;
+                return float4(chord, chord * i.air, 0.0, 0.0);
             }
             ENDCG
         }
@@ -213,7 +222,7 @@ Shader "FlowingWater/Particles"
             float _BlurRadius;
             float _BlurFalloff;
 
-            #define TAPS 12
+            #define TAPS 16
 
             float4 frag(v2f_img i) : SV_Target
             {
@@ -225,7 +234,7 @@ Shader "FlowingWater/Particles"
 
                 // Pixels across the radius at this distance: the projection's scale, in pixels per metre at 1 m.
                 float scale = unity_CameraProjection._m11 * _ScreenParams.y * 0.5;
-                float radius = clamp(_BlurRadius * scale / centre, 1.0, 24.0);
+                float radius = clamp(_BlurRadius * scale / centre, 1.0, 48.0);
                 float2 step = _BlurDirection * _MainTex_TexelSize.xy * (radius / TAPS);
                 float sum = centre;
                 float weights = 1.0;
@@ -295,7 +304,7 @@ Shader "FlowingWater/Particles"
                 float3 lit = ShadeSH9(float4(worldNormal, 1.0)) + (_FWSunColour.rgb * saturate(dot(worldNormal, sun)));
                 float3 toCamera = normalize(_WorldSpaceCameraPos - ViewToWorldPlace(surface));
                 float spec = pow(saturate(dot(worldNormal, normalize(sun + toCamera))), 48.0) * _Glossiness;
-                fixed3 colour = lerp(_FoamColor.rgb, _SphereColor.rgb, saturate((i.density - 0.4) / 0.4));
+                fixed3 colour = lerp(_SphereColor.rgb, _FoamColor.rgb, i.air);
                 o.colour = fixed4((colour * lit) + (_FWSunColour.rgb * spec), 1.0);
                 return o;
             }

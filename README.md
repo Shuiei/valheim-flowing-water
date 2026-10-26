@@ -273,8 +273,9 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
 off a ledge into a basin, a sphere pushed through a pool, a basin filled and emptied by the server's water (own), a
-source's spout, water poured onto a slab (what players build), a pen's walls, a hull driven through a pool, and a
-cost scene, and writes `particles.txt` and frames
+source's spout, the look of a pool with a source in it at the game's particle sizes (look: frames only), water poured
+onto a slab (what players build), a pen's walls, a hull driven through a pool, and a cost scene, and writes
+`particles.txt` and frames
 (`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
 filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches

@@ -659,10 +659,11 @@ void Fill(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    // The column's water comes this high now: the new particles go just over it, a particle's spacing up, so no pull
-    // throws them (and a hair apart from each other).
+    // The column's water comes this high now: the new particles go just over it (a radius and a half up: clear of the
+    // water at rest, so no pull throws them, and no higher, so they are not a rain of drops over the pool), a hair
+    // apart from each other.
     int topCode = _ColumnTop[v];
-    float over = topCode > 0 ? TopOf(topCode) + (2.0 * _Radius) : -1.0e9;
+    float over = topCode > 0 ? TopOf(topCode) + (1.5 * _Radius) : -1.0e9;
     for (uint k = 0u; k < n; k++)
     {
         // A cell of the column with ground under the water (a wall's, or ground over the top, holds none).
@@ -709,6 +710,10 @@ void Spout(uint3 id : SV_DispatchThreadID)
     uint state = (id.x * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
     uint n = min((uint)floor((s.flow.y * _Frame / _Litre) + Random(state)), MOST_SPOUTED);
     float2 lo = _Origin + _Radius, hi = _Origin + (_N * _Dx) - _Radius;
+    // Out over the water the source stands in, not into it (a particle set in water at rest is thrown out of it): the
+    // rim's height, or just over the column's water where that is higher.
+    int topCode = _ColumnTop[ColumnOf(s.ring.xyz)];
+    float rim = max(s.ring.y, topCode > 0 ? TopOf(topCode) + (1.5 * _Radius) : -1.0e9);
     for (uint k = 0u; k < n; k++)
     {
         uint at;
@@ -720,7 +725,7 @@ void Spout(uint3 id : SV_DispatchThreadID)
 
         float angle = at * 2.39996323;
         float3 outward = float3(cos(angle), 0.0, sin(angle));
-        float3 place = s.ring.xyz + (outward * s.ring.w) + float3(0.0, (Random(state) - 0.5) * _Radius, 0.0);
+        float3 place = float3(s.ring.x, rim, s.ring.z) + (outward * s.ring.w) + float3(0.0, Random(state) * _Radius, 0.0);
         place.xz = clamp(place.xz, lo, hi);
         place.y = max(place.y, GroundAt(place.xz) + _Radius);
         Particle p;
@@ -1025,6 +1030,12 @@ void Finish(uint3 id : SV_DispatchThreadID)
     p.velocity.xyz = v;
     p.place.xyz = xi;
 
+    // How much the particle is spray: in the air (clear of the ground: a thin sheet sliding down a slope is water,
+    // however spread out) with little water round it. The drawing foams it by this (the pull it held this step is
+    // done with).
+    bool clear = xi.y > GroundAt(xi.xz) + (2.0 * _Radius);
+    p.predicted.w = clear ? saturate(1.0 - ((p.velocity.w - 0.1) / 0.3)) : 0.0;
+
     // Held to the server's water: under the sea's level the particle is the sea's; in the square's edge band it is
     // the bricks' (they draw there); in a column with too many, it goes with the share the column loses this frame,
     // unless it is in the air (a spout's jet, a splash: it is the water's once it lands).
@@ -1032,7 +1043,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
     {
         int2 c = clamp((int2)floor((xi.xz - _Origin) / _Dx), 0, _N - 1);
         uint state = (i * 9781u) ^ (_Seed * 6271u);
-        bool inAir = p.velocity.w < IN_WATER && xi.y > GroundAt(xi.xz) + (2.0 * _Radius);
+        bool inAir = p.velocity.w < IN_WATER && clear;
         if (xi.y < _SeaLevel || InBorder(c) || (!inAir && Random(state) < _ColumnLoss[ColumnOf(xi)]))
         {
             p.place.w = asfloat(GONE);

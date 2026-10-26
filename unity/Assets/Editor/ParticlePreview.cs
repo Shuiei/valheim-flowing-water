@@ -41,7 +41,7 @@ public static class ParticlePreview
             BuildBundles.Prepare();
             // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run. A name of none is refused.
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "ball", "own", "spout", "roof", "walls", "boat", "cost", "surface" };
+            string[] known = { "rest", "dambreak", "ledge", "ball", "own", "spout", "look", "roof", "walls", "boat", "cost", "surface" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -78,6 +78,12 @@ public static class ParticlePreview
             if (Runs("spout"))
             {
                 Spout(0.25f);
+            }
+
+            if (Runs("look"))
+            {
+                Look(0.5f);
+                Look(0.25f);
             }
 
             if (Runs("roof"))
@@ -683,6 +689,29 @@ public static class ParticlePreview
         ParticleSurface.Spheres = wereSpheres;
     }
 
+    // How the water near the camera looks, drawn as water, with the game's particles (0.5 m, 0.25 m): a pool 12 m
+    // square a metre deep at rest in a shallow basin, with a source in it; seen from above as a player sees it, and
+    // from the bank. Frames only: it should read as one sheet of water, not as balls, with foam only at the spout.
+    private static void Look(float spacing)
+    {
+        float[] bed = Field((x, z) => Math.Min(3f, 0.03f * Math.Max(0f, Math.Max(Math.Abs(x - 20f), Math.Abs(z - 20f)) - 6f) * 10f));
+        using var scene = new Scene(Inv($"plook-{spacing}"), bed, 65536, spacing);
+        int added = scene.Water.Add(new Vector3(14f, 0f, 14f), new Vector3(26f, 1f, 26f));
+        var spouts = new List<ParticleWater.Spout> { ParticleWater.Spout.At(new Vector3(20f, 1.3f, 20f), 0.3f, 2f, 0.5f * spacing) };
+        for (int k = 1; k <= 240; k++)
+        {
+            scene.Water.SetSpouts(k > 120 ? spouts : new List<ParticleWater.Spout>());
+            scene.Step();
+            if (k is 120 or 240)
+            {
+                scene.Shot(Inv($"plook-{spacing}_{k * Frame:0.0}s_above"), new Vector3(20f, 9f, 11f), new Vector3(20f, 0.5f, 20f));
+                scene.Shot(Inv($"plook-{spacing}_{k * Frame:0.0}s_bank"), new Vector3(20f, 1.8f, 12f), new Vector3(20f, 0.8f, 20f));
+            }
+        }
+
+        Log.AppendLine(Inv($"Look ({spacing} m particles): a pool 12 m square 1 m deep ({added} particles), a 2 m3/s source in it from 2 s; frames plook-{spacing}_*.png"));
+    }
+
     private static float[] ReadFloats(RenderTexture texture)
     {
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
@@ -889,14 +918,14 @@ public static class ParticlePreview
     {
         private readonly Texture2D _bed;
 
-        public Scene(string name, float[] bed, int capacity)
+        public Scene(string name, float[] bed, int capacity, float spacing = 0.1f)
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             _bed = new Texture2D(Cells, Cells, TextureFormat.RFloat, false, true) { name = name + " ground", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
             _bed.SetPixelData(bed, 0);
             _bed.Apply(false);
             var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.ParticlesComputePath);
-            Water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), capacity);
+            Water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), capacity, spacing);
             Water.SetGround(_bed, Cells, Dx, Vector2.zero, 50f);
             // The solver's settings, tried from the environment (FW_PREVIEW_RELAXATION, FW_PREVIEW_ITERATIONS, FW_PREVIEW_VISCOSITY,
             // FW_PREVIEW_TENSION, FW_PREVIEW_SUBSTEPS: steps a frame).

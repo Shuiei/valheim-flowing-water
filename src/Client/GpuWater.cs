@@ -84,6 +84,8 @@ internal sealed class GpuWater : IDisposable
 
     private readonly List<ParticleWater.Spout> _spouts = [];
 
+    private static readonly List<ParticleWater.Spout> NoSpouts = [];
+
     private ParticleSurface _surface;
 
     private readonly BedCast _cast;
@@ -571,7 +573,8 @@ internal sealed class GpuWater : IDisposable
         bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
         _particles.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
         _particles.SetBodies(Bodies(origin));
-        _particles.SetSpouts(Spouts(origin));
+        // The sources' water comes out as particles only where the particles are the water (not beside the sheet's own).
+        _particles.SetSpouts(own ? Spouts(origin) : NoSpouts);
 
         _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
