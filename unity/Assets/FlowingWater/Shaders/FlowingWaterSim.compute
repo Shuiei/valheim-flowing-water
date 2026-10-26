@@ -662,8 +662,6 @@ void Shape(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    // As steep for cells of other sizes as for a quarter metre's.
-    float join = SHAPE_JOIN * _Dx / 0.25;
     float reference = bed + (wet ? depth : 0.0);
     float sum = 0.0;
     float weight = 0.0;
@@ -679,7 +677,7 @@ void Shape(uint3 id : SV_DispatchThreadID)
             }
 
             float level = _Bed[n] + _H[n];
-            if (abs(level - reference) > join)
+            if (abs(level - reference) > SHAPE_JOIN)
             {
                 continue;
             }
@@ -693,7 +691,7 @@ void Shape(uint3 id : SV_DispatchThreadID)
 
     if (weight <= 0.0)
     {
-        _Drawn[c] = wet ? depth : 0.0;
+        _Drawn[c] = depth;
         return;
     }
 
@@ -707,5 +705,5 @@ void Shape(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    _Drawn[c] = inside ? clamp(smooth - bed, 0.0, SHAPE_FILL) : 0.0;
+    _Drawn[c] = max(inside ? clamp(smooth - bed, 0.0, SHAPE_FILL) : 0.0, depth);
 }

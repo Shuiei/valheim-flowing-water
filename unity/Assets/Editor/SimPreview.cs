@@ -35,26 +35,32 @@ public static class SimPreview
             Directory.CreateDirectory(_output);
             BuildBundles.Prepare();
 
-            // FW_PREVIEW_ONLY (a scene's name, as "edge"): that scene alone.
+            // FW_PREVIEW_ONLY (a scene's name, as "edge"): that scene alone; a name of none is refused.
             string only = Environment.GetEnvironmentVariable("FW_PREVIEW_ONLY");
             var scenes = new (string Name, Action Run)[]
             {
                 ("dambreak", () => DamBreak(0.03f)),
-                ("dambreak", () => DamBreak(0f)),
+                ("dambreak-smooth", () => DamBreak(0f)),
                 ("slosh", Slosh),
                 ("obstacle", Obstacle),
                 ("follow", Follow),
                 ("ledge", () => Ledge(true)),
-                ("ledge", () => Ledge(false)),
+                ("ledge-unthrown", () => Ledge(false)),
                 ("shift", Shift),
-                ("shift", ShiftThrown),
+                ("shift-thrown", ShiftThrown),
                 ("spray", Spray),
                 ("look", LookOnly),
                 ("edge", Edge),
                 ("bumps", Bumps),
+                ("shape", ShapeChecks),
                 ("waves", Waves),
                 ("cost", Cost),
             };
+            if (!string.IsNullOrEmpty(only) && scenes.All(s => s.Name != only))
+            {
+                throw new ArgumentException($"FW_PREVIEW_ONLY: no scene {only} ({string.Join(", ", scenes.Select(s => s.Name))})");
+            }
+
             foreach (var scene in scenes.Where(s => string.IsNullOrEmpty(only) || s.Name == only))
             {
                 scene.Run();
@@ -416,7 +422,8 @@ public static class SimPreview
                     }
                 }
 
-                int last = (int)(front / Dx);
+                // The last wet cell (front is its far side).
+                int last = (int)(front / Dx) - 1;
                 string behind = string.Join(" ", Enumerable.Range(0, 12).Select(n => h[(80 * Cells) + Math.Max(last - n, 0)].ToString("0.000", CultureInfo.InvariantCulture)));
                 Log.AppendLine(Inv($"  t={k * Frame:0.0}s front at x = {front:0.00} m along z = 20 m; depth back from it, every 0.25 m: {behind}"));
                 float Height(float x) => 0.04f * (40f - x);
@@ -465,6 +472,53 @@ public static class SimPreview
             }
         }
     }
+
+    // The water as it is drawn (SimGrid.Shape, the kernel itself on the card), checked against its rules on still water
+    // set by hand: a uniform slope drawn as it is; no joining across a ledge; a bump in a sheet covered, a hollow at most
+    // 10 cm; a thin sheet 1.5 cm deep at least; a cell of ground not known drawn as it is, and no part of its
+    // neighbours' mean; thin water alone kept; past a sheet's straight edge, nothing.
+    private static void ShapeChecks()
+    {
+        float[] bed = Ground((x, z) =>
+            x < 12f && z < 12f ? 0.1f * x
+            : x < 12f && z < 24f ? (x < 6f ? 1f : 0f)
+            : x < 12f && Near(x, z, 6f, 30f) ? 0.03f
+            : x < 12f && Near(x, z, 8f, 30f) ? -0.07f
+            : Near(x, z, 30f, 6f) ? SimGrid.Wall
+            : 0f);
+        float[] depth = Depths((x, z) =>
+            (x < 12f && Near(x, z, 6f, 30f)) || (x < 12f && Near(x, z, 8f, 30f)) || Near(x, z, 30f, 6f) ? 0f
+            : x < 12f ? 0.05f
+            : x < 24f && z > 12f && z < 24f ? 0.007f
+            : x > 24f && z < 12f ? 0.05f
+            : Near(x, z, 30f, 30f) ? 0.004f
+            : x > 24f && z > 12f && z < 24f && x < 30f ? 0.05f
+            : 0f);
+        using var scene = new Scene("shape", bed);
+        scene.Grid.SetDepth(depth);
+        float[] drawn = scene.ReadDrawn();
+        float At(float x, float z) => drawn[((int)(z / Dx) * Cells) + (int)(x / Dx)];
+        string Check(string what, float x, float z, float expected)
+        {
+            float got = At(x, z);
+            return Inv($"  {what}: {got:0.0000} m, expected {expected:0.0000}: {(Mathf.Abs(got - expected) < 0.0005f ? "OK" : "FAILED")}");
+        }
+
+        Log.AppendLine("Shape: the water as drawn, against its rules.");
+        Log.AppendLine(Check("on a uniform 10% slope, 5 cm", 6.1f, 6.1f, 0.05f));
+        Log.AppendLine(Check("on top of a 1 m ledge, 5 cm", 5.9f, 18.1f, 0.05f));
+        Log.AppendLine(Check("at the foot of a 1 m ledge, 5 cm", 6.1f, 18.1f, 0.05f));
+        Log.AppendLine(Check("a dry bump 3 cm high in a 5 cm sheet", 6.1f, 30.1f, 0.02f));
+        Log.AppendLine(Check("a dry hollow 7 cm deep in a 5 cm sheet (12 cm, 10 at most)", 8.1f, 30.1f, 0.1f));
+        Log.AppendLine(Check("a 7 mm sheet", 18.1f, 18.1f, 0.015f));
+        Log.AppendLine(Check("ground not known, dry", 30.1f, 6.1f, 0f));
+        Log.AppendLine(Check("beside ground not known, 5 cm", 30.4f, 6.1f, 0.05f));
+        Log.AppendLine(Check("4 mm of water alone", 30.1f, 30.1f, 0.004f));
+        Log.AppendLine(Check("past a sheet's straight edge", 30.1f, 18.1f, 0f));
+    }
+
+    // Whether a place is in the cell of another (x, z, m).
+    private static bool Near(float x, float z, float cx, float cz) => Mathf.Abs(x - cx - (0.5f * Dx)) < 0.5f * Dx && Mathf.Abs(z - cz - (0.5f * Dx)) < 0.5f * Dx;
 
     // The waves drawn on running water (the shaders' own functions, asked on the card): their height by speed and depth;
     // the noise's and the chop's slopes those of their heights; the chop's height within -1 to 1 at every moment (its
