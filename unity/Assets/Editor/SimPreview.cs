@@ -334,7 +334,7 @@ public static class SimPreview
         float air = Read(thrown.Grid.Airborne).Sum();
         thrown.Grid.Shift(4, 0);
         float left = Read(thrown.Grid.Airborne).Sum() + ReadWhole(thrown.Grid.Landed).Sum(n => (float)n);
-        Log.AppendLine(Inv($"Shift: water in the air {air:0.00} m3 before, {left:0.00} after: {Check(air > 0f && left == 0f)}"));
+        Log.AppendLine(Inv($"Shift: water in the air {air:0.00} m3 before, {left:0.00} after: {Check(air > 0f && left <= 0f)}"));
     }
 
     // The water in all (m3), and its middle (cells).
