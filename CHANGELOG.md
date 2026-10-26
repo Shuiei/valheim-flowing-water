@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.27.0 — 2026-10-25
+
+### Changed
+- The server's water now carries its momentum: a surge let go runs out over the ground faster and further, and water
+  off an edge keeps going the way it went; sideways it is slowed by the ground, far more as a thin sheet than deep. A
+  stream down a smooth slope runs as a wider sheet than before. The server spends about 40% more on moving water.
+
 ## v0.26.0 — 2026-10-25
 
 ### Added

@@ -7,8 +7,9 @@ namespace FlowingWater.Volume;
 
 /// <summary>
 /// Moves the water of a <see cref="VoxelGrid"/>, without the game: the pipe model in three dimensions. Each face
-/// between two voxels is a pipe whose flow keeps its momentum from step to step, sped up by the difference of the
-/// two voxels' heads and slowed by drag. A voxel's head is the level its water pushes to: its floor plus all the
+/// between two voxels is a pipe whose flow keeps its momentum from step to step, carried along by the water coming
+/// through it (a front running onto dry ground keeps the speed of the water behind it, water off an edge keeps going
+/// the way it went), sped up by the difference of the two voxels' heads and slowed by drag. A voxel's head is the level its water pushes to: its floor plus all the
 /// water resting on it in its column (so a still stack has one head throughout and stays still, and a hole low in a
 /// box's side lets out water faster the deeper the box), and, where water is pressed in under a ceiling, a little
 /// more for each share it holds over full (so a pipe carries the push of the water above). Air below water is a low
@@ -32,8 +33,21 @@ internal sealed class VoxelSolver
 
     private const float StiffnessEasing = 0.99f;
 
-    // Drag on every pipe: a share of its flow lost each second, and more the faster it runs (seconds a metre).
+    // Drag on every pipe: a share of its flow lost each second, and, up and down, more the faster it runs (seconds a
+    // metre).
     private const float Damping = 0.3f, Drag = 0.05f;
+
+    // Sideways, the ground's friction instead (Manning's, of a natural bed): more the faster the water runs and far more
+    // the thinner it is, so a sheet a few centimetres thick loses its speed within a metre or two (a stream's water
+    // fanning out at its source does not go on sideways down the slope) while a deep surge runs on.
+    private const float Roughness = 0.03f;
+
+    private const float Bed = Gravity * Roughness * Roughness;
+
+    // The friction's depths to the four thirds: so many steps from none to a voxel's side.
+    private const int PowerSteps = 257;
+
+    private static readonly float[] FourThirdsTable = [.. Enumerable.Range(0, PowerSteps).Select(k => (float)Math.Pow(k / (double)(PowerSteps - 1), 4.0 / 3.0))];
 
     // Water wets new ground only once it stands this deep, metres: through a side face, water goes into a voxel holding
     // less than a film only from a voxel holding at least this much. Without it a stream fanned out over a smooth slope
@@ -44,6 +58,10 @@ internal sealed class VoxelSolver
 
     // The share of a voxel over which the weight of the water over it comes on as it fills (the last of its room).
     private const float Contact = 0.1f;
+
+    // The fastest the water carries its momentum, metres a second (a fall of 45 m): a face holding almost no water
+    // would otherwise give the flow through it a speed it cannot have.
+    private const float FastestCarried = 30f;
 
     // The deepest water steps are kept stable for, metres: longer steps are split.
     private const float DeepestStable = 10f;
@@ -61,12 +79,12 @@ internal sealed class VoxelSolver
     private const float WakingDrop = 1e-4f;
 
     // A step's phases, in order.
-    private const int Idle = 0, HeadsPhase = 1, FlowsPhase = 2, SharesPhase = 3, ScalePhase = 4, ApplyPhase = 5;
+    private const int Idle = 0, HeadsPhase = 1, CarryPhase = 2, FlowsPhase = 3, SharesPhase = 4, ScalePhase = 5, ApplyPhase = 6;
 
     private static readonly Func<bool> Always = () => true;
 
     // Each phase's part of the frame's time.
-    private static readonly WaterPart[] Parts = [WaterPart.Other, WaterPart.Heads, WaterPart.Flows, WaterPart.Shares, WaterPart.Scale, WaterPart.Apply];
+    private static readonly WaterPart[] Parts = [WaterPart.Other, WaterPart.Heads, WaterPart.Carry, WaterPart.Flows, WaterPart.Shares, WaterPart.Scale, WaterPart.Apply];
 
     // A brick's last index along a row, and the index steps a row and a layer.
     private const int Last = Brick.Size - 1, Row = Brick.Size, Layer = Brick.Size * Brick.Size;
@@ -94,7 +112,7 @@ internal sealed class VoxelSolver
 
     // Each brick's part found, by index, and each phase's work on the k-th column or brick (made once: a part of a
     // step is run every frame, and a closure made for each would be given to the collector by the thousand).
-    private readonly Action<int> _part, _heads, _flows, _shares, _scale, _apply;
+    private readonly Action<int> _part, _heads, _carry, _flows, _shares, _scale, _apply;
 
     // Voxels whose water, or the ground under them, was found not to be a number, and emptied (told of by the server).
     private int _notNumbers;
@@ -126,6 +144,7 @@ internal sealed class VoxelSolver
         _parts = parts ?? new FrameParts();
         _part = k => Part(_bricks[k]);
         _heads = k => _deepest[k] = Heads(_columns[k], _grid.VoxelSize, _headsStiffness);
+        _carry = k => Carry(_bricks[k], _length, _grid.VoxelSize);
         _flows = k => Flows(_bricks[k], _length, _grid.VoxelSize);
         _shares = k => Shares(_bricks[k], _length, _grid.VoxelSize);
         _scale = k => Scale(_bricks[k]);
@@ -313,6 +332,7 @@ internal sealed class VoxelSolver
         Parallel.For(from, to, phase switch
         {
             HeadsPhase => _heads,
+            CarryPhase => _carry,
             FlowsPhase => _flows,
             SharesPhase => _shares,
             ScalePhase => _scale,
@@ -342,7 +362,7 @@ internal sealed class VoxelSolver
         return null;
     }
 
-    // After the heads: the stiffness follows the deepest water found, and the flows come next. Water deeper than the
+    // After the heads: the stiffness follows the deepest water found, and the momentum carried comes next. Water deeper than the
     // heads' stiffness was for (just loaded, or filled up) has its heads worked out again at once instead, or, when
     // the step is now too long for it, the step is not taken (null while the step goes on).
     private StepState? Stiffened()
@@ -364,7 +384,7 @@ internal sealed class VoxelSolver
         _stiffness = Math.Max(Math.Max(Stiffness, StiffnessPerDepth * deepest), _stiffness * StiffnessEasing);
         if (_stiffness <= _headsStiffness)
         {
-            _phase = FlowsPhase;
+            _phase = CarryPhase;
             return null;
         }
 
@@ -618,11 +638,126 @@ internal sealed class VoxelSolver
         return under != null && under.Solid[j] < 1f && (under.Closed[j] & Brick.ClosedY) == 0;
     }
 
-    // The flows through each voxel's east, upper and north faces.
+    // The water carries its momentum along: the flow through each of a voxel's own faces takes on the speed of the water
+    // coming into the space round that face (the halves of the two voxels it joins) through the voxels' middles, from
+    // behind or from ahead, as much as that water is of what the space holds. Upwind, and never past the speeds coming
+    // in, so stable at any step. Where the water is still, nothing comes in and the flows stay as they were. Across, the
+    // speed is not carried (water turns a little sooner): that cost twice as much again for a front a few hundredths of
+    // a second slower.
+    private static void Carry(Brick brick, float dt, float s)
+    {
+        int[] part = brick.Part;
+        float[] cx = brick.CarriedX, cy = brick.CarriedY, cz = brick.CarriedZ;
+        int count = brick.PartCount;
+        for (int k = 0; k < count; k++)
+        {
+            int i = part[k];
+            cx[i] = Carried(brick, i, 0, brick.FlowX, dt, s);
+            cy[i] = Carried(brick, i, 1, brick.FlowY, dt, s);
+            cz[i] = Carried(brick, i, 2, brick.FlowZ, dt, s);
+        }
+    }
+
+    // The flow through voxel i's own face on this axis (0: east, 1: up, 2: north; flows: that axis's) once carried along.
+    private static float Carried(Brick brick, int i, int axis, float[] flows, float dt, float s)
+    {
+        if (!Next(brick, i, axis * 2, out Brick other, out int j) || other.Asleep)
+        {
+            return 0f;
+        }
+
+        // The flows through the face behind voxel i and the face ahead of the voxel beside it: none, nor through this
+        // face, and the water there is still.
+        float flow = flows[i];
+        bool hasBack = Next(brick, i, (axis * 2) + 1, out Brick back, out int b);
+        float behind = hasBack ? FlowsOn(back, axis)[b] : 0f;
+        float beyond = FlowsOn(other, axis)[j];
+        if (Math.Abs(flow) + Math.Abs(behind) + Math.Abs(beyond) <= 0f)
+        {
+            return 0f;
+        }
+
+        float area = Area(brick, i, axis, other, j, s);
+        if (area <= 0f)
+        {
+            return 0f;
+        }
+
+        // What comes in, cubic metres a second, and that times its speed along the axis: through the middle of the voxel
+        // behind (the speed through its face behind, into voxel i) and of the voxel ahead (through its face ahead).
+        float inflow = 0f, carried = 0f;
+        float through = 0.5f * (behind + flow);
+        if (through > 0f)
+        {
+            float backArea = hasBack ? Area(back, b, axis, brick, i, s) : 0f;
+            inflow += through;
+            carried += through * (backArea > 0f ? Fastest(behind / backArea) : 0f);
+        }
+
+        float ahead = 0.5f * (flow + beyond);
+        if (ahead < 0f)
+        {
+            inflow -= ahead;
+            carried -= ahead * Speed(other, j, axis, s);
+        }
+
+        float speed = Fastest(flow / area);
+        if (inflow <= 0f)
+        {
+            return speed * area;
+        }
+
+        // The space's water, cubic metres: the speed coming in takes it over as it fills it (wholly, once more comes in
+        // in the step than it holds: a front onto dry ground).
+        float held = 0.5f * (brick.Water[i] + other.Water[j]) * s * s * s;
+        float share = dt * inflow >= held ? 1f : dt * inflow / held;
+        return (speed + (share * ((carried / inflow) - speed))) * area;
+    }
+
+    // The speed of the water through voxel i's own face on this axis, metres a second: its flow over its area.
+    private static float Speed(Brick brick, int i, int axis, float s)
+    {
+        float flow = FlowsOn(brick, axis)[i];
+        if (!(Math.Abs(flow) > 0f) || !Next(brick, i, axis * 2, out Brick other, out int j))
+        {
+            return 0f;
+        }
+
+        float area = Area(brick, i, axis, other, j, s);
+        return area <= 0f ? 0f : Fastest(flow / area);
+    }
+
+    private static float Fastest(float speed) => speed > FastestCarried ? FastestCarried : speed < -FastestCarried ? -FastestCarried : speed;
+
+    // The area water crosses a face by, square metres: all of it upward, only as high as the water stands sideways.
+    private static float Area(Brick brick, int i, int axis, Brick other, int j, float s) =>
+        axis == 1 ? s * s : s * Wet(brick, i, other, j, i >> 8, s);
+
+    private static float[] FlowsOn(Brick brick, int axis) => axis == 0 ? brick.FlowX : axis == 1 ? brick.FlowY : brick.FlowZ;
+
+    private static float[] CarriedOn(Brick brick, int axis) => axis == 0 ? brick.CarriedX : axis == 1 ? brick.CarriedY : brick.CarriedZ;
+
+    // The voxel beside voxel i on this side (0 east, 1 west, 2 up, 3 down, 4 north, 5 south): in the brick unless i is
+    // on its edge that way, else in the brick beside; false where there is no brick.
+    private static bool Next(Brick brick, int i, int side, out Brick other, out int j)
+    {
+        int axis = side >> 1;
+        int stride = axis == 0 ? 1 : axis == 1 ? Layer : Row;
+        int along = axis == 0 ? i & Last : axis == 1 ? i >> 8 : (i >> 4) & Last;
+        bool far = (side & 1) == 0;
+        bool inside = far ? along != Last : along != 0;
+        other = inside ? brick : brick.Beside[side];
+        j = inside ? (far ? i + stride : i - stride) : (far ? i - (Last * stride) : i + (Last * stride));
+        return other != null;
+    }
+
+    // The flows through each voxel's east, upper and north faces: as the water carried them, pushed by the heads.
     private void Flows(Brick brick, float dt, float s)
     {
         int[] part = brick.Part;
         float[] water = brick.Water, fx = brick.FlowX, fy = brick.FlowY, fz = brick.FlowZ;
+        float[] cx = brick.CarriedX, cy = brick.CarriedY, cz = brick.CarriedZ;
+        float side = (float)Math.Pow(s, 4.0 / 3.0);
         int count = brick.PartCount;
         for (int k = 0; k < count; k++)
         {
@@ -639,9 +774,9 @@ internal sealed class VoxelSolver
 
             int y = i >> 8;
             WantBeside(brick, i & Last, y, (i >> 4) & Last, i);
-            fx[i] = hasEast ? Flow(brick, i, y, 0, east, e, dt, s, fx[i]) : 0f;
-            fy[i] = hasUp ? Flow(brick, i, y, 1, up, u, dt, s, fy[i]) : 0f;
-            fz[i] = hasNorth ? Flow(brick, i, y, 2, north, n, dt, s, fz[i]) : 0f;
+            fx[i] = hasEast ? Flow(brick, i, y, 0, east, e, dt, s, side, cx[i]) : 0f;
+            fy[i] = hasUp ? Flow(brick, i, y, 1, up, u, dt, s, side, cy[i]) : 0f;
+            fz[i] = hasNorth ? Flow(brick, i, y, 2, north, n, dt, s, side, cz[i]) : 0f;
         }
     }
 
@@ -673,8 +808,9 @@ internal sealed class VoxelSolver
         }
     }
 
-    // The new flow of one of a voxel's own faces (side 0: east, 2: up, 4: north).
-    private static float Flow(Brick brick, int i, int y, int axis, Brick other, int j, float dt, float s, float flow)
+    // The new flow of one of a voxel's own faces (side 0: east, 2: up, 4: north), from the flow the water carried there
+    // (side: the voxel's side to the four thirds, for the ground's friction).
+    private static float Flow(Brick brick, int i, int y, int axis, Brick other, int j, float dt, float s, float side, float flow)
     {
         // Most faces in a step's part have no water on either side: that is looked at first.
         float wi = brick.Water[i];
@@ -698,7 +834,8 @@ internal sealed class VoxelSolver
         }
 
         flow += dt * Gravity * area / s * (brick.Head[i] - other.Head[j]);
-        flow /= 1f + (dt * (Damping + (Drag * (flow < 0f ? -flow : flow) / area)));
+        float speed = (flow < 0f ? -flow : flow) / area;
+        flow /= 1f + (dt * (Damping + (axis == 1 ? Drag * speed : Friction(brick, i, other, j, axis, speed, area, s, side))));
 
         // Sideways onto dry ground no lower than its own, only from water deep enough to wet it (no flow is none either
         // way).
@@ -709,6 +846,32 @@ internal sealed class VoxelSolver
 
         // Only water there is can leave.
         return (flow > 0f && wi <= Brick.Dry) || (flow < 0f && wj <= Brick.Dry) ? 0f : flow;
+    }
+
+    // The ground's friction on a side face's flow, a share lost each second: by the water's whole speed there, the
+    // current across the face (the other side axis, from the two voxels' own faces on it, as carried: the flows are being
+    // set) with the speed through it, over the depth to the four thirds (Manning's; side: the voxel's side to the four
+    // thirds).
+    private static float Friction(Brick brick, int i, Brick other, int j, int axis, float speed, float area, float s, float side)
+    {
+        int cross = 2 - axis;
+        float across = 0.5f * (Math.Abs(CarriedOn(brick, cross)[i]) + Math.Abs(CarriedOn(other, cross)[j])) / area;
+        return Bed * (float)Math.Sqrt((speed * speed) + (across * across)) / (FourThirds(area / (s * s)) * side);
+    }
+
+    // A share of a voxel's side (0 to 1) to the power four thirds, from a table: Math.Pow on every side face of every step
+    // was a good part of the friction's cost.
+    private static float FourThirds(float share)
+    {
+        float at = share * (PowerSteps - 1);
+        if (at >= PowerSteps - 1)
+        {
+            return 1f;
+        }
+
+        int k = (int)at;
+        float power = FourThirdsTable[k] + ((at - k) * (FourThirdsTable[k + 1] - FourThirdsTable[k]));
+        return power > 1e-9f ? power : 1e-9f;
     }
 
     // Whether a flow sideways (out of voxel i if outward, else into it) would wet dry ground that is no lower than the
