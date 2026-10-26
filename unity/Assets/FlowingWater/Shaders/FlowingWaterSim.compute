@@ -415,7 +415,8 @@ void Relax(uint3 id : SV_DispatchThreadID)
 
 // Rows of ground cast on the processor, written in. A cell found a wall holds no water (else drawn at its level, 10 km
 // up, and pushed out of it at full speed); a cell whose ground is found where none was known takes the server's water
-// there as it is (as Seed), so the water near the camera is whole as soon as its ground is, not filled in by the pull.
+// there as it is (as Seed), so the water near the camera is whole as soon as its ground is, not filled in by the pull;
+// a cell whose ground rose (a piece built in the water) keeps its water's level, the ground taking the water's place.
 [numthreads(64, 1, 1)]
 void WriteBed(uint3 id : SV_DispatchThreadID)
 {
@@ -438,5 +439,9 @@ void WriteBed(uint3 id : SV_DispatchThreadID)
     {
         float4 target = TargetOf(c);
         _H[c] = Wet(target) && bed >= _SeaLevel ? max(0.0, target.x - bed) : 0.0;
+    }
+    else if (bed > was)
+    {
+        _H[c] = max(0.0, was + _H[c] - bed);
     }
 }
