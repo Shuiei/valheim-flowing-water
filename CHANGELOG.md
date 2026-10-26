@@ -8,6 +8,31 @@ All notable changes to FlowingWater. Newest first.
 - Shallow still water keeps more of its ripples and takes on the water's colour with its depth, so a flooded meadow
   reads less like a pale sheet of ice.
 
+## v0.32.4 — 2026-10-26
+
+### Fixed
+- Water farther off running down a gentle slope is one smooth surface again instead of a grid of small steps.
+
+## v0.32.3 — 2026-10-26
+
+### Fixed
+- Water running down a steep slope is white, broken water streaked down the slope instead of a smooth sheet that
+  mirrors the mountain, and from afar it no longer turns into a stack of boxes (the server needs this version too
+  for that). Falls near you pour as a curtain instead of thin icicles.
+
+## v0.32.2 — 2026-10-26
+
+### Fixed
+- The water near you no longer shows a strip of bare ground, a step, or a ripple where the water your graphics card
+  moves meets the blocks of water farther off: the card hands a place over only once its water there has settled, and
+  never draws the edge of its square.
+
+## v0.32.1 — 2026-10-26
+
+### Fixed
+- Water thrown fast off a lip is drawn as a short streak instead of one several metres long, and water falling past
+  where the ground near you is known fades out there instead of falling on through the ground.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed

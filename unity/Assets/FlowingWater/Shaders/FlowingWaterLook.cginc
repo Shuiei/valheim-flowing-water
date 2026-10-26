@@ -52,6 +52,7 @@ struct Input
     float2 world;   // world x, z
     float4 water;   // depth, foam, shore, churn (white water the card's waves make: their crests, the water slowing hard)
     float2 current; // m/s
+    float steep;    // the surface's slope (rise over run), without its waves
     float3 worldPos;
     float4 screenPos;
     float4 grabPos; // the same point in the grabbed image (upside down on some platforms)
@@ -169,6 +170,31 @@ void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
     color.rgb *= o.Alpha;
 }
 
+// Water running down a slope this steep (rise over run) begins to break into white water, all of it this steep and
+// running this fast (m/s): a cascade is aerated, not a mirror.
+#define CASCADE_FROM 0.35
+#define CASCADE_STEEP 1.0
+#define CASCADE_SPEED 1.0
+
+// A cascade's foam: long thin streaks down it, the foam drawn this many times finer across the current and so much
+// coarser along it (per metre), running with the water (two phases, as RunningFoam). On a steep face a metre across the
+// ground is several down the face: the streaks are longer still there, as a fall's are.
+#define CASCADE_ACROSS 1.6
+#define CASCADE_ALONG 0.2
+
+// How much of a cascade the water is at a point (0 to 1): from its slope, as it runs.
+float Cascade(float steep, float speed)
+{
+    return smoothstep(CASCADE_FROM, CASCADE_STEEP, steep) * smoothstep(0.1, CASCADE_SPEED, speed);
+}
+
+float CascadeStreaks(float2 world, float2 current, float speed)
+{
+    float2 along = speed > 0.05 ? current / speed : float2(0.0, 1.0);
+    float2 uv = float2(dot(world, float2(-along.y, along.x)) * CASCADE_ACROSS, dot(world, along) * CASCADE_ALONG);
+    return RunningFoam(uv, float2(0.0, speed * CASCADE_ALONG));
+}
+
 // Shallow water: still, it keeps this share of its ripples at least; what is seen through it takes the shallow colour
 // (times SHALLOW_TINT, never brighter than it is) over SHALLOW_ABSORB metres of it, and thinner than that it is this
 // share as glossy.
@@ -184,6 +210,7 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float deep = saturate(depth / _DeepWater);
     float speed = length(i.current);
     float running = smoothstep(_FlowFrom, _FlowFull, speed);
+    float cascade = Cascade(i.steep, speed);
 
     // Ripples: the sea's under the game's wind where the water lies still, running ones where it runs.
     float3 wind1 = Wind(_GlobalWind1);
@@ -222,6 +249,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
     behind *= lerp(1.0, saturate(_ColorBottomShallow.rgb * SHALLOW_TINT), saturate(depth / SHALLOW_ABSORB));
     float hidden = sqrt(saturate(abs(bent - eye) / (_DepthFade * clarity)));
+    // A cascade is full of air: little of what is behind shows through it.
+    hidden = lerp(hidden, 1.0, 0.85 * cascade);
 
     // The shore: how much water there is in front of what is behind.
     float shoreLine = abs(straight - eye);
@@ -229,6 +258,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float band = saturate(shoreLine / _FoamDepth);
 
     float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deepColour);
+    // Its body pale with the air in it, between the water's colour and the foam's.
+    colour = lerp(colour, _FoamColor.rgb * lerp(_ColorTop.rgb, 1.0, 0.6), 0.25 * cascade);
 
     // Scattered foam where the wind blows on open water, as on the sea.
     float2 wobble = 0.005 * float2(sin(_Time.y + i.worldPos.x), sin((1.5 * _Time.y) + i.worldPos.z));
@@ -244,13 +275,14 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // Rapids: fast water foams, its foam running with it, drawn out in streaks along the current the faster it runs;
     // the simulation's own foam (falls) and its waves' churn on top.
     float fast = saturate(speed / _RapidsSpeed);
-    float want = saturate((fast * fast * 0.8) + i.water.y + i.water.w);
+    float want = saturate((fast * fast * 0.8) + i.water.y + i.water.w + (0.75 * cascade));
     float fa;
     float fb;
     float2 foamUv = i.world * _RapidsTiling;
     float2 foamRun = i.current * _RapidsTiling;
     float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
     noise = fast > 0.05 ? lerp(noise, Streaks(i.world, i.current, speed), fast) : noise;
+    noise = lerp(noise, CascadeStreaks(i.world, i.current, speed), cascade);
     float rapids = smoothstep(1.0 - want, 1.0 - want + 0.25, noise) * want;
 
     // Foam is lace, not plaster: broken up by a finer foam running with it.
@@ -264,7 +296,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     o.Emission = behind * _SurfaceColor.rgb * (1.0 - hidden) * (1.0 - rapids);
     o.Normal = n;
     o.Metallic = _Metallic * (1.0 - foam);
-    o.Smoothness = lerp(gloss, 0.1, foam);
+    // Broken up, a cascade mirrors nothing.
+    o.Smoothness = lerp(lerp(gloss, 0.35, cascade), 0.1, foam);
     o.Alpha = shore * smoothstep(0.0, _EdgeFade, saturate(i.water.z));
 }
 

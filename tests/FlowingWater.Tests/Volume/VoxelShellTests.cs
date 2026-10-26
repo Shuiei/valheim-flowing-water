@@ -58,6 +58,81 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void WaterBesideWaterNearlyAsHighShowsNoSide()
+    {
+        // A sheet down a gentle slope: each voxel's water a little higher than the next one's, all joined by the surface.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 0, 5, 0.4f, East | Up);
+        Wet(view, 6, 0, 5, 0.3f, West | East | Up);
+        Wet(view, 7, 0, 5, 0.2f, West | Up);
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterSteppingDownToWaterAVoxelLowerShowsNoSide()
+    {
+        // Thin water on a step, open east toward dry air over water a voxel lower: the surface runs down to it.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.2f, East | Up);
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterBesideWaterAVoxelLowerUnderSomeGroundKeepsItsSide()
+    {
+        // As above, but the dry voxel beside holds some ground (the server says so): the side shows over it.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.9f, East | Up | BrickData.GroundBeside);
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterBesideWaterAVoxelLowerUnderAFloorWithWaterOnItKeepsItsSide()
+    {
+        // As above, but the column beside holds water on a floor higher up too: the surface joins that, not the water a
+        // voxel lower, so the side stays.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.2f, East | Up);
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+        Wet(view, 6, 2, 5, 0.3f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterBesideWaterAVoxelLowerWithWaterHigherUpThatColumnKeepsItsSide()
+    {
+        // As above, the water on the floor three voxels up: the surface joins that all the same.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.2f, East | Up);
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+        Wet(view, 6, 4, 5, 0.3f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterBesideWaterNearlyAsHighWithWaterHigherUpThatColumnKeepsItsSide()
+    {
+        // A sheet beside, a little lower, under a floor with water on it: the surface joins the floor's, so the side stays.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 0, 5, 0.4f, East | Up);
+        Wet(view, 6, 0, 5, 0.2f, West | Up);
+        Wet(view, 6, 3, 5, 0.3f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
     public void AFallIsANarrowColumnThroughEveryVoxelCappedAtBothEnds()
     {
         // Four voxels of thin water over one another in the air, a tenth of a voxel each.
@@ -77,6 +152,33 @@ public class VoxelShellTests
         Assert.Equal(0f, corners.Max(c => c.Y), 3);
         Assert.Equal(0.15f, corners.Max(c => c.X) - 0.5f, 3);
         Assert.All(Enumerable.Range(0, shell.Water.Count / 2), k => Assert.Equal(1f, shell.Water[2 * k], 3));
+    }
+
+    [Fact]
+    public void WaterRunningDownASteepSlopeVoxelToVoxelIsNoFall()
+    {
+        // Thin water hanging over voxels that hold ground (as the server says: the ground under dry voxels is not
+        // sent), a voxel lower each step: the surface draws it, no columns.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 4; x < 8; x++)
+        {
+            Wet(view, x, 12 - x, 8, 0.1f, BrickData.AllOpen | BrickData.GroundUnder);
+        }
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterFallingDownACliffFaceOverGroundIsStillAFall()
+    {
+        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a fall all the same.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Wet(view, 8, y, 8, 0.09f, BrickData.AllOpen | BrickData.GroundUnder);
+        }
+
+        Assert.True(VoxelShell.Build(Field(view), 0, 0, 0).Faces >= 3 * 4);
     }
 
     [Fact]
