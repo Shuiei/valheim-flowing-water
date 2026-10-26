@@ -196,13 +196,66 @@ public class BrickDataTests
 
         BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
 
-        Assert.Equal((1 << 2) | (1 << 4) | (1 << 5), view.Open[i]);
-        Assert.Equal(BrickData.AllOpen & ~(1 << 3), view.Open[edge]);
+        Assert.Equal((1 << 2) | (1 << 4) | (1 << 5) | BrickData.GroundUnder, view.Open[i]);
+        Assert.Equal((BrickData.AllOpen & ~(1 << 3)) | BrickData.GroundUnder, view.Open[edge]);
 
         // Its own east face closed by a piece, with still no brick beside it: closed.
         brick.Closed[edge] = Brick.ClosedX;
-        Assert.Equal(BrickData.AllOpen & ~(1 << 3) & ~(1 << 0), BrickData.Decode(BrickData.Encode(brick, 1f)).Open[edge]);
+        Assert.Equal((BrickData.AllOpen & ~(1 << 3) & ~(1 << 0)) | BrickData.GroundUnder, BrickData.Decode(BrickData.Encode(brick, 1f)).Open[edge]);
         Assert.Equal(0, view.Open[Brick.Index(6, 5, 5)]);
+    }
+
+    [Fact]
+    public void WaterOverAVoxelHoldingSomeGroundIsSentSo()
+    {
+        // Water hanging over a voxel a slope cuts through (some ground in it, its face open), and over one with none.
+        var brick = new Brick(0, 0, 0);
+        int onSlope = Brick.Index(5, 5, 5);
+        brick.Water[onSlope] = 0.1f;
+        brick.Solid[Brick.Index(5, 4, 5)] = 0.3f;
+        int overAir = Brick.Index(9, 5, 5);
+        brick.Water[overAir] = 0.1f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.Equal(BrickData.AllOpen | BrickData.GroundUnder, view.Open[onSlope]);
+        Assert.Equal(BrickData.AllOpen, view.Open[overAir]);
+    }
+
+    [Fact]
+    public void GroundBesideASideTowardLowerWaterIsSentSo()
+    {
+        // Water open east toward a dry voxel holding some ground, with water under that voxel; and the same without the
+        // ground.
+        var brick = new Brick(0, 0, 0);
+        int high = Brick.Index(5, 5, 5);
+        brick.Water[high] = 0.9f;
+        brick.Solid[Brick.Index(6, 5, 5)] = 0.4f;
+        brick.Water[Brick.Index(6, 4, 5)] = 0.9f;
+        int bare = Brick.Index(9, 5, 5);
+        brick.Water[bare] = 0.9f;
+        brick.Water[Brick.Index(10, 4, 5)] = 0.9f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
+        Assert.Equal(0, view.Open[bare] & BrickData.GroundBeside);
+    }
+
+    [Fact]
+    public void GroundBesideWithAFilmTooThinToBeSentIsSentSo()
+    {
+        // The voxel beside holds some ground and a film of water under a step of the bytes: dry to the players' games.
+        var brick = new Brick(0, 0, 0);
+        int high = Brick.Index(5, 5, 5);
+        brick.Water[high] = 0.9f;
+        brick.Solid[Brick.Index(6, 5, 5)] = 0.4f;
+        brick.Water[Brick.Index(6, 5, 5)] = 0.002f;
+        brick.Water[Brick.Index(6, 4, 5)] = 0.9f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
     }
 
     [Fact]
