@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.3 — 2026-10-26
+
+### Fixed
+- Water running down a steep slope is white, broken water streaked down the slope instead of a smooth sheet that
+  mirrors the mountain, and from afar it no longer turns into a stack of boxes. Falls near you pour as a curtain
+  instead of thin icicles.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed

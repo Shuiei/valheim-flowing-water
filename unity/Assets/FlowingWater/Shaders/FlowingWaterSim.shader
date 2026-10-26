@@ -168,6 +168,7 @@ Shader "FlowingWater/SimWater"
             float joined = 1.0 - (_FadeCliffs * saturate((drop - (CLIFF_FROM * steep)) / (CLIFF_FADE * steep)));
             o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, churn);
             o.current = current;
+            o.steep = length(float2(east, north) / (2.0 * _SimDx));
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }

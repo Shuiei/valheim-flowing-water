@@ -70,6 +70,10 @@ RWTexture2D<int> _LandedZ;
 #define LAND_SCALE 1000000.0
 #define MOST_SHEETS 8u
 
+// A sheet of falling water is at least this wide each way (m): wide enough that those of a fall overlap into one curtain
+// (thinner, each was seen apart, an icicle).
+#define FALL_SIZE 0.12
+
 // Splashes: a sheet landing faster than this throws up so many droplets.
 float _SplashFrom;
 uint _SplashDroplets;
@@ -155,7 +159,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
         {
             float3 place = float3(_Origin.x + ((c.x + Random(state)) * _Dx), fallTop - (0.3 * Random(state)), _Origin.y + ((c.y + Random(state)) * _Dx));
             float3 velocity = float3(Random(state) - 0.5, -0.5 - Random(state), Random(state) - 0.5) * 0.6;
-            Add(place, velocity, 4.0, 0.04 + (0.05 * Random(state)), SHEET, 0.0);
+            Add(place, velocity, 4.0, FALL_SIZE + (FALL_SIZE * Random(state)), SHEET, 0.0);
         }
     }
 
@@ -207,7 +211,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
             // Out through the face as fast as the water goes over it (the brink's speed), along it as fast as it runs.
             float2 flat = side >= 0 ? (along * (brinks[side] + (0.2 * Random(state)))) + (across * dot(speed, across)) : speed;
             float3 velocity = float3(flat.x, 0.0, flat.y);
-            Add(place, velocity, 6.0, 0.04 + (0.06 * min(h, 1.0)) + (0.03 * Random(state)), SHEET, carried / n);
+            Add(place, velocity, 6.0, FALL_SIZE + (0.1 * min(h, 1.0)) + (0.5 * FALL_SIZE * Random(state)), SHEET, carried / n);
         }
 
         _Airborne[c] = thrown - carried;

@@ -7,7 +7,8 @@ namespace FlowingWater.Volume;
 /// A brick's water drawn as the voxels it fills where it meets the air, without the game: what the surface over the
 /// water (<see cref="SurfaceGrid"/>) does not show. Water standing open to the air on a side shows that side, from its
 /// floor (or the water beside it) up to its level. Water falling through the
-/// air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than the voxel,
+/// air (a voxel over air, holding no floor, the one under it not full nor holding ground: a step down a steep slope is
+/// the surface's) is a stream: a column narrower than the voxel,
 /// as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into one cascade,
 /// capped where it starts and ends. Only faces the server says are open count (<see cref="BrickView.Open"/>): never one
 /// a piece closes, so no water shows through a wall. Water the server keeps inside a solid voxel (a piece built over a
@@ -26,6 +27,9 @@ internal sealed class VoxelShell
 
     // A voxel this full, with its solid share, holds the water over it up.
     private const float Full = 0.95f;
+
+    // A voxel this solid holds ground: water hanging over it runs down a step, it does not fall.
+    private const float HoldsGround = 0.02f;
 
     // Sides as Brick.Beside: east, west, up, down, north, south.
     private static readonly (int X, int Y, int Z)[] Sides = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
@@ -90,7 +94,12 @@ internal sealed class VoxelShell
             int open = view.Open[i];
             if (Falling(field, view, i, x, y, z, open))
             {
-                shell.Fall(field, at, water, open);
+                // Over a voxel holding ground it runs down a slope steeper than the voxels, voxel to voxel: the surface
+                // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel).
+                if (Solid(field, x, y - 1, z) < HoldsGround)
+                {
+                    shell.Fall(field, at, water, open);
+                }
             }
             else
             {

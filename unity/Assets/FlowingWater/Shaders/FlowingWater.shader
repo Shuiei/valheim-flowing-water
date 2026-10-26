@@ -153,6 +153,7 @@ Shader "FlowingWater/Water"
             o.world = world;
             o.water = float4(surface.y, flow.z, surface.z, Churn(crest, saturate(length(flow.xy) / _RapidsSpeed), 0.0));
             o.current = flow.xy;
+            o.steep = length(float2(east, north)) / max(_VoxelSize, 0.001);
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
