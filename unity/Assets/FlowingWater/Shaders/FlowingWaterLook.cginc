@@ -86,6 +86,65 @@ float3 WindRipples(float2 world, float2 along)
     return large + (0.3 * fine) + (0.3 * cross);
 }
 
+// Waves on running water, only for the look (the water does not move by them): chop running with the current, the
+// higher the faster (so many metres for each (m/s) squared), no higher than so many metres nor than a share of the
+// water's depth. Two lengths: the long waves are raised on the surface by both shaders' vertices (a voxel's grid, a
+// metre, resolves them; the card's water and the bricks' meet at the square's edge), the fine ones only lit, a slope
+// at each point drawn (a share of the long ones' height).
+#define WAVE_PER_SPEED2 0.015
+#define WAVE_MOST 0.15
+#define WAVE_DEPTH_SHARE 0.25
+#define WAVE_LENGTH 2.4
+#define WAVE_FINE_LENGTH 0.8
+#define WAVE_FINE_SHARE 0.5
+
+// How high running water's waves stand at this speed (m/s) and depth (m): none on still or no water.
+float WaveHeight(float speed, float depth)
+{
+    return depth > 0.005 ? min(min(WAVE_PER_SPEED2 * speed * speed, WAVE_MOST), WAVE_DEPTH_SHARE * depth) : 0.0;
+}
+
+float WaveHash(float2 c)
+{
+    return frac(sin(dot(c, float2(127.1, 311.7))) * 43758.5453);
+}
+
+// Smooth noise over the plane: its value (-1 to 1) and its slope (per unit), one feature a unit.
+float3 WaveNoise(float2 x)
+{
+    float2 i = floor(x);
+    float2 f = frac(x);
+    float2 u = f * f * (3.0 - (2.0 * f));
+    float2 du = 6.0 * f * (1.0 - f);
+    float a = WaveHash(i);
+    float b = WaveHash(i + float2(1.0, 0.0));
+    float c = WaveHash(i + float2(0.0, 1.0));
+    float d = WaveHash(i + float2(1.0, 1.0));
+    float k = a - b - c + d;
+    float value = a + ((b - a) * u.x) + ((c - a) * u.y) + (k * u.x * u.y);
+    float2 slope = du * float2((b - a) + (k * u.y), (c - a) + (k * u.x));
+    return float3((2.0 * value) - 1.0, 2.0 * slope);
+}
+
+// The chop of waves this long (m) at a world place on water running at this current: its height (-1 to 1) and its
+// slope (per metre, east and north), dragged along at the water's speed in two phases blended, as the running ripples
+// (never stretched, never seen to jump back).
+float3 Chop(float2 world, float2 current, float length)
+{
+    float3 chop = 0.0;
+    for (int k = 0; k < 2; k++)
+    {
+        float offset = 0.5 * k;
+        float t = frac((_Time.y / _FlowCycle) + offset);
+        float weight = 1.0 - abs((2.0 * t) - 1.0);
+        float2 at = world - (current * t * _FlowCycle) + (offset * float2(23.7, 41.3));
+        float3 n = WaveNoise(at / length);
+        chop += weight * float3(n.x, n.yz / length);
+    }
+
+    return chop;
+}
+
 // One phase of the flow: where the texture has run to, and how much this phase counts (it fades out at the
 // jump back so the reset is never seen).
 float2 FlowPhase(float2 uv, float2 run, float offset, out float weight)
@@ -185,6 +244,15 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // Shallow still water lies flatter, as the sea's does; running water keeps its ripples.
     float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
     n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
+
+    // The fine waves, lit only: their slope tips the surface (tangent space: x east, y north).
+    float fineWave = WAVE_FINE_SHARE * WaveHeight(speed, depth);
+    if (fineWave > 0.0)
+    {
+        float3 fine = Chop(i.world, i.current, WAVE_FINE_LENGTH);
+        n = normalize(float3(n.xy - (fineWave * fine.yz * n.z), n.z));
+    }
+
     // Seen from under the water, its underside.
     n.z *= i.facing > 0.0 ? 1.0 : -1.0;
 

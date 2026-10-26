@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.0 — 2026-10-26
+
+### Changed
+- Running water's waves no longer end where the water your graphics card moves does: farther off, the blocks of water
+  raise the same waves, foam on their crests and catch the light as it does.
+
 ## v0.31.0 — 2026-10-26
 
 ### Changed
