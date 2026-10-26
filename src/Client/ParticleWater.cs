@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -16,6 +18,9 @@ internal sealed class ParticleWater : IDisposable
 {
     /// <summary>A particle's water: a cube this long on a side (m), at rest; a litre.</summary>
     public const float Spacing = 0.1f;
+
+    /// <summary>Bodies in the water at most (<see cref="SetBodies"/>).</summary>
+    public const int MostBodies = 32;
 
     /// <summary>The smoothing radius (m): how far a particle feels its neighbours. Twice the spacing: about 30 of them.</summary>
     public const float Radius = 2f * Spacing;
@@ -72,6 +77,8 @@ internal sealed class ParticleWater : IDisposable
     private static readonly int DtId = Shader.PropertyToID("_Dt");
     private static readonly int GravityId = Shader.PropertyToID("_Gravity");
     private static readonly int SphereId = Shader.PropertyToID("_Sphere");
+    private static readonly int BodiesId = Shader.PropertyToID("_Bodies");
+    private static readonly int BodyCountId = Shader.PropertyToID("_BodyCount");
     private static readonly int ExchangeId = Shader.PropertyToID("_Exchange");
     private static readonly int SheetHId = Shader.PropertyToID("_SheetH");
     private static readonly int SheetUId = Shader.PropertyToID("_SheetU");
@@ -115,6 +122,10 @@ internal sealed class ParticleWater : IDisposable
     private readonly ComputeBuffer _hashes;
     private readonly ComputeBuffer _slots;
     private readonly ComputeBuffer _delta;
+
+    private readonly ComputeBuffer _bodies;
+
+    private int _bodyCount;
 
     // What the sheet's textures are bound as when there is no sheet, and the solids' when there are none: nothing is read
     // or written there.
@@ -202,6 +213,7 @@ internal sealed class ParticleWater : IDisposable
         _hashes = new ComputeBuffer(capacity, sizeof(uint));
         _slots = new ComputeBuffer(capacity, sizeof(uint));
         _delta = new ComputeBuffer(capacity, 4 * sizeof(float));
+        _bodies = new ComputeBuffer(MostBodies, 16 * sizeof(float));
         _noSheet = MakeTexture("no sheet", RenderTextureFormat.RFloat);
         _noLanded = MakeTexture("no landed", RenderTextureFormat.RInt);
         _noSolids = new Texture3D(1, 1, 1, TextureFormat.R8, false) { name = "FlowingWater particles no solids" };
@@ -302,6 +314,58 @@ internal sealed class ParticleWater : IDisposable
 
     /// <summary>A sphere the water meets, at <paramref name="centre"/> (world) of this radius (m); none at a radius of 0 or less.</summary>
     public void SetSphere(Vector3 centre, float radius) => _sphere = new Vector4(centre.x, centre.y, centre.z, radius);
+
+    /// <summary>
+    /// The bodies in the water this frame (ships' hulls, players, creatures), <see cref="MostBodies"/> at most: a
+    /// particle keeps a radius out of each, so a body moving on shoves the water ahead and aside as far as it moved.
+    /// </summary>
+    public void SetBodies(List<Body> bodies)
+    {
+        _bodyCount = Math.Min(bodies.Count, MostBodies);
+        if (_bodyCount > 0)
+        {
+            _bodies.SetData(bodies, 0, 0, _bodyCount);
+        }
+    }
+
+    /// <summary>A box in the water: its centre, its half extents along its own axes, and two of those axes; or a sphere.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Body
+    {
+        /// <summary>The centre (world), and the kind: 1 a box, 2 a sphere.</summary>
+        public Vector4 Centre;
+
+        /// <summary>The half extents along the body's axes (m); a sphere's radius in x.</summary>
+        public Vector4 Half;
+
+        /// <summary>The body's own x axis (world, unit).</summary>
+        public Vector4 AxisX;
+
+        /// <summary>The body's own y axis (world, unit); z is across the two.</summary>
+        public Vector4 AxisY;
+
+        /// <summary>A box at <paramref name="centre"/>, <paramref name="half"/> extents along its axes, turned by <paramref name="rotation"/>.</summary>
+        public static Body Box(Vector3 centre, Vector3 half, Quaternion rotation)
+        {
+            Vector3 x = rotation * Vector3.right, y = rotation * Vector3.up;
+            return new Body
+            {
+                Centre = new Vector4(centre.x, centre.y, centre.z, 1f),
+                Half = new Vector4(half.x, half.y, half.z, 0f),
+                AxisX = new Vector4(x.x, x.y, x.z, 0f),
+                AxisY = new Vector4(y.x, y.y, y.z, 0f),
+            };
+        }
+
+        /// <summary>A sphere at <paramref name="centre"/> of this radius.</summary>
+        public static Body Sphere(Vector3 centre, float radius) => new()
+        {
+            Centre = new Vector4(centre.x, centre.y, centre.z, 2f),
+            Half = new Vector4(radius, radius, radius, 0f),
+            AxisX = new Vector4(1f, 0f, 0f, 0f),
+            AxisY = new Vector4(0f, 1f, 0f, 0f),
+        };
+    }
 
     /// <summary>
     /// What players built, as <see cref="ParticleSolids"/> holds it: solid voxels over the square (from the same corner
@@ -444,6 +508,7 @@ internal sealed class ParticleWater : IDisposable
         _hashes.Release();
         _slots.Release();
         _delta.Release();
+        _bodies.Release();
         _noSheet.Release();
         _noLanded.Release();
         if (Application.isPlaying)
@@ -545,6 +610,8 @@ internal sealed class ParticleWater : IDisposable
         _shader.SetFloat(DtId, dt);
         _shader.SetFloat(GravityId, SimGrid.Gravity);
         _shader.SetVector(SphereId, _sphere);
+        _shader.SetInt(BodyCountId, _bodyCount);
+        _shader.SetBuffer(_apply, BodiesId, _bodies);
         _shader.SetInt(ExchangeId, _sheet != null ? 1 : 0);
         _shader.SetFloat(SeaLevelId, _sheet == null || float.IsNegativeInfinity(_sheet.SeaLevel) ? -1e9f : _sheet.SeaLevel);
         _shader.SetFloat(LitreId, Spacing * Spacing * Spacing);

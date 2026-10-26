@@ -118,6 +118,12 @@ internal sealed class GpuWater : IDisposable
     // last build started from; built again once the camera is 8 m from it), as the build gathers them.
     private readonly ParticleSolids _solids = new();
 
+    private readonly List<ParticleWater.Body> _bodies = new(ParticleWater.MostBodies);
+
+    private Ship[] _ships = [];
+
+    private int _shipsLookedFor = -60;
+
     private int _buildingBase;
 
     private int _builtBase = int.MinValue;
@@ -536,11 +542,7 @@ internal sealed class GpuWater : IDisposable
         _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
         _particles.SetSheet(exchange ? _grid : null);
         _particles.SetSolids(_solids.Any ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
-        Player player = Player.m_localPlayer;
-        if (player != null)
-        {
-            _particles.SetSphere(player.transform.position + new Vector3(0f, 0.9f, 0f), 0.45f);
-        }
+        _particles.SetBodies(Bodies(origin));
 
         _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
@@ -629,6 +631,55 @@ internal sealed class GpuWater : IDisposable
             byte[] built = solids ? Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any) : null;
             return (texels, layers, cast, built, any);
         });
+    }
+
+    // The bodies in the square this frame, for the particle water: every character (players, creatures) as the box of
+    // its capsule, and every ship as the box its hull floats by (the game's own), the nearest first.
+    private List<ParticleWater.Body> Bodies(Vector2 origin)
+    {
+        _bodies.Clear();
+        float size = _window.Size;
+        bool Inside(Vector3 p) => p.x >= origin.x && p.z >= origin.y && p.x < origin.x + size && p.z < origin.y + size;
+        foreach (Character character in Character.GetAllCharacters())
+        {
+            if (character == null || !Inside(character.transform.position) || _bodies.Count >= ParticleWater.MostBodies)
+            {
+                continue;
+            }
+
+            CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
+            Transform t = character.transform;
+            Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
+            float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
+            float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
+            _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
+        }
+
+        // The ships, looked for once a second (there are few, and they come and go slowly).
+        if (Time.frameCount - _shipsLookedFor >= 60)
+        {
+            _shipsLookedFor = Time.frameCount;
+            _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
+        }
+
+        foreach (Ship ship in _ships)
+        {
+            if (ship == null || !Inside(ship.transform.position) || _bodies.Count >= ParticleWater.MostBodies)
+            {
+                continue;
+            }
+
+            BoxCollider hull = ship.m_floatCollider;
+            if (hull == null)
+            {
+                continue;
+            }
+
+            Transform t = hull.transform;
+            _bodies.Add(ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation));
+        }
+
+        return _bodies;
     }
 
     // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,

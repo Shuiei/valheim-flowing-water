@@ -158,6 +158,22 @@ float _Gravity;
 // A sphere the water meets (xyz its centre, w its radius; none under 0).
 float4 _Sphere;
 
+// The bodies in the water (ships' hulls, players, creatures: ParticleWater.Body): a box each, its centre, its half
+// extents along its own axes, and two of those axes (the third across them); a sphere where kind is 2 (half.x its
+// radius). A particle keeps a radius out of each, out through the nearest face: a hull sweeping on shoves the water
+// ahead and aside as far as it moved, so the water takes the hull's speed.
+struct Body
+{
+    float4 centre;
+    float4 half;
+    float4 axisX;
+    float4 axisY;
+};
+
+StructuredBuffer<Body> _Bodies;
+uint _BodyCount;
+#define BODY_SPHERE 2.0
+
 #define THREADS 256
 #define SCAN 1024
 
@@ -454,6 +470,42 @@ float3 Collide(float3 x, float3 before)
         if (d < least)
         {
             x = _Sphere.xyz + (d > 1e-6 ? away / d : float3(0.0, 1.0, 0.0)) * least;
+        }
+    }
+
+    for (uint b = 0u; b < _BodyCount; b++)
+    {
+        Body body = _Bodies[b];
+        float3 d = x - body.centre.xyz;
+        if (body.centre.w > 1.5)
+        {
+            float dist = length(d);
+            float least = body.half.x + _Radius;
+            x = dist < least ? body.centre.xyz + ((dist > 1e-6 ? d / dist : float3(0.0, 1.0, 0.0)) * least) : x;
+            continue;
+        }
+
+        float3 ax = body.axisX.xyz, ay = body.axisY.xyz, az = cross(ax, ay);
+        float3 local = float3(dot(d, ax), dot(d, ay), dot(d, az));
+        float3 ext = body.half.xyz + _Radius;
+        if (all(abs(local) < ext))
+        {
+            float3 pen = ext - abs(local);
+            float3 side = float3(local.x < 0.0 ? -1.0 : 1.0, local.y < 0.0 ? -1.0 : 1.0, local.z < 0.0 ? -1.0 : 1.0);
+            if (pen.x <= pen.y && pen.x <= pen.z)
+            {
+                local.x = side.x * ext.x;
+            }
+            else if (pen.y <= pen.z)
+            {
+                local.y = side.y * ext.y;
+            }
+            else
+            {
+                local.z = side.z * ext.z;
+            }
+
+            x = body.centre.xyz + (ax * local.x) + (ay * local.y) + (az * local.z);
         }
     }
 

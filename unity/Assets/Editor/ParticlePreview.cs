@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -69,6 +70,11 @@ public static class ParticlePreview
             if (Runs("walls"))
             {
                 Walls();
+            }
+
+            if (Runs("boat"))
+            {
+                Boat();
             }
 
             if (Runs("cost"))
@@ -475,6 +481,59 @@ public static class ParticlePreview
         Log.AppendLine(Inv($"  Out of the pen at the end: {outside}: {Check(outside == 0 && inside > added * 9 / 10)}"));
     }
 
+    // A hull through the water (a ship's float box): a box 4 m long, 1.6 m wide and 1 m high, half under, driven across
+    // a pool 0.8 m deep at 3 m/s and turned 20 degrees off its way: the water is shoved ahead and aside and none ends
+    // inside the hull.
+    private static void Boat()
+    {
+        float[] bed = Field((x, z) => x < 8f || x > 22f || z < 10f || z > 16f ? 10f : 0f);
+        using var scene = new Scene("pboat", bed, 72000);
+        int added = scene.Water.Add(new Vector3(8f, 0f, 10f), new Vector3(22f, 0.8f, 16f));
+        Log.AppendLine(Inv($"Boat: a pool 14 x 6 m, 0.8 m deep ({added} particles), a hull 4 x 1.6 x 1 m driven through at 3 m/s from 1 s."));
+        for (int k = 0; k < 90; k++)
+        {
+            scene.Step();
+        }
+
+        var half = new Vector3(2f, 0.5f, 0.8f);
+        var turn = Quaternion.Euler(0f, 20f, 0f);
+        var bodies = new List<ParticleWater.Body>();
+        int inside = 0;
+        float bow = 0f;
+        for (int k = 1; k <= 240; k++)
+        {
+            float t = k * Frame;
+            var centre = new Vector3(Mathf.Min(6f + (3f * t), 20f), 0.8f, 13f);
+            bodies.Clear();
+            bodies.Add(ParticleWater.Body.Box(centre, half, turn));
+            scene.Water.SetBodies(bodies);
+            scene.Boat = (new Bounds(centre, 2f * half), turn);
+            scene.Step();
+            if (k % 30 == 0)
+            {
+                float[] data = scene.Water.Read();
+                inside = 0;
+                bow = 0f;
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    var at = new Vector3(data[p * 12], data[(p * 12) + 1], data[(p * 12) + 2]);
+                    Vector3 local = Quaternion.Inverse(turn) * (at - centre);
+                    inside += Mathf.Abs(local.x) < half.x - 0.02f && Mathf.Abs(local.y) < half.y - 0.02f && Mathf.Abs(local.z) < half.z - 0.02f ? 1 : 0;
+                    bow = at.x > centre.x + 1.5f && at.x < centre.x + 3.5f ? Mathf.Max(bow, at.y) : bow;
+                }
+
+                Log.AppendLine(Inv($"  t={t:0.0}s hull at x={centre.x:0.0}: inside it {inside}, the water ahead up to {bow:0.00} m (0.8 at rest)"));
+            }
+
+            if (k is 30 or 90 or 150 or 240)
+            {
+                scene.Shot(Inv($"pboat_{t:0.0}s"), new Vector3(15f, 4f, 6f), new Vector3(15f, 0.5f, 13f));
+            }
+        }
+
+        Log.AppendLine(Inv($"  Inside the hull at the end: {inside}: {Check(inside == 0 && bow > 0.85f)}"));
+    }
+
     private static float[] ReadFloats(RenderTexture texture)
     {
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
@@ -737,6 +796,9 @@ public static class ParticlePreview
         // A slab drawn with each shot, if any (what players built, in the roof scene).
         public Bounds Slab { get; set; }
 
+        // A hull drawn with each shot, if any (a body in the water, in the boat scene): its box, turned.
+        public (Bounds Box, Quaternion Turn) Boat { get; set; }
+
         public void Step() => Water.Step(Frame);
 
         public void Shot(string file, Vector3 from, Vector3 at)
@@ -757,6 +819,15 @@ public static class ParticlePreview
                 slab.transform.position = Slab.center;
                 slab.transform.localScale = Slab.size;
                 slab.GetComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.55f, 0.4f, 0.3f) };
+            }
+
+            GameObject boat = null;
+            if (Boat.Box.size.sqrMagnitude > 0f)
+            {
+                boat = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                boat.transform.SetPositionAndRotation(Boat.Box.center, Boat.Turn);
+                boat.transform.localScale = Boat.Box.size;
+                boat.GetComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.45f, 0.3f, 0.2f) };
             }
 
             var camera = new GameObject("Camera").AddComponent<Camera>();
@@ -793,6 +864,11 @@ public static class ParticlePreview
             if (slab != null)
             {
                 UnityEngine.Object.DestroyImmediate(slab);
+            }
+
+            if (boat != null)
+            {
+                UnityEngine.Object.DestroyImmediate(boat);
             }
         }
 

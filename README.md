@@ -231,8 +231,13 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   the bricks change): solid voxels, which a particle keeps a radius out of, so a roof holds water off from above and
   from below, a floor on posts holds a pool, and water runs off a slab's edges (the preview's roof scene: none ends
   inside the slab); and the faces pieces close between voxels (a wall thinner than a voxel), which a particle stays on
-  its side of (the preview's walls scene: a pen's walls hold what is poured in). A sphere (the player) pushes the
-  water aside.
+  its side of (the preview's walls scene: a pen's walls hold what is poured in). The bodies in the water push it
+  aside: every character (players, creatures, as the box of its capsule) and every ship (as the box its hull floats
+  by, the game's own), 32 at most; a particle keeps a radius out of each, out through the nearest face, so a hull
+  sweeping on shoves the water ahead and aside as far as it moved each step, and the water takes the hull's speed: a
+  fast longship raises a far bigger bow wave than a drifting karve, by its speed and hull, not its weight (what the
+  water does to the ship is the server's, as the ship floats on its water). The preview's boat scene drives a hull
+  through a pool: none of the water ends inside it, and the water ahead rises.
 - With `Client.ParticleWater`, the particles trade water with the card's sheet where a sheet cannot be the water: the
   water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
   each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
@@ -265,8 +270,8 @@ size; 0.45 ms as spheres), and grows with the screen.
 
 What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
 floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is
-not the server's until it lands); met by pieces where no brick with water is (there only the ground's heights hold)
-or by boats; spread over the frame's budget (a step is one
+not the server's until it lands); met by pieces where no brick with water is (there only the ground's heights hold),
+or by carts and things dropped; spread over the frame's budget (a step is one
 go, and a lip throws at most 16 particles a cell a step; the surface is drawn only while there are particles);
 its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
 The console's block stays where the card's square leaves it.
