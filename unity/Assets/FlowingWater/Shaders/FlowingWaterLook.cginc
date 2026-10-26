@@ -170,7 +170,7 @@ void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
 }
 
 // Shallow water: still, it keeps this share of its ripples at least; what is seen through it takes the shallow colour
-// (times SHALLOW_TINT) over SHALLOW_ABSORB metres of it, and thinner than that it is this share as glossy.
+// (times SHALLOW_TINT, never brighter than it is) over SHALLOW_ABSORB metres of it, and thinner than that it is this share as glossy.
 #define SHALLOW_RIPPLES 0.5
 #define SHALLOW_TINT 3.0
 #define SHALLOW_ABSORB 0.8
@@ -219,7 +219,7 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float deepColour = saturate(depth / lerp(_DeepWater, _RunningDeep, running));
     // What is behind, seen through the water's depth: tinted toward its shallow colour as the water takes the light.
     float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
-    behind *= lerp(1.0, _ColorBottomShallow.rgb * SHALLOW_TINT, saturate(depth / SHALLOW_ABSORB));
+    behind *= lerp(1.0, saturate(_ColorBottomShallow.rgb * SHALLOW_TINT), saturate(depth / SHALLOW_ABSORB));
     float hidden = sqrt(saturate(abs(bent - eye) / (_DepthFade * clarity)));
 
     // The shore: how much water there is in front of what is behind.
