@@ -6,7 +6,8 @@
 //                  carrying it; where the server's water falls through the air (a fall the card draws), sheets fall from
 //                  its top (carrying none: the server's pool under it is the card's already).
 //   Move           per particle: thrown and falling, slowed by the air; one meeting the water's surface or the ground
-//                  ends there, adding the water it carries there, a sheet that lands fast throwing up a splash.
+//                  ends there, adding the water it carries there, a sheet that lands fast throwing up a splash; one
+//                  past the square, or over ground not known, fades out where it is.
 #pragma kernel EmitFromWater
 #pragma kernel Move
 
@@ -73,6 +74,12 @@ RWTexture2D<int> _LandedZ;
 // A sheet of falling water is at least this wide each way (m): wide enough that those of a fall overlap into one curtain
 // (thinner, each was seen apart, an icicle).
 #define FALL_SIZE 0.12
+
+// A particle over ground not known, or past the square, fades out over this long there (s), and ends once it has been
+// there so long: not gone at once in mid-air (crossing a cell of a wall, or rows not cast yet), nor falling on through
+// the ground. Its time there is kept in sizeKind.w (FlowingWaterSpray.shader fades it by it); back over ground known,
+// it comes back as fast.
+#define UNKNOWN_LIFE 0.25
 
 // Splashes: a sheet landing faster than this throws up so many droplets.
 float _SplashFrom;
@@ -258,13 +265,22 @@ void Move(uint3 id : SV_DispatchThreadID)
     place += velocity * _Dt;
     age += _Dt;
 
-    // Met the water's surface or the ground, inside the square: it ends; a sheet landing fast throws up a splash.
+    // Met the water's surface or the ground, inside the square: it ends; a sheet landing fast throws up a splash. Past
+    // the square, or over ground not known, nothing says where it lands: it fades out, ending after UNKNOWN_LIFE there
+    // (else it fell on through the ground for the rest of its life, ever faster); one that comes over ground known
+    // first lives on, landing there.
     int2 c = (int2)floor((place.xz - _Origin) / _Dx);
-    if (Inside(c))
+    if (!Inside(c) || _Bed[c] >= 5000.0)
     {
+        p.sizeKind.w += _Dt;
+        age = p.sizeKind.w >= UNKNOWN_LIFE ? life : age;
+    }
+    else
+    {
+        p.sizeKind.w = max(0.0, p.sizeKind.w - _Dt);
         float bed = _Bed[c];
         float h = _H[c];
-        if (bed < 5000.0 && place.y <= bed + h)
+        if (place.y <= bed + h)
         {
             Land(place, velocity, p.sizeKind.z);
             p.sizeKind.z = 0.0;

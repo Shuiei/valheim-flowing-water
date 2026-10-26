@@ -123,8 +123,11 @@ where), so the waves finer than a voxel are the card's own.
 
 - **Where it draws.** Where the server's water is one layer resting on the ground. Water falling through the air, a
   pool under another and water under a roof are drawn by the blocks, as before, and so is everything beyond the
-  square. The square moves with the camera once it is a quarter of the square from its middle, its water moved with
-  it where both squares have it (waves and currents go on, nothing refills); the new edge's water is the server's.
+  square, and a band 4 m wide along its edge (where the card's water is the server's as it is, or still pulled toward
+  it). The square moves with the camera once it is a quarter of the square from its middle, its water moved with it
+  where both squares have it (waves and currents go on, nothing refills); the new edge's water is the server's, and
+  the blocks go on drawing each of its columns for 3 s after the card can have it, while the card's water there
+  settles from the server's steps (falls too: the card throws none from a column it does not draw).
 - **The ground.** Rays cast straight down onto the terrain and what players built, a few rows of cells a frame on the
   game's worker threads, all of the square in a fraction of a second, then again and again (what is built, a door
   opened); only near water. Rows where water comes near, or rises or falls more than 25 cm, are cast first, so a
@@ -170,11 +173,12 @@ anywhere: the server's water still says how much water is where):
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).
 
-At most 32768 particles live at once (the oldest give way). Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
-(`tools/sim-preview.sh`, which also runs a shelf of water poured off its lip); drawing them comes on top, and grows
-with how many there are on screen. A wall of water between two levels (a ledge with water on its top and at its
-foot) is left to the falls: the card's surface fades out where the water a cell away is more than half a metre higher
-or lower.
+At most 32768 particles live at once (the oldest give way); one that leaves the square, or flies over ground the card
+has not found, fades out there within a quarter of a second, and none is drawn much longer than a metre along its
+motion. Moving them took 0.02 ms a frame on a Radeon RX 9070 XT (`tools/sim-preview.sh`, which also runs a shelf of
+water poured off its lip); drawing them comes on top, and grows with how many there are on screen. A wall of water
+between two levels (a ledge with water on its top and at its foot) is left to the falls: the card's surface fades out
+where the water a cell away is more than half a metre higher or lower.
 
 ### Grid size
 
