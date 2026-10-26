@@ -9,6 +9,12 @@ All notable changes to FlowingWater. Newest first.
   moves meets the blocks of water farther off: the card hands a place over only once its water there has settled, and
   never draws the edge of its square.
 
+## v0.32.1 — 2026-10-26
+
+### Fixed
+- Water thrown fast off a lip is drawn as a short streak instead of one several metres long, and water falling past
+  where the ground near you is known fades out there instead of falling on through the ground.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed
