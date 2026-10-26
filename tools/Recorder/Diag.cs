@@ -121,19 +121,34 @@ public sealed partial class Recorder
     }
 
     // Each view held (the camera over the ground as it is, not as generated) long enough for the card's square to come
-    // with it and settle, then shot as it looks and in the debug colours.
+    // with it and settle, then shot as it looks and in the debug colours. With FW_REC_LOOKS ("name:command;command|name:
+    // ..."), every view again after: each look's commands run (the materials tuned), then shot. The looks come after all
+    // the plain shots, so none of these is shot with a look's changes (the commands' changes stay: a look sets all it
+    // needs).
     private IEnumerator HeldViews((Vector3 From, Vector3 At, string Name)[] views, string prefix)
     {
         foreach (var view in views)
         {
-            Vector3 from = OverGround(view.From, 1.5f);
-            _cameraAt = from;
-            _cameraLook = view.At;
+            Vector3 from = Hold(view.From, view.At);
             yield return new WaitForSeconds(8f);
             yield return Shot(from, view.At, $"{prefix}-{view.Name}-look");
+            Command("flowingwater gpu colours");
+            yield return Shot(from, view.At, $"{prefix}-{view.Name}-colours");
+            Command("flowingwater gpu colours");
+            Command("flowingwater gpu");
+        }
 
-            // FW_REC_LOOKS ("name:command;command|name:..."): each look's commands run (the materials tuned), then shot.
-            foreach (string look in (Environment.GetEnvironmentVariable("FW_REC_LOOKS") ?? string.Empty).Split(['|'], StringSplitOptions.RemoveEmptyEntries))
+        string[] looks = (Environment.GetEnvironmentVariable("FW_REC_LOOKS") ?? string.Empty).Split(['|'], StringSplitOptions.RemoveEmptyEntries);
+        if (looks.Length == 0)
+        {
+            yield break;
+        }
+
+        foreach (var view in views)
+        {
+            Vector3 from = Hold(view.From, view.At);
+            yield return new WaitForSeconds(8f);
+            foreach (string look in looks)
             {
                 string[] parts = look.Split([':'], 2);
                 foreach (string command in parts.Length > 1 ? parts[1].Split([';'], StringSplitOptions.RemoveEmptyEntries) : [])
@@ -144,12 +159,16 @@ public sealed partial class Recorder
                 yield return new WaitForSeconds(0.5f);
                 yield return Shot(from, view.At, $"{prefix}-{view.Name}-{parts[0]}");
             }
-
-            Command("flowingwater gpu colours");
-            yield return Shot(from, view.At, $"{prefix}-{view.Name}-colours");
-            Command("flowingwater gpu colours");
-            Command("flowingwater gpu");
         }
+    }
+
+    // The camera held at a view (over the ground there) looking at a point; where it is.
+    private Vector3 Hold(Vector3 at, Vector3 look)
+    {
+        Vector3 from = OverGround(at, 1.5f);
+        _cameraAt = from;
+        _cameraLook = look;
+        return from;
     }
 
     // A point at least so high over the ground loaded there (the generated ground is not what a player built or dug, nor
