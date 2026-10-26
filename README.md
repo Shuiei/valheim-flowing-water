@@ -195,13 +195,19 @@ there to the new grid (same volume), at once when the file is saved.
   sloping plank, a ceiling here and a floor there, keeps the water running down it on top of it. The solids are read again when a piece is built, broken, moved, opened
   or closed (a door), or the ground changes. Water that reaches the sea is the sea's.
 - **Step.** The pipe model in three dimensions: each face between two voxels is a pipe whose flow keeps its
-  momentum, sped up by the difference of the two voxels' heads and slowed by drag. A voxel's head is its floor
+  momentum and is carried along by the water coming through it (upwind, along the face's own axis: a surge running
+  onto dry ground keeps the speed of the water behind it, and water off an edge keeps going the way it went), sped up
+  by the difference of the two voxels' heads, and slowed by drag up and down and by the ground sideways (Manning's
+  friction of a natural bed, 0.03: far more on a thin sheet than on deep water). A dam of 2 m let go in a 10 m tank
+  reaches its far wall in 2.1 s (2.9 s before the momentum was carried; a real one in about 1.3 s, the graphics
+  card's near you in 1.25 s). It costs the server about 40% more for each voxel of moving water. A voxel's head is its floor
   plus all the water resting on it in its column (up to air, a solid or a closed face), so a still pool is still,
   water over air falls, and a hole low in a box's side lets water out faster the deeper the box; water pressed in
   under a ceiling adds a stiff head, so a pipe carries the push of the water above it. A voxel never gives more
   than it holds. Water wets new ground as a rivulet does: sideways onto dry ground no lower than its own (across a
   slope, over flat ground) it goes only from water standing 3 cm deep, while dry ground lower down is run onto
-  freely; so a stream runs down a slope a couple of metres wide instead of fanning out into a sheet, and a sheet
+  freely; so a stream runs down a slope as a sheet some metres wide (about 9 m at half a cubic metre a second: the
+  water fanning out at its source keeps going sideways a while) instead of across the whole slope, and a sheet
   stops spreading as it thins (water already on wet ground flows as before, and none is lost). Long steps are
   split so the water stays stable 10 m deep. Water that is not a number (a ground height the game gives as none, a
   brick saved so) is emptied where it is found and counted in the log, the water round it going on. Each step works only on the part of a block round its water (and its

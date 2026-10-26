@@ -85,6 +85,18 @@ internal sealed class Brick
     /// <summary>Through its north face (positive: going north).</summary>
     public float[] FlowZ { get; private set; } = new float[Count];
 
+    /// <summary>
+    /// The flows through each voxel's east, upper and north faces once the water has carried its momentum over the step
+    /// being worked out, before the heads push on them (as <see cref="FlowX"/>).
+    /// </summary>
+    public float[] CarriedX { get; private set; } = new float[Count];
+
+    /// <inheritdoc cref="CarriedX"/>
+    public float[] CarriedY { get; private set; } = new float[Count];
+
+    /// <inheritdoc cref="CarriedX"/>
+    public float[] CarriedZ { get; private set; } = new float[Count];
+
     /// <summary>Each voxel's head for the step being worked out: the level its water pushes to, metres.</summary>
     public float[] Head { get; private set; } = new float[Count];
 
@@ -141,8 +153,8 @@ internal sealed class Brick
     public bool Resting => FlowX == Nothing;
 
     /// <summary>
-    /// Lets go of what only stepping uses, as it falls asleep (about three quarters of its memory): its flows, heads,
-    /// shares and part read as none until it wakes. What it lets go of is kept for the next brick to wake.
+    /// Lets go of what only stepping uses, as it falls asleep (about three quarters of its memory): its flows, carried
+    /// flows, heads, shares and part read as none until it wakes. What it lets go of is kept for the next brick to wake.
     /// </summary>
     public void Rest()
     {
@@ -153,11 +165,11 @@ internal sealed class Brick
 
         if (Interlocked.Increment(ref _spareCount) <= MostSpare)
         {
-            SpareFloats.Add(FlowX);
-            SpareFloats.Add(FlowY);
-            SpareFloats.Add(FlowZ);
-            SpareFloats.Add(Head);
-            SpareFloats.Add(Share);
+            foreach (float[] floats in new[] { FlowX, FlowY, FlowZ, CarriedX, CarriedY, CarriedZ, Head, Share })
+            {
+                SpareFloats.Add(floats);
+            }
+
             SpareParts.Add(Part);
         }
         else
@@ -165,7 +177,7 @@ internal sealed class Brick
             Interlocked.Decrement(ref _spareCount);
         }
 
-        FlowX = FlowY = FlowZ = Head = Share = Nothing;
+        FlowX = FlowY = FlowZ = CarriedX = CarriedY = CarriedZ = Head = Share = Nothing;
         Part = NoPart;
     }
 
@@ -184,6 +196,9 @@ internal sealed class Brick
             FlowX = Spare();
             FlowY = Spare();
             FlowZ = Spare();
+            CarriedX = Spare();
+            CarriedY = Spare();
+            CarriedZ = Spare();
             Head = Spare();
             Share = Spare();
             return;
@@ -192,6 +207,9 @@ internal sealed class Brick
         FlowX = new float[Count];
         FlowY = new float[Count];
         FlowZ = new float[Count];
+        CarriedX = new float[Count];
+        CarriedY = new float[Count];
+        CarriedZ = new float[Count];
         Head = new float[Count];
         Share = new float[Count];
         Part = new int[Count];
