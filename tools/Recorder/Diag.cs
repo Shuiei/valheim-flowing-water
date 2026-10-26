@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Globalization;
 using UnityEngine;
 
 namespace FlowingWater.Recorder;
@@ -12,17 +13,25 @@ public sealed partial class Recorder
 {
     private IEnumerator Diag(Vector3 spawn)
     {
-        Site face = SteepestFace(spawn, float.TryParse(Environment.GetEnvironmentVariable("FW_REC_REACH"), out float reach) ? reach : 1500f);
+        // Searched within FW_REC_REACH metres (8 to 3000; 1500 unset): a reach past that would take the game's thread for
+        // minutes (or, too large for the step to count, for ever).
+        float reach = float.TryParse(Environment.GetEnvironmentVariable("FW_REC_REACH"), NumberStyles.Float, CultureInfo.InvariantCulture, out float given) && given is >= 8f and <= 3000f
+            ? given
+            : 1500f;
+        Site face = SteepestFace(spawn, reach);
         Note($"diag face {face}");
         yield return Go(face.At(0f));
         // FW_REC_DRY=1: no source, the same views of the dry face (what shows without the water).
+        // A source a run before left there is taken away first (the world should be a fresh copy all the same: its water
+        // stays a while).
         bool dry = Environment.GetEnvironmentVariable("FW_REC_DRY") == "1";
+        Command("flowingwater remove");
         if (!dry)
         {
             Command("flowingwater source " + (Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4"));
         }
 
-        float wait = float.TryParse(Environment.GetEnvironmentVariable("FW_REC_WAIT"), out float given) ? given : 90f;
+        float wait = float.TryParse(Environment.GetEnvironmentVariable("FW_REC_WAIT"), NumberStyles.Float, CultureInfo.InvariantCulture, out float waited) ? waited : 90f;
         yield return Go(face.At(-4f));
         yield return new WaitForSeconds(wait);
 
@@ -63,7 +72,7 @@ public sealed partial class Recorder
         }
 
         yield return Go(meadow.At(-8f));
-        yield return new WaitForSeconds(float.TryParse(Environment.GetEnvironmentVariable("FW_REC_WAIT"), out float given) ? given : 180f);
+        yield return new WaitForSeconds(float.TryParse(Environment.GetEnvironmentVariable("FW_REC_WAIT"), NumberStyles.Float, CultureInfo.InvariantCulture, out float given) ? given : 180f);
 
         Vector3 middle = meadow.At(25f);
         var views = new (Vector3 From, Vector3 At, string Name)[]
@@ -130,7 +139,7 @@ public sealed partial class Recorder
                     continue;
                 }
 
-                var gradient = new Vector2(generator.GetHeight(x + 2f, z) - generator.GetHeight(x - 2f, z), generator.GetHeight(x, z + 2f) - generator.GetHeight(x, z - 2f)) / 4f;
+                Vector2 gradient = Gradient(generator, x, z);
                 float slope = gradient.magnitude;
                 Vector2 down = -gradient.normalized;
                 float below = generator.GetHeight(x + (down.x * 20f), z + (down.y * 20f));

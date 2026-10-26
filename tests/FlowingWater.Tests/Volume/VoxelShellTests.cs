@@ -82,13 +82,12 @@ public class VoxelShellTests
     [Fact]
     public void WaterRunningDownASteepSlopeVoxelToVoxelIsNoFall()
     {
-        // Thin water hanging over voxels that hold ground, a voxel lower each step: the surface draws it, no columns.
+        // Thin water hanging over voxels that hold ground (as the server says: the ground under dry voxels is not
+        // sent), a voxel lower each step: the surface draws it, no columns.
         var view = new BrickView(0, 0, 0, 1f);
         for (int x = 4; x < 8; x++)
         {
-            int y = 12 - x;
-            Wet(view, x, y, 8, 0.1f, BrickData.AllOpen);
-            view.Solid[Brick.Index(x, y - 1, 8)] = 0.4f;
+            Wet(view, x, 12 - x, 8, 0.1f, BrickData.AllOpen | BrickData.GroundUnder);
         }
 
         Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);

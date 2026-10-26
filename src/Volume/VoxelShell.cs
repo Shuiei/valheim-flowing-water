@@ -28,9 +28,6 @@ internal sealed class VoxelShell
     // A voxel this full, with its solid share, holds the water over it up.
     private const float Full = 0.95f;
 
-    // A voxel this solid holds ground: water hanging over it runs down a step, it does not fall.
-    private const float HoldsGround = 0.02f;
-
     // Sides as Brick.Beside: east, west, up, down, north, south.
     private static readonly (int X, int Y, int Z)[] Sides = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
 
@@ -95,8 +92,9 @@ internal sealed class VoxelShell
             if (Falling(field, view, i, x, y, z, open))
             {
                 // Over a voxel holding ground it runs down a slope steeper than the voxels, voxel to voxel: the surface
-                // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel).
-                if (Solid(field, x, y - 1, z) < HoldsGround)
+                // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel). The
+                // server says so with its open faces (the ground under dry voxels is not sent).
+                if ((open & BrickData.GroundUnder) == 0 && Solid(field, x, y - 1, z) < BrickData.HoldsGround)
                 {
                     shell.Fall(field, at, water, open);
                 }
