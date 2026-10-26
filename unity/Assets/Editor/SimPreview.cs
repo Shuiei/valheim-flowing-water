@@ -44,6 +44,7 @@ public static class SimPreview
             Shift();
             ShiftThrown();
             Spray();
+            LookOnly();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -348,6 +349,33 @@ public static class SimPreview
         }
 
         return (sum * Dx * Dx, x / sum, z / sum);
+    }
+
+    // The waves drawn on running water are only the look: a dam let go and drawn every half second (the surface shader
+    // raising its waves, its churn) moves exactly as the same dam never drawn.
+    private static void LookOnly()
+    {
+        float[] Run(bool drawn)
+        {
+            float[] bed = Ground((x, z) => x >= 8f && x < 18f && z >= 8f && z < 12f ? 0f : 10f);
+            using var scene = new Scene(drawn ? "look-drawn" : "look-not-drawn", bed);
+            scene.Grid.Pulled = false;
+            scene.Grid.SetDepth(Depths((x, z) => x >= 8f && x < 10.5f && z >= 8f && z < 12f ? 2f : 0f));
+            for (int k = 1; k <= 90; k++)
+            {
+                scene.Step();
+                if (drawn && k % 30 == 0)
+                {
+                    scene.Shot(Inv($"look_{k * Frame:0.0}s"), new Vector3(14f, 4f, 3f), new Vector3(14f, 0.5f, 10f));
+                }
+            }
+
+            return scene.Read();
+        }
+
+        float[] drawnDepth = Run(true), plainDepth = Run(false);
+        float most = drawnDepth.Zip(plainDepth, (a, b) => Mathf.Abs(a - b)).Max();
+        Log.AppendLine(Inv($"Look: a dam drawn with its waves and the same never drawn differ by {most:0.000000} m at most: {(most == 0f ? "OK" : "FAILED")}"));
     }
 
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
