@@ -48,7 +48,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
-| `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
+| `flowingwater mat custom\|card\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`) or the still sea's (`list` names them) |
 
 Who may use the command, and place, change or remove sources and drains with the hoe: the host (and a player
 alone) and the server's admins (its `adminlist.txt`) always; other players while the server's `CommandsForEveryone`
@@ -131,6 +131,10 @@ where), so the waves finer than a voxel are the card's own.
   flood's front is the card's as it spreads. Under the water from just over its top, elsewhere from 3 m over the water
   near it, so walls round a pool hold the card's water; only the faces pieces close at the water's level are walls
   besides (the server's faces closed by the ground itself, each step of a slope, are left to the ground cast).
+- **The water's body.** What is behind or under the water is seen through so much of it along the view (more looking
+  across a pool than down into it): its light goes as it does in water, red first (two thirds of it through 1.2 m), and
+  it blurs; the water's own colour takes its place. A few centimetres of water stay clear. `_BodyDepth`, `_BodyTint`
+  and `_BodyBlur` on both water materials (`flowingwater mat custom\|card`).
 - **Running water's surface.** Running water is drawn with waves on it, running with the current: chop that rises
   with its speed (1.5 cm for each (m/s) squared, at most 15 cm and a quarter of its depth: still water lies flat, a
   thin sheet barely ripples), lit as the waves it is, and a finer layer of ripples on fast water that catches the sun

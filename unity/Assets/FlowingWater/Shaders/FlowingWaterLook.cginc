@@ -37,6 +37,9 @@ float _FlowFull;
 float _RapidsSpeed;
 float _RapidsTiling;
 float _EdgeFade;
+float _BodyDepth;
+float4 _BodyTint;
+float _BodyBlur;
 
 // The game's own, set for every shader: its two winds (x, z its direction, w its strength) and how far it
 // is from the first to the second; the sun's direction and the colour the fog takes towards it. Unset (a
@@ -150,6 +153,19 @@ float Streaks(float2 world, float2 current, float speed)
     return 0.5 * (most + (sum / STREAK_SAMPLES));
 }
 
+// What is behind the water as seen through it: the grabbed picture, bent, and blurred the more water it is seen
+// through (four samples round the point, as far as _BodyBlur of the screen for each metre of water, a hundredth at
+// most).
+float3 SeenThrough(float2 grab, float thickness)
+{
+    float r = min(thickness * _BodyBlur, 0.01);
+    float3 sum = tex2D(_FlowingWaterBehind, grab + float2(r, 0.0)).rgb;
+    sum += tex2D(_FlowingWaterBehind, grab - float2(r, 0.0)).rgb;
+    sum += tex2D(_FlowingWaterBehind, grab + float2(0.0, r)).rgb;
+    sum += tex2D(_FlowingWaterBehind, grab - float2(0.0, r)).rgb;
+    return 0.25 * sum;
+}
+
 // The fog over the water as over the sea: the game's fog, towards the sun's colour where one looks at the
 // sun; over all the water's light, what is seen through included, as the sea's.
 void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
@@ -209,8 +225,15 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // RunningClarity as clear), and the shallower it takes the deep colour (RunningDeep, not DeepWater).
     float clarity = lerp(1.0, _RunningClarity, running);
     float deepColour = saturate(depth / lerp(_DeepWater, _RunningDeep, running));
-    float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
-    float hidden = sqrt(saturate(abs(bent - eye) / (_DepthFade * clarity)));
+
+    // The water's body: what is behind is seen through so much water along the view (more looking across it than down
+    // into it), which takes its light as it goes, red first (_BodyTint, per _BodyDepth metres: Beer and Lambert's), and
+    // blurs it; the water's own colour takes its place. Far down, the sea's own fade (DepthFade) hides the rest.
+    float thickness = abs(bent - eye);
+    float3 through = exp(-thickness * _BodyTint.rgb / max(_BodyDepth * clarity, 0.001));
+    through *= 1.0 - sqrt(saturate(thickness / (_DepthFade * clarity)));
+    float3 hidden = 1.0 - through;
+    float3 behind = SeenThrough(grab + bend, thickness);
 
     // The shore: how much water there is in front of what is behind.
     float shoreLine = abs(straight - eye);
@@ -249,7 +272,7 @@ void Look(Input i, inout SurfaceOutputStandard o)
 
     float foam = max(shoreFoam, rapids);
     o.Albedo = colour;
-    o.Emission = behind * _SurfaceColor.rgb * (1.0 - hidden) * (1.0 - rapids);
+    o.Emission = behind * _SurfaceColor.rgb * through * (1.0 - rapids);
     o.Normal = n;
     o.Metallic = _Metallic * (1.0 - foam);
     o.Smoothness = lerp(gloss, 0.1, foam);

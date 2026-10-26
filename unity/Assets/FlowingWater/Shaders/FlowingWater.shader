@@ -59,6 +59,9 @@ Shader "FlowingWater/Water"
         _RapidsSpeed ("Current that makes full foam (m/s)", Float) = 4
         _RapidsTiling ("Rapids foam tiling (per metre)", Float) = 0.35
         _EdgeFade ("Edge fade (shown share)", Range(0.01, 1)) = 0.3
+        _BodyDepth ("Water this thick (m, seen through) takes two thirds of the light behind it", Float) = 1.2
+        _BodyTint ("How much faster each colour's light goes than at BodyDepth (red first)", Vector) = (1.6, 1.1, 0.9, 0)
+        _BodyBlur ("Blur of what is behind, share of the screen per metre of water", Float) = 0.004
 
         // Each brick's (set per renderer).
         [HideInInspector] _SurfacePrev ("Surface before", 2D) = "black" {}

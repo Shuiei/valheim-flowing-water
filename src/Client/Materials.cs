@@ -471,18 +471,22 @@ internal static class Materials
         return plain;
     }
 
-    /// <summary>Sets a float (one value) or colour (three or four) property on the custom or still material, for tuning in game.</summary>
+    /// <summary>
+    /// Sets a float (one value) or colour (three or four) property on the custom (the bricks'), card (the water moved on
+    /// the graphics card) or still material, for tuning in game.
+    /// </summary>
     public static string Tune(string kind, string property, float[] values)
     {
         Material material = kind switch
         {
             "custom" => _custom,
+            "card" => _sim,
             "still" => _still,
             _ => null,
         };
         if (material == null)
         {
-            return $"no {kind} material (custom or still; water must have been drawn once with it)";
+            return $"no {kind} material (custom, card or still; water must have been drawn once with it)";
         }
 
         if (property == "list")
