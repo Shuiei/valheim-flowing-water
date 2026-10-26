@@ -375,7 +375,7 @@ public static class SimPreview
 
         float[] drawnDepth = Run(true), plainDepth = Run(false);
         float most = drawnDepth.Zip(plainDepth, (a, b) => Mathf.Abs(a - b)).Max();
-        Log.AppendLine(Inv($"Look: a dam drawn with its waves and the same never drawn differ by {most:0.000000} m at most: {(most == 0f ? "OK" : "FAILED")}"));
+        Log.AppendLine(Inv($"Look: a dam drawn with its waves and the same never drawn differ by {most:0.000000} m at most: {(most <= 0f ? "OK" : "FAILED")}"));
     }
 
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
