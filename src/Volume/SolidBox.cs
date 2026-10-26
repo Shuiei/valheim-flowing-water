@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace FlowingWater.Volume;
 
@@ -46,10 +47,10 @@ internal readonly struct Vec3 : IEquatable<Vec3>
 }
 
 /// <summary>
-/// A solid box in the world, turned any way, without the game: a building piece's collider. Water cannot be in a
-/// voxel whose middle it holds, nor pass between two voxels whose middles it separates.
+/// A solid box in the world, turned any way, without the game: a box collider, or the box round another collider
+/// whose shape cannot be read (<see cref="Solid"/>).
 /// </summary>
-internal sealed class SolidBox
+internal sealed class SolidBox : Solid
 {
     /// <summary>A box round its centre, with its three axes (of length 1) and its half sizes along them.</summary>
     public SolidBox(Vec3 centre, Vec3 axisX, Vec3 axisY, Vec3 axisZ, Vec3 half)
@@ -87,8 +88,17 @@ internal sealed class SolidBox
         return Math.Abs(d.Dot(AxisX)) <= Half.X && Math.Abs(d.Dot(AxisY)) <= Half.Y && Math.Abs(d.Dot(AxisZ)) <= Half.Z;
     }
 
-    /// <summary>Whether the segment from one point to the other passes through the box.</summary>
-    public bool Crosses(Vec3 from, Vec3 to) => Span(from, to, out _, out _);
+    /// <inheritdoc/>
+    public override bool Crosses(Vec3 from, Vec3 to) => Span(from, to, out _, out _);
+
+    /// <inheritdoc/>
+    public override void Column(float x, float z, float bottom, float top, List<(float Low, float High)> spans)
+    {
+        if (Span(new Vec3(x, bottom, z), new Vec3(x, top, z), out float enter, out float leave))
+        {
+            spans.Add((bottom + (enter * (top - bottom)), bottom + (leave * (top - bottom))));
+        }
+    }
 
     /// <summary>
     /// Whether the segment from one point to the other passes through the box, and the part of it inside (0 at
@@ -109,7 +119,7 @@ internal sealed class SolidBox
     /// Whether it may meet the box along the world's axes from <paramref name="min"/> to <paramref name="max"/>: false
     /// only when one of its own axes, or the world's, separates them.
     /// </summary>
-    public bool Overlaps(Vec3 min, Vec3 max)
+    public override bool Overlaps(Vec3 min, Vec3 max)
     {
         Vec3 half = (max - min) * 0.5f;
         Vec3 d = ((min + max) * 0.5f) - Centre;
@@ -119,8 +129,8 @@ internal sealed class SolidBox
             && Math.Abs(d.Z) <= half.Z + Reach(AxisX.Z, AxisY.Z, AxisZ.Z);
     }
 
-    /// <summary>The smallest box along the world's axes holding it: its lowest and highest corners.</summary>
-    public (Vec3 Min, Vec3 Max) Bounds()
+    /// <inheritdoc/>
+    public override (Vec3 Min, Vec3 Max) Bounds()
     {
         var reach = new Vec3(
             Reach(AxisX.X, AxisY.X, AxisZ.X),

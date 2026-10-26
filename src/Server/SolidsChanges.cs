@@ -85,6 +85,12 @@ internal sealed class SolidsChanges<TZone, TId>
         _places.Add((low, high));
     }
 
+    /// <summary>
+    /// A place whose solids changed with no zone's objects to read again (objects reaching farther than the game's
+    /// prefabs found in a zone read for the first time: bricks that read their solids before may have missed them).
+    /// </summary>
+    public void Place(Vec3 low, Vec3 high) => _places.Add((low, high));
+
     /// <summary>Every brick reads its solids again.</summary>
     public void All() => _places.Add((new Vec3(float.MinValue, float.MinValue, float.MinValue), new Vec3(float.MaxValue, float.MaxValue, float.MaxValue)));
 

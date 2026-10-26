@@ -15,8 +15,9 @@ or the sea takes it. Dig a channel with the pickaxe and the river follows it.
 
 Status: **a prototype.** The flow model is a shallow-water one on a grid of cells (one metre by default,
 fifteen steps a second); it is tuned for rivers and ponds, not for
-waves or splashes. What players build holds water as the terrain does (walls, floors, a pool on posts, a plank
-chute).
+waves or splashes. Whatever is solid in the world holds water as the terrain does: what players build (walls,
+floors, a pool on posts, a plank chute), rocks, trees, the ruins of the game's places; the water runs round a rock
+and off its top, and through a notch mined in it.
 
 ## Placing water
 
@@ -44,7 +45,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
-| `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
+| `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
@@ -227,12 +228,18 @@ there to the new grid (same volume), at once when the file is saved.
 
 - **Grid.** Water lives in 3D: cubic voxels of `CellSize` metres, kept in blocks of 16 × 16 × 16 (bricks)
   that exist only where water is or lately was. A voxel holds a share of its volume of water (a little more
-  when pressed in). The ground fills each voxel from its bottom up to the terrain's height; building pieces, as
-  the boxes of their solid colliders, fill the voxels they stand in from below (a floor) and close the faces
-  between voxels they separate, so a wall thinner than a voxel holds water, a box on posts holds a pool, and
-  breaking a piece lets the water out. A piece only in a voxel's upper half is that voxel's ceiling (the water on
+  when pressed in). The ground fills each voxel from its bottom up to the terrain's height; every solid object
+  (building pieces, rocks, trees, stumps, the ruins and rocks of the game's places; nothing that moves by itself,
+  such as a felled log or a cart), by the colliders players bump into, fills the voxels it stands in from below
+  (a floor) and closes the faces between voxels it separates, so a wall thinner than a voxel holds water, a box on
+  posts holds a pool, and breaking a piece or felling a tree lets the water out. A box collider is a box; a mesh
+  collider is its mesh, read once a kind and placed where each object stands (a mesh the game keeps unreadable, a
+  handful of furniture pieces, is the box round it, listed in the log), so a rock has its own shape: solid
+  from each face of it that looks up down to the next that looks down (an overhang ends where its underside does,
+  an arch lets water under it, a trunk open at its foot is solid to the ground). A rock mined bit by bit leaves out
+  the bits that are gone. A solid only in a voxel's upper half is that voxel's ceiling (the water on
   it is in the voxel above), and two voxels side by side pass water only at a height where both have room: a thin
-  sloping plank, a ceiling here and a floor there, keeps the water running down it on top of it. The solids are read again when a piece is built, broken, moved, opened
+  sloping plank, a ceiling here and a floor there, keeps the water running down it on top of it. The solids are read again when an object is built, broken, mined, moved, opened
   or closed (a door), or the ground changes. Water that reaches the sea is the sea's.
 - **Step.** The pipe model in three dimensions: each face between two voxels is a pipe whose flow keeps its
   momentum and is carried along by the water coming through it (upwind, along the face's own axis: a surge running
@@ -257,8 +264,9 @@ there to the new grid (same volume), at once when the file is saved.
   voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's heightmap
-  builder makes them, plus the players' terrain changes; pieces come from their objects and the prefabs'
-  colliders. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed in a way a
+  builder makes them, plus the players' terrain changes; the solid objects come from their saved objects and the
+  prefabs' colliders (a place's ruins from its location's prefab, through the proxy object that stands for it),
+  on the layers the players' game casts the ground under its water on. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed in a way a
   player would see, every `SendSeconds` (packed a few blocks a frame, written together once all are), and the game
   sends it to the players near it: a voxel's water over the thinnest drawn (1 cm) changing by more than 1 % of a
   voxel, its floor, or its current by a few steps. A running stream's water stirs all the time, its edges' traces
