@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using FlowingWater.Volume;
-using HarmonyLib;
 using UnityEngine;
 
 namespace FlowingWater.Server;
@@ -39,10 +38,6 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private const float MapMetres = 2f;
 
     // Where each frame's time goes, told in the debug log.
-    // The game's sending out of the objects destroyed (see IBrickWorld.Flush), null if not found.
-    private static readonly Action<ZDOMan> SendDestroyed =
-        AccessTools.Method(typeof(ZDOMan), "SendDestroyed") is { } method ? AccessTools.MethodDelegate<Action<ZDOMan>>(method) : null;
-
     private readonly FrameParts _parts = new();
 
     private readonly ZoneTerrain _terrain;
@@ -103,8 +98,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private bool _loaded;
 
-    // Whether the missing SendDestroyed was told.
-    private bool _flushMissingTold;
+    // The game's sending out of the objects destroyed (see IBrickWorld.Flush), found by name.
+    private readonly LateDestroys _lateDestroys;
 
     private bool _capWarned;
 
@@ -131,6 +126,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         _sendTimeLeft = () => _sendClock.Elapsed.TotalMilliseconds < SendBudget;
         _markers = new MarkerScan(rightsFile, _watch.Pinned, _terrain.HeightAt);
         _objects = new BrickObjects<ZDOID>(this);
+        Action<ZDOMan> sendDestroyed = LateDestroys.Find<Action<ZDOMan>>(typeof(ZDOMan), "SendDestroyed", out string missing);
+        _lateDestroys = new LateDestroys(sendDestroyed == null ? null : () => sendDestroyed(ZDOMan.instance), missing, FlowingWaterPlugin.Log.LogError);
         NewGrid(SettingVoxelSize());
     }
 
@@ -361,20 +358,10 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     bool IBrickWorld<ZDOID>.IsBrick(ZDOID id) => ZDOMan.instance.GetZDO(id) is { } zdo && zdo.GetPrefab() == Prefabs.BrickHash;
 
     // The game destroys an object only once it sends the objects destroyed out, once a frame (the server's own at once):
-    // a save taken in between keeps them. Sent out now, before the save takes the world's objects. Not found (the game
-    // changed), said once: the objects destroyed just before a save may then be read back at the next start.
-    void IBrickWorld<ZDOID>.Flush()
-    {
-        if (SendDestroyed != null)
-        {
-            SendDestroyed(ZDOMan.instance);
-        }
-        else if (!_flushMissingTold)
-        {
-            _flushMissingTold = true;
-            FlowingWaterPlugin.Log.LogError("Water: the game's ZDOMan.SendDestroyed was not found (the game changed?); bricks' objects removed just before a save may be saved with the world and read back at the next start");
-        }
-    }
+    // a save taken in between keeps them. Sent out now, before the save takes the world's objects. Not found, or of
+    // another shape (the game changed), said once (LateDestroys): the objects destroyed just before a save may then be
+    // read back at the next start.
+    void IBrickWorld<ZDOID>.Flush() => _lateDestroys.Flush();
 
     ZDOID IBrickWorld<ZDOID>.Make(Brick brick)
     {
