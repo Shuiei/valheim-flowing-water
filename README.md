@@ -205,6 +205,38 @@ water poured off its lip); drawing them comes on top, and grows with how many th
 between two levels (a ledge with water on its top and at its foot) is left to the falls: the card's surface fades out
 where the water a cell away is more than half a metre higher or lower.
 
+### Particle water (a prototype)
+
+The sheet of shallow water the card moves is a height over the ground: it cannot curl over, break into drops, or be
+pushed aside by something moving through it. For that water, a prototype of **water as particles** is in the plugin's
+code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingWaterParticles.compute` and
+`.shader`), run and measured by the Unity project's preview only: **the game draws nothing of it yet.** What it is:
+
+- Each particle is a cube of water 10 cm on a side (a litre). Position based fluids (Macklin and Müller, 2013): each
+  step guesses where every particle goes, then pulls the guesses a few rounds until the water round each is as dense
+  as water at rest, no denser (thinner water, the surface and spray, is not pulled together: that pull, against the
+  paper's artificial pressure, is stiffer than a frame's step bears), and takes each particle's speed from where it
+  ended up. Neighbours are found through a hashed grid of cells the smoothing radius (20 cm) wide, the particles
+  counted into buckets, the buckets' starts summed, the particles sorted into them, every step.
+- The ground is the card's water's (`SimGrid.Bed`: a height per cell, a wall where it steps up by more than 35 cm):
+  particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
+  out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
+  still instead of jittering against its walls. A sphere (a player, a boat) pushes the water aside.
+- Drawn as spheres for now (an opaque look of the shape, whiter where the water is thin), not yet with the water's look.
+
+`tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
+off a ledge into a basin, a sphere pushed through a pool, and a cost scene, and writes `particles.txt` and frames
+(`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
+`FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
+filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches
+the far wall at 1.30 s (a real one about 1.3 to 1.5 s; the sheet 1.25 s) and runs 3 m up it; moving 64 000 particles
+costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing them comes on top.
+
+What it is not yet: in the game (the particles would take water from the sheet where it goes over a lip, bursts or
+is struck, and give it back where they settle, as the spray's sheets do now); drawn as water (a screen-space surface
+over the particles, with the sea's look); met by what players build (only the ground's heights and the walls they
+make); spread over the frame's budget (a step is one go).
+
 ### Grid size
 
 `Server.CellSize` sets the side of the water's voxels. Smaller voxels give finer streams, shores and falls. Each

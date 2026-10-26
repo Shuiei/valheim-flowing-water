@@ -845,23 +845,69 @@ public static class SimPreview
         }
     }
 
-    private static float[] Ground(Func<float, float, float> height) => Field((x, z) => height(x, z));
+    private static float[] Ground(Func<float, float, float> height) => Field(Cells, Dx, (x, z) => height(x, z));
 
-    private static float[] Depths(Func<float, float, float> depth) => Field(depth);
+    private static float[] Depths(Func<float, float, float> depth) => Field(Cells, Dx, depth);
 
-    // A value per cell, at its centre (world x, z from the square's corner).
-    private static float[] Field(Func<float, float, float> at)
+    // A value per cell of a square of cells a side, each dx metres, at its centre (world x, z from the square's corner).
+    internal static float[] Field(int cells, float dx, Func<float, float, float> at)
     {
-        float[] values = new float[Cells * Cells];
-        for (int j = 0; j < Cells; j++)
+        float[] values = new float[cells * cells];
+        for (int j = 0; j < cells; j++)
         {
-            for (int i = 0; i < Cells; i++)
+            for (int i = 0; i < cells; i++)
             {
-                values[(j * Cells) + i] = at((i + 0.5f) * Dx, (j + 0.5f) * Dx);
+                values[(j * cells) + i] = at((i + 0.5f) * dx, (j + 0.5f) * dx);
             }
         }
 
         return values;
+    }
+
+    // The ground as a mesh, a checker of 2 m squares: a point per cell, at its centre and height.
+    internal static void MakeGround(float[] bed, int cells, float dx)
+    {
+        var vertices = new Vector3[cells * cells];
+        var uvs = new Vector2[cells * cells];
+        for (int j = 0; j < cells; j++)
+        {
+            for (int i = 0; i < cells; i++)
+            {
+                vertices[(j * cells) + i] = new Vector3((i + 0.5f) * dx, bed[(j * cells) + i], (j + 0.5f) * dx);
+                uvs[(j * cells) + i] = new Vector2((i + 0.5f) * dx / 4f, (j + 0.5f) * dx / 4f);
+            }
+        }
+
+        var mesh = new Mesh { indexFormat = IndexFormat.UInt32, vertices = vertices, uv = uvs, triangles = Triangles(cells) };
+        mesh.RecalculateNormals();
+        var checker = new Texture2D(2, 2, TextureFormat.RGB24, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
+        checker.SetPixels(new[] { new Color(0.62f, 0.58f, 0.48f), new Color(0.48f, 0.45f, 0.38f), new Color(0.48f, 0.45f, 0.38f), new Color(0.62f, 0.58f, 0.48f) });
+        checker.Apply();
+        var ground = new GameObject("Ground");
+        ground.AddComponent<MeshFilter>().sharedMesh = mesh;
+        ground.AddComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { mainTexture = checker };
+    }
+
+    internal static int[] Triangles(int side)
+    {
+        int[] triangles = new int[(side - 1) * (side - 1) * 6];
+        int t = 0;
+        for (int j = 0; j < side - 1; j++)
+        {
+            for (int i = 0; i < side - 1; i++)
+            {
+                int a = (j * side) + i;
+                int b = a + side;
+                triangles[t++] = a;
+                triangles[t++] = b;
+                triangles[t++] = b + 1;
+                triangles[t++] = a;
+                triangles[t++] = b + 1;
+                triangles[t++] = a + 1;
+            }
+        }
+
+        return triangles;
     }
 
     private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
@@ -893,7 +939,7 @@ public static class SimPreview
             Shader.SetGlobalFloat("_FWSimSize", Cells * Dx);
             Shader.SetGlobalTexture("_FWSimTarget", Grid.Target);
             _water = new Material(AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SimMaterialPath));
-            MakeGround(bed);
+            MakeGround(bed, Cells, Dx);
             MakeWater();
             var sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
@@ -971,30 +1017,6 @@ public static class SimPreview
 
         public void Dispose() => Grid.Dispose();
 
-        // The ground, a checker of 2 m squares (rock where it rises past 5 m).
-        private static void MakeGround(float[] bed)
-        {
-            var vertices = new Vector3[Cells * Cells];
-            var uvs = new Vector2[Cells * Cells];
-            for (int j = 0; j < Cells; j++)
-            {
-                for (int i = 0; i < Cells; i++)
-                {
-                    vertices[(j * Cells) + i] = new Vector3((i + 0.5f) * Dx, bed[(j * Cells) + i], (j + 0.5f) * Dx);
-                    uvs[(j * Cells) + i] = new Vector2((i + 0.5f) * Dx / 4f, (j + 0.5f) * Dx / 4f);
-                }
-            }
-
-            var mesh = new Mesh { indexFormat = IndexFormat.UInt32, vertices = vertices, uv = uvs, triangles = Triangles(Cells) };
-            mesh.RecalculateNormals();
-            var checker = new Texture2D(2, 2, TextureFormat.RGB24, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
-            checker.SetPixels(new[] { new Color(0.62f, 0.58f, 0.48f), new Color(0.48f, 0.45f, 0.38f), new Color(0.48f, 0.45f, 0.38f), new Color(0.62f, 0.58f, 0.48f) });
-            checker.Apply();
-            var ground = new GameObject("Ground");
-            ground.AddComponent<MeshFilter>().sharedMesh = mesh;
-            ground.AddComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { mainTexture = checker };
-        }
-
         private void MakeWater()
         {
             var vertices = new Vector3[Cells * Cells];
@@ -1013,28 +1035,6 @@ public static class SimPreview
             var water = new GameObject(_name + " water");
             water.AddComponent<MeshFilter>().sharedMesh = mesh;
             water.AddComponent<MeshRenderer>().sharedMaterial = _water;
-        }
-
-        private static int[] Triangles(int side)
-        {
-            int[] triangles = new int[(side - 1) * (side - 1) * 6];
-            int t = 0;
-            for (int j = 0; j < side - 1; j++)
-            {
-                for (int i = 0; i < side - 1; i++)
-                {
-                    int a = (j * side) + i;
-                    int b = a + side;
-                    triangles[t++] = a;
-                    triangles[t++] = b;
-                    triangles[t++] = b + 1;
-                    triangles[t++] = a;
-                    triangles[t++] = b + 1;
-                    triangles[t++] = a + 1;
-                }
-            }
-
-            return triangles;
         }
     }
 }

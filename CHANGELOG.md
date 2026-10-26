@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.37.0 — 2026-10-26
+
+### Added
+- A prototype of water as particles on the graphics card, for the water a sheet cannot be: a dam bursting, water
+  pouring over a lip, something pushed through a pool. Position based fluids over a hashed grid, kept out of the ground
+  and the walls the card's water knows (`src/Client/ParticleWater.cs`, `FlowingWaterParticles.compute`), run and
+  measured by the Unity project's preview only (`tools/sim-preview.sh <folder> ParticlePreview.Run`): the game draws
+  nothing new yet.
+
 ## v0.36.0 — 2026-10-26
 
 ### Added

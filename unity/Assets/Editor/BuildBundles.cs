@@ -39,6 +39,13 @@ public static class BuildBundles
 
     public const string FallMaterialPath = "Assets/FlowingWater/FlowingWaterFall.mat";
 
+    // The particle water, a prototype: checked and previewed, not in the bundles until the game draws it.
+    public const string ParticlesShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterParticles.shader";
+
+    public const string ParticlesMaterialPath = "Assets/FlowingWater/FlowingWaterParticles.mat";
+
+    public const string ParticlesComputePath = "Assets/FlowingWater/Shaders/FlowingWaterParticles.compute";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -76,6 +83,8 @@ public static class BuildBundles
         MakeMaterial(SprayShaderPath, SprayMaterialPath, "FlowingWaterSpray");
         CheckCompute(SprayComputePath, "EmitFromWater", "Move", "Curtains");
         MakeMaterial(FallShaderPath, FallMaterialPath, "FlowingWaterFall");
+        MakeMaterial(ParticlesShaderPath, ParticlesMaterialPath, "FlowingWaterParticles");
+        CheckCompute(ParticlesComputePath, "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Lambda", "Displace", "Apply", "Finish");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
