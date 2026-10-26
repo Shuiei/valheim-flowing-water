@@ -157,7 +157,8 @@ anywhere: the server's water still says how much water is where):
   voxel, the water on the build and the pool at its foot each keep their own level (the ground found under the card's
   cells says which is which), so the blocks no longer draw a slanted face between them.
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
-- **Spray.** Water running faster than 3.5 m/s throws fine droplets off its surface.
+- **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
+  sheet running down a slope throws none).
 
 At most 32768 particles live at once (the oldest give way). Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
 (`tools/sim-preview.sh`, which also runs a shelf of water poured off its lip); drawing them comes on top, and grows

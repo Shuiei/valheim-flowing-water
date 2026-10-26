@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.27.2 — 2026-10-26
+
+### Fixed
+- Fast water no longer throws big white flakes all round it: spray is now fine droplets, a few from deep, fast rapids
+  only (a thin sheet running down a slope throws none), and splashes are smaller.
+
 ## v0.27.1 — 2026-10-26
 
 ### Fixed

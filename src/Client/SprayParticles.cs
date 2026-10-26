@@ -22,10 +22,13 @@ internal sealed class SprayParticles : IDisposable
     // A particle's floats: place and age, velocity and life, size and kind.
     private const int Stride = 12 * sizeof(float);
 
-    // Rapids: water faster than this throws droplets (m/s), so many a second for each m/s more over each square metre.
-    private const float SprayFrom = 3.5f;
+    // Rapids: water at least this deep (m) and faster than this (m/s) throws droplets, so many a second for each m/s more
+    // over each square metre (a thin sheet running fast down a slope throws none).
+    private const float SprayDepth = 0.1f;
 
-    private const float SprayRate = 4f;
+    private const float SprayFrom = 4.5f;
+
+    private const float SprayRate = 1.5f;
 
     // Lips: a sheet of falling water for each so much water thrown over one (m³).
     private const float SheetVolume = 1f / 60f;
@@ -53,6 +56,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int GravityId = Shader.PropertyToID("_Gravity");
     private static readonly int SeedId = Shader.PropertyToID("_Seed");
     private static readonly int SprayFromId = Shader.PropertyToID("_SprayFrom");
+    private static readonly int SprayDepthId = Shader.PropertyToID("_SprayDepth");
     private static readonly int SprayRateId = Shader.PropertyToID("_SprayRate");
     private static readonly int LipDropId = Shader.PropertyToID("_LipDrop");
     private static readonly int SheetVolumeId = Shader.PropertyToID("_SheetVolume");
@@ -122,6 +126,7 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetFloat(GravityId, SimGrid.Gravity);
         _shader.SetInt(SeedId, (int)_seed);
         _shader.SetFloat(SprayFromId, SprayFrom);
+        _shader.SetFloat(SprayDepthId, SprayDepth);
         _shader.SetFloat(SprayRateId, SprayRate);
         _shader.SetFloat(LipDropId, SimGrid.LipDrop);
         _shader.SetFloat(SheetVolumeId, SheetVolume);
@@ -136,6 +141,17 @@ internal sealed class SprayParticles : IDisposable
 
         _shader.Dispatch(_emit, (grid.Cells + 7) / 8, (grid.Cells + 7) / 8, 1);
         _shader.Dispatch(_move, Count / 64, 1, 1);
+    }
+
+    /// <summary>
+    /// Every particle's twelve floats (place and age, velocity and life, size, kind and water carried, one unused), read
+    /// back from the card: for previews and tests.
+    /// </summary>
+    public float[] Read()
+    {
+        float[] data = new float[Count * 12];
+        _particles.GetData(data);
+        return data;
     }
 
     /// <summary>

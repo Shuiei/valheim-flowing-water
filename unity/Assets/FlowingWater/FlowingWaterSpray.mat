@@ -31,8 +31,8 @@ Material:
     m_Floats:
     - _FallAlpha: 0.3
     - _FallStretch: 0.12
-    - _FoamAlpha: 0.5
-    - _Stretch: 0.04
+    - _FoamAlpha: 0.35
+    - _Stretch: 0.015
     m_Colors:
     - _FallColor: {r: 0.62, g: 0.74, b: 0.78, a: 1}
     - _FoamColor: {r: 0.838, g: 0.838, b: 0.838, a: 1}
