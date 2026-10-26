@@ -14,6 +14,7 @@
     <Compile Include="../../src/Server/ErosionRules.cs" Link="Mod/ErosionRules.cs" />
     <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
+    <Compile Include="../../tools/Recorder/ForSteps.cs" Link="Recorder/ForSteps.cs" />
     <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
     <Compile Include="../../src/Client/LatestRead.cs" Link="Mod/LatestRead.cs" />
     <Compile Include="../../src/Server/ZoneScan.cs" Link="Mod/ZoneScan.cs" />

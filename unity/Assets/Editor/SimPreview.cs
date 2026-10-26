@@ -419,8 +419,8 @@ public static class SimPreview
 
         // Points inside the noise's cells (not by their edges, where its curvature changes at once), each with its
         // neighbours a step east, west, north and south.
-        var random = new System.Random(7);
-        Vector2[] points = Enumerable.Range(0, 256).Select(_ => new Vector2(random.Next(-40, 40) + 0.05f + (0.9f * (float)random.NextDouble()), random.Next(-40, 40) + 0.05f + (0.9f * (float)random.NextDouble()))).ToArray();
+        static float Within(int i, float spread) => 0.05f + (0.9f * Mathf.Repeat(i * spread, 1f));
+        Vector2[] points = Enumerable.Range(0, 256).Select(i => new Vector2(-40 + (5 * (i % 16)) + Within(i, 0.618034f), -40 + (5 * (i / 16)) + Within(i, 0.754878f))).ToArray();
         Vector4[] Asked(string kernel, Vector2 current, float time, float step) =>
             Ask(kernel, points.SelectMany(p => new[] { Vector2.zero, new(step, 0f), new(-step, 0f), new(0f, step), new(0f, -step) }.Select(d => new Vector4((p + d).x, (p + d).y, current.x, current.y))).ToArray(), time);
         // The most a slope given differs from the slope of the values given a step around it, and the largest value's
@@ -471,7 +471,61 @@ public static class SimPreview
         Vector4[] before = Ask("Chops", places, Cycle - 0.001f), after = Ask("Chops", places, Cycle + 0.001f);
         float jump = before.Zip(after, (a, b) => Mathf.Abs(a.x - b.x)).Max();
         Log.AppendLine(Inv($"Waves: chop across a phase's start changes by {jump:0.0000} at most: {Check(jump < 0.01f)}"));
+
+        // The long waves as the shaders raise them: the card's water and the blocks' fully shown, 1 m deep, at the same
+        // places give the same rise and slope (both world places: they meet at the square's edge); that rise is the
+        // long chop's only (no fine waves raised) times the waves' height; the blocks fading at a shore raise half as
+        // much at half shown, none at none; still water rises none.
+        Vector4[] Long(Vector4[] at, float depth, float shown)
+        {
+            probe.SetFloat("_Depth", depth);
+            probe.SetFloat("_Shown", shown);
+            return Ask("Longs", at, 1.7f);
+        }
+
+        float runs = current.magnitude, rapids = WaveHeight(runs, 1f);
+        probe.SetFloat("_Length", Length);
+        Vector4[] longChop = Ask("Chops", places, 1.7f);
+        Vector4[] card = Long(places, 1f, 1f), blocks = Long(places, 1f, 1f), half = Long(places, 1f, 0.5f), none = Long(places, 1f, 0f);
+        Vector4[] still = Long(places.Select(p => new Vector4(p.x, p.y, 0f, 0f)).ToArray(), 1f, 1f);
+        float edgeOff = card.Zip(blocks, (a, b) => (a - b).magnitude).Max();
+        float longOff = card.Zip(longChop, (a, c) => Mathf.Max(Mathf.Abs(a.x - (rapids * c.x)), Mathf.Abs(a.y - (rapids * c.y)), Mathf.Abs(a.z - (rapids * c.z)), Mathf.Abs(a.w - c.x))).Max();
+        float fadeOff = half.Zip(card, (h, c) => Mathf.Abs(h.x - (0.5f * c.x))).Concat(none.Select(n => Mathf.Abs(n.x))).Max();
+        float stillRise = still.Max(a => Mathf.Abs(a.x) + Mathf.Abs(a.y) + Mathf.Abs(a.z));
+        float risen = card.Max(a => Mathf.Abs(a.x));
+        Log.AppendLine(Inv($"Waves: long waves at {runs:0.00} m/s on 1 m, up to {risen:0.000} m: card's off the blocks' by {edgeOff:0.000000}, off the long chop's by {longOff:0.000000}, faded off by {fadeOff:0.000000}, still water's {stillRise:0.000000}: {Check(risen > 0.5f * rapids && edgeOff <= 0f && longOff < 1e-6f && fadeOff < 1e-6f && stillRise <= 0f)}"));
+
+        // The fine waves, only lit: a flat surface's normal on fast deep water is tipped by their slope (the fine chop's
+        // times half the waves' height), the same near and far (one function, the look's); on still water not at all.
+        Vector4[] Fine(Vector4[] at)
+        {
+            probe.SetFloat("_Depth", 1f);
+            return Ask("Fines", at, 1.7f);
+        }
+
+        Vector4[] fast = places.Select(p => new Vector4(p.x, p.y, 4f, 0f)).ToArray();
+        probe.SetFloat("_Length", 0.8f);
+        Vector4[] fineChop = Ask("Chops", fast, 1.7f);
+        Vector4[] tipped = Fine(fast), flat = Fine(places.Select(p => new Vector4(p.x, p.y, 0f, 0f)).ToArray());
+        float fineHeight = 0.5f * WaveHeight(4f, 1f);
+        float fineOff = tipped.Zip(fineChop, (n, c) => (n - (Vector4)new Vector3(-fineHeight * c.y, -fineHeight * c.z, 1f).normalized).magnitude).Max();
+        float tilt = tipped.Max(n => Mathf.Acos(Mathf.Clamp01(n.z)) * Mathf.Rad2Deg);
+        float flatTilt = flat.Max(n => Mathf.Abs(n.x) + Mathf.Abs(n.y) + Mathf.Abs(1f - n.z));
+        Log.AppendLine(Inv($"Waves: fine waves tip fast water's surface up to {tilt:0.0} degrees, off their slope by {fineOff:0.000000}; still water's by {flatTilt:0.000000}: {Check(tilt > 1f && fineOff < 1e-5f && flatTilt <= 0f)}"));
+
+        // The churn: a fast crest white (0.7), a fast trough and a still crest not, a slow crest a quarter as much as a
+        // fast one, still water slowing hard white; the blocks' (giving no slowing) only on their crests.
+        float[][] churns =
+        {
+            new[] { 1f, 1f, 0f, 0.7f }, new[] { -1f, 1f, 0f, 0f }, new[] { 1f, 0f, 0f, 0f }, new[] { 1f, 0.5f, 0f, 0.175f }, new[] { 0f, 0f, 1.5f, 0.7f }, new[] { 0f, 0f, 0f, 0f },
+        };
+        Vector4[] churn = Ask("Churns", churns.Select(q => new Vector4(q[0], q[1], q[2], 0f)).ToArray(), 0f);
+        float churnOff = churns.Select((q, i) => Mathf.Abs(churn[i].x - q[3])).Max();
+        Log.AppendLine(Inv($"Waves: churn on a fast crest, trough, still crest, half-fast crest, still water slowing, still water: {string.Join(", ", churn.Select(a => a.x.ToString("0.000", CultureInfo.InvariantCulture)))}: {Check(churnOff < 1e-5f)}"));
     }
+
+    // The waves' height at this speed (m/s) and depth (m), by the shaders' rule (FlowingWaterWaves.cginc).
+    private static float WaveHeight(float speed, float depth) => depth > 0.005f ? Mathf.Min(0.015f * speed * speed, 0.15f, 0.25f * depth) : 0f;
 
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
     // sheet shooting down a ramp throws no droplet, a dam let go throws some from its deep fast water, a still pool none;

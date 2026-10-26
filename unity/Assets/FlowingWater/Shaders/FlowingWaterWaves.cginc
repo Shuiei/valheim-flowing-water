@@ -66,4 +66,40 @@ float3 Chop(float2 world, float2 current, float length)
     return chop;
 }
 
+// The long waves raised on running water at a world place, as both shaders raise them (so the card's water and the
+// blocks' meet at the square's edge): the surface's rise there (m) and its slope (east, north), for water this deep
+// running at this current, so much of them shown (0 to 1: the blocks' fade at a shore); crest is the chop's height
+// there (-1 to 1), for the churn.
+float3 LongWaves(float2 world, float2 current, float depth, float shown, out float crest)
+{
+    float3 chop = Chop(world, current, WAVE_LENGTH);
+    crest = chop.x;
+    return WaveHeight(length(current), depth) * saturate(shown) * chop;
+}
+
+// A surface's normal (tangent space: x east, y north) tipped by the fine waves at a world place on water this deep
+// running at this current: only lit, never raised.
+float3 FineWaves(float3 n, float2 world, float2 current, float depth)
+{
+    float height = WAVE_FINE_SHARE * WaveHeight(length(current), depth);
+    if (height > 0.0)
+    {
+        float3 fine = Chop(world, current, WAVE_FINE_LENGTH);
+        n = normalize(float3(n.xy - (height * fine.yz * n.z), n.z));
+    }
+
+    return n;
+}
+
+// Water slowing this much (m/s) from two cells behind to two ahead (a jump, an obstacle) churns fully white.
+#define CHURN_SLOWING 1.5
+
+// White water (0 to 0.7): on the crests (crest, -1 to 1) of fast water's long waves (fast, 0 to 1 of the rapids'
+// speed), and where the water slows hard along its way into water ahead (m/s; only the card's water knows it, the
+// blocks give none).
+float Churn(float crest, float fast, float slowing)
+{
+    return 0.7 * saturate((smoothstep(0.35, 0.8, crest) * fast * fast) + saturate(slowing / CHURN_SLOWING));
+}
+
 #endif

@@ -186,13 +186,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
     n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
 
-    // The fine waves, lit only: their slope tips the surface (tangent space: x east, y north).
-    float fineWave = WAVE_FINE_SHARE * WaveHeight(speed, depth);
-    if (fineWave > 0.0)
-    {
-        float3 fine = Chop(i.world, i.current, WAVE_FINE_LENGTH);
-        n = normalize(float3(n.xy - (fineWave * fine.yz * n.z), n.z));
-    }
+    // The fine waves, lit only: their slope tips the surface.
+    n = FineWaves(n, i.world, i.current, depth);
 
     // Seen from under the water, its underside.
     n.z *= i.facing > 0.0 ? 1.0 : -1.0;

@@ -88,8 +88,6 @@ Shader "FlowingWater/SimWater"
         #define CLIFF_FADE 0.3
         #define CLIFF_CELL 0.25
 
-        // Water slowing this much (m/s) from two cells behind to two ahead (a jump, an obstacle) churns fully white.
-        #define CHURN_SLOWING 1.5
 
         // A face of the grid steeper than this (the up of its normal) begins to fade, gone at the second.
         #define STEEP_FROM 0.45
@@ -143,15 +141,15 @@ Shader "FlowingWater/SimWater"
             float speed = length(current);
             float2 world = mul(unity_ObjectToWorld, v.vertex).xz;
 
-            // The long waves of running water (FlowingWaterLook.cginc), raised on its level, their slope with the water's
+            // The long waves of running water (FlowingWaterWaves.cginc), raised on its level, their slope with the water's
             // own for the light (the fine ones are lit by the look).
-            float wave = depth > HIDE_DEPTH * 0.5 ? WaveHeight(speed, depth) : 0.0;
-            float3 chop = Chop(world, current, WAVE_LENGTH);
-            v.vertex.y += wave * chop.x;
+            float crest;
+            float3 wave = LongWaves(world, current, depth, 1.0, crest);
+            v.vertex.y += wave.x;
 
             float east = LevelAt(p + float2(1.0, 0.0)) - LevelAt(p - float2(1.0, 0.0));
             float north = LevelAt(p + float2(0.0, 1.0)) - LevelAt(p - float2(0.0, 1.0));
-            float2 slope = (float2(east, north) / (2.0 * _SimDx)) + (wave * chop.yz);
+            float2 slope = (float2(east, north) / (2.0 * _SimDx)) + wave.yz;
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
 
@@ -160,8 +158,7 @@ Shader "FlowingWater/SimWater"
             float2 along = speed > 0.05 ? current / speed : 0.0;
             float2 ahead = p + (2.0 * along);
             float slowing = At(_SimH, ahead) > SHOW_DEPTH ? SpeedAt(p - (2.0 * along)) - SpeedAt(ahead) : 0.0;
-            float fast = saturate(speed / _RapidsSpeed);
-            float churn = 0.7 * saturate((smoothstep(0.35, 0.8, chop.x) * fast * fast) + saturate(slowing / CHURN_SLOWING));
+            float churn = Churn(crest, saturate(speed / _RapidsSpeed), slowing);
             float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;

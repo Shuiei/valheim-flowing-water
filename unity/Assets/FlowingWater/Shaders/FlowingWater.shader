@@ -133,26 +133,25 @@ Shader "FlowingWater/Water"
             float4 flow = FlowAt(cell);
 
             // Raised to the top (over the brick's floor; the object sits at the brick's centre), with the long waves of
-            // running water on it as the card's water near the camera has them (FlowingWaterLook.cginc: they meet at the
+            // running water on it as the card's water near the camera has them (FlowingWaterWaves.cginc: they meet at the
             // edge of its square); the fine ones are lit by the look.
             v.vertex.y = surface.x - (8.0 * _VoxelSize) + _Lift;
             float2 world = mul(unity_ObjectToWorld, v.vertex).xz;
-            float speed = length(flow.xy);
-            float wave = WaveHeight(speed, surface.y) * saturate(surface.z);
-            float3 chop = Chop(world, flow.xy, WAVE_LENGTH);
-            v.vertex.y += wave * chop.x;
+            float crest;
+            float3 wave = LongWaves(world, flow.xy, surface.y, surface.z, crest);
+            v.vertex.y += wave.x;
 
             // The surface's slope, from the tops half a column either side, and the waves'.
             float east = SurfaceAt(cell + float2(0.5, 0.0)).x - SurfaceAt(cell - float2(0.5, 0.0)).x;
             float north = SurfaceAt(cell + float2(0.0, 0.5)).x - SurfaceAt(cell - float2(0.0, 0.5)).x;
-            float2 slope = (float2(east, north) / max(_VoxelSize, 0.001)) + (wave * chop.yz);
+            float2 slope = (float2(east, north) / max(_VoxelSize, 0.001)) + wave.yz;
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
 
-            // White water on the tops of fast waves' crests, as the card's water has it.
-            float fast = saturate(speed / _RapidsSpeed);
+            // White water on the tops of fast waves' crests, as the card's water has it (not where it slows: the blocks do
+            // not know the water ahead).
             o.world = world;
-            o.water = float4(surface.y, flow.z, surface.z, 0.7 * smoothstep(0.35, 0.8, chop.x) * fast * fast);
+            o.water = float4(surface.y, flow.z, surface.z, Churn(crest, saturate(length(flow.xy) / _RapidsSpeed), 0.0));
             o.current = flow.xy;
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));

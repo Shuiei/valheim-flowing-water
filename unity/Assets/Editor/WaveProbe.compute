@@ -3,9 +3,14 @@
 #pragma kernel Heights
 #pragma kernel Noises
 #pragma kernel Chops
+#pragma kernel Longs
+#pragma kernel Fines
+#pragma kernel Churns
 
 float4 _Time;
 float _Length;
+float _Depth;
+float _Shown;
 
 #include "../FlowingWater/Shaders/FlowingWaterWaves.cginc"
 
@@ -40,5 +45,39 @@ void Chops(uint3 id : SV_DispatchThreadID)
     if (id.x < _Count)
     {
         _Out[id.x] = float4(Chop(_In[id.x].xy, _In[id.x].zw, _Length), 0.0);
+    }
+}
+
+// _In: a world place (m), the current there (m/s). _Out: the long waves' rise there (m) and slope, on water _Depth
+// deep, _Shown of them; and the crest.
+[numthreads(64, 1, 1)]
+void Longs(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        float crest;
+        float3 rise = LongWaves(_In[id.x].xy, _In[id.x].zw, _Depth, _Shown, crest);
+        _Out[id.x] = float4(rise, crest);
+    }
+}
+
+// _In: a world place (m), the current there (m/s). _Out: a flat surface's normal tipped by the fine waves there, on
+// water _Depth deep.
+[numthreads(64, 1, 1)]
+void Fines(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        _Out[id.x] = float4(FineWaves(float3(0.0, 0.0, 1.0), _In[id.x].xy, _In[id.x].zw, _Depth), 0.0);
+    }
+}
+
+// _In: a crest (-1 to 1), how fast (0 to 1), the water's slowing (m/s). _Out: its churn.
+[numthreads(64, 1, 1)]
+void Churns(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        _Out[id.x] = float4(Churn(_In[id.x].x, _In[id.x].y, _In[id.x].z), 0.0, 0.0, 0.0);
     }
 }
