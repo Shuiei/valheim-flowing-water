@@ -155,6 +155,33 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void WaterRunningDownASteepSlopeVoxelToVoxelIsNoFall()
+    {
+        // Thin water hanging over voxels that hold ground (as the server says: the ground under dry voxels is not
+        // sent), a voxel lower each step: the surface draws it, no columns.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 4; x < 8; x++)
+        {
+            Wet(view, x, 12 - x, 8, 0.1f, BrickData.AllOpen | BrickData.GroundUnder);
+        }
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterFallingDownACliffFaceOverGroundIsStillAFall()
+    {
+        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a fall all the same.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Wet(view, 8, y, 8, 0.09f, BrickData.AllOpen | BrickData.GroundUnder);
+        }
+
+        Assert.True(VoxelShell.Build(Field(view), 0, 0, 0).Faces >= 3 * 4);
+    }
+
+    [Fact]
     public void AFallAgainstAWallShowsNoSideOrCapOnTheFacesTheWallCloses()
     {
         // Two voxels of falling water with a wall on their east faces, the upper one's top closed by a floor over it.

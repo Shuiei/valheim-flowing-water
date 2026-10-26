@@ -374,8 +374,9 @@ internal sealed class Brick
     /// <summary>
     /// The faces of a voxel water could leave it by, a bit per side as <see cref="Beside"/> (east, west, up, down,
     /// north, south): those no piece closes, not onto a solid voxel, and not shut against a brick forgotten there. A
-    /// face onto a brick there is none of is open. Besides, <see cref="BrickData.GroundBeside"/> where a side open toward
-    /// water a voxel lower has ground in the dry voxel beside it.
+    /// face onto a brick there is none of is open. Besides, <see cref="BrickData.GroundUnder"/> where the voxel under it
+    /// holds ground, and <see cref="BrickData.GroundBeside"/> where a side open toward water a voxel lower has ground in
+    /// the dry voxel beside it.
     /// </summary>
     public byte OpenFaces(int i)
     {
@@ -408,6 +409,11 @@ internal sealed class Brick
             }
         }
 
+        if (Neighbour(i, 3, out Brick under, out int k) && under.Solid[k] >= BrickData.HoldsGround)
+        {
+            open |= BrickData.GroundUnder;
+        }
+
         return (byte)open;
     }
 
@@ -415,7 +421,7 @@ internal sealed class Brick
     // under it. Dry there is under a step of the bytes sent (with what the steps before carry, a film up to one step may
     // be sent as none; one sent wet is drawn as water beside, the bit unread).
     private bool GroundBesideLowerWater(int i, int side) =>
-        Neighbour(i, side, out Brick next, out int j) && next.Water[j] < 1f / BrickData.Full && next.Solid[j] >= BrickData.GroundBesideShare
+        Neighbour(i, side, out Brick next, out int j) && next.Water[j] < 1f / BrickData.Full && next.Solid[j] >= BrickData.HoldsGround
         && next.Neighbour(j, 3, out Brick under, out int k) && under.Water[k] > 0f;
 
     /// <summary>Forgets which border faces were shut (its solids are read again: they may have opened).</summary>
