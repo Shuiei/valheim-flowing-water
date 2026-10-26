@@ -198,7 +198,7 @@ internal sealed class SolidShapes
         }
 
         GameObject source = ZNetScene.instance.GetPrefab(prefab);
-        shape = source == null ? None : Read(source, prefab, false);
+        shape = source == null ? None : Read(source, false);
         _byPrefab[prefab] = shape;
         return shape;
     }
@@ -238,7 +238,7 @@ internal sealed class SolidShapes
             }
 
             GameObject source = found.m_prefab.Asset;
-            shape = source == null ? None : Read(source, location, true);
+            shape = source == null ? None : Read(source, true);
         }
 
         _byLocation[location] = shape;
@@ -246,7 +246,7 @@ internal sealed class SolidShapes
     }
 
     // The prefab's solid colliders as parts in its own space.
-    private Shape Read(GameObject prefab, int key, bool location)
+    private Shape Read(GameObject prefab, bool location)
     {
         // What moves by itself (a log rolling, a thing dropped) is no ground for the water.
         Rigidbody body = prefab.GetComponent<Rigidbody>();
