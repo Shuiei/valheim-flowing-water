@@ -52,6 +52,32 @@ public class ForStepsTests
     }
 
     [Fact]
+    public void StoppingTheRunStopsTheStepsToo()
+    {
+        float range = 96f;
+        bool cleared = false;
+
+        IEnumerator run = ForSteps.Set(() => range, metres => range = metres, 32f, Clearing(() => cleared = true));
+        Assert.True(run.MoveNext());
+        ((IDisposable)run).Dispose();
+
+        Assert.True(cleared);
+        Assert.Equal(96f, range);
+    }
+
+    [Fact]
+    public void ItIsPutBackWhenTheStepsClearingUpThrows()
+    {
+        float range = 96f;
+
+        IEnumerator run = ForSteps.Set(() => range, metres => range = metres, 32f, Clearing(() => throw new InvalidOperationException("the camera is gone")));
+        Assert.True(run.MoveNext());
+
+        Assert.Throws<InvalidOperationException>(() => ((IDisposable)run).Dispose());
+        Assert.Equal(96f, range);
+    }
+
+    [Fact]
     public void NothingIsSetUntilTheStepsStart()
     {
         float range = 96f;
@@ -71,6 +97,20 @@ public class ForStepsTests
         {
             note();
             yield return step;
+        }
+    }
+
+    // Steps that clear up after themselves (put the camera back, say) however they end.
+    private static IEnumerator Clearing(Action clear)
+    {
+        try
+        {
+            yield return "burst";
+            yield return "shot";
+        }
+        finally
+        {
+            clear();
         }
     }
 
