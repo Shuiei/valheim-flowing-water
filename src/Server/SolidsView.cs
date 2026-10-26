@@ -7,7 +7,7 @@ namespace FlowingWater.Server;
 
 /// <summary>
 /// What the water sees as solid round a point, as text for the console: the voxel row at the point (solid voxels
-/// and the side faces pieces close) and the faces under it (a floor), north up.
+/// and the side faces solids close) and the faces under it (a floor), north up.
 /// </summary>
 internal static class SolidsView
 {

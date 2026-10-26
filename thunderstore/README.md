@@ -21,8 +21,10 @@ the river follows it.
   through, so a pool reads as water rather than a tinted film. Near you it ends in a smooth, rounded front where it
   meets dry ground, and a thin sheet lies smooth over the ground's small bumps instead of breaking into patches.
 
-**A prototype.** The server's flow is tuned for rivers and ponds; the waves are your graphics card's. What you build holds water as the terrain
-does: walls, floors, a pool on posts, a plank chute or slide the water runs down.
+**A prototype.** The server's flow is tuned for rivers and ponds; the waves are your graphics card's. Whatever is solid holds water as the terrain
+does: what you build (walls, floors, a pool on posts, a plank chute or slide the water runs down), rocks, trees and
+the ruins of the game's places, each by its own shape; the water runs round a rock and off its top, and through a
+notch mined in it.
 
 ## Install
 

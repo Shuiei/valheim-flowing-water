@@ -5,6 +5,7 @@ All notable changes to FlowingWater. Newest first.
 ## v0.37.0 — 2026-10-26
 
 ### Added
+<<<<<<< HEAD
 - A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
   a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
   on), water running over a lip near you falls as particles of water, a litre each, that break up, splash and pool,
@@ -14,6 +15,14 @@ All notable changes to FlowingWater. Newest first.
   a pool, a wall holds it in), and pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
   they move through it;
   `clear` takes it away, `spheres` shows the particles themselves.
+=======
+- Everything solid is ground for the water, not only what players build: rocks, trees, stumps and the ruins and rocks
+  of the game's places, each by the real shape of its collider mesh (an overhang, an arch, a cave under a rock; a
+  handful of furniture pieces whose mesh the game keeps unreadable are the box round it), so a source on a rock pours
+  over its top and down its side instead of through it. A rock mined bit by bit lets the water through where it is
+  gone. The players' game already cast its ground on the same things, so what it draws and what the server moves now
+  agree there.
+>>>>>>> origin/main
 
 ## v0.36.0 — 2026-10-26
 
