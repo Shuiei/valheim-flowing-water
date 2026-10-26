@@ -473,6 +473,30 @@ public class BrickObjectsTests
         return brick;
     }
 
+    [Fact]
+    public void ASendForASaveLeavesNoObjectItDestroyedForTheSaveToKeep()
+    {
+        // The game destroys objects a little later (at its next frame): a dry brick's object destroyed by the send made
+        // for a save must be gone before the save, and a send not for one leaves the game to it.
+        var world = new World { Late = true };
+        var objects = new BrickObjects<int>(world);
+        Brick kept = Wet(0, 0, 0, 0.5f), gone = Wet(1, 0, 0, 0.5f);
+        objects.Publish([kept, gone], VoxelSize);
+
+        // A brick gone: its object destroyed, later.
+        objects.Publish([kept], VoxelSize);
+
+        Assert.Single(world.Pending);
+        Assert.Equal(0, world.Flushes);
+
+        // The send for a save (the other brick gone too): every object destroyed is gone before it.
+        objects.Publish([], VoxelSize, exact: true);
+
+        Assert.Equal(1, world.Flushes);
+        Assert.Empty(world.Pending);
+        Assert.Empty(world.Objects);
+    }
+
     private static float Water(World world, int id) => BrickData.Decode(world.Objects[id]).Water[0];
 
     // The game's bricks' objects: ids given out once, as the game does. Writing to or destroying an id not a brick's
@@ -510,10 +534,32 @@ public class BrickObjectsTests
             Written.Add(id);
         }
 
+        // Destroyed only once flushed (as the game does), when Late.
+        public bool Late { get; init; }
+
+        public List<int> Pending { get; } = [];
+
+        public int Flushes { get; private set; }
+
         public void Destroy(int id)
         {
-            Assert.True(Objects.Remove(id), $"{id} destroyed, not a brick's");
+            Assert.True(Objects.ContainsKey(id) && !Pending.Contains(id), $"{id} destroyed, not a brick's");
             Destroyed.Add(id);
+            if (Late)
+            {
+                Pending.Add(id);
+            }
+            else
+            {
+                Objects.Remove(id);
+            }
+        }
+
+        public void Flush()
+        {
+            Flushes++;
+            Pending.ForEach(id => Objects.Remove(id));
+            Pending.Clear();
         }
     }
 }

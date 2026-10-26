@@ -18,8 +18,11 @@ internal interface IBrickWorld<TId>
     /// <summary>A brick's water written into its object, whoever has it.</summary>
     void Write(TId id, byte[] data);
 
-    /// <summary>A brick's object destroyed.</summary>
+    /// <summary>A brick's object destroyed (the game may do it a little later: see <see cref="Flush"/>).</summary>
     void Destroy(TId id);
+
+    /// <summary>The objects destroyed so far gone now, before the world is saved (else the save keeps them).</summary>
+    void Flush();
 }
 
 /// <summary>
@@ -189,6 +192,15 @@ internal sealed class BrickObjects<TId>
         }
 
         Forget([.. _objects.Keys.Where(k => !_kept.Contains(k))]);
+
+        // The world is about to be saved: the objects destroyed must be gone from it first, or the save keeps them, and
+        // the next start reads them back (a dried brick's last water poured again, or a second object at a brick's place
+        // beside the one made since).
+        if (_exact)
+        {
+            _world.Flush();
+        }
+
         return written;
     }
 
