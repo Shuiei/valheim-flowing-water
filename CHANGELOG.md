@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.27.1 — 2026-10-26
+
+### Fixed
+- Water that dried up just before the world was saved no longer comes back at the next start, and the server no longer
+  warns of a second object holding a block of water after a restart.
+
 ## v0.27.0 — 2026-10-25
 
 ### Changed
@@ -26,12 +32,6 @@ All notable changes to FlowingWater. Newest first.
   says how much water is where, and what you swim in. Settings `Client.GpuWater`, `Client.GpuWaterRange` and
   `Client.GpuWaterCell`; the console command `flowingwater gpu` tells what it is doing. On a graphics card without
   compute shaders, the water is drawn as the server sends it.
-
-## v0.24.1 — 2026-10-26
-
-### Fixed
-- Water that dried up just before the world was saved no longer comes back at the next start, and the server no longer
-  warns of a second object holding a block of water after a restart.
 
 ## v0.24.0 — 2026-10-25
 
