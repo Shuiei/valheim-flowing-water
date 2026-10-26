@@ -59,6 +59,10 @@ internal static class Materials
 
     private static Material _particleSurface;
 
+    private static ComputeShader _volumeCompute;
+
+    private static bool _volumeTried;
+
     private static ComputeShader _particlesCompute;
 
     private static bool _particlesTried;
@@ -83,6 +87,7 @@ internal static class Materials
         _simTried &= _sim != null && _simCompute != null;
         _sprayTried &= _spray != null && _sprayCompute != null;
         _particlesTried &= _particles != null && _particleSurface != null && _particlesCompute != null;
+        _volumeTried &= _volumeCompute != null;
         _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
@@ -343,6 +348,32 @@ internal static class Materials
         surface = _particleSurface;
         compute = _particlesCompute;
         return _particles != null && _particleSurface != null && _particlesCompute != null;
+    }
+
+    /// <summary>
+    /// The volume water's: the compute shader that moves it, with the particle water's materials it is drawn with
+    /// (<see cref="Particles"/>); false (logged once a world) where the bundle has none.
+    /// </summary>
+    public static bool Volume(out Material material, out Material surface, out ComputeShader compute)
+    {
+        compute = null;
+        if (!Particles(out material, out surface, out _))
+        {
+            return false;
+        }
+
+        if (!_volumeTried)
+        {
+            _volumeTried = true;
+            _volumeCompute = _bundle.LoadAsset<ComputeShader>("FlowingWaterVolume");
+            if (_volumeCompute == null)
+            {
+                FlowingWaterPlugin.Log.LogError("The compute shader of the volume water is missing from the bundle: the water near you stays a sheet");
+            }
+        }
+
+        compute = _volumeCompute;
+        return compute != null;
     }
 
     private static void LoadSim()

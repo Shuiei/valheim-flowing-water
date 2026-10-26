@@ -4,6 +4,24 @@ using UnityEngine.Rendering;
 
 namespace FlowingWater.Client;
 
+internal interface IParticleCloud
+{
+    /// <summary>The indirect drawing arguments: six points a particle, as many particles as there are.</summary>
+    ComputeBuffer Arguments { get; }
+
+    /// <summary>What the particles are drawn with (the mod's particles material).</summary>
+    Material Material { get; }
+
+    /// <summary>The particles' own buffer and size, for the material.</summary>
+    MaterialPropertyBlock Properties { get; }
+
+    /// <summary>Particles as the card last answered (no wait).</summary>
+    int LastCount { get; }
+
+    /// <summary>A particle's water: a cube this long on a side (m).</summary>
+    float Spacing { get; }
+}
+
 /// <summary>
 /// The particle water (<see cref="ParticleWater"/>) drawn as water: a screen-space surface over the particles. A
 /// command buffer on the camera, before the scene's transparent things, makes two textures with the mod's
@@ -64,7 +82,7 @@ internal sealed class ParticleSurface : IDisposable
     /// card says there are), on the camera (moved from the last one if it changed), and the surface drawn over the scene
     /// with <paramref name="surface"/> (the mod's particle surface material).
     /// </summary>
-    public void Render(Camera camera, ParticleWater water, Material surface)
+    public void Render(Camera camera, IParticleCloud water, Material surface)
     {
         if (_camera != camera)
         {

@@ -112,6 +112,10 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
 | `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
+| `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
+| `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 64; the card's square is this at most then); more costs the card more, by the square |
+| `Client.VolumeHeight` | 24 | Height of the volume water's grid, metres (8 to 48), centred on you: water above or below it is the server's |
+| `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³) |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
@@ -294,6 +298,41 @@ picture); spread over the frame's budget (a step is one go, and a column gets at
 256; the surface is drawn only while there are particles); a jet fountain (a source's water only goes out sideways);
 its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
 The console's block stays where the card's square leaves it.
+
+### Volume water (a prototype)
+
+With `Client.VolumeWater`, the water near you is one body of fluid on the graphics card (`src/Client/VolumeWater.cs`,
+`unity/Assets/FlowingWater/Shaders/FlowingWaterVolume.compute`), in place of the sheet and of the particle prototype
+above, and drawn as that prototype is for now. It is a hybrid of particles and a grid (FLIP, Zhu and Bridson 2005):
+the particles carry the water, each a cube of water half a cell on a side (eight to a cell of the card's 0.25 m
+cells), and move with it; each step their velocity is put on a staggered grid, gravity is added, and a pressure is
+solved over the cells that hold water so that no cell makes or loses any (with a small correction for cells that hold
+more or fewer particles than rest, which keeps the volume from drifting); the corrected velocity goes back to the
+particles, mostly as the change (FLIP) and a little as the grid's own (PIC), and they move along it. Cells under the
+ground the card's water knows, in a built voxel (the bricks' solids) or in a body (players, creatures, ships' hulls,
+carts) are solid: the water goes round them, pools over them, is held in by them and breaks out where one is gone.
+
+Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
+in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
+two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
+or top is the server's again. A placed source is an inflow in the grid: its cells are kept full of particles going
+out of it at about three metres a second (its reach grows with its rate: a big spring boils up over a wide patch),
+scaled each step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
+drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
+card's square, no wider than `Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, centred on you and following
+you up and down.
+
+`tools/sim-preview.sh <folder> VolumePreview.Run` runs it without the game and writes `volume.txt` and frames: a box
+of water at rest keeps its depth and every particle over 5 s; the 10 m dam break's front reaches the far wall at
+1.40 s (a real one about 1.3 to 1.5 s) and the water comes to rest near 0.5 m; water let go on a shelf pours over the
+lip and pools below, none lost; a source of 8 m³/s grows the water by its rate; a box of walls holds 2 m of water and
+empties through a gap opened at its foot; a drain of 2 m³/s takes exactly that. `FW_PREVIEW_ITERATIONS`,
+`FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` try other solver settings, `FW_PREVIEW_SPHERES=1` draws the particles.
+
+What it is not yet: its own look (it is drawn as the particle prototype's spheres melted into a surface, which is
+dark in deep water and shows no foam), spray, foam and mist where it is thrown (a fall's foot, fast water on a rock:
+next), swum in or floated on (the server's water says what you swim in), spread over the frame's budget, and the
+server does not learn what it does.
 
 ### Grid size
 

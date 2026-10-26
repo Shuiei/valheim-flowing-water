@@ -15,7 +15,7 @@ namespace FlowingWater.Client;
 /// (<see cref="Count"/> reads it back). Nothing is sent anywhere. Needs only Unity, so the Unity project's preview runs
 /// it (ParticlePreview) too.
 /// </summary>
-internal sealed class ParticleWater : IDisposable
+internal sealed class ParticleWater : IParticleCloud, IDisposable
 {
     /// <summary>Bodies in the water at most (<see cref="SetBodies"/>).</summary>
     public const int MostBodies = 32;

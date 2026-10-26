@@ -2,6 +2,18 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.39.0 — 2026-10-26
+
+### Added
+- The water near you as one body of fluid on your graphics card, a prototype behind the new `Client.VolumeWater`
+  setting (off unless you turn it on; it replaces the sheet and `Client.ParticleWater` near you): a 3D fluid on a grid
+  round you, its mass its own. It is poured in from the server's water once and at the square's edge, and from then
+  on it moves as water moves: it pools and levels, a box of walls holds it and it bursts out where a wall is broken,
+  it falls off a ledge and pools below, flows round rocks and what you build, and placed sources pour into it and
+  drains take from it at their rate, nothing made or lost in between. `Client.VolumeRange`, `Client.VolumeHeight` and
+  `Client.VolumeCapacity` size it. Drawn as the particle water is for now; its own look, and spray and foam where it
+  is thrown, come next.
+
 ## v0.38.0 — 2026-10-26
 
 ### Added
