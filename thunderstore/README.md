@@ -14,6 +14,8 @@ the river follows it.
   out over the ground, runs up the walls and sloshes back; waves cross a pool and come back. The server still says
   how much water is where (and what you swim in); a card without compute shaders draws it as the server sends it.
   Water pouring off a ledge arcs out and splashes where it lands, and fast water throws spray.
+- **Running water looks it**: a deeper colour that hides what is under it, foam drawn out in streaks along the
+  current, and waves that rise with its speed, near you and far off.
 
 **A prototype.** The server's flow is tuned for rivers and ponds; the waves are your graphics card's. What you build holds water as the terrain
 does: walls, floors, a pool on posts, a plank chute or slide the water runs down.

@@ -32,7 +32,6 @@ float _RunningDeep;
 float _RunningClarity;
 float _FlowTiling;
 float _FlowStrength;
-float _FlowCycle;
 float _FlowFrom;
 float _FlowFull;
 float _RapidsSpeed;
@@ -61,6 +60,7 @@ struct Input
 };
 
 #include "FlowingWaterSimMask.cginc"
+#include "FlowingWaterWaves.cginc"
 
 // The scene's distance from the camera, along its view axis, at a point of the screen.
 float SceneEye(float2 screen)
@@ -185,6 +185,10 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // Shallow still water lies flatter, as the sea's does; running water keeps its ripples.
     float3 n = normalize(lerp(float3(0.0, 0.0, 1.0), ripples, max(clamp(deep, 0.2, 1.0), running)));
     n = lerp(float3(0.0, 0.0, 1.0), n, _NormalPower);
+
+    // The fine waves, lit only: their slope tips the surface.
+    n = FineWaves(n, i.world, i.current, depth);
+
     // Seen from under the water, its underside.
     n.z *= i.facing > 0.0 ? 1.0 : -1.0;
 

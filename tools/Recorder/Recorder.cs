@@ -557,6 +557,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return Fly(t => (steep.At(6f + (50f * t)) + (steep.Across * 4f) + new Vector3(0f, 5f, 0f), steep.At(14f + (50f * t))), "steep-fly", 8f, 15);
         Command("flowingwater gpu");
 
+        // Far water: the card's square cut to 32 m, so most of the stream is the blocks' (red in the colours), whose waves
+        // must run on as the card's do and meet them at the square's edge; the square put back after.
+        ConfigEntry<float> range = GpuWaterRange();
+        yield return ForSteps.Set(() => range.Value, metres => SetGpuWaterRange(range, metres), 32f, FarWater(steep));
+        yield return new WaitForSeconds(2f);
+
         // The fall off the platform (its source placed first): falls, splashes and spray as particles, filmed close and
         // from further off; who draws what.
         Vector3 fall = tower + new Vector3(0f, -2f, 0f);
@@ -653,6 +659,35 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
         Note(FormattableString.Invariant($"platform of {count} {piece.name} at {middle.ToString("F1")}, top {highest:0.0}"));
         return new Vector3(middle.x, highest, middle.z);
+    }
+
+    // The far water's shots, the card's square cut short (Gpu): its waves and the blocks', then who draws what.
+    private IEnumerator FarWater(Site steep)
+    {
+        yield return new WaitForSeconds(4f);
+        yield return Burst(steep.Behind() + new Vector3(0f, 6f, 0f), steep.At(20f), "steep-far", 3f, 15);
+        Command("flowingwater gpu colours");
+        yield return Shot(steep.Behind() + new Vector3(0f, 6f, 0f), steep.At(20f), "steep-far-colours");
+        Command("flowingwater gpu colours");
+    }
+
+    // The side of the card's square: its setting in the plugin's file.
+    private static ConfigEntry<float> GpuWaterRange()
+    {
+        if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue("Tie.FlowingWater", out BepInEx.PluginInfo plugin)
+            || !plugin.Instance.Config.TryGetEntry("Client", "GpuWaterRange", out ConfigEntry<float> entry))
+        {
+            throw new InvalidOperationException("FlowingWater's Client.GpuWaterRange setting not found");
+        }
+
+        return entry;
+    }
+
+    // The side of the card's square set, as its setting in the plugin's file does.
+    private void SetGpuWaterRange(ConfigEntry<float> range, float metres)
+    {
+        range.Value = metres;
+        Note($"Client.GpuWaterRange = {metres}");
     }
 
     // Turns the water moved on the graphics card on or off, as its setting in the plugin's file does.
