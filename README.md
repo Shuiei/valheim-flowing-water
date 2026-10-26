@@ -108,6 +108,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
+| `Client.ParticleWater` | false | A prototype: with `Client.Spray`, water running over a lip near you falls as particles of water (a litre each, moved as water moves: it breaks up, splashes and pools) instead of as curtains and sheets of spray, and gives its water back to the water near you where it lands (see [Particle water](#particle-water-a-prototype)) |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
 ### Water on the graphics card
@@ -211,8 +212,9 @@ where the water a cell away is more than half a metre higher or lower.
 The sheet of shallow water the card moves is a height over the ground: it cannot curl over, break into drops, or be
 pushed aside by something moving through it. For that water, a prototype of **water as particles** is in the plugin's
 code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingWaterParticles.compute` and
-`.shader`, `FlowingWaterParticleSurface.shader`), measured by the Unity project's preview; in the game only the console pours some, to try it
-(`flowingwater particles [m³]`, while the card moves the water near you): **nothing else draws it yet.** What it is:
+`.shader`, `FlowingWaterParticleSurface.shader`), measured by the Unity project's preview. In the game it is off unless
+`Client.ParticleWater` is on (then water going over a lip near you falls as particles), and the console pours some
+either way (`flowingwater particles [m³]`, while the card moves the water near you). What it is:
 
 - Each particle is a cube of water 10 cm on a side (a litre). Position based fluids (Macklin and Müller, 2013): each
   step guesses where every particle goes, then pulls the guesses a few rounds until the water round each is as dense
@@ -224,6 +226,14 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
   particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
   out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
   still instead of jittering against its walls. A sphere (a player, a boat) pushes the water aside.
+- With `Client.ParticleWater`, the particles trade water with the card's sheet where a sheet cannot be the water: the
+  water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
+  each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
+  on the ground (a puddle is the sheet's), gives its litre back to the sheet where it is, with its momentum, as the
+  spray's sheets did, and is gone; one under the sea's level is the sea's. So a fall is particles from the lip down to
+  the pool, and the pool is the sheet's again, with its waves and churn; the spray's droplets and splashes stay. The
+  preview's sheet scene (SimPreview's shelf, 192 m³ let go) counts all the water, the sheet's and the particles' and
+  what is between them, within 0.2 m³ throughout; 36 000 particles were in the air at most.
 - Drawn as water over the scene, from the screen (van der Laan, Green and Sainz, 2009): the camera first draws the
   particles as spheres into two textures, the nearest's distance at each pixel (smoothed into one surface, keeping
   the steps between one body of water and another) and the water the view goes through there (with how much of it is
@@ -233,19 +243,20 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
   `flowingwater particles spheres` shows the particles themselves.
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
-off a ledge into a basin, a sphere pushed through a pool, and a cost scene, and writes `particles.txt` and frames
+off a ledge into a basin, a sphere pushed through a pool, the card's sheet pouring over a lip as particles, and a
+cost scene, and writes `particles.txt` and frames
 (`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
 filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches
 the far wall at 1.30 s (a real one about 1.3 to 1.5 s; the sheet 1.25 s) and runs 3 m up it; moving 64 000 particles
 costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing them comes on top.
 
-What it is not yet: the game's water (the particles would take water from the sheet where it goes over a lip, bursts
-or is struck, and give it back where they settle, as the spray's sheets do now; the console's block is only drawn,
-nothing swims in it, and it stays where the card's square leaves it); met by what players build other than through
-the ground's heights (a floor, a wall's top), nor by the sea (it lies on the seabed); spread over the frame's budget
-(a step is one go); its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass
-on the sheet's.
+What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
+floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is
+not the server's until it lands); met by what players build other than through the ground's heights (a floor, a
+wall's top); spread over the frame's budget (a step is one go, and a lip throws at most 16 particles a cell a step);
+its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
+The console's block stays where the card's square leaves it.
 
 ### Grid size
 

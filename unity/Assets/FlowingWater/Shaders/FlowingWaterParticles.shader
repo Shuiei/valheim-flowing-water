@@ -59,6 +59,13 @@ Shader "FlowingWater/Particles"
         sphere o;
         UNITY_INITIALIZE_OUTPUT(sphere, o);
         Particle p = _Particles[id / 6];
+        if (p.place.w < 0.5)
+        {
+            // Gone (its water the sheet's now, till the next step drops it): every point in one place, behind the camera.
+            o.pos = float4(0.0, 0.0, -2.0, 1.0);
+            return o;
+        }
+
         const float2 corners[6] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(1.0, 1.0), float2(-1.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0) };
         float2 q = corners[id % 6];
         float3 centre = mul(UNITY_MATRIX_V, float4(p.place.xyz, 1.0)).xyz;

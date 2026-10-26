@@ -68,6 +68,10 @@ float _SprayRate;
 float _LipDrop;
 float _SheetVolume;
 RWTexture2D<float> _Airborne;
+
+// Whether the water thrown over lips is this spray's to throw as sheets, and the lips' to draw as curtains (0: the
+// particle water takes it, FlowingWaterParticles.compute).
+int _Lips;
 RWTexture2D<int> _Landed;
 RWTexture2D<int> _LandedX;
 RWTexture2D<int> _LandedZ;
@@ -184,7 +188,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
     // takes), through the faces it leaves by as each carries, where the ground beyond falls away; at its speed, from
     // just past the face, at the water's top and under it.
     float thrown = _Airborne[c];
-    if (thrown >= _SheetVolume)
+    if (_Lips != 0 && thrown >= _SheetVolume)
     {
         // The faces over a lip as the card's water throws it (the ground and the water beyond well under this ground),
         // each as much more often as more leaves by it now; the speed out through each.
@@ -376,7 +380,7 @@ bool OverLip(int2 c, int2 side, out float leaving)
 void Curtains(uint3 id : SV_DispatchThreadID)
 {
     int2 c = (int2)id.xy;
-    if (!Inside(c))
+    if (!Inside(c) || _Lips == 0)
     {
         return;
     }

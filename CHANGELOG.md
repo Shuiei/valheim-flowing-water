@@ -5,11 +5,13 @@ All notable changes to FlowingWater. Newest first.
 ## v0.37.0 — 2026-10-26
 
 ### Added
-- A prototype of water as particles on your graphics card, for the water a sheet cannot be: a dam bursting, water
-  pouring over a lip, something pushed through a pool. To try it, the console's `flowingwater particles [m³]` pours a
-  block of it over you, drawn as water with the sea's look (foam where it splashes), kept out of the ground and pushed
-  aside as you wade through; `clear` takes it away, `spheres` shows the particles themselves. Nothing else in the game
-  uses it yet.
+- A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
+  a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
+  on), water running over a lip near you falls as particles of water, a litre each, that break up, splash and pool,
+  and give their water back to the water near you where they land, instead of the curtains and sheets of spray. The
+  console's `flowingwater particles [m³]` pours a block of it over you either way, drawn as water with the sea's look
+  (foam where it splashes), kept out of the ground and pushed aside as you wade through; `clear` takes it away,
+  `spheres` shows the particles themselves.
 
 ## v0.36.0 — 2026-10-26
 

@@ -27,6 +27,13 @@ public static class SimPreview
 
     private static readonly StringBuilder Log = new();
 
+    // Where a scene's shots go (the particle preview's sheet scene sets it for its own).
+    internal static string Output
+    {
+        get => _output;
+        set => _output = value;
+    }
+
     public static void Run()
     {
         try
@@ -912,8 +919,9 @@ public static class SimPreview
 
     private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 
-    // A scene: the ground as a mesh, the sim's water drawn over it with the plugin's material, a light, a camera.
-    private sealed class Scene : IDisposable
+    // A scene: the ground as a mesh, the sim's water drawn over it with the plugin's material, a light, a camera (the
+    // particle preview's sheet scene uses it too).
+    internal sealed class Scene : IDisposable
     {
         private readonly string _name;
 
@@ -952,6 +960,9 @@ public static class SimPreview
 
         // Particles drawn with each shot, if any.
         public SprayParticles Spray { get; set; }
+
+        // Particle water drawn with each shot, if any (as water, with the mod's particle surface material).
+        public ParticleWater Particles { get; set; }
 
         public void Step() => Grid.Step(Frame);
 
@@ -1002,7 +1013,17 @@ public static class SimPreview
                 camera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, commands);
             }
 
-            camera.Render();
+            if (Particles != null)
+            {
+                using var surface = new ParticleSurface();
+                surface.Render(camera, Particles, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath));
+                camera.Render();
+            }
+            else
+            {
+                camera.Render();
+            }
+
             RenderTexture.active = target;
             var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);
             image.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);

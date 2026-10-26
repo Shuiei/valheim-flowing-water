@@ -31,6 +31,7 @@ public static class ParticlePreview
         {
             _output = Environment.GetEnvironmentVariable("FW_PREVIEW_OUT") ?? Path.GetFullPath("preview");
             Directory.CreateDirectory(_output);
+            SimPreview.Output = _output;
             BuildBundles.Prepare();
             // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run.
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
@@ -53,6 +54,11 @@ public static class ParticlePreview
             if (Runs("ball"))
             {
                 Ball();
+            }
+
+            if (Runs("sheet"))
+            {
+                Sheet();
             }
 
             if (Runs("cost"))
@@ -268,6 +274,83 @@ public static class ParticlePreview
         }
 
         Log.AppendLine(Inv($"  Water in the ground or the walls: {Leaked(scene.Water, bed)}: {Check(Leaked(scene.Water, bed) == 0)}"));
+    }
+
+    // Trading water with the card's sheet (SimPreview.Ledge's shelf: 2 m of water let go on a shelf 3 m high, running off
+    // its lip at x = 20 m): the water the sheet throws over the lip becomes particles, which fall, splash and pool, and
+    // give their water back to the sheet where they land, so the pool below is the sheet's. All the water is counted:
+    // the sheet's, the particles', thrown but not yet taken, landed but not yet taken in.
+    private static void Sheet()
+    {
+        float[] bed = Field((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var scene = new SimPreview.Scene("psheet", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.Throws = true;
+        scene.Grid.SetDepth(Field((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.ParticlesComputePath);
+        using var water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), 65536);
+        water.SetGround(scene.Grid.Bed, Cells, Dx, Vector2.zero, 50f);
+        water.SetSheet(scene.Grid);
+        scene.Particles = water;
+        const float Total = 192f;
+        Log.AppendLine(Inv($"Sheet: {Total:0} m3 of the card's water let go on a shelf 3 m high, running off its lip at x = 20 m as particles."));
+        float start = -1f, most = 0f, worst = 0f;
+        int mostParticles = 0;
+        for (int k = 1; k <= 480; k++)
+        {
+            scene.Step();
+            water.Step(Frame);
+            if (k % 30 == 0)
+            {
+                // The particles still there (one gone this step is in the card's count until the next, its water the
+                // sheet's already), and those down on the floor past the lip.
+                float[] data = water.Read();
+                int particles = 0;
+                float floor = 0f;
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    if (data[(p * 12) + 3] > 0.5f)
+                    {
+                        particles++;
+                        floor += data[p * 12] > 20f && data[(p * 12) + 1] < 1f ? 1f : 0f;
+                    }
+                }
+
+                mostParticles = Math.Max(mostParticles, particles);
+                most = Mathf.Max(most, floor);
+                float sheet = scene.Read().Sum() * Dx * Dx;
+                float thrown = ReadFloats(scene.Grid.Airborne).Sum();
+                float landed = ReadInts(scene.Grid.Landed).Sum(n => (float)n) / SimGrid.LandScale;
+                float carried = particles * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing;
+                float all = sheet + thrown + landed + carried;
+                start = start < 0f ? all : start;
+                worst = Mathf.Max(worst, Mathf.Abs(all - start));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s sheet {sheet:0.00} m3, particles {particles} ({carried:0.00} m3, {floor:0} down on the floor), thrown {thrown:0.000}, landed {landed:0.000}: {all:0.00} m3 in all"));
+                if (k == 480)
+                {
+                    Log.AppendLine(Inv($"  Water in all off its start by {worst:0.000} m3 at most; particles {mostParticles} at most, {most:0} of them down on the floor at most, {floor:0} at the end (they give their water to the sheet there): {Check(worst < 0.2f && mostParticles > 100 && floor < 0.25f * most)}"));
+                }
+            }
+
+            if (k is 60 or 120 or 180 or 300 or 480)
+            {
+                scene.Shot(Inv($"psheet_{k * Frame:0.0}s"), new Vector3(27f, 6f, 6f), new Vector3(21f, 1.5f, 20f));
+            }
+        }
+    }
+
+    private static float[] ReadFloats(RenderTexture texture)
+    {
+        AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
+        request.WaitForCompletion();
+        return request.GetData<float>().ToArray();
+    }
+
+    private static int[] ReadInts(RenderTexture texture)
+    {
+        AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
+        request.WaitForCompletion();
+        return request.GetData<int>().ToArray();
     }
 
     // What a frame costs the card: so many particles in a tank, settled and then stirred (a block of water dropped in),

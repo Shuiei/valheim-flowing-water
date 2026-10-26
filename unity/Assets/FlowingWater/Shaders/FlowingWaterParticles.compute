@@ -5,32 +5,40 @@
 // water at rest (no denser, no thinner), and takes each particle's speed from where it ended up. Neighbours are found
 // through a hashed grid of cells the smoothing radius wide (Green, 2008): the particles are counted into buckets by
 // their cell, the buckets' starts summed up, and the particles sorted into them, each step.
+// The particles trade water with the sheet of shallow water the card moves (FlowingWaterSim.compute) where it can
+// be told: water the sheet throws over a lip (its Airborne) becomes particles (Emit), a litre each, and a particle that
+// comes to rest in or on the sheet's water, or on the ground, gives its litre back where it is (the sheet's Landed, as
+// the spray's sheets give theirs); one under the sea's level is the sea's. Nothing is sent anywhere.
 // A step (a substep of a frame):
+//   Emit         the sheet's water thrown over lips, as new particles,
 //   ClearCounts  every bucket empty,
-//   Predict      each particle falls and moves on as it went; its bucket, and its place in it,
+//   Predict      each particle falls and moves on as it went; its bucket, and its place in it (one gone has none),
 //   ScanBlocks   the buckets' starts, a block of buckets at a time; the blocks' sums,
 //   ScanSums     the blocks' starts,
 //   AddSums      each bucket's start in all,
-//   Scatter      the particles in their buckets' order (into the other buffer),
+//   Scatter      the particles in their buckets' order (into the other buffer): the gone ones left out,
+//   Settle       how many are left, and the drawing's arguments,
 //   then, so many times:
 //   Lambda       how far each particle's water is from rest, and the pull that would mend it,
 //   Displace     where the pulls of a particle and its neighbours move it,
 //   Apply        moved, and kept out of the ground, the walls and a sphere,
 //   Finish       its speed from where it ended up, smoothed a little among neighbours (XSPH), and it is there (into
-//                the other buffer).
+//                the other buffer); or gone, its water given to the sheet.
+#pragma kernel Emit
 #pragma kernel ClearCounts
 #pragma kernel Predict
 #pragma kernel ScanBlocks
 #pragma kernel ScanSums
 #pragma kernel AddSums
 #pragma kernel Scatter
+#pragma kernel Settle
 #pragma kernel Lambda
 #pragma kernel Displace
 #pragma kernel Apply
 #pragma kernel Finish
 
-// A particle: where it is (m, world), where this step would put it and its pull (lambda, m2), its speed (m/s) and
-// the water round it as a share of water at rest.
+// A particle: where it is (m, world) and whether it is (1; 0 gone), where this step would put it and its pull (lambda,
+// m2), its speed (m/s) and the water round it as a share of water at rest.
 struct Particle
 {
     float4 place;
@@ -38,10 +46,40 @@ struct Particle
     float4 velocity;
 };
 
-// The particles a kernel works on, and the other buffer (Scatter and Finish write the particles into it).
+// The particles a kernel works on, and the other buffer (Scatter and Finish write the particles into it); how many
+// there are (x: the first so many of the buffer; y: how many the step keeps, counted as they are sorted) of the room
+// there is; the drawing's arguments (points, six a particle; 1; 0; 0).
 RWStructuredBuffer<Particle> _Particles;
 RWStructuredBuffer<Particle> _Sorted;
-uint _Count;
+RWStructuredBuffer<uint> _Alive;
+RWStructuredBuffer<uint> _Args;
+uint _Capacity;
+#define GONE 0xFFFFFFFFu
+
+// The sheet of water the card moves, while the particles trade water with it (_Exchange): its depth and the speeds
+// through its cells' east and north faces (FlowingWaterSim.compute's), the water it threw over lips by the cell (m3,
+// taken as particles), the water landed by the cell (m3 times LAND_SCALE, as the spray lands its: the sheet takes it
+// in) with its momentum east and north, the sea's level (a particle under it is the sea's), a particle's water (m3).
+int _Exchange;
+Texture2D<float> _SheetH;
+Texture2D<float> _SheetU;
+Texture2D<float> _SheetV;
+RWTexture2D<float> _Airborne;
+RWTexture2D<int> _Landed;
+RWTexture2D<int> _LandedX;
+RWTexture2D<int> _LandedZ;
+float _SeaLevel;
+float _Litre;
+uint _Seed;
+#define LAND_SCALE 1000000.0
+
+// The sheet's water this deep (m) takes a particle that comes under its top; a particle this slow (m/s) on the
+// ground gives its water to the sheet (a puddle is the sheet's).
+#define TAKEN_DEPTH 0.02
+#define RESTING 0.15
+
+// A lip throws at most so many particles a cell a step.
+#define MOST_EMITTED 16u
 
 // The buckets: how many particles each holds, where each starts in the sorted order, and the sums of the blocks of
 // buckets the scan goes by; each particle's bucket and its place in it.
@@ -185,6 +223,37 @@ uint HashOf(int3 c)
     return (((uint)c.x * 73856093u) ^ ((uint)c.y * 19349663u) ^ ((uint)c.z * 83492791u)) & (_Buckets - 1u);
 }
 
+// A random number in [0, 1) from a seed, which it moves on (PCG hash).
+float Random(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return word / 4294967296.0;
+}
+
+uint Alive()
+{
+    return min(_Alive[0], _Capacity);
+}
+
+bool InSquare(int2 c)
+{
+    return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
+}
+
+// The water a particle gives back to the sheet where it is (m3), with the way it moves (it runs on so).
+void Land(float3 place, float3 velocity)
+{
+    int2 c = (int2)floor((place.xz - _Origin) / _Dx);
+    if (InSquare(c) && _Bed[c] < WALL)
+    {
+        InterlockedAdd(_Landed[c], (int)(_Litre * LAND_SCALE + 0.5));
+        InterlockedAdd(_LandedX[c], (int)round(_Litre * velocity.x * LAND_SCALE));
+        InterlockedAdd(_LandedZ[c], (int)round(_Litre * velocity.z * LAND_SCALE));
+    }
+}
+
 // The ground under a place: between the cells' centres (a slope is smooth), unless the cells round it step by more than
 // a particle rides up (a wall, a ledge: then the cell's own, so the wall's height is not lent to the floor beside it).
 float GroundAt(float2 xz)
@@ -274,6 +343,78 @@ float3 Collide(float3 x, float3 before)
     return x;
 }
 
+// The sheet's water thrown over a lip by this cell (a litre or more of it), as particles: through the faces it leaves
+// by (the ground beyond well under this cell's, as the sheet throws it), as the spray's sheets left, at the brink's
+// speed out through the face and the water's along it, from just past the face, at the water's top and under it.
+[numthreads(8, 8, 1)]
+void Emit(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!InSquare(c) || c.x == 0 || c.y == 0 || c.x == _N - 1 || c.y == _N - 1)
+    {
+        return;
+    }
+
+    float thrown = _Airborne[c];
+    if (thrown < _Litre)
+    {
+        return;
+    }
+
+    float h = _SheetH[c];
+    float bed = _Bed[c];
+    float level = bed + h;
+    float2 speed = float2(0.5 * (_SheetU[c] + _SheetU[c - int2(1, 0)]), 0.5 * (_SheetV[c] + _SheetV[c - int2(0, 1)]));
+    float3 centre = float3(_Origin.x + ((c.x + 0.5) * _Dx), level, _Origin.y + ((c.y + 0.5) * _Dx));
+    int2 sides[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
+    float weights[4];
+    float brinks[4];
+    float total = 0.0;
+    for (int s = 0; s < 4; s++)
+    {
+        int2 next = c + sides[s];
+        float leaving = s == 0 ? _SheetU[c] : s == 1 ? -_SheetU[c - int2(1, 0)] : s == 2 ? _SheetV[c] : -_SheetV[c - int2(0, 1)];
+        bool lip = _Bed[next] < bed - _StepUp && _Bed[next] + _SheetH[next] < bed - _StepUp;
+        brinks[s] = max(leaving, 0.0);
+        weights[s] = lip ? brinks[s] + 0.05 : 0.0;
+        total += weights[s];
+    }
+
+    uint state = (uint)(c.x * 73856093) ^ (uint)(c.y * 19349663) ^ (_Seed * 83492791u);
+    uint n = min((uint)(thrown / _Litre), MOST_EMITTED);
+    uint made = 0u;
+    for (uint k = 0u; k < n; k++)
+    {
+        uint at;
+        InterlockedAdd(_Alive[0], 1u, at);
+        if (at >= _Capacity)
+        {
+            break;
+        }
+
+        float pick = Random(state) * total;
+        int side = -1;
+        for (int t = 0; t < 4 && total > 0.0; t++)
+        {
+            pick -= weights[t];
+            side = side < 0 && pick <= 0.0 ? t : side;
+        }
+
+        float2 along = side >= 0 ? float2(sides[side]) : 0.0;
+        float2 across = side >= 0 ? float2(-along.y, along.x) : float2(1.0, 0.0);
+        float3 place = centre + (float3(along.x, 0.0, along.y) * (0.55 * _Dx)) + (float3(across.x, 0.0, across.y) * ((Random(state) - 0.5) * _Dx)) - float3(0.0, Random(state) * min(h, 0.3), 0.0);
+        float2 flat = side >= 0 ? (along * (brinks[side] + (0.2 * Random(state)))) + (across * dot(speed, across)) : speed;
+        Particle p;
+        p.place = float4(place, 1.0);
+        p.predicted = float4(place, 0.0);
+        p.velocity = float4(flat.x, 0.0, flat.y, 1.0);
+        _Particles[at] = p;
+        made++;
+    }
+
+    _Airborne[c] = thrown - (made * _Litre);
+}
+
 [numthreads(SCAN, 1, 1)]
 void ClearCounts(uint3 id : SV_DispatchThreadID)
 {
@@ -287,12 +428,18 @@ void ClearCounts(uint3 id : SV_DispatchThreadID)
 void Predict(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive())
     {
         return;
     }
 
     Particle p = _Particles[i];
+    if (p.place.w < 0.5)
+    {
+        _Slots[i] = GONE;
+        return;
+    }
+
     float3 v = p.velocity.xyz + (float3(0.0, -_Gravity, 0.0) * _Dt);
     float3 x = p.place.xyz + (v * _Dt);
     p.velocity.xyz = v;
@@ -358,6 +505,12 @@ void ScanSums(uint3 id : SV_DispatchThreadID)
     {
         _BlockSums[id.x] = inclusive - value;
     }
+
+    // The last block's sum in all: the particles this step keeps.
+    if (id.x == _Blocks - 1u)
+    {
+        _Alive[1] = inclusive;
+    }
 }
 
 [numthreads(SCAN, 1, 1)]
@@ -373,12 +526,24 @@ void AddSums(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID)
 void Scatter(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive() || _Slots[i] == GONE)
     {
         return;
     }
 
     _Sorted[_Starts[_Hashes[i]] + _Slots[i]] = _Particles[i];
+}
+
+[numthreads(1, 1, 1)]
+void Settle(uint3 id : SV_DispatchThreadID)
+{
+    uint kept = min(_Alive[1], _Capacity);
+    _Alive[0] = kept;
+    _Alive[1] = 0u;
+    _Args[0] = kept * 6u;
+    _Args[1] = 1u;
+    _Args[2] = 0u;
+    _Args[3] = 0u;
 }
 
 // The particles in the 27 cells round a place: each kernel's loop body, with j the neighbour's index.
@@ -396,7 +561,7 @@ void Scatter(uint3 id : SV_DispatchThreadID)
 void Lambda(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive())
     {
         return;
     }
@@ -443,7 +608,7 @@ void Lambda(uint3 id : SV_DispatchThreadID)
 void Displace(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive())
     {
         return;
     }
@@ -491,7 +656,7 @@ void Displace(uint3 id : SV_DispatchThreadID)
 void Apply(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive())
     {
         return;
     }
@@ -505,7 +670,7 @@ void Apply(uint3 id : SV_DispatchThreadID)
 void Finish(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= _Count)
+    if (i >= Alive())
     {
         return;
     }
@@ -534,7 +699,31 @@ void Finish(uint3 id : SV_DispatchThreadID)
 
     float3 v = vi + (_Viscosity * smoothing / _RestWeight);
     float speed = length(v);
-    p.velocity.xyz = speed > _MaxSpeed ? v * (_MaxSpeed / speed) : v;
+    v = speed > _MaxSpeed ? v * (_MaxSpeed / speed) : v;
+    p.velocity.xyz = v;
     p.place.xyz = xi;
+
+    // Trading with the sheet: under the sea's level the particle is the sea's; come under the sheet's water, or to rest
+    // on the ground (a puddle is the sheet's), it gives its litre to the sheet where it is, and is gone.
+    if (_Exchange != 0)
+    {
+        if (xi.y < _SeaLevel)
+        {
+            p.place.w = 0.0;
+        }
+        else
+        {
+            int2 c = clamp((int2)floor((xi.xz - _Origin) / _Dx), 0, _N - 1);
+            float h = _SheetH[c];
+            bool taken = h > TAKEN_DEPTH && xi.y < _Bed[c] + h + _Radius;
+            bool resting = min(speed, length(vi)) < RESTING && xi.y < GroundAt(xi.xz) + (2.0 * _Radius);
+            if (taken || resting)
+            {
+                Land(xi, v);
+                p.place.w = 0.0;
+            }
+        }
+    }
+
     _Sorted[i] = p;
 }

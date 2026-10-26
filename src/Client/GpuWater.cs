@@ -221,6 +221,10 @@ internal sealed class GpuWater : IDisposable
         }
 
         _water._particles ??= new ParticleWater(compute, material, 65536);
+        if (_water._particles.Count >= _water._particles.Capacity)
+        {
+            return FormattableString.Invariant($"no room: {_water._particles.Capacity} particles already (flowingwater particles clear)");
+        }
         float side = Mathf.Pow(Mathf.Max(cubicMetres, 0.001f), 1f / 3f);
         var min = new Vector3(at.x - (side / 2f), at.y + 1.5f, at.z - (side / 2f));
         int added = _water._particles.Add(min, min + new Vector3(side, side, side));
@@ -453,8 +457,9 @@ internal sealed class GpuWater : IDisposable
 
         _grid.Throws = _spray != null;
         _grid.Step(Time.deltaTime);
-        Spray();
+        // The particles first: they take the water thrown over lips before the spray would.
         Particles();
+        Spray();
         Shader.SetGlobalFloat(OnId, 1f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
@@ -493,22 +498,31 @@ internal sealed class GpuWater : IDisposable
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _spray ??= new SprayParticles(compute, material);
         _spray.Curtain = Materials.Falls;
+        _spray.Lips = _particles == null || !FlowingWaterPlugin.Settings.ParticleWater.Value;
         _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
-    // The particle water poured by the console, if any: kept out of the card's ground as cast now (a square that moved
+    // The particle water: with Client.ParticleWater on, the sheet's water thrown over lips (made then, if not yet by
+    // the console); else what the console poured, if any. Kept out of the card's ground as cast now (a square that moved
     // keeps the particles where they are in the world), pushed aside by the player, moved, and drawn as water by the
     // game's camera.
     private void Particles()
     {
-        if (_particles == null || _particles.Count == 0)
+        bool exchange = FlowingWaterPlugin.Settings.ParticleWater.Value && _spray != null;
+        if (_particles == null && exchange && Materials.Particles(out Material material, out _, out ComputeShader compute))
+        {
+            _particles = new ParticleWater(compute, material, 65536);
+        }
+
+        if (_particles == null)
         {
             return;
         }
 
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
+        _particles.SetSheet(exchange ? _grid : null);
         Player player = Player.m_localPlayer;
         if (player != null)
         {

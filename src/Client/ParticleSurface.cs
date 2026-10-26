@@ -49,9 +49,9 @@ internal sealed class ParticleSurface : IDisposable
     public static bool Spheres { get; set; }
 
     /// <summary>
-    /// The water as this camera will draw it next: the command buffer filled for this frame's particles (none: nothing
-    /// drawn), on the camera (moved from the last one if it changed), and the surface drawn over the scene with
-    /// <paramref name="surface"/> (the mod's particle surface material).
+    /// The water as this camera will draw it next: the command buffer filled for this frame's particles (as many as the
+    /// card says there are), on the camera (moved from the last one if it changed), and the surface drawn over the scene
+    /// with <paramref name="surface"/> (the mod's particle surface material).
     /// </summary>
     public void Render(Camera camera, ParticleWater water, Material surface)
     {
@@ -63,27 +63,21 @@ internal sealed class ParticleSurface : IDisposable
         }
 
         _commands.Clear();
-        if (water.Count == 0)
-        {
-            return;
-        }
-
         Sun();
-        int vertices = water.Count * 6;
         if (Spheres)
         {
-            _commands.DrawProcedural(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, vertices, 1, water.Properties);
+            _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
             return;
         }
 
         Textures(camera.pixelWidth, camera.pixelHeight);
         _commands.SetRenderTarget(_depth);
         _commands.ClearRenderTarget(true, true, Color.clear);
-        _commands.DrawProcedural(Matrix4x4.identity, water.Material, DepthPass, MeshTopology.Triangles, vertices, 1, water.Properties);
+        _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, DepthPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
 
         _commands.SetRenderTarget(_thickness);
         _commands.ClearRenderTarget(false, true, Color.clear);
-        _commands.DrawProcedural(Matrix4x4.identity, water.Material, ThicknessPass, MeshTopology.Triangles, vertices, 1, water.Properties);
+        _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, ThicknessPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
 
         _commands.SetGlobalVector(BlurDirectionId, new Vector4(1f, 0f, 0f, 0f));
         _commands.Blit(_depth, _smoothed, water.Material, BlurPass);
