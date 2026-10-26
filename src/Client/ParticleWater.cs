@@ -255,6 +255,13 @@ internal sealed class ParticleWater : IDisposable
         return count;
     }
 
+    /// <summary>No water: every particle gone.</summary>
+    public void Clear()
+    {
+        Count = 0;
+        Properties.SetBuffer(ParticlesId, _particles[_current]);
+    }
+
     /// <summary>Moves the water over this much time, in steps of <see cref="Substep"/> at most.</summary>
     public void Step(float seconds)
     {

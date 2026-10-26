@@ -76,6 +76,9 @@ internal sealed class GpuWater : IDisposable
     // Its falls, splashes and spray (Client.Spray), made when first wanted.
     private SprayParticles _spray;
 
+    // The particle water (a prototype): poured by the console, kept out of the card's ground, drawn as spheres.
+    private ParticleWater _particles;
+
     private readonly BedCast _cast;
 
     // The ground under each cell as cast (NaN where not yet), and how many times a cast changed it.
@@ -196,6 +199,36 @@ internal sealed class GpuWater : IDisposable
     {
         get => Shader.GetGlobalFloat(DebugColoursId) > 0.5f;
         set => Shader.SetGlobalFloat(DebugColoursId, value ? 1f : 0f);
+    }
+
+    /// <summary>
+    /// Pours a block of particle water, so many cubic metres, 1.5 m over a place (the console's "flowingwater particles",
+    /// for testing the prototype): what was poured, or why nothing was.
+    /// </summary>
+    public static string Pour(Vector3 at, float cubicMetres)
+    {
+        if (_water == null)
+        {
+            return "no particle water: " + Describe();
+        }
+
+        if (!Materials.Particles(out Material material, out ComputeShader compute))
+        {
+            return "no particle water: its shaders did not load (see the log)";
+        }
+
+        _water._particles ??= new ParticleWater(compute, material, 65536);
+        float side = Mathf.Pow(Mathf.Max(cubicMetres, 0.001f), 1f / 3f);
+        var min = new Vector3(at.x - (side / 2f), at.y + 1.5f, at.z - (side / 2f));
+        int added = _water._particles.Add(min, min + new Vector3(side, side, side));
+        return FormattableString.Invariant($"poured {added} particles ({added * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing:0.##} m³) in a block {side:0.##} m on a side, 1.5 m over you; {_water._particles.Count} of {_water._particles.Capacity} in all");
+    }
+
+    /// <summary>Every particle of the particle water gone.</summary>
+    public static string ClearParticles()
+    {
+        _water?._particles?.Clear();
+        return "the particle water is gone";
     }
 
     /// <summary>What it does now, for the console.</summary>
@@ -382,6 +415,7 @@ internal sealed class GpuWater : IDisposable
     {
         _cast.Dispose();
         _spray?.Dispose();
+        _particles?.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
 
@@ -416,6 +450,7 @@ internal sealed class GpuWater : IDisposable
         _grid.Throws = _spray != null;
         _grid.Step(Time.deltaTime);
         Spray();
+        Particles();
         Shader.SetGlobalFloat(OnId, 1f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
@@ -456,6 +491,27 @@ internal sealed class GpuWater : IDisposable
         _spray.Curtain = Materials.Falls;
         _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
+    }
+
+    // The particle water poured by the console, if any: kept out of the card's ground as cast now (a square that moved
+    // keeps the particles where they are in the world), pushed aside by the player, moved, and drawn over the square.
+    private void Particles()
+    {
+        if (_particles == null || _particles.Count == 0)
+        {
+            return;
+        }
+
+        var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
+        Player player = Player.m_localPlayer;
+        if (player != null)
+        {
+            _particles.SetSphere(player.transform.position + new Vector3(0f, 0.9f, 0f), 0.45f);
+        }
+
+        _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
+        _particles.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
     // The server's water built for the card, handed to it: the first one seeds it.

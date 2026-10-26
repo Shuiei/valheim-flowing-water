@@ -39,7 +39,7 @@ public static class BuildBundles
 
     public const string FallMaterialPath = "Assets/FlowingWater/FlowingWaterFall.mat";
 
-    // The particle water, a prototype: checked and previewed, not in the bundles until the game draws it.
+    // The particle water, a prototype (the console pours some, for testing).
     public const string ParticlesShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterParticles.shader";
 
     public const string ParticlesMaterialPath = "Assets/FlowingWater/FlowingWaterParticles.mat";
@@ -226,7 +226,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

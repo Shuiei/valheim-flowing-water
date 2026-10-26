@@ -46,6 +46,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
+| `flowingwater particles [m³\|clear]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, drawn as spheres, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
@@ -210,7 +211,8 @@ where the water a cell away is more than half a metre higher or lower.
 The sheet of shallow water the card moves is a height over the ground: it cannot curl over, break into drops, or be
 pushed aside by something moving through it. For that water, a prototype of **water as particles** is in the plugin's
 code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingWaterParticles.compute` and
-`.shader`), run and measured by the Unity project's preview only: **the game draws nothing of it yet.** What it is:
+`.shader`), measured by the Unity project's preview; in the game only the console pours some, to try it
+(`flowingwater particles [m³]`, while the card moves the water near you): **nothing else draws it yet.** What it is:
 
 - Each particle is a cube of water 10 cm on a side (a litre). Position based fluids (Macklin and Müller, 2013): each
   step guesses where every particle goes, then pulls the guesses a few rounds until the water round each is as dense
@@ -232,10 +234,11 @@ filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 
 the far wall at 1.30 s (a real one about 1.3 to 1.5 s; the sheet 1.25 s) and runs 3 m up it; moving 64 000 particles
 costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing them comes on top.
 
-What it is not yet: in the game (the particles would take water from the sheet where it goes over a lip, bursts or
-is struck, and give it back where they settle, as the spray's sheets do now); drawn as water (a screen-space surface
-over the particles, with the sea's look); met by what players build (only the ground's heights and the walls they
-make); spread over the frame's budget (a step is one go).
+What it is not yet: the game's water (the particles would take water from the sheet where it goes over a lip, bursts
+or is struck, and give it back where they settle, as the spray's sheets do now; the console's block is only drawn,
+nothing swims in it, and it stays where the card's square leaves it); drawn as water (a screen-space surface over
+the particles, with the sea's look); met by what players build other than through the ground's heights (a floor, a
+wall's top), nor by the sea (it lies on the seabed); spread over the frame's budget (a step is one go).
 
 ### Grid size
 
