@@ -672,7 +672,7 @@ internal sealed class VoxelSolver
         bool hasBack = Next(brick, i, (axis * 2) + 1, out Brick back, out int b);
         float behind = hasBack ? FlowsOn(back, axis)[b] : 0f;
         float beyond = FlowsOn(other, axis)[j];
-        if (flow == 0f && behind == 0f && beyond == 0f)
+        if (Math.Abs(flow) + Math.Abs(behind) + Math.Abs(beyond) <= 0f)
         {
             return 0f;
         }
@@ -718,7 +718,7 @@ internal sealed class VoxelSolver
     private static float Speed(Brick brick, int i, int axis, float s)
     {
         float flow = FlowsOn(brick, axis)[i];
-        if (flow == 0f || !Next(brick, i, axis * 2, out Brick other, out int j))
+        if (!(Math.Abs(flow) > 0f) || !Next(brick, i, axis * 2, out Brick other, out int j))
         {
             return 0f;
         }
