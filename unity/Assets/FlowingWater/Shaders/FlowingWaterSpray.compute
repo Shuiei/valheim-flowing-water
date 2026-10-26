@@ -222,7 +222,8 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
         for (uint k = 0; k < n; k++)
         {
             float3 jitter = float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * _Dx;
-            float up = 0.5 + Random(state) + (0.05 * fast);
+            // Up at 0.5 to 1.5 m/s, the faster the water the more of that span.
+            float up = 0.5 + (Random(state) * min(1.0, 0.4 + (0.1 * fast)));
             float3 velocity = float3(speed.x * 0.9, up, speed.y * 0.9) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 0.6);
             Add(centre + jitter, velocity, 0.3 + (0.4 * Random(state)), 0.004 + (0.008 * Random(state)), DROPLET, 0.0);
         }
