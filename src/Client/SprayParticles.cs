@@ -193,6 +193,20 @@ internal sealed class SprayParticles : IDisposable
     }
 
     /// <summary>
+    /// The curtains of the last step, sixteen floats each (FlowingWaterSpray.compute's Curtain: start and fall time,
+    /// velocity and flow, along the lip with width and open ends, depth and whether it lands), read back from the card:
+    /// for previews and tests.
+    /// </summary>
+    public float[] ReadCurtains()
+    {
+        uint[] arguments = new uint[4];
+        CurtainArguments.GetData(arguments);
+        float[] data = new float[Math.Min((int)arguments[1], MostCurtains) * 16];
+        _curtainList.GetData(data, 0, 0, data.Length);
+        return data;
+    }
+
+    /// <summary>
     /// Every particle's twelve floats (place and age, velocity and life, size, kind and water carried, one unused), read
     /// back from the card: for previews and tests.
     /// </summary>

@@ -350,26 +350,33 @@ int _Border;
 // Thinner water than this (m) throws no curtain.
 #define CURTAIN_WATER 0.005
 
-// Whether the water of cell c runs over a lip through its face toward side (as the card's water throws it,
-// FlowingWaterSim.compute's Lip), and how fast it leaves by it.
-bool OverLip(int2 c, int2 side, out float leaving)
-{
-    leaving = side.x > 0 ? _U[c] : side.x < 0 ? -_U[c - int2(1, 0)] : side.y > 0 ? _V[c] : -_V[c - int2(0, 1)];
-    int2 next = c + side;
-    float bed = _Bed[c];
-    return Inside(next) && leaving > 0.0 && _H[c] > CURTAIN_WATER && _Bed[next] < bed - _LipDrop && _Bed[next] + _H[next] < bed - _LipDrop;
-}
-
 bool InBorder(int2 c)
 {
     return c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+}
+
+// Whether the water of cell c runs over a lip through its face toward side, as the card's water throws it
+// (FlowingWaterSim.compute's Lip: neither cell in the edge's band, from a column the card draws), and how fast it
+// leaves by it.
+bool OverLip(int2 c, int2 side, out float leaving)
+{
+    leaving = 0.0;
+    int2 next = c + side;
+    if (!Inside(c) || !Inside(next) || InBorder(c) || InBorder(next) || _Target[c / _PerVoxel].y <= 0.5)
+    {
+        return false;
+    }
+
+    leaving = side.x > 0 ? _U[c] : side.x < 0 ? -_U[c - int2(1, 0)] : side.y > 0 ? _V[c] : -_V[c - int2(0, 1)];
+    float bed = _Bed[c];
+    return leaving > 0.0 && _H[c] > CURTAIN_WATER && _Bed[next] < bed - _LipDrop && _Bed[next] + _H[next] < bed - _LipDrop;
 }
 
 [numthreads(8, 8, 1)]
 void Curtains(uint3 id : SV_DispatchThreadID)
 {
     int2 c = (int2)id.xy;
-    if (!Inside(c) || InBorder(c) || _Target[c / _PerVoxel].y <= 0.5)
+    if (!Inside(c))
     {
         return;
     }
@@ -423,7 +430,7 @@ void Curtains(uint3 id : SV_DispatchThreadID)
         float unused;
         int2 left = c + int2(across);
         int2 right = c - int2(across);
-        float open = (Inside(left) && OverLip(left, sides[s], unused) ? 0.0 : 1.0) + (Inside(right) && OverLip(right, sides[s], unused) ? 0.0 : 2.0);
+        float open = (OverLip(left, sides[s], unused) ? 0.0 : 1.0) + (OverLip(right, sides[s], unused) ? 0.0 : 2.0);
 
         Curtain curtain;
         curtain.start = float4(face, t);
