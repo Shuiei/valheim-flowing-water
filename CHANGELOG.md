@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.30.0 — 2026-10-26
+
+### Changed
+- Running water is darker and less clear the faster it runs, taking the sea's deep colour at a fraction of the depth
+  still water needs: a river reads as deep blue water instead of a pale sheet over its bed.
+
 ## v0.29.0 — 2026-10-26
 
 ### Added
