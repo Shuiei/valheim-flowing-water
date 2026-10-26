@@ -419,7 +419,8 @@ internal sealed class GpuWater : IDisposable
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
         Shader.SetGlobalTexture(TargetId, _grid.Target);
-        _properties.SetTexture(DepthId, _grid.Depth);
+        _grid.Shape();
+        _properties.SetTexture(DepthId, _grid.Drawn);
         _properties.SetTexture(BedId, _grid.Bed);
         _properties.SetTexture(EastId, _grid.SpeedEast);
         _properties.SetTexture(NorthId, _grid.SpeedNorth);

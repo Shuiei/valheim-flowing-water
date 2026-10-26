@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.35.0 — 2026-10-26
+
+### Added
+- A thin sheet of water near you lies smooth over the ground's small bumps and covers them, instead of copying each
+  bump and breaking into patches where it runs thin.
+
 ## v0.34.0 — 2026-10-26
 
 ### Added

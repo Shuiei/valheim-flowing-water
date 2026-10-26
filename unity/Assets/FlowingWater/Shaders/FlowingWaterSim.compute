@@ -15,6 +15,8 @@
 // beyond too) leaves the sheet into the air (Airborne), which the spray throws as falling water carrying it, and puts
 // back where it lands (Landed, with the way it moved), taken in at the next frame's start (LandSpeeds, Land): the water
 // landed runs on the way it fell.
+// Before it is drawn, the water's surface is shaped (Shape): its level smoothed over the cells round it, so a thin sheet
+// lies smooth over the ground's small bumps and fills the hollows between them rather than taking each one's shape.
 #pragma kernel Seed
 #pragma kernel Fluxes
 #pragma kernel Momentum
@@ -27,6 +29,7 @@
 #pragma kernel Land
 #pragma kernel Clear
 #pragma kernel ShiftCells
+#pragma kernel Shape
 
 // The cells: depth (m), and where a step writes it (each step reads one and writes the other); ground (world height,
 // m), the share of its outflow each can give.
@@ -626,4 +629,81 @@ void ShiftCells(uint3 id : SV_DispatchThreadID)
 
     int2 from = c + _Shift;
     _ShiftTo[c] = Inside(from) ? _ShiftFrom[from] : _Outside;
+}
+
+// The water as it is drawn (FlowingWaterSim.shader), as a depth over each cell's ground: its level smoothed over the
+// cells round it (3 by 3, the nearer counting more; only the water within SHAPE_JOIN of it, not across a ledge or a
+// fall, nor ground not known), so a thin sheet lies smooth over the ground's small bumps instead of taking the shape of
+// each; never thinner than the water there. Inside the sheet (water on two opposite sides of the cell, not its edge), a
+// wet cell is drawn SHAPE_THIN deep at least, and a dry one (a bump) covered where that level is over its ground,
+// SHAPE_FILL deep at most. Only the look: the water moved is not changed.
+#define SHAPE_WET 0.005
+#define SHAPE_JOIN 0.15
+#define SHAPE_THIN 0.015
+#define SHAPE_FILL 0.1
+
+RWTexture2D<float> _Drawn;
+
+[numthreads(8, 8, 1)]
+void Shape(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float bed = _Bed[c];
+    float depth = _H[c];
+    bool wet = depth > SHAPE_WET;
+    if (bed >= WALL)
+    {
+        _Drawn[c] = depth;
+        return;
+    }
+
+    float reference = bed + (wet ? depth : 0.0);
+    float sum = 0.0;
+    float weight = 0.0;
+    uint around = 0u;
+    for (int dz = -1; dz <= 1; dz++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 n = c + int2(dx, dz);
+            if (!Inside(n) || _H[n] <= SHAPE_WET || _Bed[n] >= WALL)
+            {
+                continue;
+            }
+
+            float level = _Bed[n] + _H[n];
+            if (abs(level - reference) > SHAPE_JOIN)
+            {
+                continue;
+            }
+
+            float w = (dx == 0 ? 2.0 : 1.0) * (dz == 0 ? 2.0 : 1.0);
+            sum += w * level;
+            weight += w;
+            around |= 1u << (uint)(((dz + 1) * 3) + dx + 1);
+        }
+    }
+
+    if (weight <= 0.0)
+    {
+        _Drawn[c] = depth;
+        return;
+    }
+
+    // The bits of the cells round it: 0 south-west, 1 south, 2 south-east, 3 west, 5 east, 6 north-west, 7 north,
+    // 8 north-east.
+    float smooth = sum / weight;
+    bool inside = ((around & 0x28u) == 0x28u) || ((around & 0x82u) == 0x82u) || ((around & 0x101u) == 0x101u) || ((around & 0x44u) == 0x44u);
+    if (wet)
+    {
+        _Drawn[c] = max(max(smooth - bed, depth), inside ? SHAPE_THIN : 0.0);
+        return;
+    }
+
+    _Drawn[c] = max(inside ? clamp(smooth - bed, 0.0, SHAPE_FILL) : 0.0, depth);
 }
