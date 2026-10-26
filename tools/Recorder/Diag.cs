@@ -63,7 +63,8 @@ public sealed partial class Recorder
     // with the current measured in the middle ("flowingwater info").
     private IEnumerator Flood(Vector3 spawn)
     {
-        Site meadow = FindSite(spawn, 0.03f, 0.12f, true) ?? FindSite(spawn, 0.02f, 0.15f, false);
+        Site meadow = FindSite(spawn, 0.03f, 0.12f, true) ?? FindSite(spawn, 0.02f, 0.15f, false)
+            ?? throw new InvalidOperationException($"no gentle slope within 400 m of {spawn}");
         Note($"flood meadow {meadow}");
         foreach (float side in new[] { -10f, 0f, 10f })
         {

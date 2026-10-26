@@ -64,6 +64,32 @@ public class BrickObjectsTests
     }
 
     [Fact]
+    public void ABrickLeftForTheNextSendIsWrittenThenThoughTheFirstOnesChangeAgain()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        var bricks = Enumerable.Range(0, BrickObjects<int>.MostWrites + 6).Select(k => Wet(k, 0, 0, 0.5f)).ToList();
+        objects.Publish(bricks, VoxelSize);
+        objects.Publish(bricks, VoxelSize);
+
+        // A flood: every brick changes before each send, more than a send writes.
+        for (int send = 0; send < 2; send++)
+        {
+            world.Written.Clear();
+            foreach (Brick brick in bricks)
+            {
+                brick.Water[0] = send == 0 ? 0.8f : 0.3f;
+                brick.Changes++;
+            }
+
+            Assert.Equal(BrickObjects<int>.MostWrites, objects.Publish(bricks, VoxelSize));
+        }
+
+        // The six left by the first send went first in the second.
+        Assert.Equal(6, world.Written.Distinct().Count(id => world.Written.IndexOf(id) < 6 && id > BrickObjects<int>.MostWrites));
+    }
+
+    [Fact]
     public void AChangeThatWouldNotShowIsHeldBackUntilItAddsUp()
     {
         var world = new World();

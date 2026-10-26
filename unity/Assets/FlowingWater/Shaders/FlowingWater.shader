@@ -119,12 +119,12 @@ Shader "FlowingWater/Water"
             return float4(lerp(tex2Dlod(_SurfacePrev, uv).xyz, next.xyz, BlendShare()), next.w);
         }
 
-        // The top at a place in the columns where water shows there, else this one (a dry column's top is no slope of the
-        // water's).
-        float WetTopAt(float2 cell, float otherwise)
+        // The top of a surface sample if water shows there, else this one (a dry column's top is no slope of the water's).
+        // Half a column from a column's middle, a sample is half this column's and half the next one's: water shows there
+        // when more than half of it does, so a dry column beside never counts half.
+        float WetTop(float4 surface, float otherwise)
         {
-            float4 surface = SurfaceAt(cell);
-            return surface.z > 0.01 ? surface.x : otherwise;
+            return surface.z > 0.5 ? surface.x : otherwise;
         }
 
         float4 FlowAt(float2 cell)
@@ -150,8 +150,12 @@ Shader "FlowingWater/Water"
             v.vertex.y += wave.x;
 
             // The surface's slope, from the tops half a column either side, and the waves'.
-            float east = SurfaceAt(cell + float2(0.5, 0.0)).x - SurfaceAt(cell - float2(0.5, 0.0)).x;
-            float north = SurfaceAt(cell + float2(0.0, 0.5)).x - SurfaceAt(cell - float2(0.0, 0.5)).x;
+            float4 eastOf = SurfaceAt(cell + float2(0.5, 0.0));
+            float4 westOf = SurfaceAt(cell - float2(0.5, 0.0));
+            float4 northOf = SurfaceAt(cell + float2(0.0, 0.5));
+            float4 southOf = SurfaceAt(cell - float2(0.0, 0.5));
+            float east = eastOf.x - westOf.x;
+            float north = northOf.x - southOf.x;
             float2 slope = (float2(east, north) / max(_VoxelSize, 0.001)) + wave.yz;
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
@@ -161,8 +165,8 @@ Shader "FlowingWater/Water"
             o.world = world;
             o.water = float4(surface.y, flow.z, surface.z, Churn(crest, saturate(length(flow.xy) / _RapidsSpeed), 0.0));
             o.current = flow.xy;
-            float wetEast = WetTopAt(cell + float2(0.5, 0.0), surface.x) - WetTopAt(cell - float2(0.5, 0.0), surface.x);
-            float wetNorth = WetTopAt(cell + float2(0.0, 0.5), surface.x) - WetTopAt(cell - float2(0.0, 0.5), surface.x);
+            float wetEast = WetTop(eastOf, surface.x) - WetTop(westOf, surface.x);
+            float wetNorth = WetTop(northOf, surface.x) - WetTop(southOf, surface.x);
             o.steep = length(float2(wetEast, wetNorth)) / max(_VoxelSize, 0.001);
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
