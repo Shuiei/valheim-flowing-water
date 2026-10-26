@@ -15,6 +15,11 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
     // Columns line up in groups of this many (the card works on groups of eight cells).
     private const int Group = 8;
 
+    // A voxel column with no water, ledge nor fall (SimColumns' texels and layers), for the edge a moved square is new to.
+    private static readonly float[] NoTexel = [SimColumns.DryTop, 0f, 0f, 0f];
+
+    private static readonly float[] NoLayers = [SimColumns.DryTop, SimColumns.DryTop, SimColumns.DryTop, 0f];
+
     private SimWindow(int x0, int z0, int columns, int perVoxel, float voxelSize)
     {
         X0 = x0;
@@ -109,6 +114,25 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
         }
 
         return shifted;
+    }
+
+    /// <summary>
+    /// The card's own record of its square, kept for this square, moved on by <paramref name="dx"/>, <paramref name="dz"/>
+    /// voxel columns from the last: the ground found under each cell (NaN where the move brings cells not cast yet), and
+    /// for each row of cells the heights its voxel columns were cast from (NaN: never) and whether it is cast first,
+    /// shifted in place; the server's water as last built for each column (texels and layers, as SimColumns gives
+    /// them; null while none was), shifted anew, the new edge's columns holding none.
+    /// </summary>
+    public void Move(int dx, int dz, float[] ground, float[] castUsed, bool[] castFirst, ref float[] texels, ref float[] layers)
+    {
+        Array.Copy(Shifted(ground, Cells, dx * PerVoxel, dz * PerVoxel, [float.NaN]), ground, ground.Length);
+        Array.Copy(Shifted(castUsed, Columns, dx, dz * PerVoxel, [float.NaN]), castUsed, castUsed.Length);
+        Array.Copy(Shifted(castFirst, 1, 0, dz * PerVoxel, [false]), castFirst, castFirst.Length);
+        if (texels != null)
+        {
+            texels = Shifted(texels, Columns, dx, dz, NoTexel);
+            layers = Shifted(layers, Columns, dx, dz, NoLayers);
+        }
     }
 
     public bool Equals(SimWindow other) =>

@@ -62,11 +62,6 @@ internal sealed class GpuWater : IDisposable
 
     private static GpuWater _water;
 
-    // A voxel column with no water, ledge nor fall (SimColumns' texels), for the edge a moved square is new to.
-    private static readonly float[] NoTexel = [SimColumns.DryTop, 0f, 0f, 0f];
-
-    private static readonly float[] NoLayers = [SimColumns.DryTop, SimColumns.DryTop, SimColumns.DryTop, 0f];
-
     // The bricks in the square this frame (kept, not made again each frame).
     private static readonly List<BrickView> NearBricks = [];
 
@@ -453,15 +448,22 @@ internal sealed class GpuWater : IDisposable
 
         Task<(float[] Texels, float[] Layers, float[] Cast)> build = _build;
         _build = null;
+
+        // Built for the square before it moved: not taken (the next is built for the square as it is); had it failed,
+        // that is told, the water going on (a fault of its own is the current square's own build's to throw).
+        if (!_buildingWindow.Equals(_window))
+        {
+            if (build.IsFaulted)
+            {
+                FlowingWaterPlugin.Log.LogError($"The water for the graphics card could not be built (for the square before it moved): {build.Exception}");
+            }
+
+            return;
+        }
+
         if (build.IsFaulted)
         {
             throw new InvalidOperationException("the server's water could not be built for the graphics card", build.Exception);
-        }
-
-        // Built for the square before it moved: not taken (the next is built for the square as it is).
-        if (!_buildingWindow.Equals(_window))
-        {
-            return;
         }
 
         _grid.SetTarget(build.Result.Texels, build.Result.Layers);
@@ -509,19 +511,15 @@ internal sealed class GpuWater : IDisposable
     // way for the old square let go.
     private void Move(SimWindow window, int dx, int dz)
     {
-        int per = window.PerVoxel, cells = window.Cells, columns = window.Columns;
+        int per = window.PerVoxel;
         _cast.Drop();
         _grid.Shift(dx * per, dz * per);
+        window.Move(dx, dz, _ground, _castUsed, _castFirst, ref _texels, ref _layers);
         if (_texels != null)
         {
-            _texels = SimWindow.Shifted(_texels, columns, dx, dz, NoTexel);
-            _layers = SimWindow.Shifted(_layers, columns, dx, dz, NoLayers);
             _grid.SetTarget(_texels, _layers);
         }
 
-        Array.Copy(SimWindow.Shifted(_ground, cells, dx * per, dz * per, [float.NaN]), _ground, _ground.Length);
-        Array.Copy(SimWindow.Shifted(_castUsed, columns, dx, dz * per, [float.NaN]), _castUsed, _castUsed.Length);
-        Array.Copy(SimWindow.Shifted(_castFirst, 1, 0, dz * per, [false]), _castFirst, _castFirst.Length);
         _castFrom = null;
         _nextRow = 0;
         _builtBricks = null;

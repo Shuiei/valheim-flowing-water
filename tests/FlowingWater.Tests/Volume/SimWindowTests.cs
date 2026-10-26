@@ -1,3 +1,4 @@
+using System.Linq;
 using FlowingWater.Volume;
 using Xunit;
 
@@ -83,5 +84,52 @@ public class SimWindowTests
         float[] shifted = SimWindow.Shifted(values, 3, 1, 1, [-1f, 7f]);
 
         Assert.Equal(new[] { 11, 11.5f, 12, 12.5f, -1, 7, -1, 7, -1, 7, -1, 7 }, shifted);
+    }
+
+    [Fact]
+    public void AMovedSquareKeepsItsRecordWhereBothSquaresHaveItAndKnowsNothingOfItsNewEdge()
+    {
+        // 8 columns of 2 cells (16 cells a side), moved 1 column east and 2 north.
+        var before = SimWindow.Around(0f, 0f, 1f, 8f, 0.5f);
+        var after = SimWindow.Around(1f, 2f, 1f, 8f, 0.5f);
+        int cells = before.Cells, columns = before.Columns;
+        float[] ground = [.. Enumerable.Range(0, cells * cells).Select(k => (float)k)];
+        float[] castUsed = [.. Enumerable.Range(0, cells * columns).Select(k => (float)k)];
+        bool[] castFirst = [.. Enumerable.Range(0, cells).Select(r => r % 3 == 0)];
+        float[] texels = [.. Enumerable.Range(0, columns * columns * SimColumns.Texel).Select(k => (float)k)];
+        float[] layers = [.. Enumerable.Range(0, columns * columns * SimColumns.LayerTexel).Select(k => (float)-k)];
+
+        after.Move(1, 2, ground, castUsed, castFirst, ref texels, ref layers);
+
+        // A cell takes the one 2 cells east and 4 north of it; past the old square, nothing known.
+        Assert.Equal((4 * cells) + 2, ground[0]);
+        Assert.True(float.IsNaN(ground[(cells - 1) * cells]));
+        Assert.True(float.IsNaN(ground[cells - 1]));
+
+        // A row of cells takes the row 4 north of it, each column the one 1 east; the rows to cast first move with them.
+        Assert.Equal((4 * columns) + 1, castUsed[0]);
+        Assert.True(float.IsNaN(castUsed[columns - 1]));
+        Assert.False(castFirst[0]);
+        Assert.True(castFirst[2]);
+        Assert.False(castFirst[cells - 1]);
+
+        // The server's water by column: the column 1 east and 2 north; the new edge's holds none.
+        Assert.Equal(((2 * columns) + 1) * SimColumns.Texel, texels[0]);
+        Assert.Equal(SimColumns.DryTop, texels[(columns - 1) * SimColumns.Texel]);
+        Assert.Equal(0f, texels[((columns - 1) * SimColumns.Texel) + 1]);
+        Assert.Equal(-((2 * columns) + 1) * SimColumns.LayerTexel, layers[0]);
+        Assert.Equal(SimColumns.DryTop, layers[((columns - 1) * SimColumns.LayerTexel) + 1]);
+    }
+
+    [Fact]
+    public void AMovedSquareNeverBuiltKeepsNoServersWater()
+    {
+        var window = SimWindow.Around(0f, 0f, 1f, 8f, 1f);
+        float[] texels = null, layers = null;
+
+        window.Move(1, 0, new float[window.Cells * window.Cells], new float[window.Cells * window.Columns], new bool[window.Cells], ref texels, ref layers);
+
+        Assert.Null(texels);
+        Assert.Null(layers);
     }
 }

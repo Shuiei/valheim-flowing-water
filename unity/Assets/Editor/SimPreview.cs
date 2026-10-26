@@ -42,6 +42,7 @@ public static class SimPreview
             Ledge(true);
             Ledge(false);
             Shift();
+            ShiftThrown();
             Spray();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
@@ -309,7 +310,30 @@ public static class SimPreview
         }
 
         (float later, _, _) = Middle(scene.Read());
-        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells"));
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells: {Check(Mathf.Abs(after - before) < 0.01f && Mathf.Abs(beforeX - afterX - 8f) < 0.01f && Mathf.Abs(beforeZ - afterZ - 4f) < 0.01f)}"));
+
+    }
+
+    // Water thrown over a shelf's lip (no spray to carry it, so it stays in the air) is let go when the square moves. (A
+    // scene of its own: a new scene unloads the textures of one still open.)
+    private static void ShiftThrown()
+    {
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        float[] shelf = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var thrown = new Scene("shift-thrown", shelf);
+        thrown.Grid.Pulled = false;
+        thrown.Grid.Throws = true;
+        thrown.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        for (int k = 0; k < 150; k++)
+        {
+            thrown.Step();
+        }
+
+        float air = Read(thrown.Grid.Airborne).Sum();
+        thrown.Grid.Shift(4, 0);
+        float left = Read(thrown.Grid.Airborne).Sum() + ReadWhole(thrown.Grid.Landed).Sum(n => (float)n);
+        Log.AppendLine(Inv($"Shift: water in the air {air:0.00} m3 before, {left:0.00} after: {Check(air > 0f && left == 0f)}"));
     }
 
     // The water in all (m3), and its middle (cells).
