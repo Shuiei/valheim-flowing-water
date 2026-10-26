@@ -270,7 +270,8 @@ public class SimColumnsTests
     [Fact]
     public void WaterFallingIntoAPoolIsLeftToTheBricksAtThePoolsLevel()
     {
-        // A pool to half way up row 1, and water falling into it from rows 2 to 4 (not full).
+        // A pool to half way up row 1, and water falling into it from rows 2 to 4 (not full): the card keeps the pool's
+        // water only (a metre), not the falling water's.
         BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
         Wet(brick, 3, 2, 3, 0.3f, solid: 0f, open: OpenAll);
         Wet(brick, 3, 3, 3, 0.3f, solid: 0f, open: OpenAll);
@@ -280,6 +281,7 @@ public class SimColumnsTests
 
         Assert.Equal(1.5f, Top(texels, 3, 3), 3);
         Assert.Equal(0f, Drawn(texels, 3, 3));
+        Assert.Equal(1f, Depth(texels, 3, 3), 3);
     }
 
     [Fact]

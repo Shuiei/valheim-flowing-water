@@ -299,9 +299,11 @@ internal static class SimColumns
         }
         else
         {
+            // The pool's water only (a fall into it left to the bricks): the falling water is not kept on the card's
+            // ground there, where it would stand as a mound at the fall's foot.
             Wet at = run[top];
             float fill = Math.Min(1f, at.Solid + at.Water);
-            here = Of(at, (at.Row + fill) * voxelSize, depth, !under && top == 0, at.Brick.VelocityY[at.Index], floor);
+            here = Of(at, (at.Row + fill) * voxelSize, Water(run, run.Count - top, voxelSize), !under && top == 0, at.Brick.VelocityY[at.Index], floor);
         }
 
         if (!falls || !under)

@@ -14,7 +14,7 @@ namespace FlowingWater.Client;
 internal sealed class BedCast : IDisposable
 {
     /// <summary>The ground of a cell that is not cast, or where the ray met nothing: no water goes there.</summary>
-    public const float Wall = 10000f;
+    public const float Wall = SimGrid.Wall;
 
     // How far down a ray looks, metres.
     private const float Reach = 64f;
