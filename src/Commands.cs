@@ -9,10 +9,15 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | info | debug | solids | gpu [colours|columns] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | solids | gpu [colours|columns] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
+
+    // How a player's game asks the server to wipe its water, and how the server answers (a line for the console).
+    private const string WipeRpc = "FlowingWater_Wipe";
+
+    private const string WipedRpc = "FlowingWater_Wiped";
 
     private static bool _registered;
 
@@ -47,9 +52,11 @@ internal static class Commands
             {
                 Rights.Tell(everyone);
             });
+            rpc.Register<string>(WipedRpc, (_, answer) => Console.instance?.AddString(answer));
             return;
         }
 
+        rpc.Register(WipeRpc, WipeAsked);
         CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
     }
 
@@ -75,6 +82,29 @@ internal static class Commands
     }
 
     private static void TellOne(ZNetPeer peer) => peer.m_rpc.Invoke(EveryoneRpc, FlowingWaterPlugin.Settings.CommandsForEveryone.Value);
+
+    // A player's game asked the server to wipe its water: done for one of the server's admins, refused to anyone else
+    // (whatever CommandsForEveryone says: it takes every player's water), and answered either way.
+    private static void WipeAsked(ZRpc rpc)
+    {
+        ZNetPeer peer = ZNet.instance.GetPeers().Find(p => p.m_rpc == rpc);
+        string answer = peer == null || !peer.IsReady() ? "flowingwater: the server does not know you yet; try again"
+            : !ZNet.instance.IsAdmin(peer.m_socket.GetHostName()) ? "flowingwater: only the server's admins may wipe the water"
+            : Wipe();
+        rpc.Invoke(WipedRpc, answer);
+    }
+
+    // The server's water wiped: what to tell the one who asked.
+    private static string Wipe()
+    {
+        if (FlowingWaterPlugin.Server == null)
+        {
+            return "flowingwater: the water is not running on the server (Enabled is off, or the world is still opening)";
+        }
+
+        (float water, int markers) = FlowingWaterPlugin.Server.Wipe();
+        return FormattableString.Invariant($"flowingwater: wiped {water:0.#} m³ of water and removed {markers} sources and drains");
+    }
 
     // An exception out of a console command reaches Unity's event system, whose logging of it has
     // crashed the game outright; it is logged here instead, with its message on the console.
@@ -127,6 +157,9 @@ internal static class Commands
                 break;
             case "remove":
                 Remove(terminal, player);
+                break;
+            case "wipe":
+                WipeAll(terminal);
                 break;
             case "info":
                 terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
@@ -256,6 +289,33 @@ internal static class Commands
         terminal.AddString(FormattableString.Invariant($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s")
             + (rate > MarkerRules.MaxRate ? FormattableString.Invariant($" (the server holds it to {MarkerRules.MaxRate:0} m³/s)") : string.Empty)
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + FormattableString.Invariant($" within {radius:0.##} m") : string.Empty));
+    }
+
+    // All the mod's water and every placed source and drain gone: done here where this game is the server (alone or
+    // hosting: the host may), else asked of the server, which answers when it is done.
+    private static void WipeAll(Terminal terminal)
+    {
+        if (ZNet.instance.IsServer())
+        {
+            terminal.AddString(Wipe());
+            return;
+        }
+
+        if (!ZNet.instance.LocalPlayerIsAdminOrHost())
+        {
+            terminal.AddString("flowingwater: only the server's admins may wipe the water");
+            return;
+        }
+
+        ZNetPeer server = ZNet.instance.GetServerPeer();
+        if (server == null)
+        {
+            terminal.AddString("flowingwater: not connected to a server");
+            return;
+        }
+
+        server.m_rpc.Invoke(WipeRpc);
+        terminal.AddString("flowingwater: asked the server to wipe its water");
     }
 
     // How far from the player the command's remove looks for a source or drain, metres.

@@ -43,6 +43,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater source [m³/s]` | A spring under your feet (default 2 m³/s) |
 | `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every cell within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
+| `flowingwater wipe` | Takes all the mod's water out of the world and removes every placed source and drain (the config's fixed ones stay); the host's and the server's admins' only, whatever `CommandsForEveryone` says. On a server, the server answers on the console when it is done |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |

@@ -48,6 +48,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater source [m³/s]` | A spring under your feet (default 2 m³/s) |
 | `flowingwater drain [m³/s] [radius m]` | A drain under your feet; 0 or nothing takes all that reaches it, from every spot within the radius (default 1 m) |
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
+| `flowingwater wipe` | Takes all the mod's water out of the world and removes every placed source and drain (admins and the host only) |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 
 The host and the server's admins may always use the command and the hoe's source and drain; other players while
