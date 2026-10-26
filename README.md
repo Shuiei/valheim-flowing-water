@@ -168,7 +168,8 @@ anywhere: the server's water still says how much water is where):
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).
 
-At most 32768 particles live at once (the oldest give way). Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
+At most 32768 particles live at once (the oldest give way); one that leaves the square, or flies over ground the card
+has not found, ends where it is, and none is drawn much longer than a metre along its motion. Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
 (`tools/sim-preview.sh`, which also runs a shelf of water poured off its lip); drawing them comes on top, and grows
 with how many there are on screen. A wall of water between two levels (a ledge with water on its top and at its
 foot) is left to the falls: the card's surface fades out where the water a cell away is more than half a metre higher

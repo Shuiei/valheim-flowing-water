@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.1 — 2026-10-26
+
+### Fixed
+- Long thin lines no longer streak across the view near falls: water thrown fast off a lip, or falling past where the
+  ground near you is known, is drawn as a short streak and ends there instead of falling on through the ground.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed
