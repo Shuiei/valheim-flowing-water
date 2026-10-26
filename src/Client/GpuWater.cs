@@ -296,9 +296,12 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        _water ??= new GpuWater(window, material, compute);
+        _water ??= Made(window, material, compute);
         _water.Frame(NearBricks);
     }
+
+    // The water near the camera made: the only one, kept in _water (none is made elsewhere).
+    private static GpuWater Made(SimWindow window, Material material, ComputeShader compute) => new(window, material, compute);
 
     // Whether the water near the camera is moved on the card now, and with what; else why not.
     private static bool Wanted(out string why, out Material material, out ComputeShader compute, out Vector3 camera)

@@ -157,7 +157,8 @@ internal static class SimColumns
     // (this column's own, and those it shares with the columns west and south of it, which they ask for). Where it draws
     // falls: the floor that water rests on (NaN: none), the top of the pool under it all (if any), whether the
     // card may draw it all once a ledge is found across the column, and the top of the water falling in it (NaN: none).
-    private readonly struct Column
+    // Never compared with another; a record, so that the equality a value type is asked for comes made.
+    private readonly record struct Column
     {
         public static readonly Column None = new(DryTop, 0f, int.MinValue, false, 0f, BrickData.AllOpen);
 
@@ -211,8 +212,8 @@ internal static class SimColumns
         public Column Over(Column foot, float fallTop) => new(Top, Depth, Row, Drawn, Foam, Open, Floor, fallTop, foot.Top, true);
     }
 
-    // A voxel of a run of wet voxels.
-    private readonly struct Wet
+    // A voxel of a run of wet voxels. Never compared with another; a record, as Column.
+    private readonly record struct Wet
     {
         public Wet(BrickView brick, int index, int row)
         {
