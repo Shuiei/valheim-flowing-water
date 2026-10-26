@@ -8,8 +8,8 @@ namespace FlowingWater.Volume;
 /// water (<see cref="SurfaceGrid"/>) does not show. Water standing open to the air on a side shows that side, from its
 /// floor (or the water beside it) up to its level; never toward water beside it the surface joins it to (nearly as high,
 /// or a voxel lower: a sheet running down a slope, whose sides at each voxel drew a grid of small walls). Water falling
-/// through the air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than the voxel,
-/// as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into one cascade,
+/// through the air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than
+/// the voxel, as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into one cascade,
 /// capped where it starts and ends. Only faces the server says are open count (<see cref="BrickView.Open"/>): never one
 /// a piece closes, so no water shows through a wall. Water the server keeps inside a solid voxel (a piece built over a
 /// pool with nowhere for its water to go) is not drawn: it would show inside the piece.
