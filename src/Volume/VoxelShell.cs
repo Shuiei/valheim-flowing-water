@@ -6,8 +6,9 @@ namespace FlowingWater.Volume;
 /// <summary>
 /// A brick's water drawn as the voxels it fills where it meets the air, without the game: what the surface over the
 /// water (<see cref="SurfaceGrid"/>) does not show. Water standing open to the air on a side shows that side, from its
-/// floor (or the water beside it) up to its level. Water falling through the
-/// air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than the voxel,
+/// floor (or the water beside it) up to its level; never toward water beside it the surface joins it to (nearly as high,
+/// or a voxel lower: a sheet running down a slope, whose sides at each voxel drew a grid of small walls). Water falling
+/// through the air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than the voxel,
 /// as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into one cascade,
 /// capped where it starts and ends. Only faces the server says are open count (<see cref="BrickView.Open"/>): never one
 /// a piece closes, so no water shows through a wall. Water the server keeps inside a solid voxel (a piece built over a
@@ -26,6 +27,9 @@ internal sealed class VoxelShell
 
     // A voxel this full, with its solid share, holds the water over it up.
     private const float Full = 0.95f;
+
+    // Water no higher than this share of a voxel over the water beside it is one sheet with it (the surface's): no side.
+    private const float JoinStep = 0.35f;
 
     // Sides as Brick.Beside: east, west, up, down, north, south.
     private static readonly (int X, int Y, int Z)[] Sides = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
@@ -127,7 +131,19 @@ internal sealed class VoxelShell
             float bottom = floor;
             if (field.IsWet(x + dx, y, z + dz))
             {
-                bottom = Math.Max(bottom, field.GoesUp(x + dx, y, z + dz) ? (y + 1) * s : field.Level(x + dx, y, z + dz));
+                // Water beside nearly as high: the surface joins the two (a sheet down a gentle slope), no side between.
+                float beside = field.GoesUp(x + dx, y, z + dz) ? (y + 1) * s : field.Level(x + dx, y, z + dz);
+                if (level - beside < JoinStep * s)
+                {
+                    continue;
+                }
+
+                bottom = Math.Max(bottom, beside);
+            }
+            else if (field.IsWet(x + dx, y - 1, z + dz))
+            {
+                // Water beside a voxel lower: the water steps down to it, the surface joining them.
+                continue;
             }
 
             if (level - bottom > Drawing.HideDepth)

@@ -283,7 +283,8 @@ there to the new grid (same volume), at once when the file is saved.
   sends, so the water moves on smoothly instead of jumping; nothing is built in the game's frame but the textures.
   Beside the surface, the water is drawn as the voxels it fills where it meets the air: the server sends with each
   wet voxel which of its faces water could leave by (no piece closing it, no solid beyond), and the block draws a side
-  where its water stands open to the air (from its floor, or the water beside it, up to its level), and water falling
+  where its water stands open to the air (from its floor, or the water beside it, up to its level; not toward water
+  beside it a third of a voxel lower or less, or a voxel lower, which the surface joins it to), and water falling
   through the air as a column through each voxel it falls through, as wide as its water, capped where the fall starts
   and ends, so a fall is one cascade of white water. These faces and the surface are drawn from both sides: from
   inside the water, it is still seen.

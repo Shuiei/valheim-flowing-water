@@ -2,6 +2,11 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.4 — 2026-10-26
+
+### Fixed
+- Water farther off running down a gentle slope is one smooth surface again instead of a grid of small steps.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed
