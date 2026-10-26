@@ -226,6 +226,22 @@ public class BrickDataTests
     }
 
     [Fact]
+    public void GroundBesideWithAFilmTooThinToBeSentIsSentSo()
+    {
+        // The voxel beside holds some ground and a film of water under a step of the bytes: dry to the players' games.
+        var brick = new Brick(0, 0, 0);
+        int high = Brick.Index(5, 5, 5);
+        brick.Water[high] = 0.9f;
+        brick.Solid[Brick.Index(6, 5, 5)] = 0.4f;
+        brick.Water[Brick.Index(6, 5, 5)] = 0.002f;
+        brick.Water[Brick.Index(6, 4, 5)] = 0.9f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
+    }
+
+    [Fact]
     public void ABrickFromBeforeTheOpenFacesIsReadWithEveryFaceOpen()
     {
         byte[] stored = Packed.Write(writer =>

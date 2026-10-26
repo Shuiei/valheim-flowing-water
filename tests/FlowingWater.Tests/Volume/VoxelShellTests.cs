@@ -108,6 +108,31 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void WaterBesideWaterAVoxelLowerWithWaterHigherUpThatColumnKeepsItsSide()
+    {
+        // As above, the water on the floor three voxels up: the surface joins that all the same.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.2f, East | Up);
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+        Wet(view, 6, 4, 5, 0.3f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void WaterBesideWaterNearlyAsHighWithWaterHigherUpThatColumnKeepsItsSide()
+    {
+        // A sheet beside, a little lower, under a floor with water on it: the surface joins the floor's, so the side stays.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 0, 5, 0.4f, East | Up);
+        Wet(view, 6, 0, 5, 0.2f, West | Up);
+        Wet(view, 6, 3, 5, 0.3f, Up);
+
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
     public void AFallIsANarrowColumnThroughEveryVoxelCappedAtBothEnds()
     {
         // Four voxels of thin water over one another in the air, a tenth of a voxel each.

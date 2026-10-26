@@ -9,10 +9,10 @@ namespace FlowingWater.Volume;
 /// floor (or the water beside it) up to its level; never toward water beside it the surface joins it to (nearly as high,
 /// or a voxel lower: a sheet running down a slope, whose sides at each voxel drew a grid of small walls). Water falling
 /// through the air (a voxel over air, holding no floor, the one under it not full) is a stream: a column narrower than
-/// the voxel, as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into one cascade,
-/// capped where it starts and ends. Only faces the server says are open count (<see cref="BrickView.Open"/>): never one
-/// a piece closes, so no water shows through a wall. Water the server keeps inside a solid voxel (a piece built over a
-/// pool with nowhere for its water to go) is not drawn: it would show inside the piece.
+/// the voxel, as wide as its water would be, through the voxel's whole height so that the voxels of a fall join into
+/// one cascade, capped where it starts and ends. Only faces the server says are open count (<see cref="BrickView.Open"/>):
+/// never one a piece closes, so no water shows through a wall. Water the server keeps inside a solid voxel (a piece built
+/// over a pool with nowhere for its water to go) is not drawn: it would show inside the piece.
 /// </summary>
 internal sealed class VoxelShell
 {
@@ -133,14 +133,14 @@ internal sealed class VoxelShell
             {
                 // Water beside nearly as high: the surface joins the two (a sheet down a gentle slope), no side between.
                 float beside = field.GoesUp(x + dx, y, z + dz) ? (y + 1) * s : field.Level(x + dx, y, z + dz);
-                if (level - beside <= JoinStep * s)
+                if (level - beside <= JoinStep * s && NoneOver(field, x + dx, y, z + dz))
                 {
                     continue;
                 }
 
                 bottom = Math.Max(bottom, beside);
             }
-            else if (field.IsWet(x + dx, y - 1, z + dz) && !field.IsWet(x + dx, y + 1, z + dz) && (open & BrickData.GroundBeside) == 0)
+            else if (field.IsWet(x + dx, y - 1, z + dz) && NoneOver(field, x + dx, y, z + dz) && (open & BrickData.GroundBeside) == 0)
             {
                 // Water beside a voxel lower, the top of its column: the water steps down to it, the surface joining
                 // them (with water higher up that column, on a ledge or a floor, the surface joins that; with ground in
@@ -153,6 +153,22 @@ internal sealed class VoxelShell
                 at.Side(this, dx, dz, 0.5f * s, bottom, level, foam, 1f);
             }
         }
+    }
+
+    // No water over row y of column (x, z), up to the top of the brick row y is in (one row at least): the surface takes
+    // a column's highest top in a brick's rows, so with water higher up there it joins that, not the water at or under y.
+    private static bool NoneOver(VoxelField field, int x, int y, int z)
+    {
+        int ceiling = Math.Max(y + 1, (Brick.Of(y) * Brick.Size) + Brick.Size - 1);
+        for (int up = y + 1; up <= ceiling; up++)
+        {
+            if (field.IsWet(x, up, z))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Water falling: a column through the whole voxel, as wide as its water, capped where the fall starts and ends;

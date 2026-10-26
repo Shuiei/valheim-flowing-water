@@ -284,11 +284,11 @@ there to the new grid (same volume), at once when the file is saved.
   Beside the surface, the water is drawn as the voxels it fills where it meets the air: the server sends with each
   wet voxel which of its faces water could leave by (no piece closing it, no solid beyond), and the block draws a side
   where its water stands open to the air (from its floor, or the water beside it, up to its level; not toward water
-  beside it at most 0.35 of a voxel lower, or a voxel lower, which the surface joins it to, unless the server says
-  the dry voxel beside holds some ground: the side shows over it), and water falling
-  through the air as a column through each voxel it falls through, as wide as its water, capped where the fall starts
-  and ends, so a fall is one cascade of white water. These faces and the surface are drawn from both sides: from
-  inside the water, it is still seen.
+  beside it at most 0.35 of a voxel lower, or a voxel lower, which the surface joins it to, unless that column holds
+  water higher up, which the surface joins instead, or the server says the dry voxel beside holds some ground: the
+  side shows over it), and water falling through the air as a column through each voxel it falls through, as wide as
+  its water, capped where the fall starts and ends, so a fall is one cascade of white water. These faces and the
+  surface are drawn from both sides: from inside the water, it is still seen.
   With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
   instead: the top of each wet voxel with no water over it, its corners shared with the tops beside it that are one
   water with it, sides where the water ends (a fall's sheet, a pool's edge over a cliff), eased to new water over 0.4

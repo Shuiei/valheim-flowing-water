@@ -411,9 +411,11 @@ internal sealed class Brick
         return (byte)open;
     }
 
-    // Whether the voxel beside voxel i on this side is dry, holds some ground, and has water under it.
+    // Whether the voxel beside voxel i on this side is dry as the players' games see it, holds some ground, and has water
+    // under it. Dry there is under a step of the bytes sent (with what the steps before carry, a film up to one step may
+    // be sent as none; one sent wet is drawn as water beside, the bit unread).
     private bool GroundBesideLowerWater(int i, int side) =>
-        Neighbour(i, side, out Brick next, out int j) && next.Water[j] <= 0f && next.Solid[j] >= BrickData.GroundBesideShare
+        Neighbour(i, side, out Brick next, out int j) && next.Water[j] < 1f / BrickData.Full && next.Solid[j] >= BrickData.GroundBesideShare
         && next.Neighbour(j, 3, out Brick under, out int k) && under.Water[k] > 0f;
 
     /// <summary>Forgets which border faces were shut (its solids are read again: they may have opened).</summary>
