@@ -213,16 +213,24 @@ jobs:
             # Codecov processes an upload after taking it: its public API is asked for this commit's uploads, every 10 s
             # for up to five minutes, until this job's own (Codecov's CLI names it after the job's build number, which a
             # re-run or another workflow on the same commit does not share) is processed into the commit's report.
-            # None (the upload refused, or never processed), or one Codecov failed, fails the job. Each request gives
-            # up after 30 s, so a stalled one cannot hold the job past its five minutes.
+            # None (the upload refused, or never processed), or one Codecov failed, fails the job. The five minutes are
+            # a deadline: each request gets at most 30 s and never more than is left, and no wait runs past it.
             api="https://api.codecov.io/api/v2/github/$CIRCLE_PROJECT_USERNAME/repos/$CIRCLE_PROJECT_REPONAME/commits/$CIRCLE_SHA1"
-            for try in $(seq 30); do
-              uploads=$(curl -fsS --connect-timeout 10 --max-time 30 "$api/uploads/?page_size=100" 2>/dev/null || true)
+            deadline=$(( $(date +%s) + 300 ))
+            ask() {
+              left=$(( deadline - $(date +%s) ))
+              [ "$left" -gt 0 ] || return 1
+              curl -fsS --connect-timeout $(( left < 10 ? left : 10 )) --max-time $(( left < 30 ? left : 30 )) "$1"
+            }
+            try=0
+            while :; do
+              try=$(( try + 1 ))
+              uploads=$(ask "$api/uploads/?page_size=100" 2>/dev/null || true)
               state=$(printf '%s' "$uploads" | jq -r --arg build "$CIRCLE_BUILD_NUM" \
                 '[.results[]? | select(.name == $build or ((.build_url // "") | endswith("/" + $build)))][0].state // empty' 2>/dev/null || true)
               case "$state" in
                 processed|merged|complete)
-                  commit=$(curl -fsS --connect-timeout 10 --max-time 30 "$api/" 2>/dev/null || true)
+                  commit=$(ask "$api/" 2>/dev/null || true)
                   if printf '%s' "$commit" | jq -e '.state == "complete"' > /dev/null 2>&1; then
                     echo "Codecov has build $CIRCLE_BUILD_NUM's upload of $CIRCLE_SHA1 ($state): coverage $(printf '%s' "$commit" | jq -r '.totals.coverage')"
                     exit 0
@@ -234,6 +242,7 @@ jobs:
                   ;;
               esac
               echo "Try $try: build $CIRCLE_BUILD_NUM's upload of $CIRCLE_SHA1 is ${state:-not at Codecov yet}."
+              [ $(( $(date +%s) + 10 )) -lt "$deadline" ] || break
               sleep 10
             done
             echo "Codecov has no processed upload of build $CIRCLE_BUILD_NUM for $CIRCLE_SHA1 after five minutes: the upload was refused or failed."
