@@ -44,14 +44,11 @@ public class SimHandoverTests
         float[] first = Handed(handover, texels, layers, 10f, out float[] firstLayers);
         Assert.False(Drawn(first, 8, 8));
         Assert.Equal(SimColumns.DryTop, firstLayers[(((8 * Columns) + 8) * SimColumns.LayerTexel) + 2]);
-        Assert.True(handover.Waiting);
-
         Assert.Equal(10f + SimHandover.Settle, handover.NextReady);
 
         float[] later = Handed(handover, texels, layers, 10f + SimHandover.Settle, out float[] laterLayers);
         Assert.True(Drawn(later, 8, 8));
         Assert.Equal(12f, laterLayers[(((8 * Columns) + 8) * SimColumns.LayerTexel) + 2]);
-        Assert.False(handover.Waiting);
         Assert.Equal(float.PositiveInfinity, handover.NextReady);
     }
 
@@ -102,7 +99,7 @@ public class SimHandoverTests
 
         Assert.True(Drawn(drawn, 8, 8));
         Assert.False(Drawn(drawn, Columns - 5, 8));
-        Assert.True(handover.Waiting);
+        Assert.True(handover.NextReady < float.PositiveInfinity);
     }
 
     [Fact]

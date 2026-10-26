@@ -4,11 +4,12 @@ namespace FlowingWater.Volume;
 
 /// <summary>
 /// Which voxel columns of the square the card draws, of those the server's water lets it (<see cref="SimColumns"/>):
-/// none in a band along the square's edge, where its water is the server's as it is, a step a voxel on a slope (the
-/// bricks draw it there, so the card's water meets theirs inside the square, never at its edge); and a column only once
-/// it has let the card have it for <see cref="Settle"/> seconds, so the card's water there has settled to the server's
-/// (a column new to the square, its ground just found, starts from the server's water, a step a voxel, and runs
-/// smooth; drawn at once, that was seen as a ripple). Until then the bricks draw it, as before.
+/// none in a band along the square's edge (its outer cells hold the server's water as it is, a step a voxel on a slope,
+/// and those inside them are still pulled toward it), which the bricks draw, so the card's water meets theirs inside
+/// the square, never at its edge; and a column only once it has let the card have it for <see cref="Settle"/> seconds,
+/// so the card's water there has settled to the server's (a column new to the square, its ground just found, starts
+/// from the server's water, a step a voxel, and runs smooth; drawn at once, that was seen as a ripple). Until then the
+/// bricks draw it, as before.
 /// </summary>
 internal sealed class SimHandover
 {
@@ -38,9 +39,6 @@ internal sealed class SimHandover
         }
     }
 
-    /// <summary>Whether a column the server's water lets the card draw waits still (drawn by the bricks till then).</summary>
-    public bool Waiting { get; private set; }
-
     /// <summary>When the first column waiting is done waiting (s, as <see cref="Apply"/>'s time); infinity when none waits.</summary>
     public float NextReady { get; private set; } = float.PositiveInfinity;
 
@@ -54,7 +52,6 @@ internal sealed class SimHandover
     {
         Array.Copy(texels, drawnTexels, texels.Length);
         Array.Copy(layers, drawnLayers, layers.Length);
-        Waiting = false;
         NextReady = float.PositiveInfinity;
         for (int vz = 0; vz < _columns; vz++)
         {
@@ -79,7 +76,6 @@ internal sealed class SimHandover
 
                 if (!float.IsNaN(_since[k]))
                 {
-                    Waiting = true;
                     NextReady = Math.Min(NextReady, _since[k] + Settle);
                 }
 
