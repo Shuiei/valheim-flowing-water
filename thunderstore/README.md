@@ -76,6 +76,7 @@ again within a couple of seconds. The main ones:
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 | `Client.Spray` | true | Falls (as curtains), splashes and spray on your graphics card (with `Client.GpuWater`) |
 | `Client.ParticleWater` | false | A prototype: water running over a lip near you falls as particles of water that break up, splash and pool, and give their water back where they land (with `Client.Spray`); the console's `flowingwater particles` pours some either way |
+| `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144); more costs the card more |
 
 Every setting, how the simulation works and how to build it:
 [the project's page](https://github.com/Shuiei/valheim-flowing-water#readme).

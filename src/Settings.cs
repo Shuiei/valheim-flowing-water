@@ -32,6 +32,7 @@ internal sealed class Settings
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers (1 = at the water's own speed) and pushes floating things.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Unused for now (it was the column water's): water faster than this, in metres per second, was drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         Spray = config.Bind("Client", "Spray", true, "With the water moved on the graphics card (Client.GpuWater), its falls, splashes and spray as particles on the card: water running over a lip falls and arcs, a fall landing splashes, fast water throws droplets.");
+        ParticleCapacity = config.Bind("Client", "ParticleCapacity", 65536, new ConfigDescription("Particles of the particle water at most (a litre each): a lip throws no more once they are all in the air, until some land. More costs the graphics card more; a change takes effect when the water near you is made again (moving far, or a world opening).", new AcceptableValueRange<int>(4096, 262144)));
         ParticleWater = config.Bind("Client", "ParticleWater", false, "A prototype: with Client.Spray, water running over a lip near you falls as particles of water on the graphics card (a litre each, moved as water moves: it breaks up, splashes and pools) instead of as curtains and sheets of spray, and gives its water back to the water near you where it lands. The console's \"flowingwater particles\" pours some whatever this is.");
         WaterVolume = config.Bind("Client", "WaterVolume", 0.7f, new ConfigDescription("Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent), within the game's sound-effects volume.", new AcceptableValueRange<float>(0f, 1f)));
         FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("Unused for now (it was the column water's): how fast the stream texture ran.", new AcceptableValueRange<float>(0f, 5f)));
@@ -89,6 +90,8 @@ internal sealed class Settings
     public ConfigEntry<bool> Spray { get; }
 
     public ConfigEntry<bool> ParticleWater { get; }
+
+    public ConfigEntry<int> ParticleCapacity { get; }
 
     public ConfigEntry<float> WaterVolume { get; }
 }

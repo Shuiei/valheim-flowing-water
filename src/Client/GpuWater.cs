@@ -230,7 +230,7 @@ internal sealed class GpuWater : IDisposable
             return "no particle water: its shaders did not load (see the log)";
         }
 
-        _water._particles ??= new ParticleWater(compute, material, 65536);
+        _water._particles ??= new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value);
         if (_water._particles.Count >= _water._particles.Capacity)
         {
             return FormattableString.Invariant($"no room: {_water._particles.Capacity} particles already (flowingwater particles clear)");
@@ -524,7 +524,7 @@ internal sealed class GpuWater : IDisposable
         bool exchange = FlowingWaterPlugin.Settings.ParticleWater.Value && _spray != null;
         if (_particles == null && exchange && Materials.Particles(out Material material, out _, out ComputeShader compute))
         {
-            _particles = new ParticleWater(compute, material, 65536);
+            _particles = new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value);
         }
 
         if (_particles == null)

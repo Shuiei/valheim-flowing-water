@@ -109,6 +109,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
 | `Client.ParticleWater` | false | A prototype: with `Client.Spray`, water running over a lip near you falls as particles of water (a litre each, moved as water moves: it breaks up, splashes and pools) instead of as curtains and sheets of spray, and gives its water back to the water near you where it lands (see [Particle water](#particle-water-a-prototype)) |
+| `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): a lip throws no more once they are all in the air, until some land; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
 ### Water on the graphics card
