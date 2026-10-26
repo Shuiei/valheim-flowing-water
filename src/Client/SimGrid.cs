@@ -214,7 +214,8 @@ internal sealed class SimGrid : IDisposable
 
     /// <summary>
     /// Writes the ground of <paramref name="rows"/> rows of cells from row <paramref name="row"/>, from the square's
-    /// ground (world heights, a row after another).
+    /// ground (world heights, a row after another). A cell found a wall loses its water; one whose ground is found where
+    /// none was known takes the server's water there, as it is.
     /// </summary>
     public void WriteBed(int row, float[] ground, int rows)
     {
@@ -233,6 +234,8 @@ internal sealed class SimGrid : IDisposable
         _bedRows.SetData(ground, row * Cells, 0, count);
         _shader.SetBuffer(_writeBed, BedRowsId, _bedRows);
         _shader.SetTexture(_writeBed, BedId, Bed);
+        _shader.SetTexture(_writeBed, HId, _h[_current]);
+        _shader.SetTexture(_writeBed, TargetId, Target);
         _shader.SetInt(BedRowId, row);
         _shader.SetInt(BedRowCountId, rows);
         Common();
@@ -246,7 +249,7 @@ internal sealed class SimGrid : IDisposable
         texture.SetPixelData(depth, 0);
         texture.Apply(false);
         Graphics.CopyTexture(texture, _h[_current]);
-        UnityEngine.Object.Destroy(texture);
+        Free(texture);
     }
 
     /// <summary>The water as the server has it, still (where the card had none, or the square moved).</summary>
@@ -308,10 +311,10 @@ internal sealed class SimGrid : IDisposable
         foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull })
         {
             texture.Release();
-            UnityEngine.Object.Destroy(texture);
+            Free(texture);
         }
 
-        UnityEngine.Object.Destroy(Target);
+        Free(Target);
         _bedRows?.Release();
     }
 
@@ -368,6 +371,19 @@ internal sealed class SimGrid : IDisposable
     }
 
     private void Bind(int kernel, int id, RenderTexture texture) => _shader.SetTexture(kernel, id, texture);
+
+    // Gone: in the game as Unity frees things, in the editor's preview (not playing) at once, as it must there.
+    private static void Free(UnityEngine.Object thing)
+    {
+        if (Application.isPlaying)
+        {
+            UnityEngine.Object.Destroy(thing);
+        }
+        else
+        {
+            UnityEngine.Object.DestroyImmediate(thing);
+        }
+    }
 
     private void Dispatch(int kernel, int size) => _shader.Dispatch(kernel, (size + Group - 1) / Group, (size + Group - 1) / Group, 1);
 

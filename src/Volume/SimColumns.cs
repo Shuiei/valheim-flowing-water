@@ -232,8 +232,16 @@ internal static class SimColumns
             return Of(brickAt, at, rowAt, floor + depth, depth, !under, run[0].Brick.VelocityY[run[0].Index]);
         }
 
+        // The pool's water only: the water falling into it is not kept on the card's ground there (it would stand as a
+        // mound at the fall's foot).
+        float pool = 0f;
+        for (int k = top; k < run.Count; k++)
+        {
+            pool += run[k].Brick.Water[run[k].Index] * voxelSize;
+        }
+
         float fill = Math.Min(1f, brickAt.Solid[at] + brickAt.Water[at]);
-        return Of(brickAt, at, rowAt, (rowAt + fill) * voxelSize, depth, !under && top == 0, brickAt.VelocityY[at]);
+        return Of(brickAt, at, rowAt, (rowAt + fill) * voxelSize, pool, !under && top == 0, brickAt.VelocityY[at]);
     }
 
     // Whether a piece closes the face between two columns at the water's level: one says its face is closed there, and
