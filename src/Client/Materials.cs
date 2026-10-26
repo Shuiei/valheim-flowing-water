@@ -223,6 +223,11 @@ internal static class Materials
         {
             TakeSeaLook(_spray);
         }
+
+        if (Falls != null)
+        {
+            TakeSeaLook(Falls);
+        }
     }
 
     /// <summary>
@@ -268,6 +273,7 @@ internal static class Materials
                 {
                     _spray = FromBundle("FlowingWaterSpray", "FlowingWater spray", "the water's falls and spray are not drawn");
                     _sprayCompute = _spray == null ? null : compute;
+                    Falls = _spray == null ? null : FromBundle("FlowingWaterFall", "FlowingWater falls", "falls are drawn as spray only");
                 }
             }
         }
@@ -276,6 +282,12 @@ internal static class Materials
         compute = _sprayCompute;
         return _spray != null && _sprayCompute != null;
     }
+
+    /// <summary>
+    /// The falls' curtains' material (with the sea's foam), from the same bundle as <see cref="Spray"/>, once that is
+    /// made; none (logged) where the bundle has none: the falls are drawn as their spray only.
+    /// </summary>
+    public static Material Falls { get; private set; }
 
     private static void LoadSim()
     {
@@ -473,7 +485,7 @@ internal static class Materials
 
     /// <summary>
     /// Sets a float (one value) or colour (three or four) property on the custom (the bricks'), card (the water moved on
-    /// the graphics card) or still material, for tuning in game.
+    /// the graphics card), falls (its falls' curtains), spray or still material, for tuning in game.
     /// </summary>
     public static string Tune(string kind, string property, float[] values)
     {
@@ -481,12 +493,14 @@ internal static class Materials
         {
             "custom" => _custom,
             "card" => _sim,
+            "falls" => Falls,
+            "spray" => _spray,
             "still" => _still,
             _ => null,
         };
         if (material == null)
         {
-            return $"no {kind} material (custom, card or still; water must have been drawn once with it)";
+            return $"no {kind} material (custom, card, falls, spray or still; water must have been drawn once with it)";
         }
 
         if (property == "list")

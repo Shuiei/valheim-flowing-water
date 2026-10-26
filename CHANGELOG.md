@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.36.0 — 2026-10-26
+
+### Added
+- Water falling off a ledge near you pours as one curtain from the lip down to where it lands, glassy at the top and
+  breaking up white as it falls, and the pool under it churns white; the streaks it used to be drawn as are now its
+  mist. `flowingwater mat falls` tunes it.
+
 ## v0.35.0 — 2026-10-26
 
 ### Added

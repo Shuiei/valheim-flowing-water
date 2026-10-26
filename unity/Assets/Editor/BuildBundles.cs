@@ -35,6 +35,10 @@ public static class BuildBundles
 
     public const string SprayComputePath = "Assets/FlowingWater/Shaders/FlowingWaterSpray.compute";
 
+    public const string FallShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterFall.shader";
+
+    public const string FallMaterialPath = "Assets/FlowingWater/FlowingWaterFall.mat";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -68,9 +72,10 @@ public static class BuildBundles
         MakeMaterial(ShellShaderPath, ShellMaterialPath, "FlowingWaterShell");
         Material sim = MakeMaterial(SimShaderPath, SimMaterialPath, "FlowingWaterSim");
         sim.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
-        CheckCompute(SimComputePath, "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed", "LandSpeeds", "Land", "Clear", "ShiftCells");
+        CheckCompute(SimComputePath, "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed", "LandSpeeds", "Land", "Clear", "ShiftCells", "Shape");
         MakeMaterial(SprayShaderPath, SprayMaterialPath, "FlowingWaterSpray");
-        CheckCompute(SprayComputePath, "EmitFromWater", "Move");
+        CheckCompute(SprayComputePath, "EmitFromWater", "Move", "Curtains");
+        MakeMaterial(FallShaderPath, FallMaterialPath, "FlowingWaterFall");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -212,7 +217,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

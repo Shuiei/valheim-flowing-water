@@ -46,10 +46,11 @@ public class WaveShadersTests
     }
 
     [Fact]
-    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsToo()
+    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsAndWhereFallsLandToo()
     {
         Assert.Matches(new Regex(@"Churn\(crest, [^;]+, 0\.0\)\)?;", RegexOptions.None, Patience), Function(Read("FlowingWater.shader"), "void vert("));
-        Assert.Matches(new Regex(@"Churn\(crest, [^;]+, slowing\);", RegexOptions.None, Patience), Function(Read("FlowingWaterSim.shader"), "void vert("));
+        string card = Function(Read("FlowingWaterSim.shader"), "void vert(");
+        Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), At\(_SimChurn, p\)\);", RegexOptions.None, Patience), card);
     }
 
     private static string Read(string file) => File.ReadAllText(Repository.File(Shaders + file));

@@ -40,6 +40,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int TargetId = Shader.PropertyToID("_FWSimTarget");
     private static readonly int DepthId = Shader.PropertyToID("_SimH");
     private static readonly int BedId = Shader.PropertyToID("_SimBed");
+    private static readonly int ChurnId = Shader.PropertyToID("_SimChurn");
     private static readonly int EastId = Shader.PropertyToID("_SimU");
     private static readonly int NorthId = Shader.PropertyToID("_SimV");
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
@@ -422,6 +423,7 @@ internal sealed class GpuWater : IDisposable
         _grid.Shape();
         _properties.SetTexture(DepthId, _grid.Drawn);
         _properties.SetTexture(BedId, _grid.Bed);
+        _properties.SetTexture(ChurnId, _grid.Churn);
         _properties.SetTexture(EastId, _grid.SpeedEast);
         _properties.SetTexture(NorthId, _grid.SpeedNorth);
         _properties.SetFloat(CellsId, _window.Cells);
@@ -451,6 +453,7 @@ internal sealed class GpuWater : IDisposable
 
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _spray ??= new SprayParticles(compute, material);
+        _spray.Curtain = Materials.Falls;
         _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }

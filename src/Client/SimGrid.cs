@@ -46,7 +46,7 @@ internal sealed class SimGrid : IDisposable
     private const float Drain = 0.4f;
 
     // Cells along the square's edge holding the server's water as it is (the water beyond is not moved here).
-    private const int BorderCells = 6;
+    internal const int BorderCells = 6;
 
     private const int Group = 8;
 
@@ -89,6 +89,8 @@ internal sealed class SimGrid : IDisposable
     private static readonly int ThrowId = Shader.PropertyToID("_Throw");
     private static readonly int LipDropId = Shader.PropertyToID("_LipDrop");
     private static readonly int DrawnId = Shader.PropertyToID("_Drawn");
+    private static readonly int ChurnId = Shader.PropertyToID("_Churn");
+    private static readonly int FrameId = Shader.PropertyToID("_Frame");
 
     private readonly ComputeShader _shader;
 
@@ -166,6 +168,8 @@ internal sealed class SimGrid : IDisposable
         _shiftCells = shader.FindKernel("ShiftCells");
         _shape = shader.FindKernel("Shape");
         Drawn = MakeCells("drawn", cells);
+        Churn = MakeCells("churn", cells);
+        Zero(Churn);
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -212,6 +216,9 @@ internal sealed class SimGrid : IDisposable
     /// over the cells round it, the small bumps of a sheet's ground covered.
     /// </summary>
     public RenderTexture Drawn { get; }
+
+    /// <summary>How white each cell's water churns where falling water lands in it (0 to 1), calming once it stops.</summary>
+    public RenderTexture Churn { get; }
 
     /// <summary>Cells along a side.</summary>
     public int Cells { get; }
@@ -384,7 +391,9 @@ internal sealed class SimGrid : IDisposable
         BindLanded(_landSpeeds);
         Dispatch(_landSpeeds, Cells);
         Bind(_land, HId, _h[_current]);
+        Bind(_land, ChurnId, Churn);
         BindLanded(_land);
+        _shader.SetFloat(FrameId, seconds);
         Dispatch(_land, Cells);
         _shader.SetFloat(DtId, dt);
         _shader.SetFloat(MaxDepthId, fastest * fastest / Gravity);
@@ -431,6 +440,8 @@ internal sealed class SimGrid : IDisposable
         _speeds = 1 - _speeds;
         ShiftInto(Bed, _scale, Wall);
         Graphics.CopyTexture(_scale, Bed);
+        ShiftInto(Churn, _scale, 0f);
+        Graphics.CopyTexture(_scale, Churn);
         ClearThrown();
     }
 
@@ -455,7 +466,7 @@ internal sealed class SimGrid : IDisposable
 
     public void Dispose()
     {
-        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn })
+        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn, Churn })
         {
             texture.Release();
             Free(texture);
@@ -556,6 +567,15 @@ internal sealed class SimGrid : IDisposable
     }
 
     private void Dispatch(int kernel, int size) => _shader.Dispatch(kernel, (size + Group - 1) / Group, (size + Group - 1) / Group, 1);
+
+    // Every texel 0 (a texture is made holding anything).
+    private static void Zero(RenderTexture texture)
+    {
+        RenderTexture active = RenderTexture.active;
+        RenderTexture.active = texture;
+        GL.Clear(false, true, Color.clear);
+        RenderTexture.active = active;
+    }
 
     private static RenderTexture MakeCells(string name, int side, RenderTextureFormat format = RenderTextureFormat.RFloat)
     {
