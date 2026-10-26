@@ -234,7 +234,8 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
   each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
   on the ground (a puddle is the sheet's), gives its litre back to the sheet where it is, with its momentum, as the
-  spray's sheets did, and is gone; one under the sea's level is the sea's. So a fall is particles from the lip down to
+  spray's sheets did, and is gone; one under the sea's level is the sea's, one at the square's edge is lost to the
+  card (as the spray's water past the square is). So a fall is particles from the lip down to
   the pool, and the pool is the sheet's again, with its waves and churn; the spray's droplets and splashes stay. The
   preview's sheet scene (SimPreview's shelf, 192 m³ let go) counts all the water, the sheet's and the particles' and
   what is between them, within 0.2 m³ throughout; 36 000 particles were in the air at most.

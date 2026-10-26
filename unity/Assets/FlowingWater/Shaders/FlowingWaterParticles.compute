@@ -771,11 +771,13 @@ void Finish(uint3 id : SV_DispatchThreadID)
     p.velocity.xyz = v;
     p.place.xyz = xi;
 
-    // Trading with the sheet: under the sea's level the particle is the sea's; come under the sheet's water, or to rest
-    // on the ground (a puddle is the sheet's), it gives its litre to the sheet where it is, and is gone.
+    // Trading with the sheet: under the sea's level the particle is the sea's; at the square's edge it is lost to the
+    // card (as the spray's water past the square is: the server's pulls the card's back); come under the sheet's water,
+    // or to rest on the ground (a puddle is the sheet's), it gives its litre to the sheet where it is, and is gone.
     if (_Exchange != 0)
     {
-        if (xi.y < _SeaLevel)
+        float2 edge = min(xi.xz - _Origin, _Origin + (_N * _Dx) - xi.xz);
+        if (xi.y < _SeaLevel || min(edge.x, edge.y) <= _Radius * 1.5)
         {
             p.place.w = 0.0;
         }
