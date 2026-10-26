@@ -7,13 +7,15 @@ All notable changes to FlowingWater. Newest first.
 ### Added
 - A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
   a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
-  on), water running over a lip near you falls as particles of water, a litre each, that break up, splash and pool,
-  and give their water back to the water near you where they land, instead of the curtains and sheets of spray. The
-  console's `flowingwater particles [m³]` pours a block of it over you either way, drawn as water with the sea's look
-  (foam where it splashes), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
-  a pool, a wall holds it in), and pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
-  they move through it;
-  `clear` takes it away, `spheres` shows the particles themselves.
+  on), the water near you is particles of water instead of the sheet: made from the server's water and held to it
+  (a pool rises from below as the server fills it and sinks as it drains), moving as water moves (it falls, breaks
+  up, splashes and pools), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
+  a pool, a wall holds it in), pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
+  they move through it, and coming out of a placed source all round it, as fast as its rate pushes it. The sheet and
+  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.5 m, or 0.25 for finer
+  water at eight times the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
+  the setting, drawn as water with the sea's look (foam where it splashes); `clear` takes it away, `spheres` shows
+  the particles themselves.
 
 ## v0.37.0 — 2026-10-26
 

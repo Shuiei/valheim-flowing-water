@@ -32,6 +32,8 @@ Shader "FlowingWater/ParticleSurface"
 
         // The particle water's own.
         _EdgeThickness ("Water thinner than this along the view (m) fades out", Float) = 0.04
+        _ThickMost ("Water seen through more than this (m) takes no more of the light", Float) = 3
+        _LeastLight ("The least light on the water's body (share), so it is never black", Range(0, 1)) = 0.35
     }
 
     SubShader
@@ -74,6 +76,10 @@ Shader "FlowingWater/ParticleSurface"
             float _BodyDepth;
             float4 _BodyTint;
             float _EdgeThickness;
+            float _ThickMost;
+            float _LeastLight;
+            // A particle's size (m), as ParticleSurface sets it: thin water is water this thick along the view at most.
+            float _FWParticleSize;
 
             // The sun as the game sets it for every shader (none: the scene's light, as ParticleSurface found it).
             float4 _SunDir;
@@ -166,15 +172,17 @@ Shader "FlowingWater/ParticleSurface"
                 float2 grab = (i.grab.xy / i.grab.w) + bend;
                 float3 behind = tex2D(_FlowingWaterParticlesBehind, grab).rgb;
 
-                // Seen through so much water: its light taken as it goes (red first), the water's own colour in its place.
-                float3 through = exp(-thickness * _BodyTint.rgb / max(_BodyDepth, 0.001));
-                through *= 1.0 - sqrt(saturate(thickness / _DepthFade));
-                float3 body = lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, saturate(thickness / _DeepWater));
+                // Seen through so much water (no more than _ThickMost: a fall seen along its length is not a well): its
+                // light taken as it goes (red first), the water's own colour in its place, lit by the sky at least.
+                float seen = min(thickness, _ThickMost);
+                float3 through = exp(-seen * _BodyTint.rgb / max(_BodyDepth, 0.001));
+                through *= 1.0 - sqrt(saturate(seen / _DepthFade));
+                float3 body = lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, saturate(seen / _DeepWater));
                 float3 toCamera = normalize(_WorldSpaceCameraPos - worldPos);
                 float3 ambient = ShadeSH9(float4(worldN, 1.0));
                 float3 sun = dot(_SunDir.xyz, _SunDir.xyz) > 0.01 ? normalize(_SunDir.xyz) : normalize(_FWSunDir.xyz);
                 float3 sunColour = _FWSunColour.rgb;
-                float3 lit = ambient + (sunColour * saturate(dot(worldN, sun)));
+                float3 lit = max(ambient + (sunColour * saturate(dot(worldN, sun))), _LeastLight * ShadeSH9(float4(0.0, 1.0, 0.0, 1.0)));
                 float3 colour = (behind * through * _SurfaceColor.rgb) + (body * (1.0 - through) * lit);
 
                 // The sky in the surface, more the flatter one looks along it; the sun's glint.
@@ -185,8 +193,9 @@ Shader "FlowingWater/ParticleSurface"
                 float glint = pow(saturate(dot(worldN, normalize(sun + toCamera))), 256.0) * _Glossiness;
                 colour += sunColour * glint;
 
-                // Foam where the water is air: thin water, spray, the churn of a fall.
-                colour = lerp(colour, _FoamColor.rgb * (ambient + (0.6 * sunColour)), saturate(air * 1.5));
+                // Foam where the water is air (the churn of a fall), not on a lone drop: a drop is clear water, seen through.
+                float lone = saturate(1.0 - (thickness / max(2.0 * _FWParticleSize, 0.01)));
+                colour = lerp(colour, _FoamColor.rgb * (ambient + (0.6 * sunColour)), saturate(air * 1.5) * (1.0 - lone));
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.
 #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
@@ -197,8 +206,8 @@ Shader "FlowingWater/ParticleSurface"
                 colour = lerp(fogColour, colour, saturate(unityFogFactor));
 #endif
 
-                // Thin water at the edge fades out into the scene.
-                return fixed4(colour, saturate(thickness / _EdgeThickness));
+                // Thin water at the edge fades out into the scene; a lone drop is faint, not a disc.
+                return fixed4(colour, saturate(thickness / max(_EdgeThickness, 0.5 * _FWParticleSize)));
             }
             ENDCG
         }

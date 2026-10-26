@@ -8,24 +8,22 @@ namespace FlowingWater.Client;
 /// <summary>
 /// Water as particles on the graphics card (the mod's FlowingWaterParticles compute shader), a prototype: position based
 /// fluids over a hashed grid, each particle a cube of water <see cref="Spacing"/> on a side, kept out of the ground the
-/// card's water knows (<see cref="SimGrid.Bed"/>), the square's walls and a sphere. Given the sheet of water the card
-/// moves (<see cref="SetSheet"/>), the particles trade water with it: what the sheet throws over a lip becomes
-/// particles, and a particle come to rest in or on the sheet's water, or on the ground, gives its litre back to the
-/// sheet where it is. The particles' count lives on the card (<see cref="Count"/> reads it back). Nothing is sent
-/// anywhere. Needs only Unity, so the Unity project's preview runs it (ParticlePreview) too.
+/// card's water knows (<see cref="SimGrid.Bed"/>), what players build, the square's walls and the bodies in the water.
+/// Given the server's water by the voxel column (<see cref="SetOwner"/>), the particles are the water near the camera:
+/// made where the server has water and the particles have less, let go where they have more, so the server keeps the
+/// say on how much water is where while how it moves is the particles' own. The particles' count lives on the card
+/// (<see cref="Count"/> reads it back). Nothing is sent anywhere. Needs only Unity, so the Unity project's preview runs
+/// it (ParticlePreview) too.
 /// </summary>
 internal sealed class ParticleWater : IDisposable
 {
-    /// <summary>A particle's water: a cube this long on a side (m), at rest; a litre.</summary>
-    public const float Spacing = 0.1f;
-
     /// <summary>Bodies in the water at most (<see cref="SetBodies"/>).</summary>
     public const int MostBodies = 32;
 
-    /// <summary>The smoothing radius (m): how far a particle feels its neighbours. Twice the spacing: about 30 of them.</summary>
-    public const float Radius = 2f * Spacing;
+    /// <summary>Water sources the particles come out of at most (<see cref="SetSpouts"/>).</summary>
+    public const int MostSpouts = 16;
 
-    // A particle's floats: place and whether it is, the step's guess and its pull, velocity and density.
+    // A particle's floats: place and its cell's key, the step's guess and its pull, velocity and density.
     private const int Stride = 12 * sizeof(float);
 
     // The hashed grid's buckets (a power of two) and the buckets a scan block holds (the compute shader's SCAN).
@@ -37,11 +35,6 @@ internal sealed class ParticleWater : IDisposable
 
     // Macklin and Müller's artificial pressure is measured against the kernel this share of the radius away.
     private const float CorrDistance = 0.2f;
-
-    // The smoothing kernels' constants (Müller et al., 2003): poly6's 315 / (64 pi h^9), spiky's gradient's 45 / (pi h^6).
-    private static readonly float Poly6K = 315f / (64f * Mathf.PI * Mathf.Pow(Radius, 9f));
-
-    private static readonly float SpikyK = 45f / (Mathf.PI * Mathf.Pow(Radius, 6f));
 
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
     private static readonly int SortedId = Shader.PropertyToID("_Sorted");
@@ -79,15 +72,18 @@ internal sealed class ParticleWater : IDisposable
     private static readonly int SphereId = Shader.PropertyToID("_Sphere");
     private static readonly int BodiesId = Shader.PropertyToID("_Bodies");
     private static readonly int BodyCountId = Shader.PropertyToID("_BodyCount");
-    private static readonly int ExchangeId = Shader.PropertyToID("_Exchange");
+    private static readonly int SpoutsId = Shader.PropertyToID("_Spouts");
+    private static readonly int SpoutCountId = Shader.PropertyToID("_SpoutCount");
+    private static readonly int FrameId = Shader.PropertyToID("_Frame");
+    private static readonly int OwnId = Shader.PropertyToID("_Own");
+    private static readonly int TargetId = Shader.PropertyToID("_Target");
+    private static readonly int PerVoxelId = Shader.PropertyToID("_PerVoxel");
+    private static readonly int ColumnCountId = Shader.PropertyToID("_ColumnCount");
+    private static readonly int ColumnTopId = Shader.PropertyToID("_ColumnTop");
+    private static readonly int ColumnLossId = Shader.PropertyToID("_ColumnLoss");
+    private static readonly int PullId = Shader.PropertyToID("_Pull");
+    private static readonly int BorderId = Shader.PropertyToID("_Border");
     private static readonly int SeaLevelId = Shader.PropertyToID("_SeaLevel");
-    private static readonly int LandedId = Shader.PropertyToID("_Landed");
-    private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
-    private static readonly int SheetHId = Shader.PropertyToID("_SheetH");
-    private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
-    private static readonly int SheetUId = Shader.PropertyToID("_SheetU");
-    private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
-    private static readonly int SheetVId = Shader.PropertyToID("_SheetV");
     private static readonly int LitreId = Shader.PropertyToID("_Litre");
     private static readonly int SeedId = Shader.PropertyToID("_Seed");
     private static readonly int SolidsOnId = Shader.PropertyToID("_SolidsOn");
@@ -96,10 +92,14 @@ internal sealed class ParticleWater : IDisposable
     private static readonly int SolidRowsId = Shader.PropertyToID("_SolidRows");
     private static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
     private static readonly int SolidY0Id = Shader.PropertyToID("_SolidY0");
+    private static readonly int SizeId = Shader.PropertyToID("_Size");
 
     private readonly ComputeShader _shader;
 
-    private readonly int _emit;
+    private readonly int _clearColumns;
+    private readonly int _countColumns;
+    private readonly int _fill;
+    private readonly int _spout;
     private readonly int _clearCounts;
     private readonly int _predict;
     private readonly int _scanBlocks;
@@ -122,31 +122,36 @@ internal sealed class ParticleWater : IDisposable
     private readonly ComputeBuffer _hashes;
     private readonly ComputeBuffer _slots;
     private readonly ComputeBuffer _delta;
-
     private readonly ComputeBuffer _bodies;
 
-    private int _bodyCount;
+    private readonly ComputeBuffer _spouts;
 
-    // What the sheet's textures are bound as when there is no sheet, and the solids' when there are none: nothing is read
-    // or written there.
-    private readonly RenderTexture _noSheet;
-
-    private readonly RenderTexture _noLanded;
+    // What the server's texture and the solids are bound as when there are none: nothing is read there.
+    private readonly Texture2D _noTarget;
 
     private readonly Texture3D _noSolids;
+
+    // The smoothing kernels' constants (Müller et al., 2003): poly6's 315 / (64 pi h^9), spiky's gradient's 45 / (pi h^6);
+    // the sums over a lattice of particles at their spacing: of the smoothing kernel (water at rest), and of the squared
+    // kernel gradients (what the relaxation is a share of).
+    private readonly float _poly6K;
+
+    private readonly float _spikyK;
+
+    private readonly float _restWeight;
+
+    private readonly float _restGradients;
 
     // The particles' count asked of the card now and then, so a frame need not wait for it (LastCount).
     private UnityEngine.Rendering.AsyncGPUReadbackRequest _counting;
 
     private bool _countingNow;
 
-    // The sums over a lattice of particles at their spacing: of the smoothing kernel (water at rest), and of the squared
-    // kernel gradients (what the relaxation is a share of).
-    private readonly float _restWeight;
-
-    private readonly float _restGradients;
-
     private int _current;
+
+    private int _bodyCount;
+
+    private int _spoutCount;
 
     private uint _seed;
 
@@ -162,7 +167,20 @@ internal sealed class ParticleWater : IDisposable
 
     private Vector4 _sphere = new(0f, 0f, 0f, -1f);
 
-    private SimGrid _sheet;
+    private Texture _target;
+
+    private int _perVoxel = 1;
+
+    private int _border;
+
+    private float _seaLevel = float.NegativeInfinity;
+
+    // The columns' particle counts, highest particles and loss shares, a texel a voxel column (made at the square's columns).
+    private RenderTexture _columnCount;
+
+    private RenderTexture _columnTop;
+
+    private RenderTexture _columnLoss;
 
     private Texture _solids;
 
@@ -175,20 +193,33 @@ internal sealed class ParticleWater : IDisposable
     private float _solidY0;
 
     /// <summary>
-    /// Room for <paramref name="capacity"/> particles, moved by <paramref name="shader"/> and drawn with
+    /// Room for <paramref name="capacity"/> particles of water <paramref name="spacing"/> metres on a side (0.1 for a
+    /// litre; 0.25 or 0.5 for the water near the camera), moved by <paramref name="shader"/> and drawn with
     /// <paramref name="material"/>.
     /// </summary>
-    public ParticleWater(ComputeShader shader, Material material, int capacity)
+    public ParticleWater(ComputeShader shader, Material material, int capacity, float spacing = 0.1f)
     {
         if (capacity <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "no room for particles");
         }
 
+        if (spacing <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing), spacing, "a particle must have a size");
+        }
+
         _shader = shader;
         Material = material;
         Capacity = capacity;
-        _emit = shader.FindKernel("Emit");
+        Spacing = spacing;
+        Radius = 2f * spacing;
+        _poly6K = 315f / (64f * Mathf.PI * Mathf.Pow(Radius, 9f));
+        _spikyK = 45f / (Mathf.PI * Mathf.Pow(Radius, 6f));
+        _clearColumns = shader.FindKernel("ClearColumns");
+        _countColumns = shader.FindKernel("CountColumns");
+        _fill = shader.FindKernel("Fill");
+        _spout = shader.FindKernel("Spout");
         _clearCounts = shader.FindKernel("ClearCounts");
         _predict = shader.FindKernel("Predict");
         _scanBlocks = shader.FindKernel("ScanBlocks");
@@ -214,15 +245,27 @@ internal sealed class ParticleWater : IDisposable
         _slots = new ComputeBuffer(capacity, sizeof(uint));
         _delta = new ComputeBuffer(capacity, 4 * sizeof(float));
         _bodies = new ComputeBuffer(MostBodies, 16 * sizeof(float));
-        _noSheet = MakeTexture("no sheet", RenderTextureFormat.RFloat);
-        _noLanded = MakeTexture("no landed", RenderTextureFormat.RInt);
+        _spouts = new ComputeBuffer(MostSpouts, 8 * sizeof(float));
+        _noTarget = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true) { name = "FlowingWater particles no target" };
+        _noTarget.SetPixel(0, 0, new Color(-10000f, 0f, 0f, 0f));
+        _noTarget.Apply(false);
         _noSolids = new Texture3D(1, 1, 1, TextureFormat.R8, false) { name = "FlowingWater particles no solids" };
         _noSolids.SetPixelData(new byte[1], 0);
         _noSolids.Apply(false);
         (_restWeight, _restGradients) = Lattice();
         Clear();
         Properties.SetBuffer(ParticlesId, _particles[0]);
+        Properties.SetFloat(SizeId, 0.8f * spacing);
     }
+
+    /// <summary>A particle's water: a cube this long on a side (m), at rest.</summary>
+    public float Spacing { get; }
+
+    /// <summary>The smoothing radius (m): how far a particle feels its neighbours. Twice the spacing: about 30 of them.</summary>
+    public float Radius { get; }
+
+    /// <summary>A particle's water (m³).</summary>
+    public float Litre => Spacing * Spacing * Spacing;
 
     /// <summary>Particles at most.</summary>
     public int Capacity { get; }
@@ -282,14 +325,23 @@ internal sealed class ParticleWater : IDisposable
     /// <summary>The fastest any particle goes (m/s): a speed from a mended guess is held there, not thrown on.</summary>
     public float MaxSpeed { get; set; } = 25f;
 
+    /// <summary>
+    /// With an owner (<see cref="SetOwner"/>), the share of what a column lacks or has too much of that one second
+    /// mends (the sheet's own rate): the water comes and goes smoothly, not as a lump a frame.
+    /// </summary>
+    public float Pull { get; set; } = 0.8f;
+
     /// <summary>Steps the last <see cref="Step"/> took.</summary>
     public int Substeps { get; private set; }
 
     /// <summary>What they are drawn with (<see cref="Arguments"/> says how many points), with <see cref="Properties"/>.</summary>
     public Material Material { get; }
 
-    /// <summary>The particles' own buffer, for the material.</summary>
+    /// <summary>The particles' own buffer and size, for the material.</summary>
     public MaterialPropertyBlock Properties { get; } = new();
+
+    /// <summary>Whether the particles are the water near the camera, held to the server's (<see cref="SetOwner"/>).</summary>
+    public bool Owned => _target != null;
 
     /// <summary>
     /// The ground the water is kept out of: a world height per cell (a wall over <see cref="SimGrid.Wall"/>, as the
@@ -307,13 +359,35 @@ internal sealed class ParticleWater : IDisposable
     }
 
     /// <summary>
-    /// The sheet of water the particles trade water with (its ground is theirs: <see cref="SetGround"/> with its bed,
-    /// cells and cell size, from the same corner), or none.
+    /// The server's water the particles are held to (<see cref="SimGrid.Target"/>: a texel a voxel column of the
+    /// ground's square, <paramref name="perVoxel"/> cells to a column's side), with the cells along the square's edge
+    /// the bricks draw instead (<paramref name="border"/>) and the sea's level (a particle under it is the sea's); or
+    /// none (null): the particles are then only what was poured.
     /// </summary>
-    public void SetSheet(SimGrid sheet) => _sheet = sheet;
+    public void SetOwner(Texture target, int perVoxel, int border, float seaLevel)
+    {
+        _target = target;
+        _perVoxel = Math.Max(1, perVoxel);
+        _border = border;
+        _seaLevel = seaLevel;
+    }
 
     /// <summary>A sphere the water meets, at <paramref name="centre"/> (world) of this radius (m); none at a radius of 0 or less.</summary>
     public void SetSphere(Vector3 centre, float radius) => _sphere = new Vector4(centre.x, centre.y, centre.z, radius);
+
+    /// <summary>
+    /// What players built, as <see cref="ParticleSolids"/> holds it: solid voxels over the square (from the same corner
+    /// as the ground's), <paramref name="columns"/> a side of <paramref name="voxelSize"/> metres, <paramref name="rows"/>
+    /// rows up from world height <paramref name="baseY"/>; or none (null).
+    /// </summary>
+    public void SetSolids(Texture solids, int columns, int rows, float voxelSize, float baseY)
+    {
+        _solids = solids;
+        _solidColumns = columns;
+        _solidRows = rows;
+        _voxelSize = voxelSize;
+        _solidY0 = baseY;
+    }
 
     /// <summary>
     /// The bodies in the water this frame (ships' hulls, players, creatures), <see cref="MostBodies"/> at most: a
@@ -326,6 +400,167 @@ internal sealed class ParticleWater : IDisposable
         {
             _bodies.SetData(bodies, 0, 0, _bodyCount);
         }
+    }
+
+    /// <summary>
+    /// The water sources in the square this frame (<see cref="Spout.At"/>), <see cref="MostSpouts"/> at most: each
+    /// frame's water of each comes out all round its rim as particles, outward.
+    /// </summary>
+    public void SetSpouts(List<Spout> spouts)
+    {
+        _spoutCount = Math.Min(spouts.Count, MostSpouts);
+        if (_spoutCount > 0)
+        {
+            _spouts.SetData(spouts, 0, 0, _spoutCount);
+        }
+    }
+
+    /// <summary>
+    /// A block of still water from <paramref name="min"/> to <paramref name="max"/> (world), a lattice of particles at
+    /// their spacing, each nudged by a hair (a fixed sequence: the same block is the same each time) so no two rows fall
+    /// alike; as many as there is room for (a wait for the card, which says how many there are).
+    /// </summary>
+    public int Add(Vector3 min, Vector3 max)
+    {
+        int nx = Mathf.Max(0, Mathf.FloorToInt((max.x - min.x) / Spacing + 1e-4f));
+        int ny = Mathf.Max(0, Mathf.FloorToInt((max.y - min.y) / Spacing + 1e-4f));
+        int nz = Mathf.Max(0, Mathf.FloorToInt((max.z - min.z) / Spacing + 1e-4f));
+        int before = Count;
+        int count = Math.Min(nx * ny * nz, Capacity - before);
+        if (count <= 0)
+        {
+            return 0;
+        }
+
+        float[] data = new float[count * 12];
+        int n = 0;
+        for (int k = 0; k < count; k++)
+        {
+            int i = k % nx, j = (k / nx) % ny, l = k / (nx * ny);
+            int step = before + k;
+            float x = min.x + ((i + 0.5f) * Spacing) + (Nudge(step, 0.618034f) * 0.02f * Spacing);
+            float y = min.y + ((j + 0.5f) * Spacing) + (Nudge(step, 0.754878f) * 0.02f * Spacing);
+            float z = min.z + ((l + 0.5f) * Spacing) + (Nudge(step, 0.569840f) * 0.02f * Spacing);
+            data[n++] = x;
+            data[n++] = y;
+            data[n++] = z;
+            data[n++] = 1f;
+            data[n++] = x;
+            data[n++] = y;
+            data[n++] = z;
+            data[n++] = 0f;
+            n += 3;
+            data[n++] = 1f;
+        }
+
+        _particles[_current].SetData(data, 0, before * 12, count * 12);
+        SetCount(before + count);
+        return count;
+    }
+
+    /// <summary>No water: every particle gone.</summary>
+    public void Clear() => SetCount(0);
+
+    /// <summary>
+    /// Moves the water over this much time, in steps of <see cref="Substep"/> at most; with an owner
+    /// (<see cref="SetOwner"/>), first brings each column's particles toward the server's water there.
+    /// </summary>
+    public void Step(float seconds)
+    {
+        if (seconds <= 0f)
+        {
+            Substeps = 0;
+            return;
+        }
+
+        if (_bed == null)
+        {
+            throw new InvalidOperationException("the particle water has no ground: SetGround first");
+        }
+
+        int steps = Mathf.Max(1, Mathf.CeilToInt(seconds / Substep));
+        float dt = seconds / steps;
+        _seed++;
+        Common(dt, seconds);
+        if (_target != null)
+        {
+            Own();
+        }
+
+        if (_spoutCount > 0)
+        {
+            _shader.SetBuffer(_spout, ParticlesId, _particles[_current]);
+            _shader.SetBuffer(_spout, AliveId, _alive);
+            _shader.Dispatch(_spout, _spoutCount, 1, 1);
+        }
+
+        for (int k = 0; k < steps; k++)
+        {
+            Advance();
+        }
+
+        Substeps = steps;
+        Properties.SetBuffer(ParticlesId, _particles[_current]);
+
+        // The count, asked once the last asking is answered (in the editor's preview, not playing, no frame goes by to
+        // answer it: waited for).
+        if (_countingNow && !Application.isPlaying)
+        {
+            _counting.WaitForCompletion();
+        }
+
+        if (_countingNow && _counting.done)
+        {
+            _countingNow = false;
+            if (!_counting.hasError)
+            {
+                LastCount = (int)Math.Min(_counting.GetData<uint>()[0], (uint)Capacity);
+            }
+        }
+
+        if (!_countingNow)
+        {
+            _counting = UnityEngine.Rendering.AsyncGPUReadback.Request(_alive);
+            _countingNow = true;
+        }
+    }
+
+    /// <summary>
+    /// Every particle's twelve floats (place and its cell's key, the step's guess and its pull, velocity and density),
+    /// read back from the card: for previews and tests. <see cref="Alive"/> tells a particle still there.
+    /// </summary>
+    public float[] Read()
+    {
+        int count = Count;
+        float[] data = new float[count * 12];
+        if (count > 0)
+        {
+            _particles[_current].GetData(data, 0, 0, count * 12);
+        }
+
+        return data;
+    }
+
+    /// <summary>Whether a particle read back (<see cref="Read"/>, its fourth float) is still there (not gone this step).</summary>
+    public static bool Alive(float keyBits) => BitConverter.ToInt32(BitConverter.GetBytes(keyBits), 0) != -1;
+
+    public void Dispose()
+    {
+        _particles[0].Release();
+        _particles[1].Release();
+        _alive.Release();
+        Arguments.Release();
+        _counts.Release();
+        _starts.Release();
+        _blockSums.Release();
+        _hashes.Release();
+        _slots.Release();
+        _delta.Release();
+        _bodies.Release();
+        _spouts.Release();
+        Free(_noTarget);
+        Free(_noSolids);
+        FreeColumns();
     }
 
     /// <summary>A box in the water: its centre, its half extents along its own axes, and two of those axes; or a sphere.</summary>
@@ -383,170 +618,76 @@ internal sealed class ParticleWater : IDisposable
         }
     }
 
-    /// <summary>
-    /// What players built, as <see cref="ParticleSolids"/> holds it: solid voxels over the square (from the same corner
-    /// as the ground's), <paramref name="columns"/> a side of <paramref name="voxelSize"/> metres, <paramref name="rows"/>
-    /// rows up from world height <paramref name="baseY"/>; or none (null).
-    /// </summary>
-    public void SetSolids(Texture solids, int columns, int rows, float voxelSize, float baseY)
+    /// <summary>A water source the particles come out of: its rim, and the speed and rate of its water.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Spout : IEquatable<Spout>
     {
-        _solids = solids;
-        _solidColumns = columns;
-        _solidRows = rows;
-        _voxelSize = voxelSize;
-        _solidY0 = baseY;
-    }
+        /// <summary>The rim's centre (world) and radius (m).</summary>
+        public Vector4 Ring;
 
-    /// <summary>
-    /// A block of still water from <paramref name="min"/> to <paramref name="max"/> (world), a lattice of particles at
-    /// their spacing, each nudged by a hair (a fixed sequence: the same block is the same each time) so no two rows fall
-    /// alike; as many as there is room for (a wait for the card, which says how many there are).
-    /// </summary>
-    public int Add(Vector3 min, Vector3 max)
-    {
-        int nx = Mathf.Max(0, Mathf.FloorToInt((max.x - min.x) / Spacing + 1e-4f));
-        int ny = Mathf.Max(0, Mathf.FloorToInt((max.y - min.y) / Spacing + 1e-4f));
-        int nz = Mathf.Max(0, Mathf.FloorToInt((max.z - min.z) / Spacing + 1e-4f));
-        int before = Count;
-        int count = Math.Min(nx * ny * nz, Capacity - before);
-        if (count <= 0)
+        /// <summary>The speed out of the rim (m/s), the rate (m³/s); nothing.</summary>
+        public Vector4 Flow;
+
+        /// <summary>
+        /// A source whose marker is a sphere of <paramref name="radius"/> metres at <paramref name="centre"/>, giving
+        /// <paramref name="rate"/> m³/s: its water comes out of a rim a particle's radius out from the sphere, as fast
+        /// as the rate pushes it through the sphere's side (a metre a second at least, eight at most).
+        /// </summary>
+        public static Spout At(Vector3 centre, float radius, float rate, float particleRadius) => new()
         {
-            return 0;
-        }
+            Ring = new Vector4(centre.x, centre.y, centre.z, radius + particleRadius),
+            Flow = new Vector4(Mathf.Clamp(rate / (2f * Mathf.PI * radius * radius), 1f, 8f), rate, 0f, 0f),
+        };
 
-        float[] data = new float[count * 12];
-        int n = 0;
-        for (int k = 0; k < count; k++)
-        {
-            int i = k % nx, j = (k / nx) % ny, l = k / (nx * ny);
-            int step = before + k;
-            float x = min.x + ((i + 0.5f) * Spacing) + (Nudge(step, 0.618034f) * 0.02f * Spacing);
-            float y = min.y + ((j + 0.5f) * Spacing) + (Nudge(step, 0.754878f) * 0.02f * Spacing);
-            float z = min.z + ((l + 0.5f) * Spacing) + (Nudge(step, 0.569840f) * 0.02f * Spacing);
-            data[n++] = x;
-            data[n++] = y;
-            data[n++] = z;
-            data[n++] = 1f;
-            data[n++] = x;
-            data[n++] = y;
-            data[n++] = z;
-            data[n++] = 0f;
-            n += 3;
-            data[n++] = 1f;
-        }
+        public static bool operator ==(Spout a, Spout b) => a.Equals(b);
 
-        _particles[_current].SetData(data, 0, before * 12, count * 12);
-        SetCount(before + count);
-        return count;
-    }
+        public static bool operator !=(Spout a, Spout b) => !a.Equals(b);
 
-    /// <summary>No water: every particle gone.</summary>
-    public void Clear() => SetCount(0);
+        public readonly bool Equals(Spout other) => Ring == other.Ring && Flow == other.Flow;
 
-    /// <summary>
-    /// Moves the water over this much time, in steps of <see cref="Substep"/> at most; with a sheet
-    /// (<see cref="SetSheet"/>), takes the water it threw over lips first, and gives it back what comes to rest.
-    /// </summary>
-    public void Step(float seconds)
-    {
-        if (seconds <= 0f)
-        {
-            Substeps = 0;
-            return;
-        }
+        public override readonly bool Equals(object obj) => obj is Spout other && Equals(other);
 
-        if (_bed == null)
-        {
-            throw new InvalidOperationException("the particle water has no ground: SetGround first");
-        }
-
-        int steps = Mathf.Max(1, Mathf.CeilToInt(seconds / Substep));
-        float dt = seconds / steps;
-        _seed++;
-        Common(dt);
-        if (_sheet != null)
-        {
-            _shader.SetBuffer(_emit, ParticlesId, _particles[_current]);
-            _shader.SetBuffer(_emit, AliveId, _alive);
-            _shader.Dispatch(_emit, (_cells + 7) / 8, (_cells + 7) / 8, 1);
-        }
-
-        for (int k = 0; k < steps; k++)
-        {
-            Advance();
-        }
-
-        Substeps = steps;
-        Properties.SetBuffer(ParticlesId, _particles[_current]);
-
-        // The count, asked once the last asking is answered.
-        if (_countingNow && _counting.done)
-        {
-            _countingNow = false;
-            if (!_counting.hasError)
-            {
-                LastCount = (int)Math.Min(_counting.GetData<uint>()[0], (uint)Capacity);
-            }
-        }
-
-        if (!_countingNow)
-        {
-            _counting = UnityEngine.Rendering.AsyncGPUReadback.Request(_alive);
-            _countingNow = true;
-        }
-    }
-
-    /// <summary>
-    /// Every particle's twelve floats (place and its cell's key, the step's guess and its pull, velocity and density),
-    /// read back from the card: for previews and tests. <see cref="Alive"/> tells a particle still there.
-    /// </summary>
-    public float[] Read()
-    {
-        int count = Count;
-        float[] data = new float[count * 12];
-        if (count > 0)
-        {
-            _particles[_current].GetData(data, 0, 0, count * 12);
-        }
-
-        return data;
-    }
-
-    /// <summary>Whether a particle read back (<see cref="Read"/>, its fourth float) is still there (not gone this step).</summary>
-    public static bool Alive(float keyBits) => BitConverter.ToInt32(BitConverter.GetBytes(keyBits), 0) != -1;
-
-    public void Dispose()
-    {
-        _particles[0].Release();
-        _particles[1].Release();
-        _alive.Release();
-        Arguments.Release();
-        _counts.Release();
-        _starts.Release();
-        _blockSums.Release();
-        _hashes.Release();
-        _slots.Release();
-        _delta.Release();
-        _bodies.Release();
-        _noSheet.Release();
-        _noLanded.Release();
-        if (Application.isPlaying)
-        {
-            UnityEngine.Object.Destroy(_noSolids);
-        }
-        else
-        {
-            UnityEngine.Object.DestroyImmediate(_noSolids);
-        }
+        public override readonly int GetHashCode() => (Ring.GetHashCode() * 397) ^ Flow.GetHashCode();
     }
 
     // A nudge in -0.5 to 0.5 for the step of a sequence, spread as an irrational's multiples are (no two steps alike).
     private static float Nudge(int step, float spread) => Mathf.Repeat(step * spread, 1f) - 0.5f;
 
+    // Gone: in the game as Unity frees things, in the editor's preview (not playing) at once, as it must there.
+    private static void Free(UnityEngine.Object thing)
+    {
+        if (thing == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            UnityEngine.Object.Destroy(thing);
+        }
+        else
+        {
+            UnityEngine.Object.DestroyImmediate(thing);
+        }
+    }
+
+    private static RenderTexture MakeColumns(string name, int columns, RenderTextureFormat format)
+    {
+        var texture = new RenderTexture(columns, columns, 0, format, RenderTextureReadWrite.Linear)
+        {
+            name = "FlowingWater particles " + name,
+            enableRandomWrite = true,
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        texture.Create();
+        return texture;
+    }
+
     // The smoothing kernels' sums over a lattice of particles at their spacing round one of them (itself counted in the
     // weight): the weight of water at rest, and the squared gradients a particle at rest feels (the compute shader's own
     // kernels, as it sums them).
-    private static (float Weight, float Gradients) Lattice()
+    private (float Weight, float Gradients) Lattice()
     {
         float h2 = Radius * Radius;
         int reach = Mathf.CeilToInt(Radius / Spacing);
@@ -566,12 +707,12 @@ internal sealed class ParticleWater : IDisposable
                     }
 
                     float a = h2 - d2;
-                    weight += Poly6K * a * a * a;
+                    weight += _poly6K * a * a * a;
                     if (d2 > 0f)
                     {
                         float d = Mathf.Sqrt(d2);
                         float b = Radius - d;
-                        Vector3 g = -SpikyK * b * b * (r / d);
+                        Vector3 g = -_spikyK * b * b * (r / d);
                         sum += g;
                         gradients += g.sqrMagnitude;
                     }
@@ -583,18 +724,6 @@ internal sealed class ParticleWater : IDisposable
         return (weight, gradients);
     }
 
-    private static RenderTexture MakeTexture(string name, RenderTextureFormat format)
-    {
-        var texture = new RenderTexture(1, 1, 0, format, RenderTextureReadWrite.Linear)
-        {
-            name = "FlowingWater particles " + name,
-            enableRandomWrite = true,
-            filterMode = FilterMode.Point,
-        };
-        texture.Create();
-        return texture;
-    }
-
     // So many particles: the first so many of the buffer (and the drawing's points).
     private void SetCount(int count)
     {
@@ -603,8 +732,42 @@ internal sealed class ParticleWater : IDisposable
         LastCount = count;
     }
 
-    // What every kernel reads.
-    private void Common(float dt)
+    // The columns' textures at the square's columns (made again at another size).
+    private void Columns()
+    {
+        int columns = Math.Max(1, _cells / _perVoxel);
+        if (_columnCount != null && _columnCount.width == columns)
+        {
+            return;
+        }
+
+        FreeColumns();
+        _columnCount = MakeColumns("column count", columns, RenderTextureFormat.RInt);
+        _columnTop = MakeColumns("column top", columns, RenderTextureFormat.RInt);
+        _columnLoss = MakeColumns("column loss", columns, RenderTextureFormat.RFloat);
+    }
+
+    private void FreeColumns()
+    {
+        FreeTexture(ref _columnCount);
+        FreeTexture(ref _columnTop);
+        FreeTexture(ref _columnLoss);
+    }
+
+    private static void FreeTexture(ref RenderTexture texture)
+    {
+        if (texture == null)
+        {
+            return;
+        }
+
+        texture.Release();
+        Free(texture);
+        texture = null;
+    }
+
+    // What every kernel reads (the pull's share for a frame of so many seconds).
+    private void Common(float dt, float frame)
     {
         float h2 = Radius * Radius;
         float corrDistance = CorrDistance * Radius;
@@ -620,13 +783,13 @@ internal sealed class ParticleWater : IDisposable
         _shader.SetFloat(StepUpId, StepUp);
         _shader.SetFloat(HId, Radius);
         _shader.SetFloat(H2Id, h2);
-        _shader.SetFloat(Poly6KId, Poly6K);
-        _shader.SetFloat(SpikyKId, SpikyK);
+        _shader.SetFloat(Poly6KId, _poly6K);
+        _shader.SetFloat(SpikyKId, _spikyK);
         _shader.SetFloat(RestWeightId, _restWeight);
-        _shader.SetFloat(RestNumberId, 1f / (Spacing * Spacing * Spacing) / _restWeight);
+        _shader.SetFloat(RestNumberId, 1f / Litre / _restWeight);
         _shader.SetFloat(RelaxationId, Relaxation * _restGradients);
         _shader.SetFloat(CorrKId, Tension);
-        _shader.SetFloat(CorrWId, Poly6K * a * a * a);
+        _shader.SetFloat(CorrWId, _poly6K * a * a * a);
         _shader.SetFloat(ViscosityId, Viscosity);
         _shader.SetFloat(MaxSpeedId, MaxSpeed);
         _shader.SetFloat(DtId, dt);
@@ -634,9 +797,15 @@ internal sealed class ParticleWater : IDisposable
         _shader.SetVector(SphereId, _sphere);
         _shader.SetInt(BodyCountId, _bodyCount);
         _shader.SetBuffer(_apply, BodiesId, _bodies);
-        _shader.SetInt(ExchangeId, _sheet != null ? 1 : 0);
-        _shader.SetFloat(SeaLevelId, _sheet == null || float.IsNegativeInfinity(_sheet.SeaLevel) ? -1e9f : _sheet.SeaLevel);
-        _shader.SetFloat(LitreId, Spacing * Spacing * Spacing);
+        _shader.SetInt(SpoutCountId, _spoutCount);
+        _shader.SetFloat(FrameId, frame);
+        _shader.SetBuffer(_spout, SpoutsId, _spouts);
+        _shader.SetInt(OwnId, _target != null ? 1 : 0);
+        _shader.SetInt(PerVoxelId, _perVoxel);
+        _shader.SetInt(BorderId, _border);
+        _shader.SetFloat(PullId, Mathf.Min(1f, Pull * frame));
+        _shader.SetFloat(SeaLevelId, float.IsNegativeInfinity(_seaLevel) ? -1e9f : _seaLevel);
+        _shader.SetFloat(LitreId, Litre);
         _shader.SetInt(SeedId, (int)_seed);
         _shader.SetInt(SolidsOnId, _solids != null ? 1 : 0);
         _shader.SetInt(SolidColumnsId, _solidColumns);
@@ -644,21 +813,33 @@ internal sealed class ParticleWater : IDisposable
         _shader.SetFloat(VoxelSizeId, Math.Max(_voxelSize, 0.001f));
         _shader.SetFloat(SolidY0Id, _solidY0);
         _shader.SetTexture(_apply, SolidsId, _solids ?? _noSolids);
-        foreach (int kernel in new[] { _emit, _lambda, _displace, _apply, _finish })
+        foreach (int kernel in new[] { _fill, _spout, _lambda, _displace, _apply, _finish })
         {
             _shader.SetTexture(kernel, BedId, _bed);
         }
 
-        foreach (int kernel in new[] { _emit, _finish })
+        Columns();
+        _shader.SetTexture(_fill, TargetId, _target ?? _noTarget);
+        foreach (int kernel in new[] { _clearColumns, _countColumns, _fill, _finish })
         {
-            _shader.SetTexture(kernel, SheetHId, _sheet != null ? _sheet.Depth : _noSheet);
-            _shader.SetTexture(kernel, SheetUId, _sheet != null ? _sheet.SpeedEast : _noSheet);
-            _shader.SetTexture(kernel, SheetVId, _sheet != null ? _sheet.SpeedNorth : _noSheet);
-            _shader.SetTexture(kernel, AirborneId, _sheet != null ? _sheet.Airborne : _noSheet);
-            _shader.SetTexture(kernel, LandedId, _sheet != null ? _sheet.Landed : _noLanded);
-            _shader.SetTexture(kernel, LandedXId, _sheet != null ? _sheet.LandedEast : _noLanded);
-            _shader.SetTexture(kernel, LandedZId, _sheet != null ? _sheet.LandedNorth : _noLanded);
+            _shader.SetTexture(kernel, ColumnCountId, _columnCount);
+            _shader.SetTexture(kernel, ColumnTopId, _columnTop);
+            _shader.SetTexture(kernel, ColumnLossId, _columnLoss);
         }
+    }
+
+    // Each column's particles brought toward the server's water there: counted, the lack filled, the excess marked.
+    private void Own()
+    {
+        int columns = Math.Max(1, _cells / _perVoxel);
+        int groups = (columns + 7) / 8;
+        _shader.Dispatch(_clearColumns, groups, groups, 1);
+        _shader.SetBuffer(_countColumns, ParticlesId, _particles[_current]);
+        _shader.SetBuffer(_countColumns, AliveId, _alive);
+        DispatchParticles(_countColumns);
+        _shader.SetBuffer(_fill, ParticlesId, _particles[_current]);
+        _shader.SetBuffer(_fill, AliveId, _alive);
+        _shader.Dispatch(_fill, groups, groups, 1);
     }
 
     // One step: the particles guessed on and sorted into their buckets (the gone ones left out), pulled back to rest

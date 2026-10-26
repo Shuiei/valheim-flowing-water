@@ -89,7 +89,7 @@ public static class BuildBundles
         MakeMaterial(FallShaderPath, FallMaterialPath, "FlowingWaterFall");
         MakeMaterial(ParticlesShaderPath, ParticlesMaterialPath, "FlowingWaterParticles");
         MakeMaterial(ParticleSurfaceShaderPath, ParticleSurfaceMaterialPath, "FlowingWaterParticleSurface");
-        CheckCompute(ParticlesComputePath, "Emit", "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Settle", "Lambda", "Displace", "Apply", "Finish");
+        CheckCompute(ParticlesComputePath, "ClearColumns", "CountColumns", "Fill", "Spout", "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Settle", "Lambda", "Displace", "Apply", "Finish");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;

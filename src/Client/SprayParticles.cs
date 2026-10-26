@@ -80,7 +80,6 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int FallRateId = Shader.PropertyToID("_FallRate");
     private static readonly int CurtainsId = Shader.PropertyToID("_Curtains");
     private static readonly int MostCurtainsId = Shader.PropertyToID("_MostCurtains");
-    private static readonly int LipsId = Shader.PropertyToID("_Lips");
     private static readonly int TargetId = Shader.PropertyToID("_Target");
     private static readonly int BorderId = Shader.PropertyToID("_Border");
 
@@ -143,12 +142,6 @@ internal sealed class SprayParticles : IDisposable
     public ComputeBuffer CurtainArguments { get; }
 
     /// <summary>
-    /// Whether the water the card's water throws over lips is this spray's: thrown as sheets carrying it, the lips drawn
-    /// as curtains. Off, the particle water takes it (<see cref="ParticleWater"/>); the droplets and splashes stay.
-    /// </summary>
-    public bool Lips { get; set; } = true;
-
-    /// <summary>
     /// Throws new particles from the card's water (its square's south-west corner at world x, z <paramref name="origin"/>)
     /// and moves them all over this much time.
     /// </summary>
@@ -177,7 +170,6 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetInt(SplashDropletsId, SplashDroplets);
         _shader.SetInt(PerVoxelId, grid.PerVoxel);
         _shader.SetFloat(FallRateId, FallRate);
-        _shader.SetInt(LipsId, Lips ? 1 : 0);
         _shader.SetTexture(_emit, LayersId, grid.Layers);
         _shader.SetTexture(_emit, AirborneId, grid.Airborne);
         Bind(_emit, grid);

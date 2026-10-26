@@ -80,6 +80,10 @@ internal sealed class GpuWater : IDisposable
     // scene by the camera.
     private ParticleWater _particles;
 
+    private readonly List<(Vector3 At, float Rate)> _sources = [];
+
+    private readonly List<ParticleWater.Spout> _spouts = [];
+
     private ParticleSurface _surface;
 
     private readonly BedCast _cast;
@@ -242,7 +246,7 @@ internal sealed class GpuWater : IDisposable
             return "no particle water: its shaders did not load (see the log)";
         }
 
-        _water._particles ??= new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value);
+        _water._particles ??= new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value, FlowingWaterPlugin.Settings.ParticleSize.Value);
         if (_water._particles.Count >= _water._particles.Capacity)
         {
             return FormattableString.Invariant($"no room: {_water._particles.Capacity} particles already (flowingwater particles clear)");
@@ -250,7 +254,7 @@ internal sealed class GpuWater : IDisposable
         float side = Mathf.Pow(Mathf.Max(cubicMetres, 0.001f), 1f / 3f);
         var min = new Vector3(at.x - (side / 2f), at.y + 1.5f, at.z - (side / 2f));
         int added = _water._particles.Add(min, min + new Vector3(side, side, side));
-        return FormattableString.Invariant($"poured {added} particles ({added * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing:0.##} m³) in a block {side:0.##} m on a side, 1.5 m over you; {_water._particles.Count} of {_water._particles.Capacity} in all");
+        return FormattableString.Invariant($"poured {added} particles ({added * _water._particles.Litre:0.##} m³) in a block {side:0.##} m on a side, 1.5 m over you; {_water._particles.Count} of {_water._particles.Capacity} in all{(_water._particles.Owned ? " (held to the server's water: it drains away where the server has none)" : string.Empty)}");
     }
 
     /// <summary>Every particle of the particle water gone.</summary>
@@ -479,10 +483,28 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
+        // The particle water as the water near the camera: the sheet is neither moved nor drawn then, nor its spray; the
+        // bricks still draw beyond the square and where the card draws nothing (the texels say where).
+        bool own = Particles();
+        if (own)
+        {
+            if (_spray != null)
+            {
+                _spray.Dispose();
+                _spray = null;
+                _grid.ClearThrown();
+            }
+
+            Shader.SetGlobalFloat(OnId, 1f);
+            Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
+            Shader.SetGlobalFloat(SizeId, _window.Size);
+            Shader.SetGlobalTexture(TargetId, _grid.Target);
+            _renderer.enabled = false;
+            return;
+        }
+
         _grid.Throws = _spray != null;
         _grid.Step(Time.deltaTime);
-        // The particles first: they take the water thrown over lips before the spray would.
-        Particles();
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
@@ -522,34 +544,34 @@ internal sealed class GpuWater : IDisposable
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _spray ??= new SprayParticles(compute, material);
         _spray.Curtain = Materials.Falls;
-        _spray.Lips = _particles == null || !FlowingWaterPlugin.Settings.ParticleWater.Value;
         _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
-    // The particle water: with Client.ParticleWater on, the sheet's water thrown over lips (made then, if not yet by
-    // the console); else what the console poured, if any. Kept out of the card's ground as cast now (a square that moved
-    // keeps the particles where they are in the world), pushed aside by the player, moved, and drawn as water by the
-    // game's camera.
-    private void Particles()
+    // The particle water: with Client.ParticleWater on, the water near the camera itself (made then, if not yet by the
+    // console, held to the server's water); else what the console poured, if any. Kept out of the card's ground as
+    // cast now (a square that moved keeps the particles where they are in the world), pushed aside by the bodies in it,
+    // moved, and drawn as water by the game's camera. Whether the particles own the water near the camera.
+    private bool Particles()
     {
-        bool exchange = FlowingWaterPlugin.Settings.ParticleWater.Value && _spray != null;
-        if (_particles == null && exchange && Materials.Particles(out Material material, out _, out ComputeShader compute))
+        bool own = FlowingWaterPlugin.Settings.ParticleWater.Value;
+        if (_particles == null && own && Materials.Particles(out Material material, out _, out ComputeShader compute))
         {
-            _particles = new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value);
+            _particles = new ParticleWater(compute, material, FlowingWaterPlugin.Settings.ParticleCapacity.Value, FlowingWaterPlugin.Settings.ParticleSize.Value);
         }
 
         if (_particles == null)
         {
-            return;
+            return false;
         }
 
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
-        _particles.SetSheet(exchange ? _grid : null);
+        _particles.SetOwner(own ? _grid.Target : null, _window.PerVoxel, SimGrid.BorderCells, _grid.SeaLevel);
         bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
         _particles.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
         _particles.SetBodies(Bodies(origin));
+        _particles.SetSpouts(Spouts(origin));
 
         _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
@@ -558,6 +580,26 @@ internal sealed class GpuWater : IDisposable
             _surface ??= new ParticleSurface();
             _surface.Render(camera, _particles, surface);
         }
+
+        return own;
+    }
+
+    // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to
+    // see: their water comes as the square's other water does).
+    private List<ParticleWater.Spout> Spouts(Vector2 origin)
+    {
+        Marker.Sources(_sources);
+        _spouts.Clear();
+        float size = _window.Cells * _window.CellSize;
+        foreach ((Vector3 at, float rate) in _sources)
+        {
+            if (at.x >= origin.x && at.z >= origin.y && at.x < origin.x + size && at.z < origin.y + size && _spouts.Count < ParticleWater.MostSpouts)
+            {
+                _spouts.Add(ParticleWater.Spout.At(at + (Vector3.up * Prefabs.MarkerRadius), Prefabs.MarkerRadius, rate, 0.5f * _particles.Spacing));
+            }
+        }
+
+        return _spouts;
     }
 
     // The server's water built for the card, handed to it: the first one seeds it.

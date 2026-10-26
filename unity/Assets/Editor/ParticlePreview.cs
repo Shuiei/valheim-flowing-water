@@ -22,6 +22,11 @@ public static class ParticlePreview
 
     private const float Frame = 1f / 60f;
 
+    // The scenes' particles' side (m) and water (m3): a litre.
+    private const float Spacing = 0.1f;
+
+    private const float Litre = Spacing * Spacing * Spacing;
+
     private static string _output;
 
     private static readonly StringBuilder Log = new();
@@ -36,7 +41,7 @@ public static class ParticlePreview
             BuildBundles.Prepare();
             // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run. A name of none is refused.
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "ball", "sheet", "roof", "walls", "boat", "cost", "surface" };
+            string[] known = { "rest", "dambreak", "ledge", "ball", "own", "spout", "roof", "walls", "boat", "cost", "surface" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -64,9 +69,15 @@ public static class ParticlePreview
                 Ball();
             }
 
-            if (Runs("sheet"))
+            if (Runs("own"))
             {
-                Sheet();
+                Own(0.5f);
+                Own(0.25f);
+            }
+
+            if (Runs("spout"))
+            {
+                Spout(0.25f);
             }
 
             if (Runs("roof"))
@@ -165,7 +176,7 @@ public static class ParticlePreview
         float[] bed = Field((x, z) => x >= 8f && x < 18f && z >= 8f && z < 12f ? 0f : 10f);
         using var scene = new Scene("pdambreak", bed, 24000);
         int added = scene.Water.Add(new Vector3(8f, 0f, 8f), new Vector3(10.5f, 2f, 12f));
-        Log.AppendLine(Inv($"Dam break: 10 m tank, 2.5 m x 2 m column: {added} particles ({added * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing:0.0} m3). Card's sheet: wall at 1.25 s; real about 1.3-1.5 s."));
+        Log.AppendLine(Inv($"Dam break: 10 m tank, 2.5 m x 2 m column: {added} particles ({added * Litre:0.0} m3). Card's sheet: wall at 1.25 s; real about 1.3-1.5 s."));
         float hit = -1f, highest = 0f;
         for (int k = 1; k <= 480; k++)
         {
@@ -226,7 +237,7 @@ public static class ParticlePreview
         float[] bed = Field((x, z) => x < 6f || x > 26f || z < 17f || z > 23f ? 20f : x < 20f ? 3f : 0f);
         using var scene = new Scene("pledge", bed, 24000);
         int added = scene.Water.Add(new Vector3(10f, 3f, 17f), new Vector3(14f, 4f, 23f));
-        Log.AppendLine(Inv($"Ledge: {added} particles ({added * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing:0.0} m3) of water 1 m deep let go 6 m from a shelf's lip, 3 m over a basin's floor (full, 0.67 m)."));
+        Log.AppendLine(Inv($"Ledge: {added} particles ({added * Litre:0.0} m3) of water 1 m deep let go 6 m from a shelf's lip, 3 m over a basin's floor (full, 0.67 m)."));
         for (int k = 1; k <= 360; k++)
         {
             scene.Step();
@@ -304,67 +315,125 @@ public static class ParticlePreview
         Log.AppendLine(Inv($"  Water in the ground or the walls: {Leaked(scene.Water, bed)}: {Check(Leaked(scene.Water, bed) == 0)}"));
     }
 
-    // Trading water with the card's sheet (SimPreview.Ledge's shelf: 2 m of water let go on a shelf 3 m high, running off
-    // its lip at x = 20 m): the water the sheet throws over the lip becomes particles, which fall, splash and pool, and
-    // give their water back to the sheet where they land, so the pool below is the sheet's. All the water is counted:
-    // the sheet's, the particles', thrown but not yet taken, landed but not yet taken in.
-    private static void Sheet()
+    // The particles as the water near the camera, held to the server's (the sheet's Follow scene): a basin the server
+    // says holds water to 1 m, then 1.5 m from 4 s, then none from 8 s; the particles fill it from below, rise with it,
+    // and go as it empties, at the pull's rate (0.8 of the difference a second: four seconds leave 4 % of it), so four
+    // seconds after each change their water is within a tenth of the way to the server's (counting the water deep
+    // enough for a particle to stand in: the rim thinner than one is not made), and never thrown up high.
+    private static void Own(float spacing)
     {
-        float[] bed = Field((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
-        using var scene = new SimPreview.Scene("psheet", bed);
+        float[] bed = Field((x, z) => Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f)))));
+        using var scene = new SimPreview.Scene(Inv($"pown-{spacing}"), bed);
         scene.Grid.Pulled = false;
-        scene.Grid.Throws = true;
-        scene.Grid.SetDepth(Field((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
         var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.ParticlesComputePath);
-        using var water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), 65536);
+        using var water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), 262144, spacing);
         water.SetGround(scene.Grid.Bed, Cells, Dx, Vector2.zero, 50f);
-        water.SetSheet(scene.Grid);
+        water.SetOwner(scene.Grid.Target, 4, SimGrid.BorderCells, float.NegativeInfinity);
         scene.Particles = water;
-        const float Total = 192f;
-        Log.AppendLine(Inv($"Sheet: {Total:0} m3 of the card's water let go on a shelf 3 m high, running off its lip at x = 20 m as particles."));
-        const float start = Total;
-        float most = 0f, worst = 0f;
-        int mostParticles = 0;
-        for (int k = 1; k <= 480; k++)
+        // Drawn as spheres: this scene (the sheet's) has no sky for the water's surface to show.
+        bool wereSpheres = ParticleSurface.Spheres;
+        ParticleSurface.Spheres = true;
+        const int Columns = Cells / 4;
+        float[] target = new float[Columns * Columns * 4];
+        // The server's water in the basin: all of it, and what a particle can stand in (the rim thinner than a
+        // particle is not made, but water that runs into it is kept up to the server's; the particles' water lies
+        // between the two).
+        (float All, float Standing) Target(float top)
         {
-            scene.Step();
-            water.Step(Frame);
-            if (k % 30 == 0)
+            float all = 0f, standing = 0f;
+            for (int v = 0; v < Columns * Columns; v++)
             {
-                // The particles still there (one gone this step is in the card's count until the next, its water the
-                // sheet's already), and those down on the floor past the lip.
+                float x = ((v % Columns) + 0.5f) * Dx * 4, z = ((v / Columns) + 0.5f) * Dx * 4;
+                float ground = Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f))));
+                int cx = v % Columns, cz = v / Columns;
+                bool edge = cx * 4 < SimGrid.BorderCells || cz * 4 < SimGrid.BorderCells || (cx * 4) + 3 >= Cells - SimGrid.BorderCells || (cz * 4) + 3 >= Cells - SimGrid.BorderCells;
+                target[v * 4] = ground < top ? top : SimGrid.DryTop;
+                target[(v * 4) + 1] = 1f;
+                target[(v * 4) + 2] = Math.Max(0f, top - ground);
+                float column = ground < top && !edge ? (top - ground) * Dx * 4 * Dx * 4 : 0f;
+                all += column;
+                standing += top - ground >= spacing ? column : 0f;
+            }
+
+            scene.Grid.SetTarget(target);
+            return (all, standing);
+        }
+
+        Log.AppendLine(Inv($"Own ({spacing} m particles): a basin the server says holds water to 1 m, then 1.5 m from 4 s, then none from 8 s."));
+        (float worth, float standing) = Target(1f);
+        float have = 0f;
+        float gap = worth;
+        bool ok = true;
+        float highest = 0f;
+        for (int k = 1; k <= 720; k++)
+        {
+            if (k == 240)
+            {
+                (worth, standing) = Target(1.5f);
+                gap = Mathf.Abs(have - worth);
+            }
+            else if (k == 480)
+            {
+                (worth, standing) = Target(-1f);
+                gap = Mathf.Abs(have - worth);
+            }
+
+            water.Step(Frame);
+            if (k % 60 == 0 || k % 240 == 239)
+            {
                 float[] data = water.Read();
-                int particles = 0;
-                float floor = 0f;
+                int alive = 0;
+                float top = float.MinValue;
                 for (int p = 0; p < data.Length / 12; p++)
                 {
                     if (ParticleWater.Alive(data[(p * 12) + 3]))
                     {
-                        particles++;
-                        floor += data[p * 12] > 20f && data[(p * 12) + 1] < 1f ? 1f : 0f;
+                        alive++;
+                        top = Math.Max(top, data[(p * 12) + 1]);
                     }
                 }
 
-                mostParticles = Math.Max(mostParticles, particles);
-                most = Mathf.Max(most, floor);
-                float sheet = scene.Read().Sum() * Dx * Dx;
-                float thrown = ReadFloats(scene.Grid.Airborne).Sum();
-                float landed = ReadInts(scene.Grid.Landed).Sum(n => (float)n) / SimGrid.LandScale;
-                float carried = particles * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing;
-                float all = sheet + thrown + landed + carried;
-                worst = Mathf.Max(worst, Mathf.Abs(all - start));
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s sheet {sheet:0.00} m3, particles {particles} ({carried:0.00} m3, {floor:0} down on the floor), thrown {thrown:0.000}, landed {landed:0.000}: {all:0.00} m3 in all"));
-                if (k == 480)
+                have = alive * water.Litre;
+                highest = Math.Max(highest, alive > 0 ? top : 0f);
+                int strays = 0;
+                float fastest = 0f;
+                Vector3 where = Vector3.zero;
+                for (int p = 0; p < data.Length / 12; p++)
                 {
-                    Log.AppendLine(Inv($"  Water in all off its start by {worst:0.000} m3 at most; particles {mostParticles} at most, {most:0} of them down on the floor at most, {floor:0} at the end (they give their water to the sheet there): {Check(worst < 0.2f && mostParticles > 100 && floor < 0.25f * most)}"));
+                    if (!ParticleWater.Alive(data[(p * 12) + 3]))
+                    {
+                        continue;
+                    }
+
+                    var at = new Vector3(data[p * 12], data[(p * 12) + 1], data[(p * 12) + 2]);
+                    float ground = Math.Min(4f, 0.02f * (((at.x - 20f) * (at.x - 20f)) + ((at.z - 20f) * (at.z - 20f))));
+                    strays += at.y > Math.Max(worth > 0f ? 1.5f : 0f, ground) + 0.5f ? 1 : 0;
+                    var v = new Vector3(data[(p * 12) + 8], data[(p * 12) + 9], data[(p * 12) + 10]);
+                    if (v.magnitude > fastest)
+                    {
+                        fastest = v.magnitude;
+                        where = at;
+                    }
                 }
+
+                Log.AppendLine(Inv($"    strays over the water or the ground by 0.5 m: {strays}; fastest {fastest:0.0} m/s at ({where.x:0.0}, {where.y:0.0}, {where.z:0.0})"));
+                // Settled: four seconds after each change of the server's water, the gap a tenth of what it was.
+                bool settled = k % 240 == 239;
+                float slack = Mathf.Max(0.1f * gap, 2f * water.Litre);
+                bool near = have >= standing - slack && have <= worth + slack;
+                ok &= !settled || near;
+                Log.AppendLine(Inv($"  t={k * Frame:0.00}s the server's water {worth:0.0} m3 ({standing:0.0} a particle can stand in), the particles' {have:0.0} m3 ({alive}), their top {(alive > 0 ? top : 0f):0.00} m{(settled ? (near ? ": OK" : ": FAILED") : string.Empty)}"));
             }
 
-            if (k is 60 or 120 or 180 or 300 or 480)
+            if (k is 60 or 180 or 420 or 540 or 720)
             {
-                scene.Shot(Inv($"psheet_{k * Frame:0.0}s"), new Vector3(27f, 6f, 6f), new Vector3(21f, 1.5f, 20f));
+                scene.Shot(Inv($"pown-{spacing}_{k * Frame:0.0}s"), new Vector3(8f, 7f, 8f), new Vector3(20f, 1f, 20f));
             }
         }
+
+        Log.AppendLine(Inv($"  The particles' water came within a tenth of the way to the server's four seconds after each change: {Check(ok)}"));
+        Log.AppendLine(Inv($"  Never thrown up: highest {highest:0.00} m (the water's top 1.5 m, a slosh of two particles allowed): {Check(highest < 1.5f + (2f * spacing))}"));
+        ParticleSurface.Spheres = wereSpheres;
     }
 
     // What players built (ParticleSolids): a slab 4 m square and 1 m thick standing 1 m over the floor of a box 10 m
@@ -542,6 +611,78 @@ public static class ParticlePreview
         Log.AppendLine(Inv($"  Inside the hull at the end: {inside}: {Check(inside == 0 && bow > 0.85f)}"));
     }
 
+    // A water source in the basin's middle, 8 m3/s for 6 s: its water comes out all round its rim at the rate's speed
+    // (8 m/s, the most: 14 through a 0.3 m sphere's side), while the server's water in the basin rises by the same 8 m3/s; the
+    // particles' water keeps to the server's as it comes (the jet is the water, not a loss; where it lands ahead of the
+    // server's pool, the loss there and the fill in the middle trade it at the pull's rate, a second or two behind),
+    // and the jet is seen.
+    private static void Spout(float spacing)
+    {
+        float[] bed = Field((x, z) => Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f)))));
+        using var scene = new SimPreview.Scene(Inv($"pspout-{spacing}"), bed);
+        scene.Grid.Pulled = false;
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.ParticlesComputePath);
+        using var water = new ParticleWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), 262144, spacing);
+        water.SetGround(scene.Grid.Bed, Cells, Dx, Vector2.zero, 50f);
+        water.SetOwner(scene.Grid.Target, 4, SimGrid.BorderCells, float.NegativeInfinity);
+        scene.Particles = water;
+        bool wereSpheres = ParticleSurface.Spheres;
+        ParticleSurface.Spheres = true;
+        const float Rate = 8f;
+        const int Columns = Cells / 4;
+        float[] target = new float[Columns * Columns * 4];
+        var spouts = new List<ParticleWater.Spout> { ParticleWater.Spout.At(new Vector3(20f, 0.3f, 20f), 0.3f, Rate, 0.5f * spacing) };
+        Log.AppendLine(Inv($"Spout ({spacing} m particles): a source of {Rate} m3/s in the basin's middle for 6 s, its water out of its rim at {spouts[0].Flow.x:0.0} m/s."));
+        bool ok = true;
+        float fastest = 0f;
+        for (int k = 1; k <= 420; k++)
+        {
+            // The server's water: the basin (0.02 r2 deep) holds the volume so far.
+            float volume = Rate * Math.Min(k, 360) * Frame;
+            float top = Mathf.Sqrt(volume * 0.04f / Mathf.PI);
+            for (int v = 0; v < Columns * Columns; v++)
+            {
+                float x = ((v % Columns) + 0.5f) * Dx * 4, z = ((v / Columns) + 0.5f) * Dx * 4;
+                float ground = Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f))));
+                target[v * 4] = ground < top ? top : SimGrid.DryTop;
+                target[(v * 4) + 1] = 1f;
+                target[(v * 4) + 2] = Math.Max(0f, top - ground);
+            }
+
+            scene.Grid.SetTarget(target);
+            water.SetSpouts(k <= 360 ? spouts : new List<ParticleWater.Spout>());
+            water.Step(Frame);
+            if (k % 60 == 0 || k == 30)
+            {
+                float[] data = water.Read();
+                int alive = 0;
+                float speed = 0f;
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    if (ParticleWater.Alive(data[(p * 12) + 3]))
+                    {
+                        alive++;
+                        speed = Math.Max(speed, new Vector3(data[(p * 12) + 8], data[(p * 12) + 9], data[(p * 12) + 10]).magnitude);
+                    }
+                }
+
+                fastest = Math.Max(fastest, speed);
+                float have = alive * water.Litre;
+                bool near = Mathf.Abs(have - volume) <= Mathf.Max(0.15f * volume, 2f * water.Litre);
+                ok &= k < 180 || near;
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the server's water {volume:0.0} m3, the particles' {have:0.0} m3 ({alive}), fastest {speed:0.0} m/s{(k >= 180 ? (near ? ": OK" : ": FAILED") : string.Empty)}"));
+            }
+
+            if (k is 30 or 120 or 360 or 420)
+            {
+                scene.Shot(Inv($"pspout-{spacing}_{k * Frame:0.0}s"), new Vector3(16f, 2.5f, 16f), new Vector3(20f, 0.4f, 20f));
+            }
+        }
+
+        Log.AppendLine(Inv($"  The particles' water kept within 15 % of the server's from 3 s on: {Check(ok)}; the jet seen (fastest over 3 m/s): {Check(fastest > 3f)}"));
+        ParticleSurface.Spheres = wereSpheres;
+    }
+
     private static float[] ReadFloats(RenderTexture texture)
     {
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
@@ -565,7 +706,7 @@ public static class ParticlePreview
             float[] bed = Field((x, z) => x < 4f || x > 36f || z < 4f || z > 36f ? 20f : 0f);
             using var scene = new Scene("pcost", bed, target + (target / 4));
             // A square block of water 1 m deep whose lattice holds about so many particles.
-            float side = Mathf.Sqrt(target * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing);
+            float side = Mathf.Sqrt(target * Litre);
             int added = scene.Water.Add(new Vector3(20f - (side / 2f), 0f, 20f - (side / 2f)), new Vector3(20f + (side / 2f), 1f, 20f + (side / 2f)));
             for (int k = 0; k < 180; k++)
             {
@@ -573,7 +714,7 @@ public static class ParticlePreview
             }
 
             float still = Measure(scene.Water, 300);
-            float drop = Mathf.Sqrt(target / 4f * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing);
+            float drop = Mathf.Sqrt(target / 4f * Litre);
             int dropped = scene.Water.Add(new Vector3(20f - (drop / 2f), 3f, 20f - (drop / 2f)), new Vector3(20f + (drop / 2f), 4f, 20f + (drop / 2f)));
             float moving = Measure(scene.Water, 120);
             Log.AppendLine(Inv($"Cost: {added} particles, frames of 60 fps ({scene.Water.Substeps} steps of {scene.Water.Iterations} rounds each): {still:0.000} ms a frame at rest, {moving:0.000} ms stirred (with {dropped} more dropped in)"));
@@ -675,7 +816,7 @@ public static class ParticlePreview
 
         Array.Sort(heights);
         int tenth = Mathf.Max(1, n / 10);
-        float level = heights.Skip(n - tenth).Average() + (0.5f * ParticleWater.Spacing);
+        float level = heights.Skip(n - tenth).Average() + (0.5f * water.Spacing);
         return (level, speed / n, fastest, heights[n - 1]);
     }
 

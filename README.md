@@ -109,8 +109,9 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
-| `Client.ParticleWater` | false | A prototype: with `Client.Spray`, water running over a lip near you falls as particles of water (a litre each, moved as water moves: it breaks up, splashes and pools) instead of as curtains and sheets of spray, and gives its water back to the water near you where it lands (see [Particle water](#particle-water-a-prototype)) |
-| `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): a lip throws no more once they are all in the air, until some land; more costs the card more. Takes effect when the water near you is made again |
+| `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
+| `Client.ParticleSize` | 0.5 | Side of a particle of the particle water, metres: 0.25 is finer water (splashes, thin streams) and eight times the particles for the same water; 0.5 is coarser and cheap. Takes effect when the water near you is made again |
+| `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
 ### Water on the graphics card
@@ -215,19 +216,21 @@ The sheet of shallow water the card moves is a height over the ground: it cannot
 pushed aside by something moving through it. For that water, a prototype of **water as particles** is in the plugin's
 code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingWaterParticles.compute` and
 `.shader`, `FlowingWaterParticleSurface.shader`), measured by the Unity project's preview. In the game it is off unless
-`Client.ParticleWater` is on (then water going over a lip near you falls as particles), and the console pours some
-either way (`flowingwater particles [m³]`, while the card moves the water near you). What it is:
+`Client.ParticleWater` is on (then the water near you is particles), and the console pours some either way
+(`flowingwater particles [m³]`, while the card moves the water near you). What it is:
 
-- Each particle is a cube of water 10 cm on a side (a litre). Position based fluids (Macklin and Müller, 2013): each
-  step guesses where every particle goes, then pulls the guesses a few rounds until the water round each is as dense
-  as water at rest, no denser (thinner water, the surface and spray, is not pulled together: that pull, against the
-  paper's artificial pressure, is stiffer than a frame's step bears), and takes each particle's speed from where it
-  ended up. Neighbours are found through a hashed grid of cells the smoothing radius (20 cm) wide, the particles
+- Each particle is a cube of water `Client.ParticleSize` metres on a side (0.5, or 0.25 for finer water; the preview's
+  scenes use 10 cm, a litre). Position based fluids (Macklin and Müller, 2013): each step guesses where every
+  particle goes, then pulls the guesses a few rounds until the water round each is as dense as water at rest, no
+  denser (thinner water, the surface and spray, is not pulled together: that pull, against the paper's artificial
+  pressure, is stiffer than a frame's step bears), and takes each particle's speed from where it ended up. Neighbours
+  are found through a hashed grid of cells the smoothing radius (twice the particle's side) wide, the particles
   counted into buckets, the buckets' starts summed, the particles sorted into them, every step.
 - The ground is the card's water's (`SimGrid.Bed`: a height per cell, a wall where it steps up by more than 35 cm):
-  particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
-  out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
-  still instead of jittering against its walls. What players build is as the bricks have it (the server's reading of
+  particles stand a radius over it and off the walls' faces, pushed out of the ground along its slope (so a particle
+  on a bank slides down it as water does, instead of sitting there), and the ground and the walls count as the water
+  they keep out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a
+  pool lies still instead of jittering against its walls. What players build is as the bricks have it (the server's reading of
   the pieces' colliders, over the square and 64 rows round the camera's height, built again with the card's water when
   the bricks change): solid voxels, which a particle keeps a radius out of, so a roof holds water off from above and
   from below, a floor on posts holds a pool, and water runs off a slab's edges (the preview's roof scene: none ends
@@ -240,15 +243,24 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   fast longship raises a far bigger bow wave than a drifting karve, by its speed and hull, not its weight (what the
   water does to the ship is the server's, as the ship floats on its water). The preview's boat scene drives a hull
   through a pool: none of the water ends inside it, and the water ahead rises.
-- With `Client.ParticleWater`, the particles trade water with the card's sheet where a sheet cannot be the water: the
-  water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
-  each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
-  on the ground (a puddle is the sheet's), gives its litre back to the sheet where it is, with its momentum, as the
-  spray's sheets did, and is gone; one under the sea's level is the sea's, one at the square's edge is lost to the
-  card (as the spray's water past the square is). So a fall is particles from the lip down to
-  the pool, and the pool is the sheet's again, with its waves and churn; the spray's droplets and splashes stay. The
-  preview's sheet scene (SimPreview's shelf, 192 m³ let go) counts all the water, the sheet's and the particles' and
-  what is between them, within 0.2 m³ throughout; 36 000 particles were in the air at most.
+- With `Client.ParticleWater`, the particles are the water near you: the sheet is neither moved nor drawn in the
+  card's square, nor its spray, and the bricks draw only the square's edge band and what the card does not draw (water
+  under a roof, falling water). The particles are made from the server's water and held to it, by the voxel column:
+  each frame the particles in each column are counted; a column with fewer than the server's water there is worth
+  (its depth, where a particle can stand in it) gets new ones, laid still just over its water, at the sheet's own rate
+  (0.8 of the lack a second, a fraction of a particle as the chance of one more), so a pool rises from below as the
+  server fills it; one with more loses the same share of its own at random, so a pool sinks as the server drains it;
+  a column the card does not draw is worth nothing, so water that runs where the server has none goes within a
+  second or two. A particle under the sea's level is the sea's, one in the edge band is the bricks'. So the server
+  keeps the say on how much water is where, and how it moves (falling, splashing, pushed aside) is the particles' own.
+  The preview's own scene (a basin the server says holds water to 1 m, then 1.5 m, then none) has the particles'
+  water within a tenth of the way to the server's four seconds after each change, never thrown up.
+- A placed source's water comes out of it: each frame, the source's water for the frame is made as particles all
+  round the rim of its marker (the golden angle from one to the next, so even a few are spread evenly), going outward
+  as fast as the rate pushes water through the marker's side (1 to 8 m/s). The jet is the water (a particle in the
+  air is never let go), and where it lands ahead of the server's pool the fill and the loss trade it at their rate.
+  The server's config's fixed sources have no marker to see: their water comes as the square's other water does. The
+  preview's spout scene (8 m³/s for 6 s) keeps the particles' water within 15 % of the server's from 3 s on.
 - Drawn as water over the scene, from the screen (van der Laan, Green and Sainz, 2009): the camera first draws the
   particles as spheres into two textures, the nearest's distance at each pixel (smoothed into one surface, keeping
   the steps between one body of water and another) and the water the view goes through there (with how much of it is
@@ -260,8 +272,9 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   particles themselves.
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
-off a ledge into a basin, a sphere pushed through a pool, the card's sheet pouring over a lip as particles, water
-poured onto a slab (what players build), and a cost scene, and writes `particles.txt` and frames
+off a ledge into a basin, a sphere pushed through a pool, a basin filled and emptied by the server's water (own), a
+source's spout, water poured onto a slab (what players build), a pen's walls, a hull driven through a pool, and a
+cost scene, and writes `particles.txt` and frames
 (`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
 filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches
@@ -270,12 +283,12 @@ costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms); drawing 32
 view as water costs 0.55 ms more than the scene alone with the surface at half the screen's size (0.95 ms at its full
 size; 0.45 ms as spheres), and grows with the screen.
 
-What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
-floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is
-not the server's until it lands); met by pieces where no brick with water is (there only the ground's heights hold);
-pushing anything back (a body in it is pushed by the server's water, as it floats on that; the particles are each
-player's own picture); spread over the frame's budget (a step is one
-go, and a lip throws at most 16 particles a cell a step; the surface is drawn only while there are particles);
+What it is not yet: water thinner than a particle (a film on the ground is not made: the particles' pool ends where
+the water is shallower than one); swum in or floated on (the particles are only drawn: the server's water says what
+you swim in); met by pieces where no brick with water is (there only the ground's heights hold); pushing anything
+back (a body in it is pushed by the server's water, as it floats on that; the particles are each player's own
+picture); spread over the frame's budget (a step is one go, and a column gets at most 32 particles a frame, a source
+256; the surface is drawn only while there are particles); a jet fountain (a source's water only goes out sideways);
 its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
 The console's block stays where the card's square leaves it.
 

@@ -27,6 +27,7 @@ internal sealed class ParticleSurface : IDisposable
     private static readonly int BlurDirectionId = Shader.PropertyToID("_BlurDirection");
     private static readonly int SunDirId = Shader.PropertyToID("_FWSunDir");
     private static readonly int SunColourId = Shader.PropertyToID("_FWSunColour");
+    private static readonly int ParticleSizeId = Shader.PropertyToID("_FWParticleSize");
 
     private static readonly Bounds Everywhere = new(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
 
@@ -78,6 +79,7 @@ internal sealed class ParticleSurface : IDisposable
         }
 
         Sun();
+        Shader.SetGlobalFloat(ParticleSizeId, water.Spacing);
         if (Spheres)
         {
             _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);

@@ -38,10 +38,12 @@ Material:
     - _DepthFade: 15
     - _EdgeThickness: 0.04
     - _Glossiness: 0.94
+    - _LeastLight: 0.35
     - _NormalPower: 0.5
     - _NormalScale: 0.04
     - _RefractionMax: 0.01
     - _RefractionScale: 0.1
+    - _ThickMost: 3
     - _WaveVel: 1
     m_Colors:
     - _BodyTint: {r: 1.6, g: 1.1, b: 0.9, a: 0}
