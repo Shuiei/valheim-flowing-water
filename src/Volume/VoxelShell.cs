@@ -140,10 +140,11 @@ internal sealed class VoxelShell
 
                 bottom = Math.Max(bottom, beside);
             }
-            else if (field.IsWet(x + dx, y - 1, z + dz) && !field.IsWet(x + dx, y + 1, z + dz))
+            else if (field.IsWet(x + dx, y - 1, z + dz) && !field.IsWet(x + dx, y + 1, z + dz) && (open & BrickData.GroundBeside) == 0)
             {
                 // Water beside a voxel lower, the top of its column: the water steps down to it, the surface joining
-                // them (with water higher up that column, on a ledge or a floor, the surface joins that: the side stays).
+                // them (with water higher up that column, on a ledge or a floor, the surface joins that; with ground in
+                // the voxel beside, as the server says, the side shows over it: the side stays).
                 continue;
             }
 

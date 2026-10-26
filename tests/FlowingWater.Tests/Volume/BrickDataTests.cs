@@ -206,6 +206,26 @@ public class BrickDataTests
     }
 
     [Fact]
+    public void GroundBesideASideTowardLowerWaterIsSentSo()
+    {
+        // Water open east toward a dry voxel holding some ground, with water under that voxel; and the same without the
+        // ground.
+        var brick = new Brick(0, 0, 0);
+        int high = Brick.Index(5, 5, 5);
+        brick.Water[high] = 0.9f;
+        brick.Solid[Brick.Index(6, 5, 5)] = 0.4f;
+        brick.Water[Brick.Index(6, 4, 5)] = 0.9f;
+        int bare = Brick.Index(9, 5, 5);
+        brick.Water[bare] = 0.9f;
+        brick.Water[Brick.Index(10, 4, 5)] = 0.9f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
+        Assert.Equal(0, view.Open[bare] & BrickData.GroundBeside);
+    }
+
+    [Fact]
     public void ABrickFromBeforeTheOpenFacesIsReadWithEveryFaceOpen()
     {
         byte[] stored = Packed.Write(writer =>

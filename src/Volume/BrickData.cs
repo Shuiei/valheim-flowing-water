@@ -30,6 +30,17 @@ internal static class BrickData
     /// <summary>Every face open (a brick of a version that did not say).</summary>
     public const byte AllOpen = 63;
 
+    /// <summary>
+    /// With a voxel's open faces, the bit set where, on a side open toward water a voxel lower, the dry voxel beside it
+    /// holds some ground (<see cref="Brick.OpenFaces"/>): its side shows over that ground, though the water beside is one
+    /// sheet with it under the ground. The players' games know the ground only under water. Never set by a server before
+    /// it (nor read as a face by a game before it).
+    /// </summary>
+    public const byte GroundBeside = 128;
+
+    /// <summary>The solid share from which a dry voxel beside holds ground (<see cref="GroundBeside"/>).</summary>
+    public const float GroundBesideShare = 0.02f;
+
     /// <summary>Water steps a full voxel is kept as (a byte holds a little more, for water pressed in).</summary>
     public const float Full = 200f;
 
