@@ -37,8 +37,9 @@
 #pragma kernel Apply
 #pragma kernel Finish
 
-// A particle: where it is (m, world) and whether it is (1; 0 gone), where this step would put it and its pull (lambda,
-// m2), its speed (m/s) and the water round it as a share of water at rest.
+// A particle: where it is (m, world) and its cell's key (the bits of place.w: KeyOf, set as it is hashed; GONE once it
+// is gone; anything else before its first step), where this step would put it and its pull (lambda, m2), its speed
+// (m/s) and the water round it as a share of water at rest.
 struct Particle
 {
     float4 place;
@@ -55,6 +56,11 @@ RWStructuredBuffer<uint> _Alive;
 RWStructuredBuffer<uint> _Args;
 uint _Capacity;
 #define GONE 0xFFFFFFFFu
+
+bool Gone(Particle p)
+{
+    return asuint(p.place.w) == GONE;
+}
 
 // The sheet of water the card moves, while the particles trade water with it (_Exchange): its depth and the speeds
 // through its cells' east and north faces (FlowingWaterSim.compute's), the water it threw over lips by the cell (m3,
@@ -256,6 +262,14 @@ int3 CellOf(float3 p)
 uint HashOf(int3 c)
 {
     return (((uint)c.x * 73856093u) ^ ((uint)c.y * 19349663u) ^ ((uint)c.z * 83492791u)) & (_Buckets - 1u);
+}
+
+// A cell's key, its coordinates packed (ten bits each: cells 200 m apart share one, far beyond a neighbour's reach): a
+// neighbour is counted only where its key is the cell's, so two cells sharing a bucket, or one bucket met twice among
+// the 27, never count a particle twice or at all wrongly (never GONE: the top bit is cleared).
+uint KeyOf(int3 c)
+{
+    return ((((uint)c.x & 0x3FFu) << 20) | (((uint)c.y & 0x3FFu) << 10) | ((uint)c.z & 0x3FFu)) & 0x7FFFFFFFu;
 }
 
 // A random number in [0, 1) from a seed, which it moves on (PCG hash).
@@ -509,6 +523,9 @@ float3 Collide(float3 x, float3 before)
         }
     }
 
+    // A body pushed the particle: not into the ground nor out of the square (a hull pressing water onto the bed).
+    x.xz = clamp(x.xz, lo, hi);
+    x.y = max(x.y, GroundAt(x.xz) + _Radius);
     return x;
 }
 
@@ -603,7 +620,7 @@ void Predict(uint3 id : SV_DispatchThreadID)
     }
 
     Particle p = _Particles[i];
-    if (p.place.w < 0.5)
+    if (Gone(p))
     {
         _Slots[i] = GONE;
         return;
@@ -611,11 +628,13 @@ void Predict(uint3 id : SV_DispatchThreadID)
 
     float3 v = p.velocity.xyz + (float3(0.0, -_Gravity, 0.0) * _Dt);
     float3 x = p.place.xyz + (v * _Dt);
+    int3 cell = CellOf(x);
     p.velocity.xyz = v;
     p.predicted.xyz = x;
+    p.place.w = asfloat(KeyOf(cell));
     _Particles[i] = p;
 
-    uint h = HashOf(CellOf(x));
+    uint h = HashOf(cell);
     uint slot;
     InterlockedAdd(_Counts[h], 1u, slot);
     _Hashes[i] = h;
@@ -715,16 +734,20 @@ void Settle(uint3 id : SV_DispatchThreadID)
     _Args[3] = 0u;
 }
 
-// The particles in the 27 cells round a place: each kernel's loop body, with j the neighbour's index.
+// The particles in the 27 cells round a place: each kernel's loop body, with j the neighbour's index, only those whose
+// key is the cell's (the bucket may hold another cell's, or be one met already among the 27).
 #define NEIGHBOURS(centre) \
     int3 cell = CellOf(centre); \
     for (int dz = -1; dz <= 1; dz++) \
     for (int dy = -1; dy <= 1; dy++) \
     for (int dx = -1; dx <= 1; dx++) \
     { \
-        uint bucket = HashOf(cell + int3(dx, dy, dz)); \
+        int3 near = cell + int3(dx, dy, dz); \
+        uint bucket = HashOf(near); \
+        uint key = KeyOf(near); \
         uint from = _Starts[bucket], to = from + _Counts[bucket]; \
-        for (uint j = from; j < to; j++)
+        for (uint j = from; j < to; j++) \
+        if (asuint(_Particles[j].place.w) == key)
 
 [numthreads(THREADS, 1, 1)]
 void Lambda(uint3 id : SV_DispatchThreadID)
@@ -880,7 +903,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
         float2 edge = min(xi.xz - _Origin, _Origin + (_N * _Dx) - xi.xz);
         if (xi.y < _SeaLevel || min(edge.x, edge.y) <= _Radius * 1.5)
         {
-            p.place.w = 0.0;
+            p.place.w = asfloat(GONE);
         }
         else
         {
@@ -891,7 +914,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
             if (taken || resting)
             {
                 Land(xi, v);
-                p.place.w = 0.0;
+                p.place.w = asfloat(GONE);
             }
         }
     }

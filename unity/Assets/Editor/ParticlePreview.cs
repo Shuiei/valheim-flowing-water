@@ -338,7 +338,7 @@ public static class ParticlePreview
                 float floor = 0f;
                 for (int p = 0; p < data.Length / 12; p++)
                 {
-                    if (data[(p * 12) + 3] > 0.5f)
+                    if (ParticleWater.Alive(data[(p * 12) + 3]))
                     {
                         particles++;
                         floor += data[p * 12] > 20f && data[(p * 12) + 1] < 1f ? 1f : 0f;

@@ -497,8 +497,8 @@ internal sealed class ParticleWater : IDisposable
     }
 
     /// <summary>
-    /// Every particle's twelve floats (place and whether it is, the step's guess and its pull, velocity and density),
-    /// read back from the card: for previews and tests.
+    /// Every particle's twelve floats (place and its cell's key, the step's guess and its pull, velocity and density),
+    /// read back from the card: for previews and tests. <see cref="Alive"/> tells a particle still there.
     /// </summary>
     public float[] Read()
     {
@@ -511,6 +511,9 @@ internal sealed class ParticleWater : IDisposable
 
         return data;
     }
+
+    /// <summary>Whether a particle read back (<see cref="Read"/>, its fourth float) is still there (not gone this step).</summary>
+    public static bool Alive(float keyBits) => BitConverter.ToInt32(BitConverter.GetBytes(keyBits), 0) != -1;
 
     public void Dispose()
     {
