@@ -68,7 +68,7 @@ internal sealed class GpuWater : IDisposable
 
     private readonly BedCast _cast;
 
-    // The ground under each cell as cast (NaN where not yet), and how many times rows of it were cast.
+    // The ground under each cell as cast (NaN where not yet), and how many times a cast changed it.
     private readonly float[] _ground;
 
     private int _groundVersion;
@@ -183,14 +183,15 @@ internal sealed class GpuWater : IDisposable
         }
 
         SimWindow w = _water._window;
-        int cast = 0;
+        // Ground found: cast, and met (not a wall: not cast, no water near, or the ray met nothing).
+        int found = 0;
         foreach (float ground in _water._ground)
         {
-            cast += float.IsNaN(ground) ? 0 : 1;
+            found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
         return FormattableString.Invariant(
-            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground cast under {100f * cast / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}");
+            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}");
     }
 
     /// <summary>
@@ -343,10 +344,11 @@ internal sealed class GpuWater : IDisposable
     // water moved, and drawn.
     private void Frame()
     {
-        if (_cast.Finish(_ground, out int row, out int rows))
+        // The water is built again for ground that changed only (the rows are cast round and round, mostly as they were).
+        if (_cast.Finish(_ground, out int row, out int rows, out bool changed))
         {
             _grid.WriteBed(row, _ground, rows);
-            _groundVersion++;
+            _groundVersion += changed ? 1 : 0;
         }
 
         TakeBuild();

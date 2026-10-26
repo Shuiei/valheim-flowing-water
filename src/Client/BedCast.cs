@@ -19,6 +19,9 @@ internal sealed class BedCast : IDisposable
     // How far down a ray looks, metres.
     private const float Reach = 64f;
 
+    // Ground cast again this little away from what it was, metres, is the same ground.
+    private const float Same = 0.001f;
+
     // What the ground is: the terrain and the solid parts of the world and of what is built.
     private static readonly string[] SolidLayers = ["Default", "static_solid", "Default_small", "piece", "terrain"];
 
@@ -88,13 +91,14 @@ internal sealed class BedCast : IDisposable
 
     /// <summary>
     /// The batch's ground, once its rays are cast (it waits for them then): written into <paramref name="ground"/>
-    /// (the square's cells, a row after another) and given back as its first row and row count; false while none is
-    /// under way.
+    /// (the square's cells, a row after another) and given back as its first row and row count, and whether any of it
+    /// is not as it was there; false while none is under way.
     /// </summary>
-    public bool Finish(float[] ground, out int row, out int rows)
+    public bool Finish(float[] ground, out int row, out int rows, out bool changed)
     {
         row = _row;
         rows = _rows;
+        changed = false;
         if (!Busy)
         {
             return false;
@@ -107,7 +111,10 @@ internal sealed class BedCast : IDisposable
             {
                 int k = (r * _cells) + x;
                 RaycastHit hit = _hits[k];
-                ground[((row + r) * _cells) + x] = _cast[k] && hit.colliderInstanceID != 0 ? hit.point.y : Wall;
+                int cell = ((row + r) * _cells) + x;
+                float found = _cast[k] && hit.colliderInstanceID != 0 ? hit.point.y : Wall;
+                changed |= !(Math.Abs(found - ground[cell]) <= Same);
+                ground[cell] = found;
             }
         }
 
