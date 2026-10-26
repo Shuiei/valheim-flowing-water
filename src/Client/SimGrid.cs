@@ -97,6 +97,7 @@ internal sealed class SimGrid : IDisposable
     private readonly int _writeBed;
     private readonly int _landSpeeds;
     private readonly int _land;
+    private readonly int _clear;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -154,11 +155,8 @@ internal sealed class SimGrid : IDisposable
         Landed = MakeCells("landed", cells, RenderTextureFormat.RInt);
         LandedEast = MakeCells("landed east", cells, RenderTextureFormat.RInt);
         LandedNorth = MakeCells("landed north", cells, RenderTextureFormat.RInt);
-        int clear = shader.FindKernel("Clear");
-        Bind(clear, AirborneId, Airborne);
-        BindLanded(clear);
-        Common();
-        Dispatch(clear, cells);
+        _clear = shader.FindKernel("Clear");
+        ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
             name = "FlowingWater sim target",
@@ -373,7 +371,6 @@ internal sealed class SimGrid : IDisposable
         BindLanded(_land);
         Dispatch(_land, Cells);
         _shader.SetFloat(DtId, dt);
-        _shader.SetFloat(MaxSpeedId, fastest);
         _shader.SetFloat(MaxDepthId, fastest * fastest / Gravity);
         for (int k = 0; k < steps; k++)
         {
@@ -399,6 +396,15 @@ internal sealed class SimGrid : IDisposable
         _shader.SetTexture(_relax, TargetId, Target);
         _shader.SetTexture(_relax, LayersId, Layers);
         Dispatch(_relax, Cells);
+    }
+
+    /// <summary>No water in the air nor landed (the spray that would carry or land it is gone).</summary>
+    public void ClearThrown()
+    {
+        Bind(_clear, AirborneId, Airborne);
+        BindLanded(_clear);
+        Common();
+        Dispatch(_clear, Cells);
     }
 
     public void Dispose()

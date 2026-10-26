@@ -45,6 +45,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
     private static readonly int CellSizeId = Shader.PropertyToID("_SimDx");
     private static readonly int LiftId = Shader.PropertyToID("_Lift");
+    private static readonly int FadeCliffsId = Shader.PropertyToID("_FadeCliffs");
     private static readonly int DebugColoursId = Shader.PropertyToID("_FWDebugColours");
 
     // The grid drawn, and its shape (cells and cell size): each square of that shape draws the same; one of another shape
@@ -389,6 +390,7 @@ internal sealed class GpuWater : IDisposable
         _properties.SetFloat(CellsId, _window.Cells);
         _properties.SetFloat(CellSizeId, _window.CellSize);
         _properties.SetFloat(LiftId, WaterBrick.Lift);
+        _properties.SetFloat(FadeCliffsId, _spray != null ? 1f : 0f);
         _renderer.SetPropertyBlock(_properties);
         _renderer.enabled = true;
     }
@@ -399,8 +401,14 @@ internal sealed class GpuWater : IDisposable
     {
         if (!FlowingWaterPlugin.Settings.Spray.Value || !Materials.Spray(out Material material, out ComputeShader compute))
         {
-            _spray?.Dispose();
-            _spray = null;
+            // Gone: the water it would have carried or landed is let go (the server's pulls the card's back to it).
+            if (_spray != null)
+            {
+                _spray.Dispose();
+                _spray = null;
+                _grid.ClearThrown();
+            }
+
             return;
         }
 
