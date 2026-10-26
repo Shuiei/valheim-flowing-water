@@ -354,7 +354,9 @@ waits for it to land. Remove the dll from the client afterwards.
 `FW_REC_SCENARIO` picks one scenario instead of every command: `diag` pours a cascade down the steepest face near the
 spawn (or `FW_REC_AROUND`, within `FW_REC_REACH` metres; `FW_REC_DRY=1` pours none, `FW_REC_WAIT` seconds before the
 shots) and shoots it from several places as it looks and in the debug colours, with `flowingwater gpu` and
-`gpu columns` in the log; `at` takes the player to each place of
+`gpu columns` in the log; `flood` floods a gentle meadow near the spawn from three sources (`FW_REC_RATE` each,
+`FW_REC_WAIT` seconds) and shoots it from inside the card's square, across its edge and from far off, the same way;
+`at` takes the player to each place of
 `FW_REC_AT` (`x,z[,y]|command;...`, standing at `y` when given: on a floor, in a box) and runs the command there;
 `pools` fills and films the pools of a test world (`FW_REC_POOLS`, `x,z,radius,depth;...`) in each look of
 `FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground

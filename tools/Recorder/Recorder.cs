@@ -272,7 +272,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "diag" or "at"
+        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "diag" or "flood" or "at"
             || (chosen == "perf" && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FW_REC_PERF")));
         if (!ownPlaces)
         {
@@ -286,6 +286,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         {
             "cascade" => Cascade(spawn),
             "diag" => Diag(spawn),
+            "flood" => Flood(spawn),
             "look" => Look(steep, gentle),
             "prep" => Prep(),
             "pools" => Pools(),

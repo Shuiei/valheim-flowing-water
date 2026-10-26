@@ -38,20 +38,7 @@ public sealed partial class Recorder
             (face.At(24f) + new Vector3(0f, 2.5f, 0f), face.At(6f), "below"),
             (far, face.At(10f), "far"),
         };
-        foreach (var view in views)
-        {
-            // The camera held there (over the ground as it is, not as generated) long enough for the card's square to
-            // come with it and settle.
-            Vector3 from = OverGround(view.From, 1.5f);
-            _cameraAt = from;
-            _cameraLook = view.At;
-            yield return new WaitForSeconds(8f);
-            yield return Shot(from, view.At, $"diag-{view.Name}-look");
-            Command("flowingwater gpu colours");
-            yield return Shot(from, view.At, $"diag-{view.Name}-colours");
-            Command("flowingwater gpu colours");
-            Command("flowingwater gpu");
-        }
+        yield return HeldViews(views, "diag");
 
         _cameraAt = null;
         yield return Go(foot);
@@ -60,6 +47,57 @@ public sealed partial class Recorder
         Command("flowingwater info");
         yield return Go(face.At(7f));
         Command("flowingwater gpu columns");
+    }
+
+    // The "flood" scenario: a meadow flooded from three sources across a gentle slope, shot from inside the card's square,
+    // from where its edge crosses the view, and from far off (the bricks alone), as it looks and in the debug colours,
+    // with the current measured in the middle ("flowingwater info").
+    private IEnumerator Flood(Vector3 spawn)
+    {
+        Site meadow = FindSite(spawn, 0.03f, 0.12f, true) ?? FindSite(spawn, 0.02f, 0.15f, false);
+        Note($"flood meadow {meadow}");
+        foreach (float side in new[] { -10f, 0f, 10f })
+        {
+            yield return Go(meadow.At(0f) + (meadow.Across * side));
+            Command("flowingwater source " + (Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "3"));
+        }
+
+        yield return Go(meadow.At(-8f));
+        yield return new WaitForSeconds(float.TryParse(Environment.GetEnvironmentVariable("FW_REC_WAIT"), out float given) ? given : 180f);
+
+        Vector3 middle = meadow.At(25f);
+        var views = new (Vector3 From, Vector3 At, string Name)[]
+        {
+            (middle - (meadow.Down * 12f) + new Vector3(0f, 10f, 0f), middle, "near"),
+            (middle - (meadow.Down * 50f) + new Vector3(0f, 18f, 0f), middle + (meadow.Down * 10f), "edge"),
+            (middle - (meadow.Down * 90f) + (meadow.Across * 25f) + new Vector3(0f, 40f, 0f), middle, "far"),
+        };
+        yield return HeldViews(views, "flood");
+
+        _cameraAt = null;
+        yield return Go(middle);
+        Command("flowingwater info");
+        Command("flowingwater gpu columns");
+        yield return Go(meadow.At(12f));
+        Command("flowingwater info");
+    }
+
+    // Each view held (the camera over the ground as it is, not as generated) long enough for the card's square to come
+    // with it and settle, then shot as it looks and in the debug colours.
+    private IEnumerator HeldViews((Vector3 From, Vector3 At, string Name)[] views, string prefix)
+    {
+        foreach (var view in views)
+        {
+            Vector3 from = OverGround(view.From, 1.5f);
+            _cameraAt = from;
+            _cameraLook = view.At;
+            yield return new WaitForSeconds(8f);
+            yield return Shot(from, view.At, $"{prefix}-{view.Name}-look");
+            Command("flowingwater gpu colours");
+            yield return Shot(from, view.At, $"{prefix}-{view.Name}-colours");
+            Command("flowingwater gpu colours");
+            Command("flowingwater gpu");
+        }
     }
 
     // A point at least so high over the ground loaded there (the generated ground is not what a player built or dug, nor
