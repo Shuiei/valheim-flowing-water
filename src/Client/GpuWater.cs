@@ -281,7 +281,7 @@ internal sealed class GpuWater : IDisposable
                     }
                 }
 
-                yield return FormattableString.Invariant($"column {x},{z}: top {t[k * SimColumns.Texel]:0.00} drawn {t[(k * SimColumns.Texel) + 1]} depth {t[(k * SimColumns.Texel) + 2]:0.00} w {t[(k * SimColumns.Texel) + 3]:0.00}; ground {string.Join(" ", beds)}");
+                yield return FormattableString.Invariant($"column {x},{z}: top {t[k * SimColumns.Texel]:0.00} the card's {t[(k * SimColumns.Texel) + 1]} drawn {_water._drawnTexels[(k * SimColumns.Texel) + 1]} depth {t[(k * SimColumns.Texel) + 2]:0.00} w {t[(k * SimColumns.Texel) + 3]:0.00}; ground {string.Join(" ", beds)}");
                 for (int y = cy + reach; y >= cy - reach; y--)
                 {
                     if (VoxelWater.Field.Voxel(x, y, z, out BrickView view, out int index) && (view.Water[index] > VoxelField.Wet || (view.Solid[index] > 0f && view.Solid[index] < 1f)))
