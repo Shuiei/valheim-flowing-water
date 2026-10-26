@@ -44,6 +44,26 @@ public class BrickObjectsTests
     }
 
     [Fact]
+    public void ASendWritesAtMostSoManyObjectsTheRestTheNextOnesButAllBeforeASave()
+    {
+        var world = new World();
+        var objects = new BrickObjects<int>(world);
+        var bricks = Enumerable.Range(0, BrickObjects<int>.MostWrites + 6).Select(k => Wet(k, 0, 0, 0.5f)).ToList();
+
+        Assert.Equal(BrickObjects<int>.MostWrites, objects.Publish(bricks, VoxelSize));
+        Assert.Equal(6, objects.Publish(bricks, VoxelSize));
+        Assert.Equal(0, objects.Publish(bricks, VoxelSize));
+
+        foreach (Brick brick in bricks)
+        {
+            brick.Water[0] = 0.8f;
+            brick.Changes++;
+        }
+
+        Assert.Equal(bricks.Count, objects.Publish(bricks, VoxelSize, exact: true));
+    }
+
+    [Fact]
     public void AChangeThatWouldNotShowIsHeldBackUntilItAddsUp()
     {
         var world = new World();

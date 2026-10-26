@@ -228,12 +228,14 @@ internal sealed class VoxelGrid
         // What changed by it may have opened its faces onto a brick forgotten beside it.
         brick.Unshut();
 
-        // Its faces may have opened onto a sleeping brick beside it: they wake together.
+        // Its faces may have opened onto a sleeping brick beside it: they wake together. What the bricks beside send
+        // changed too (their faces onto it, the ground under or beside their water): they are sent again.
         brick.Quiet = 0;
         brick.Changes++;
         foreach (Brick next in brick.Beside.Where(b => b != null))
         {
             next.Quiet = 0;
+            next.Changes++;
         }
 
         for (int i = 0; i < Brick.Count; i++)

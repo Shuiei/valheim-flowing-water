@@ -47,6 +47,13 @@ internal sealed class BrickObjects<TId>
     /// <summary>Sends a changed brick may be held back for, its change not showing, before it is sent all the same.</summary>
     public const int RefreshSends = 10;
 
+    /// <summary>
+    /// Most objects a send writes, unless the world is about to be saved: the rest are written by the sends after it (a
+    /// flood changing many bricks at once, or every brick at the first start of a version whose data says more, does not
+    /// write the whole world's water in one frame).
+    /// </summary>
+    public const int MostWrites = 64;
+
     private readonly IBrickWorld<TId> _world;
 
     private readonly Dictionary<long, TId> _objects = [];
@@ -184,6 +191,12 @@ internal sealed class BrickObjects<TId>
         {
             if (data != null)
             {
+                if (!_exact && written >= MostWrites)
+                {
+                    // Left for the next send: not taken as sent, so it is packed and written again then.
+                    continue;
+                }
+
                 _world.Write(Object(sent.Brick, key), data);
                 written++;
             }
