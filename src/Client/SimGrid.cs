@@ -88,6 +88,7 @@ internal sealed class SimGrid : IDisposable
     private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
     private static readonly int ThrowId = Shader.PropertyToID("_Throw");
     private static readonly int LipDropId = Shader.PropertyToID("_LipDrop");
+    private static readonly int DrawnId = Shader.PropertyToID("_Drawn");
 
     private readonly ComputeShader _shader;
 
@@ -103,6 +104,7 @@ internal sealed class SimGrid : IDisposable
     private readonly int _land;
     private readonly int _clear;
     private readonly int _shiftCells;
+    private readonly int _shape;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -162,6 +164,8 @@ internal sealed class SimGrid : IDisposable
         LandedNorth = MakeCells("landed north", cells, RenderTextureFormat.RInt);
         _clear = shader.FindKernel("Clear");
         _shiftCells = shader.FindKernel("ShiftCells");
+        _shape = shader.FindKernel("Shape");
+        Drawn = MakeCells("drawn", cells);
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -202,6 +206,12 @@ internal sealed class SimGrid : IDisposable
 
         WriteBed(0, walls, cells);
     }
+
+    /// <summary>
+    /// The water as it is drawn, metres over each cell's ground, as <see cref="Shape"/> last made it: its level smoothed
+    /// over the cells round it, the small bumps of a sheet's ground covered.
+    /// </summary>
+    public RenderTexture Drawn { get; }
 
     /// <summary>Cells along a side.</summary>
     public int Cells { get; }
@@ -424,6 +434,16 @@ internal sealed class SimGrid : IDisposable
         ClearThrown();
     }
 
+    /// <summary>Shapes the water as it is to be drawn (<see cref="Drawn"/>) from the water as it is now.</summary>
+    public void Shape()
+    {
+        Bind(_shape, HId, _h[_current]);
+        Bind(_shape, BedId, Bed);
+        Bind(_shape, DrawnId, Drawn);
+        Common();
+        Dispatch(_shape, Cells);
+    }
+
     /// <summary>No water in the air nor landed (the spray that would carry or land it is gone).</summary>
     public void ClearThrown()
     {
@@ -435,7 +455,7 @@ internal sealed class SimGrid : IDisposable
 
     public void Dispose()
     {
-        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth })
+        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn })
         {
             texture.Release();
             Free(texture);

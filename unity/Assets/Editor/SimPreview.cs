@@ -51,6 +51,7 @@ public static class SimPreview
                 ("spray", Spray),
                 ("look", LookOnly),
                 ("edge", Edge),
+                ("bumps", Bumps),
                 ("waves", Waves),
                 ("cost", Cost),
             };
@@ -426,6 +427,45 @@ public static class SimPreview
         }
     }
 
+    // A sheet of water running down a 6% slope whose ground is bumpy by some 12 cm, a bump every metre or so: shot as it
+    // runs, low and from over it, with how many cells in the middle of the sheet hold too little water to be drawn
+    // (holes in it) as the water is moved and as it is drawn.
+    private static void Bumps()
+    {
+        float Height(float x, float z) => (0.06f * (40f - x)) + (0.04f * Mathf.Sin(x * 5.3f) * Mathf.Cos(z * 4.1f)) + (0.025f * Mathf.Sin((x * 2.7f) + (z * 6.9f))) + (0.02f * Mathf.Cos((x * 9.1f) - (z * 3.3f)));
+        float[] bed = Ground(Height);
+        using var scene = new Scene("bumps", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 2f && x < 10f && z > 12f && z < 28f ? 0.12f : 0f));
+        Log.AppendLine("Bumps: 15 m3 let go on a 6% slope, bumpy by 12 cm.");
+        for (int k = 1; k <= 600; k++)
+        {
+            scene.Step();
+            if (k is 300 or 600)
+            {
+                float[] h = scene.Read();
+                float[] drawn = scene.ReadDrawn();
+                int Holes(float[] depth)
+                {
+                    int holes = 0;
+                    for (int j = 64; j < 96; j++)
+                    {
+                        for (int i = 32; i < 72; i++)
+                        {
+                            holes += depth[(j * Cells) + i] < 0.01f ? 1 : 0;
+                        }
+                    }
+
+                    return holes;
+                }
+
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s cells too shallow to draw in x 8-18 m, z 16-24 m (1280): moved {Holes(h)}, drawn {Holes(drawn)}"));
+                scene.Shot(Inv($"bumps_{k * Frame:0.0}s_low"), new Vector3(17f, Height(17f, 14f) + 1.2f, 14f), new Vector3(12f, Height(12f, 20f), 20f));
+                scene.Shot(Inv($"bumps_{k * Frame:0.0}s_over"), new Vector3(13f, Height(13f, 12f) + 6f, 12f), new Vector3(13f, Height(13f, 20f), 20f));
+            }
+        }
+    }
+
     // The waves drawn on running water (the shaders' own functions, asked on the card): their height by speed and depth;
     // the noise's and the chop's slopes those of their heights; the chop's height within -1 to 1 at every moment (its
     // two phases' weights adding to one), carried with the current, its second phase the first's half a cycle later,
@@ -764,16 +804,26 @@ public static class SimPreview
 
         public void Step() => Grid.Step(Frame);
 
-        public float[] Read()
+        public float[] Read() => ReadAll(Grid.Depth);
+
+        // The depth as it is drawn.
+        public float[] ReadDrawn()
         {
-            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(Grid.Depth);
+            Grid.Shape();
+            return ReadAll(Grid.Drawn);
+        }
+
+        private static float[] ReadAll(RenderTexture texture)
+        {
+            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
             request.WaitForCompletion();
             return request.GetData<float>().ToArray();
         }
 
         public void Shot(string file, Vector3 from, Vector3 at)
         {
-            _water.SetTexture("_SimH", Grid.Depth);
+            Grid.Shape();
+            _water.SetTexture("_SimH", Grid.Drawn);
             _water.SetTexture("_SimBed", Grid.Bed);
             _water.SetTexture("_SimU", Grid.SpeedEast);
             _water.SetTexture("_SimV", Grid.SpeedNorth);

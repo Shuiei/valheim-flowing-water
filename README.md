@@ -140,6 +140,12 @@ where), so the waves finer than a voxel are the card's own.
   surface rounds over down to the ground, its ripples smoothed out, what is behind bent more (a lens) and darker where
   it stands steep, the outline a drop of water has. `_EdgeRound`, `_EdgeBend` and `_EdgeDark` on the near water's
   material (`flowingwater mat card`).
+- **Over bumpy ground.** Near the camera, the water is drawn with its level smoothed over the cells round it (3 by 3,
+  the nearer counting more; not across a ledge or a fall, 15 cm apart or more), so a thin sheet lies smooth over the
+  ground's small bumps instead of taking the shape of each, and is never drawn thinner than it is. Inside the sheet
+  (water on two opposite sides of a cell), a cell is drawn 1.5 cm deep at least, and a bump under that level is drawn
+  covered (10 cm at most): the sheet stays whole instead of breaking into patches. Only the look: the water moved is
+  not changed.
 - **Running water's surface.** Running water is drawn with waves on it, running with the current: chop that rises
   with its speed (1.5 cm for each (m/s) squared, at most 15 cm and a quarter of its depth: still water lies flat, a
   thin sheet barely ripples), lit as the waves it is, and a finer layer of ripples on fast water that catches the sun
