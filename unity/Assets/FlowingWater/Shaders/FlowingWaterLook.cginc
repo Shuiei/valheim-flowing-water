@@ -113,6 +113,43 @@ float3 RunningRipples(float2 world, float2 current)
     return large + (0.6 * fine) + (0.5 * saturate(length(current) / _RapidsSpeed) * glints);
 }
 
+// Foam drawn out in streaks along the current: the running foam (two phases, as RunningFoam) sampled at points
+// upstream along the current and averaged, over the way the water runs in STREAK_SECONDS (STREAK_MOST metres at most),
+// finer than the rapids' foam so the streaks are thinner than they are long: half the brightest of them, half their
+// mean, so a patch of foam is drawn out behind itself rather than washed out. Nothing is turned with the current (that
+// drew rings where it curves): each point only looks back along its own.
+#define STREAK_SAMPLES 4
+#define STREAK_SECONDS 0.4
+#define STREAK_MOST 3.0
+#define STREAK_TILING 2.5
+
+float RunningFoam(float2 uv, float2 run)
+{
+    float a;
+    float b;
+    float2 pa = FlowPhase(uv, run, 0.25, a);
+    float2 pb = FlowPhase(uv, run, 0.75, b);
+    return (tex2D(_FoamTex, pa).r * a) + (tex2D(_FoamTex, pb).r * b);
+}
+
+float Streaks(float2 world, float2 current, float speed)
+{
+    float2 along = speed > 0.05 ? current / speed : 0.0;
+    float reach = min(speed * STREAK_SECONDS, STREAK_MOST);
+    float tiling = _RapidsTiling * STREAK_TILING;
+    float sum = 0.0;
+    float most = 0.0;
+    for (int k = 0; k < STREAK_SAMPLES; k++)
+    {
+        float2 at = world - (along * (reach * k / (STREAK_SAMPLES - 1.0)));
+        float foam = RunningFoam(at * tiling, current * tiling);
+        sum += foam;
+        most = max(most, foam);
+    }
+
+    return 0.5 * (most + (sum / STREAK_SAMPLES));
+}
+
 // The fog over the water as over the sea: the game's fog, towards the sun's colour where one looks at the
 // sun; over all the water's light, what is seen through included, as the sea's.
 void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
@@ -188,8 +225,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float shoreFoam = deep * min(shore, 1.0 - band);
     colour = lerp(colour, _FoamColor.rgb, saturate(8.0 * tex2D(_FoamTex, (i.world * 0.1) + wobble).r * shoreFoam * _FoamColor.a));
 
-    // Rapids: fast water foams, its foam running with it; the simulation's own foam (falls) and its waves' churn on
-    // top.
+    // Rapids: fast water foams, its foam running with it, drawn out in streaks along the current the faster it runs;
+    // the simulation's own foam (falls) and its waves' churn on top.
     float fast = saturate(speed / _RapidsSpeed);
     float want = saturate((fast * fast * 0.8) + i.water.y + i.water.w);
     float fa;
@@ -197,7 +234,13 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float2 foamUv = i.world * _RapidsTiling;
     float2 foamRun = i.current * _RapidsTiling;
     float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
+    noise = fast > 0.05 ? lerp(noise, Streaks(i.world, i.current, speed), fast) : noise;
     float rapids = smoothstep(1.0 - want, 1.0 - want + 0.25, noise) * want;
+
+    // Foam is lace, not plaster: broken up by a finer foam running with it.
+    float2 laceUv = foamUv * 5.0;
+    float lace = (tex2D(_FoamTex, FlowPhase(laceUv, foamRun * 5.0, 0.1, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(laceUv, foamRun * 5.0, 0.6, fb)).r * fb);
+    rapids *= saturate(0.35 + (0.9 * lace));
     colour = lerp(colour, _FoamColor.rgb, rapids);
 
     float foam = max(shoreFoam, rapids);

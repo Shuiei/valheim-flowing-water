@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.31.0 — 2026-10-26
+
+### Changed
+- Foam on running water is drawn out in streaks along the current, the longer the faster it runs, and broken into
+  lace instead of solid white patches.
+
 ## v0.30.0 — 2026-10-26
 
 ### Changed
