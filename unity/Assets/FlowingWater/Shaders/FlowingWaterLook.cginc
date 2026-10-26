@@ -28,6 +28,8 @@ float _FoamDepth;
 float _RefractionScale;
 float _RefractionMax;
 float _DeepWater;
+float _RunningDeep;
+float _RunningClarity;
 float _FlowTiling;
 float _FlowStrength;
 float _FlowCycle;
@@ -162,15 +164,19 @@ void Look(Input i, inout SurfaceOutputStandard o)
         bent = straight;
     }
 
+    // Running water is churned and carries silt: the faster it runs, the less of what is behind shows through (as if
+    // RunningClarity as clear), and the shallower it takes the deep colour (RunningDeep, not DeepWater).
+    float clarity = lerp(1.0, _RunningClarity, running);
+    float deepColour = saturate(depth / lerp(_DeepWater, _RunningDeep, running));
     float3 behind = tex2D(_FlowingWaterBehind, grab + bend).rgb;
-    float hidden = sqrt(saturate(abs(bent - eye) / _DepthFade));
+    float hidden = sqrt(saturate(abs(bent - eye) / (_DepthFade * clarity)));
 
     // The shore: how much water there is in front of what is behind.
     float shoreLine = abs(straight - eye);
     float shore = saturate(shoreLine / _ShoreFade);
     float band = saturate(shoreLine / _FoamDepth);
 
-    float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deep);
+    float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deepColour);
 
     // Scattered foam where the wind blows on open water, as on the sea.
     float2 wobble = 0.005 * float2(sin(_Time.y + i.worldPos.x), sin((1.5 * _Time.y) + i.worldPos.z));

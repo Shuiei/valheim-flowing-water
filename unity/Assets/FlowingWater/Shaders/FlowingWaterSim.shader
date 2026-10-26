@@ -30,6 +30,8 @@ Shader "FlowingWater/SimWater"
 
         // The flowing water's own.
         _DeepWater ("Water this deep (m) takes the deep colour", Float) = 6
+        _RunningDeep ("Running water this deep (m) takes the deep colour", Float) = 1.5
+        _RunningClarity ("Running water's clarity (share of the still water's)", Range(0.05, 1)) = 0.25
         _FlowTiling ("Running ripples tiling (times the still ones')", Float) = 6
         _FlowStrength ("Running ripples strength", Range(0, 3)) = 1.4
         _FlowCycle ("Flow cycle (s)", Float) = 1.5

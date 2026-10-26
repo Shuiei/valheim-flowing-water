@@ -242,7 +242,8 @@ there to the new grid (same volume), at once when the file is saved.
   ripple and foam textures, colours and settings, and is coloured, lit and fogged the way the sea is, so a pool or a
   river is the same water as the sea it runs into. What lies behind (the scene, grabbed once a frame, bent by the
   ripples) is seen through thin water, tinted as through the sea; deeper water takes the sea's bottom colour, from
-  shallow to deep with the water's depth. Still water's ripples drift with the game's wind, as the sea's; running
+  shallow to deep with the water's depth. Running water, churned and carrying silt, is less clear (a quarter as clear
+  once it fully runs) and takes the deep colour at 1.5 m deep instead of 6 m, so a river reads as a river. Still water's ripples drift with the game's wind, as the sea's; running
   water's are dragged along the current in two offset phases (flow mapping), finer than the sea's, and it foams
   with its speed (rapids) and where the simulation says it falls. Its edge fades out over the last two centimetres
   of water in front of the ground, with a band of foam just off it; shallow water a few centimetres deep, a stream

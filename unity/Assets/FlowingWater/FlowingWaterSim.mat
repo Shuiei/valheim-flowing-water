@@ -72,6 +72,8 @@ Material:
     - _RapidsTiling: 0.35
     - _RefractionMax: 0.01
     - _RefractionScale: 0.1
+    - _RunningClarity: 0.25
+    - _RunningDeep: 1.5
     - _ShoreFade: 0.02
     - _SimCells: 384
     - _SimDx: 0.25
