@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.34.0 — 2026-10-26
+
+### Added
+- Water near you ends in a smooth, rounded front where it meets dry ground, solid up to its edge with a thin dark
+  outline, instead of fading out along the ground's grid in steps. `flowingwater mat card` tunes it.
+
 ## v0.33.0 — 2026-10-26
 
 ### Added

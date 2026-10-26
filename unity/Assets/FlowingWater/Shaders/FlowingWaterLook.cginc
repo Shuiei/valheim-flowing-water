@@ -40,6 +40,9 @@ float _EdgeFade;
 float _BodyDepth;
 float4 _BodyTint;
 float _BodyBlur;
+float _EdgeRound;
+float _EdgeBend;
+float _EdgeDark;
 
 // The game's own, set for every shader: its two winds (x, z its direction, w its strength) and how far it
 // is from the first to the second; the sun's direction and the colour the fog takes towards it. Unset (a
@@ -59,6 +62,8 @@ struct Input
     float4 screenPos;
     float4 grabPos; // the same point in the grabbed image (upside down on some platforms)
     float2 cell;    // the point's place in the brick's columns
+    float4 edge;    // where the water meets dry ground (the card's water only, else 0): x, y outward (east, north), z
+                    // how far the edge is (m), w the front's height there (m)
     float facing : VFACE;
 };
 
@@ -166,6 +171,22 @@ float3 SeenThrough(float2 grab, float thickness)
     return 0.25 * sum;
 }
 
+// The water's front where it meets dry ground, rounded over as a body of water's is (not a sheet cut off): within the
+// front's height of the edge (_EdgeRound metres at most), the surface bends down to the ground, a quarter circle, its
+// ripples smoothed out on the bend. Returns how far the point is bent (0 flat, 1 standing).
+float RoundFront(float4 edge, inout float3 n)
+{
+    float height = min(edge.w, _EdgeRound);
+    if (height <= 0.001 || dot(edge.xy, edge.xy) < 0.5)
+    {
+        return 0.0;
+    }
+
+    float lean = 1.0 - saturate(edge.z / height);
+    n = normalize(float3((n.xy * (1.0 - lean)) + (edge.xy * (lean / max(sqrt(1.0 - (lean * lean)), 0.3))), n.z));
+    return lean;
+}
+
 // The fog over the water as over the sea: the game's fog, towards the sun's colour where one looks at the
 // sun; over all the water's light, what is seen through included, as the sea's.
 void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
@@ -205,6 +226,9 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // The fine waves, lit only: their slope tips the surface.
     n = FineWaves(n, i.world, i.current, depth);
 
+    // Its front, rounded where it meets dry ground.
+    float rim = RoundFront(i.edge, n);
+
     // Seen from under the water, its underside.
     n.z *= i.facing > 0.0 ? 1.0 : -1.0;
 
@@ -212,7 +236,8 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float2 screen = i.screenPos.xy / max(i.screenPos.w, 0.0001);
     float2 grab = i.grabPos.xy / max(i.grabPos.w, 0.0001);
     float eye = i.screenPos.w;
-    float2 bend = clamp(n.xy * _RefractionScale * 5.0, -_RefractionMax, _RefractionMax);
+    // The front's bend is a lens: what is behind it is bent more there (_EdgeBend times).
+    float2 bend = clamp(n.xy * _RefractionScale * 5.0 * lerp(1.0, _EdgeBend, rim), -_RefractionMax, _RefractionMax);
     float straight = SceneEye(screen);
     float bent = SceneEye(screen + bend);
     if (bent < eye)
@@ -235,9 +260,14 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float3 hidden = 1.0 - through;
     float3 behind = SeenThrough(grab + bend, thickness);
 
+    // Where the front stands steep, what is behind is bent away from the eye: it shows dark (_EdgeDark), the outline a
+    // drop of water has.
+    behind *= 1.0 - (_EdgeDark * rim * rim * rim * rim);
+
     // The shore: how much water there is in front of what is behind.
     float shoreLine = abs(straight - eye);
-    float shore = saturate(shoreLine / _ShoreFade);
+    // (Not at the front, which rounds down to the ground: cut where the water runs out.)
+    float shore = max(saturate(shoreLine / _ShoreFade), rim);
     float band = saturate(shoreLine / _FoamDepth);
 
     float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deepColour);

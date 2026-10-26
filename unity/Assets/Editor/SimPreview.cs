@@ -34,19 +34,31 @@ public static class SimPreview
             _output = Environment.GetEnvironmentVariable("FW_PREVIEW_OUT") ?? Path.GetFullPath("preview");
             Directory.CreateDirectory(_output);
             BuildBundles.Prepare();
-            DamBreak(0.03f);
-            DamBreak(0f);
-            Slosh();
-            Obstacle();
-            Follow();
-            Ledge(true);
-            Ledge(false);
-            Shift();
-            ShiftThrown();
-            Spray();
-            LookOnly();
-            Waves();
-            Cost();
+
+            // FW_PREVIEW_ONLY (a scene's name, as "edge"): that scene alone.
+            string only = Environment.GetEnvironmentVariable("FW_PREVIEW_ONLY");
+            var scenes = new (string Name, Action Run)[]
+            {
+                ("dambreak", () => DamBreak(0.03f)),
+                ("dambreak", () => DamBreak(0f)),
+                ("slosh", Slosh),
+                ("obstacle", Obstacle),
+                ("follow", Follow),
+                ("ledge", () => Ledge(true)),
+                ("ledge", () => Ledge(false)),
+                ("shift", Shift),
+                ("shift", ShiftThrown),
+                ("spray", Spray),
+                ("look", LookOnly),
+                ("edge", Edge),
+                ("waves", Waves),
+                ("cost", Cost),
+            };
+            foreach (var scene in scenes.Where(s => string.IsNullOrEmpty(only) || s.Name == only))
+            {
+                scene.Run();
+            }
+
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
         }
@@ -377,6 +389,41 @@ public static class SimPreview
         float[] drawnDepth = Run(true), plainDepth = Run(false);
         float most = drawnDepth.Zip(plainDepth, (a, b) => Mathf.Abs(a - b)).Max();
         Log.AppendLine(Inv($"Look: a dam drawn with its waves and the same never drawn differ by {most:0.000000} m at most: {(most <= 0f ? "OK" : "FAILED")}"));
+    }
+
+    // Water let go at the top of a gentle slope, its ground bumpy by a few centimetres: it runs down in a thin sheet whose
+    // fronts and sides meet dry ground, shot close and low, then from over it.
+    private static void Edge()
+    {
+        float[] bed = Ground((x, z) => (0.04f * (40f - x)) + (0.03f * Mathf.Sin(x * 2.1f) * Mathf.Cos(z * 1.7f)) + (0.02f * Mathf.Sin((x + z) * 4.3f)));
+        using var scene = new Scene("edge", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 2f && x < 7f && z > 16f && z < 24f ? 0.25f : 0f));
+        Log.AppendLine("Edge: 10 m3 let go on a 4% slope, bumpy by 5 cm.");
+        for (int k = 1; k <= 360; k++)
+        {
+            scene.Step();
+            if (k is 120 or 360)
+            {
+                float[] h = scene.Read();
+                float front = 0f;
+                for (int i = 0; i < Cells; i++)
+                {
+                    if (h[(80 * Cells) + i] > 0.01f)
+                    {
+                        front = (i + 1) * Dx;
+                    }
+                }
+
+                int last = (int)(front / Dx);
+                string behind = string.Join(" ", Enumerable.Range(0, 12).Select(n => h[(80 * Cells) + Math.Max(last - n, 0)].ToString("0.000", CultureInfo.InvariantCulture)));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s front at x = {front:0.00} m along z = 20 m; depth back from it, every 0.25 m: {behind}"));
+                float Height(float x) => 0.04f * (40f - x);
+                scene.Shot(Inv($"edge_{k * Frame:0.0}s_low"), new Vector3(front + 1.2f, Height(front) + 0.5f, 18f), new Vector3(front - 0.6f, Height(front), 20f));
+                scene.Shot(Inv($"edge_{k * Frame:0.0}s_near"), new Vector3(front + 3f, Height(front) + 2f, 15f), new Vector3(front - 1f, Height(front), 19f));
+                scene.Shot(Inv($"edge_{k * Frame:0.0}s_over"), new Vector3(front - 2f, Height(front) + 5f, 13f), new Vector3(front - 2f, Height(front), 20f));
+            }
+        }
     }
 
     // The waves drawn on running water (the shaders' own functions, asked on the card): their height by speed and depth;
