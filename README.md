@@ -126,7 +126,8 @@ where), so the waves finer than a voxel are the card's own.
   square, and a band 4 m wide along its edge (where the card's water is the server's as it is). The square moves with
   the camera once it is a quarter of the square from its middle, its water moved with it where both squares have it
   (waves and currents go on, nothing refills); the new edge's water is the server's, and the blocks go on drawing each
-  of its columns for 3 s after the card can have it, while the card's water there settles from the server's steps.
+  of its columns for 3 s after the card can have it, while the card's water there settles from the server's steps
+  (falls too: the card throws none from a column it does not draw).
 - **The ground.** Rays cast straight down onto the terrain and what players built, a few rows of cells a frame on the
   game's worker threads, all of the square in a fraction of a second, then again and again (what is built, a door
   opened); only near water. Rows where water comes near, or rises or falls more than 25 cm, are cast first, so a

@@ -46,10 +46,13 @@ public class SimHandoverTests
         Assert.Equal(SimColumns.DryTop, firstLayers[(((8 * Columns) + 8) * SimColumns.LayerTexel) + 2]);
         Assert.True(handover.Waiting);
 
+        Assert.Equal(10f + SimHandover.Settle, handover.NextReady);
+
         float[] later = Handed(handover, texels, layers, 10f + SimHandover.Settle, out float[] laterLayers);
         Assert.True(Drawn(later, 8, 8));
         Assert.Equal(12f, laterLayers[(((8 * Columns) + 8) * SimColumns.LayerTexel) + 2]);
         Assert.False(handover.Waiting);
+        Assert.Equal(float.PositiveInfinity, handover.NextReady);
     }
 
     [Fact]

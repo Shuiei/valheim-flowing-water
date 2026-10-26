@@ -34,9 +34,6 @@ internal sealed class GpuWater : IDisposable
     // Shortest time between two builds of the server's water for the card, seconds.
     private const float BuildSeconds = 0.1f;
 
-    // While columns wait to be drawn by the card, how often the server's water is handed to it again, s.
-    private const float HandSeconds = 0.25f;
-
     private static readonly int OnId = Shader.PropertyToID("_FWSimOn");
     private static readonly int OriginId = Shader.PropertyToID("_FWSimOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
@@ -136,14 +133,12 @@ internal sealed class GpuWater : IDisposable
     private float[] _layers;
 
     // Which columns the card draws of those the build lets it (none along the square's edge, a new one once its water
-    // settled), the build as handed to the card so, and when it was last handed (again while columns wait).
+    // settled), the build as handed to the card so (again when a column waiting is done).
     private readonly SimHandover _handover;
 
     private readonly float[] _drawnTexels;
 
     private readonly float[] _drawnLayers;
-
-    private float _handedAt = float.NegativeInfinity;
 
     private GpuWater(SimWindow window, Material material, ComputeShader compute)
     {
@@ -405,7 +400,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         TakeBuild();
-        if (_handover.Waiting && Time.time - _handedAt >= HandSeconds)
+        if (Time.time >= _handover.NextReady)
         {
             Hand();
         }
@@ -532,7 +527,6 @@ internal sealed class GpuWater : IDisposable
     {
         _handover.Apply(_texels, _layers, Time.time, _drawnTexels, _drawnLayers);
         _grid.SetTarget(_drawnTexels, _drawnLayers);
-        _handedAt = Time.time;
     }
 
     // The square moved on by dx, dz voxel columns (the camera went on): the card's water, the server's as last built and

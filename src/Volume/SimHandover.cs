@@ -41,6 +41,9 @@ internal sealed class SimHandover
     /// <summary>Whether a column the server's water lets the card draw waits still (drawn by the bricks till then).</summary>
     public bool Waiting { get; private set; }
 
+    /// <summary>When the first column waiting is done waiting (s, as <see cref="Apply"/>'s time); infinity when none waits.</summary>
+    public float NextReady { get; private set; } = float.PositiveInfinity;
+
     /// <summary>
     /// The server's water as built for the card (<paramref name="texels"/> and <paramref name="layers"/>, as
     /// <see cref="SimColumns"/> gives them), as the card is to have it at <paramref name="now"/> (s): into
@@ -52,6 +55,7 @@ internal sealed class SimHandover
         Array.Copy(texels, drawnTexels, texels.Length);
         Array.Copy(layers, drawnLayers, layers.Length);
         Waiting = false;
+        NextReady = float.PositiveInfinity;
         for (int vz = 0; vz < _columns; vz++)
         {
             for (int vx = 0; vx < _columns; vx++)
@@ -73,7 +77,12 @@ internal sealed class SimHandover
                     continue;
                 }
 
-                Waiting |= !float.IsNaN(_since[k]);
+                if (!float.IsNaN(_since[k]))
+                {
+                    Waiting = true;
+                    NextReady = Math.Min(NextReady, _since[k] + Settle);
+                }
+
                 drawnTexels[(k * SimColumns.Texel) + 1] = 0f;
                 drawnLayers[(k * SimColumns.LayerTexel) + 2] = SimColumns.DryTop;
             }
