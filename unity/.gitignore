@@ -8,3 +8,7 @@
 *.sln
 *.slnx
 /.vscode/
+
+# The plugin files the editor previews run (copied in by tools/sim-preview.sh)
+/Assets/Editor/Shared/
+/Assets/Editor/Shared.meta

@@ -29,6 +29,9 @@ internal enum WaterPart
     /// <summary>The heads of the step under way, a few columns at a time (the phases are taken a few bricks at a time).</summary>
     Heads,
 
+    /// <summary>The momentum the water carries from face to face.</summary>
+    Carry,
+
     /// <summary>The flows through the faces.</summary>
     Flows,
 

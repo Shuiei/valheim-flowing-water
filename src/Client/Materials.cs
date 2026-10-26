@@ -43,6 +43,18 @@ internal static class Materials
 
     private static bool _stillMissing;
 
+    private static Material _sim;
+
+    private static ComputeShader _simCompute;
+
+    private static bool _simTried;
+
+    private static Material _spray;
+
+    private static ComputeShader _sprayCompute;
+
+    private static bool _sprayTried;
+
     // Whether the mod's materials took the sea's look: not while the sea's material could not be found (a world not
     // open yet), tried again then.
     private static bool _lookTaken;
@@ -60,6 +72,8 @@ internal static class Materials
     {
         _customTried &= _custom != null;
         _shellTried &= _shell != null;
+        _simTried &= _sim != null && _simCompute != null;
+        _sprayTried &= _spray != null && _sprayCompute != null;
         _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
@@ -199,6 +213,98 @@ internal static class Materials
         {
             TakeSeaLook(_shell);
         }
+
+        if (_sim != null)
+        {
+            TakeSeaLook(_sim);
+        }
+
+        if (_spray != null)
+        {
+            TakeSeaLook(_spray);
+        }
+    }
+
+    /// <summary>
+    /// The mod's material for the water moved on the graphics card near the camera, with the sea's look, and the compute
+    /// shader that moves it, from the same bundle as <see cref="Custom"/>; false (logged once a world) where that has
+    /// none, or the card runs no compute shaders.
+    /// </summary>
+    public static bool Sim(out Material material, out ComputeShader compute)
+    {
+        if (_simTried)
+        {
+            TakeSeaLookAgain();
+        }
+        else
+        {
+            _simTried = true;
+            LoadSim();
+        }
+
+        material = _sim;
+        compute = _simCompute;
+        return _sim != null && _simCompute != null;
+    }
+
+    /// <summary>
+    /// The falls', splashes' and spray's particles of the water moved on the graphics card: their material (with the sea's
+    /// foam) and the compute shader that moves them, from the same bundle; false (logged once a world) where it has none
+    /// or the water is not moved on the card.
+    /// </summary>
+    public static bool Spray(out Material material, out ComputeShader compute)
+    {
+        if (!_sprayTried)
+        {
+            _sprayTried = true;
+            if (Sim(out _, out _))
+            {
+                compute = _bundle.LoadAsset<ComputeShader>("FlowingWaterSpray");
+                if (compute == null)
+                {
+                    FlowingWaterPlugin.Log.LogError("The compute shader of the water's falls and spray is missing from the bundle: none are drawn");
+                }
+                else
+                {
+                    _spray = FromBundle("FlowingWaterSpray", "FlowingWater spray", "the water's falls and spray are not drawn");
+                    _sprayCompute = _spray == null ? null : compute;
+                }
+            }
+        }
+
+        material = _spray;
+        compute = _sprayCompute;
+        return _spray != null && _sprayCompute != null;
+    }
+
+    private static void LoadSim()
+    {
+        if (!SystemInfo.supportsComputeShaders)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"The graphics card ({SystemInfo.graphicsDeviceType}) runs no compute shaders: the water near you is drawn as the server sends it");
+            return;
+        }
+
+        if (Custom() == null)
+        {
+            return;
+        }
+
+        var compute = _bundle.LoadAsset<ComputeShader>("FlowingWaterSim");
+        if (compute == null)
+        {
+            FlowingWaterPlugin.Log.LogError("The compute shader that moves the water on the graphics card is missing from the bundle: the water near you is drawn as the server sends it");
+            return;
+        }
+
+        _sim = FromBundle("FlowingWaterSim", "FlowingWater sim", "the water near you is drawn as the server sends it");
+        if (_sim == null)
+        {
+            return;
+        }
+
+        _simCompute = compute;
+        FlowingWaterPlugin.Log.LogInfo("Water moved on the graphics card loaded from the bundle");
     }
 
     // The sea's look onto the water: its own textures, colours and settings, so the two are the same water. Without

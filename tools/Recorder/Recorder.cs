@@ -293,6 +293,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             "perf" => Perf(spawn, steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
+            "gpu" => Gpu(steep, gentle, FindSite(spawn + new Vector3(0f, 0f, -150f), 0.02f, 0.09f, true) ?? FindSite(spawn + new Vector3(150f, 0f, 0f), 0.02f, 0.09f, false)),
+            "ledge" => Ledge(FindSite(spawn + new Vector3(0f, 0f, -150f), 0.02f, 0.09f, true) ?? FindSite(spawn + new Vector3(150f, 0f, 0f), 0.02f, 0.09f, false)),
             _ => null,
         };
         if (scenario != null)
@@ -501,6 +503,163 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Command("flowingwater remove");
         yield return Go(gentleDrain);
         Command("flowingwater remove");
+    }
+
+    // The water moved on the graphics card near the camera (Client.GpuWater) against the water as the server sends it:
+    // a stream on each slope seen and filmed with it on, then off, then on again, the frame rate each way; then a flood
+    // on nearly flat open ground (a strong source for a few seconds, then taken away) filmed as it runs out, from the side
+    // and from above. Each site's source of an earlier run on the same world is taken away first.
+    private IEnumerator Gpu(Site steep, Site gentle, Site flat)
+    {
+        Note($"flat site {flat}");
+
+        // A fall: a platform of stone 3.5 m high uphill of the flat site, a source on it (the world's generated ground has
+        // no cliff near the spawn).
+        Vector3 towerAt = flat.At(-16f) + (flat.Across * 8f);
+        yield return Go(towerAt);
+        Vector3 tower = Platform(Player.m_localPlayer.transform.position, 3.5f);
+        yield return Go(tower, tower.y);
+        Command("flowingwater remove");
+        Command("flowingwater source 4");
+        string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4";
+        yield return Go(flat.At(0f));
+        Command("flowingwater remove");
+        yield return Go(steep.At(0f));
+        Command("flowingwater remove");
+        Command("flowingwater source " + rate);
+        yield return Go(gentle.At(0f));
+        Command("flowingwater remove");
+        Command("flowingwater source " + rate);
+        yield return Go(steep.At(8f));
+        yield return new WaitForSeconds(40f);
+        foreach (bool on in new[] { true, false, true })
+        {
+            SetGpuWater(on);
+            yield return new WaitForSeconds(3f);
+            string mode = on ? "gpu" : "server";
+            Command("flowingwater gpu");
+            yield return Views(steep, $"steep-{mode}");
+            yield return Views(gentle, $"gentle-{mode}");
+            yield return Burst(steep.Close(), steep.At(7f), $"steep-close-{mode}", 3f, 15);
+            yield return Burst(gentle.Behind(), gentle.At(14f), $"gentle-motion-{mode}", 3f, 15);
+            _cameraAt = Clear(steep.Behind(), steep.At(14f));
+            _cameraLook = steep.At(14f);
+            yield return new WaitForSeconds(1f);
+            int frames = Time.frameCount;
+            float since = Time.realtimeSinceStartup;
+            yield return new WaitForSeconds(5f);
+            Note($"frame rate over the steep stream, {mode}: {(Time.frameCount - frames) / (Time.realtimeSinceStartup - since):0.0} fps");
+        }
+
+        // The fall off the platform (its source placed first): falls, splashes and spray as particles, filmed close and
+        // from further off; who draws what.
+        Vector3 fall = tower + new Vector3(0f, -2f, 0f);
+        Vector3 near = tower + (flat.Across * 8f) + (flat.Down * 5f) + new Vector3(0f, -1f, 0f);
+        yield return Burst(near, fall, "cliff-near", 4f, 15);
+        yield return Burst(tower + (flat.Across * 14f) + (flat.Down * 12f) + new Vector3(0f, 4f, 0f), fall, "cliff-far", 3f, 15);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "cliff-colours");
+        Command("flowingwater gpu colours");
+
+        // A flood on the flat site: 40 m3/s for six seconds, then gone, seen from the side; then what is left, from above.
+        Vector3 flood = flat.At(0f);
+        yield return Go(flood);
+        Command("flowingwater source 40");
+        Vector3 from = flat.At(8f) + (flat.Across * 16f) + new Vector3(0f, 7f, 0f);
+        Vector3 at = flat.At(8f);
+        yield return Burst(from, at, "flood-on", 6f, 12);
+
+        // Who draws what while it pours: the card's water blue, the bricks' surface red, their sides and falls yellow.
+        Command("flowingwater gpu colours");
+        yield return Shot(from, at, "flood-colours-side");
+        yield return Shot(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-colours-above");
+        yield return Burst(from, at, "flood-colours", 2f, 12);
+        Command("flowingwater gpu colours");
+        Command("flowingwater remove");
+        yield return Burst(from, at, "flood-off", 6f, 12);
+        yield return Burst(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-above", 6f, 12);
+        Command("flowingwater gpu");
+    }
+
+    // The fall off the gpu scenario's platform, at its edges: the water's voxels and the ground cast there (the console's
+    // "flowingwater gpu columns"), and who draws what, close.
+    private IEnumerator Ledge(Site flat)
+    {
+        yield return Go(flat.At(-16f) + (flat.Across * 8f));
+        Vector3 tower = Platform(Player.m_localPlayer.transform.position, 3.5f);
+        yield return Go(tower, tower.y);
+        Command("flowingwater remove");
+        Command("flowingwater source 4");
+        yield return new WaitForSeconds(30f);
+        Vector3 fall = tower + new Vector3(0f, -2f, 0f);
+        Vector3 near = tower + (flat.Across * 8f) + (flat.Down * 5f) + new Vector3(0f, -1f, 0f);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "ledge-colours");
+        yield return Shot(tower + (flat.Across * -8f) + (flat.Down * -5f) + new Vector3(0f, 1f, 0f), fall, "ledge-colours-back");
+        yield return Burst(near, fall, "ledge-colours", 8f, 5);
+        Command("flowingwater gpu colours");
+        yield return Shot(near, fall, "ledge");
+        foreach (Vector3 side in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back })
+        {
+            Vector3 edge = tower + (side * 2f);
+            Note(FormattableString.Invariant($"edge {edge.ToString("F2")}"));
+            yield return Go(edge);
+            Command("flowingwater gpu columns");
+        }
+    }
+
+    // A platform of stone floors 4 m a side, this high over the ground at its middle, built from the ground up (or the
+    // one an earlier run built there: a piece found well over the ground); its top's middle.
+    private Vector3 Platform(Vector3 middle, float height)
+    {
+        if (Physics.Raycast(middle + (Vector3.up * 30f), Vector3.down, out RaycastHit hit, 40f, LayerMask.GetMask("piece"), QueryTriggerInteraction.Ignore)
+            && hit.point.y > middle.y + (height / 2f))
+        {
+            Note(FormattableString.Invariant($"platform already at {hit.point.ToString("F1")}"));
+            return hit.point;
+        }
+
+        GameObject piece = new[] { "stone_floor_2x2", "wood_floor" }.Select(n => ZNetScene.instance.GetPrefab(n)).FirstOrDefault(p => p != null)
+            ?? throw new InvalidOperationException("neither stone_floor_2x2 nor wood_floor found");
+        float goal = middle.y + height;
+        float highest = middle.y;
+        int count = 0;
+        foreach (float dx in new[] { -1f, 1f })
+        {
+            foreach (float dz in new[] { -1f, 1f })
+            {
+                var at = new Vector3(middle.x + dx, middle.y, middle.z + dz);
+                float top = ZoneSystem.instance.GetGroundHeight(at, out float ground) ? ground : middle.y;
+                while (top < goal && count < 120)
+                {
+                    GameObject placed = Instantiate(piece, new Vector3(at.x, top, at.z), Quaternion.identity);
+                    placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
+                    Physics.SyncTransforms();
+                    Bounds bounds = placed.GetComponentsInChildren<Collider>().Where(k => !k.isTrigger).Select(k => k.bounds)
+                        .Aggregate((Bounds?)null, (all, b) => all is { } a ? Grown(a, b) : b) ?? new Bounds(placed.transform.position, Vector3.one);
+                    top = Mathf.Max(top + 0.25f, bounds.max.y);
+                    count++;
+                }
+
+                highest = Mathf.Max(highest, top);
+            }
+        }
+
+        Note(FormattableString.Invariant($"platform of {count} {piece.name} at {middle.ToString("F1")}, top {highest:0.0}"));
+        return new Vector3(middle.x, highest, middle.z);
+    }
+
+    // Turns the water moved on the graphics card on or off, as its setting in the plugin's file does.
+    private void SetGpuWater(bool on)
+    {
+        if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue("Tie.FlowingWater", out BepInEx.PluginInfo plugin)
+            || !plugin.Instance.Config.TryGetEntry("Client", "GpuWater", out BepInEx.Configuration.ConfigEntry<bool> entry))
+        {
+            throw new InvalidOperationException("FlowingWater's Client.GpuWater setting not found");
+        }
+
+        entry.Value = on;
+        Note($"Client.GpuWater = {on}");
     }
 
     // Erosion as players see it (run with the server's erosion on and fast): the ground over the steep site

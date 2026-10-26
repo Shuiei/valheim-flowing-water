@@ -25,6 +25,9 @@ internal sealed class VoxelField
     /// <summary>The bricks known.</summary>
     public IReadOnlyCollection<BrickView> Bricks => _bricks.Values;
 
+    /// <summary>Counts the changes to the bricks known: while it stays the same, so do they.</summary>
+    public int Version { get; private set; }
+
     /// <summary>
     /// A voxel's key from its voxel coordinates (not its brick's: <see cref="VoxelGrid.Key"/> is for bricks), 21 bits
     /// each: 262 km from the world's zero along each axis at 0.25 m voxels, far beyond any Valheim world. Two voxels
@@ -37,6 +40,7 @@ internal sealed class VoxelField
     {
         VoxelSize = view.VoxelSize;
         _bricks[VoxelGrid.Key(view.X, view.Y, view.Z)] = view;
+        Version++;
     }
 
     /// <summary>
@@ -67,7 +71,13 @@ internal sealed class VoxelField
     }
 
     /// <summary>Forgets a brick (its object is gone).</summary>
-    public void Remove(int x, int y, int z) => _bricks.Remove(VoxelGrid.Key(x, y, z));
+    public void Remove(int x, int y, int z)
+    {
+        if (_bricks.Remove(VoxelGrid.Key(x, y, z)))
+        {
+            Version++;
+        }
+    }
 
     /// <summary>The brick at these brick coordinates, or null.</summary>
     public BrickView Find(int x, int y, int z) => _bricks.TryGetValue(VoxelGrid.Key(x, y, z), out BrickView view) ? view : null;
