@@ -7,8 +7,9 @@ All notable changes to FlowingWater. Newest first.
 ### Added
 - A prototype of water as particles on your graphics card, for the water a sheet cannot be: a dam bursting, water
   pouring over a lip, something pushed through a pool. To try it, the console's `flowingwater particles [m³]` pours a
-  block of it over you, drawn as spheres, kept out of the ground and pushed aside as you wade through; `clear` takes it
-  away. Nothing else in the game uses it yet.
+  block of it over you, drawn as water with the sea's look (foam where it splashes), kept out of the ground and pushed
+  aside as you wade through; `clear` takes it away, `spheres` shows the particles themselves. Nothing else in the game
+  uses it yet.
 
 ## v0.36.0 — 2026-10-26
 

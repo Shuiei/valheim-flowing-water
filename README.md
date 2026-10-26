@@ -46,7 +46,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
-| `flowingwater particles [m³\|clear]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, drawn as spheres, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away |
+| `flowingwater particles [m³\|clear\|spheres]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
@@ -211,7 +211,7 @@ where the water a cell away is more than half a metre higher or lower.
 The sheet of shallow water the card moves is a height over the ground: it cannot curl over, break into drops, or be
 pushed aside by something moving through it. For that water, a prototype of **water as particles** is in the plugin's
 code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingWaterParticles.compute` and
-`.shader`), measured by the Unity project's preview; in the game only the console pours some, to try it
+`.shader`, `FlowingWaterParticleSurface.shader`), measured by the Unity project's preview; in the game only the console pours some, to try it
 (`flowingwater particles [m³]`, while the card moves the water near you): **nothing else draws it yet.** What it is:
 
 - Each particle is a cube of water 10 cm on a side (a litre). Position based fluids (Macklin and Müller, 2013): each
@@ -224,7 +224,13 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
   particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
   out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
   still instead of jittering against its walls. A sphere (a player, a boat) pushes the water aside.
-- Drawn as spheres for now (an opaque look of the shape, whiter where the water is thin), not yet with the water's look.
+- Drawn as water over the scene, from the screen (van der Laan, Green and Sainz, 2009): the camera first draws the
+  particles as spheres into two textures, the nearest's distance at each pixel (smoothed into one surface, keeping
+  the steps between one body of water and another) and the water the view goes through there (with how much of it is
+  air: thin water, spray); then one triangle over the screen, drawn with the transparent things after the sheet, takes
+  the surface's slope from the distances and gives it the sea's look as the sheet has it: what is behind bent and
+  tinted by the water seen through, the sky and the sun on the surface, foam where the water is air, the sea's fog.
+  `flowingwater particles spheres` shows the particles themselves.
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
 off a ledge into a basin, a sphere pushed through a pool, and a cost scene, and writes `particles.txt` and frames
@@ -236,9 +242,10 @@ costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing th
 
 What it is not yet: the game's water (the particles would take water from the sheet where it goes over a lip, bursts
 or is struck, and give it back where they settle, as the spray's sheets do now; the console's block is only drawn,
-nothing swims in it, and it stays where the card's square leaves it); drawn as water (a screen-space surface over
-the particles, with the sea's look); met by what players build other than through the ground's heights (a floor, a
-wall's top), nor by the sea (it lies on the seabed); spread over the frame's budget (a step is one go).
+nothing swims in it, and it stays where the card's square leaves it); met by what players build other than through
+the ground's heights (a floor, a wall's top), nor by the sea (it lies on the seabed); spread over the frame's budget
+(a step is one go); its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass
+on the sheet's.
 
 ### Grid size
 

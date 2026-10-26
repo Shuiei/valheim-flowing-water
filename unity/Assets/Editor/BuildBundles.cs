@@ -46,6 +46,10 @@ public static class BuildBundles
 
     public const string ParticlesComputePath = "Assets/FlowingWater/Shaders/FlowingWaterParticles.compute";
 
+    public const string ParticleSurfaceShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterParticleSurface.shader";
+
+    public const string ParticleSurfaceMaterialPath = "Assets/FlowingWater/FlowingWaterParticleSurface.mat";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -84,6 +88,7 @@ public static class BuildBundles
         CheckCompute(SprayComputePath, "EmitFromWater", "Move", "Curtains");
         MakeMaterial(FallShaderPath, FallMaterialPath, "FlowingWaterFall");
         MakeMaterial(ParticlesShaderPath, ParticlesMaterialPath, "FlowingWaterParticles");
+        MakeMaterial(ParticleSurfaceShaderPath, ParticleSurfaceMaterialPath, "FlowingWaterParticleSurface");
         CheckCompute(ParticlesComputePath, "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Lambda", "Displace", "Apply", "Finish");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
@@ -226,7 +231,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, ParticleSurfaceMaterialPath, ParticleSurfaceShaderPath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

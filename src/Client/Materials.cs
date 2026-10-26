@@ -57,6 +57,8 @@ internal static class Materials
 
     private static Material _particles;
 
+    private static Material _particleSurface;
+
     private static ComputeShader _particlesCompute;
 
     private static bool _particlesTried;
@@ -80,7 +82,7 @@ internal static class Materials
         _shellTried &= _shell != null;
         _simTried &= _sim != null && _simCompute != null;
         _sprayTried &= _spray != null && _sprayCompute != null;
-        _particlesTried &= _particles != null && _particlesCompute != null;
+        _particlesTried &= _particles != null && _particleSurface != null && _particlesCompute != null;
         _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
@@ -235,6 +237,16 @@ internal static class Materials
         {
             TakeSeaLook(Falls);
         }
+
+        if (_particles != null)
+        {
+            TakeSeaLook(_particles);
+        }
+
+        if (_particleSurface != null)
+        {
+            TakeSeaLook(_particleSurface);
+        }
     }
 
     /// <summary>
@@ -297,10 +309,11 @@ internal static class Materials
     public static Material Falls { get; private set; }
 
     /// <summary>
-    /// The particle water's (a prototype, poured by the console): its material and the compute shader that moves it,
-    /// from the same bundle; false (logged once a world) where it has none or the water is not moved on the card.
+    /// The particle water's (a prototype, poured by the console): the material of its particles, the material of the
+    /// surface drawn over them (with the sea's look) and the compute shader that moves them, from the same bundle; false
+    /// (logged once a world) where it has none or the water is not moved on the card.
     /// </summary>
-    public static bool Particles(out Material material, out ComputeShader compute)
+    public static bool Particles(out Material material, out Material surface, out ComputeShader compute)
     {
         if (!_particlesTried)
         {
@@ -315,14 +328,21 @@ internal static class Materials
                 else
                 {
                     _particles = FromBundle("FlowingWaterParticles", "FlowingWater particles", "no particle water is poured");
-                    _particlesCompute = _particles == null ? null : compute;
+                    _particleSurface = _particles == null ? null : FromBundle("FlowingWaterParticleSurface", "FlowingWater particle surface", "no particle water is poured");
+                    _particlesCompute = _particleSurface == null ? null : compute;
+                    if (_particleSurface != null)
+                    {
+                        TakeSeaLook(_particles);
+                        TakeSeaLook(_particleSurface);
+                    }
                 }
             }
         }
 
         material = _particles;
+        surface = _particleSurface;
         compute = _particlesCompute;
-        return _particles != null && _particlesCompute != null;
+        return _particles != null && _particleSurface != null && _particlesCompute != null;
     }
 
     private static void LoadSim()

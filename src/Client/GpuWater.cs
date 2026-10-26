@@ -76,8 +76,11 @@ internal sealed class GpuWater : IDisposable
     // Its falls, splashes and spray (Client.Spray), made when first wanted.
     private SprayParticles _spray;
 
-    // The particle water (a prototype): poured by the console, kept out of the card's ground, drawn as spheres.
+    // The particle water (a prototype): poured by the console, kept out of the card's ground, drawn as water over the
+    // scene by the camera.
     private ParticleWater _particles;
+
+    private ParticleSurface _surface;
 
     private readonly BedCast _cast;
 
@@ -212,7 +215,7 @@ internal sealed class GpuWater : IDisposable
             return "no particle water: " + Describe();
         }
 
-        if (!Materials.Particles(out Material material, out ComputeShader compute))
+        if (!Materials.Particles(out Material material, out _, out ComputeShader compute))
         {
             return "no particle water: its shaders did not load (see the log)";
         }
@@ -415,6 +418,7 @@ internal sealed class GpuWater : IDisposable
     {
         _cast.Dispose();
         _spray?.Dispose();
+        _surface?.Dispose();
         _particles?.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
@@ -494,7 +498,8 @@ internal sealed class GpuWater : IDisposable
     }
 
     // The particle water poured by the console, if any: kept out of the card's ground as cast now (a square that moved
-    // keeps the particles where they are in the world), pushed aside by the player, moved, and drawn over the square.
+    // keeps the particles where they are in the world), pushed aside by the player, moved, and drawn as water by the
+    // game's camera.
     private void Particles()
     {
         if (_particles == null || _particles.Count == 0)
@@ -511,7 +516,12 @@ internal sealed class GpuWater : IDisposable
         }
 
         _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
-        _particles.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
+        Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
+        if (camera != null && Materials.Particles(out _, out Material surface, out _))
+        {
+            _surface ??= new ParticleSurface();
+            _surface.Render(camera, _particles, surface);
+        }
     }
 
     // The server's water built for the card, handed to it: the first one seeds it.

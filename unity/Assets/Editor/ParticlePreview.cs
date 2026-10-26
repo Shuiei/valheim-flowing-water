@@ -433,11 +433,17 @@ public static class ParticlePreview
                 Water.Viscosity = viscosity;
             }
             SimPreview.MakeGround(bed, Cells, Dx);
+            // A sun and a sky, as PreviewRender's: the water's surface reflects the sky.
             var sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
+            sun.color = new Color(1f, 0.94f, 0.82f);
             sun.intensity = 1.1f;
             sun.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-            RenderSettings.ambientLight = new Color(0.45f, 0.5f, 0.6f);
+            RenderSettings.sun = sun;
+            RenderSettings.skybox = new Material(Shader.Find("Skybox/Procedural"));
+            RenderSettings.ambientMode = AmbientMode.Skybox;
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+            DynamicGI.UpdateEnvironment();
         }
 
         public ParticleWater Water { get; }
@@ -461,16 +467,19 @@ public static class ParticlePreview
             var camera = new GameObject("Camera").AddComponent<Camera>();
             camera.transform.position = from;
             camera.transform.LookAt(at);
-            camera.backgroundColor = new Color(0.55f, 0.7f, 0.85f);
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.clearFlags = CameraClearFlags.Skybox;
+            // As the game's camera: the water reads the scene's depth.
+            camera.depthTextureMode = DepthTextureMode.Depth;
             camera.fieldOfView = 60f;
             var target = new RenderTexture(1280, 720, 24);
             camera.targetTexture = target;
-            // The particles, drawn with the next render of this camera only.
-            var commands = new CommandBuffer();
-            commands.DrawProcedural(Matrix4x4.identity, Water.Material, 0, MeshTopology.Triangles, Water.Count * 6, 1, Water.Properties);
-            camera.AddCommandBuffer(CameraEvent.AfterForwardOpaque, commands);
-            camera.Render();
+            // The particles, drawn as water (or as spheres, FW_PREVIEW_SPHERES=1) with the next render of this camera only.
+            ParticleSurface.Spheres = Environment.GetEnvironmentVariable("FW_PREVIEW_SPHERES") == "1";
+            using (var surface = new ParticleSurface())
+            {
+                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath));
+                camera.Render();
+            }
             RenderTexture.active = target;
             var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);
             image.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);

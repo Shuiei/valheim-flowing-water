@@ -11,7 +11,7 @@ method="${2:-SimPreview.Run}"
 unity="${UNITY:-$HOME/Unity/Hub/Editor/6000.0.75f1/Editor/Unity}"
 mkdir -p "$root/unity/Assets/Editor/Shared" "$out"
 # Unity compiles C# 9: the file-scoped namespace becomes a block.
-for file in SimGrid SprayParticles ParticleWater; do
+for file in SimGrid SprayParticles ParticleWater ParticleSurface; do
   sed -e 's/^namespace \(.*\);$/namespace \1 {/' "$root/src/Client/$file.cs" > "$root/unity/Assets/Editor/Shared/$file.cs"
   echo "}" >> "$root/unity/Assets/Editor/Shared/$file.cs"
 done
