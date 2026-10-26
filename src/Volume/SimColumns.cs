@@ -114,8 +114,9 @@ internal static class SimColumns
 
     // What one column holds: the top of its water resting on the ground, whether the card may draw it there (one layer,
     // resting, nothing falling into it), its foam, the faces pieces close at its level (this column's own, and those it
-    // shares with the columns west and south of it, which they ask for).
-    private readonly struct Column
+    // shares with the columns west and south of it, which they ask for). Never compared with another; a record, so that
+    // the equality a value type is asked for comes made.
+    private readonly record struct Column
     {
         public static readonly Column None = new(DryTop, 0f, int.MinValue, false, 0f, false, false, false, false);
 
