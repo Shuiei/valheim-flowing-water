@@ -57,7 +57,10 @@ Material:
     - _BodyDepth: 1.2
     - _DeepWater: 6
     - _DepthFade: 15
+    - _EdgeBend: 2
+    - _EdgeDark: 0.6
     - _EdgeFade: 0.3
+    - _EdgeRound: 0.05
     - _FadeCliffs: 0
     - _FlowCycle: 1.5
     - _FlowFrom: 0.08

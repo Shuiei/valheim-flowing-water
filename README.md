@@ -139,6 +139,11 @@ where), so the waves finer than a voxel are the card's own.
   red, two thirds of its green and three fifths of its blue), and it blurs; the water's own colour takes its place. A
   few centimetres of water stay clear. `_BodyDepth`, `_BodyTint` and `_BodyBlur` on both water materials
   (`flowingwater mat custom\|card`).
+- **The water's edge.** Near the camera, the water ends where its depth between the cells runs out, a smooth curve
+  rather than the cells' steps, and stays whole up to it. Within its front's height of that edge (5 cm at most) the
+  surface rounds over down to the ground, its ripples smoothed out, what is behind bent more (a lens) and darker where
+  it stands steep, the outline a drop of water has. `_EdgeRound`, `_EdgeBend` and `_EdgeDark` on the near water's
+  material (`flowingwater mat card`).
 - **Running water's surface.** Running water is drawn with waves on it, running with the current: chop that rises
   with its speed (1.5 cm for each (m/s) squared, at most 15 cm and a quarter of its depth: still water lies flat, a
   thin sheet barely ripples), lit as the waves it is, and a finer layer of ripples on fast water that catches the sun
@@ -260,7 +265,7 @@ there to the new grid (same volume), at once when the file is saved.
   with its speed (rapids) and where the simulation says it falls. The faster it runs, the more its foam is drawn out
   in streaks along the current (each point looks back up its own current a few times, over 0.4 s of its way), and
   the foam is broken into lace by a finer foam running with it. Its edge fades out over the last two centimetres
-  of water in front of the ground, with a band of foam just off it; shallow water a few centimetres deep, a stream
+  of water in front of the ground (but for the near water's rounded front), with a band of foam just off it; shallow water a few centimetres deep, a stream
   from a source or a puddle, is drawn (the sea hides its shallows, ours lies on the water's own top).
 - **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
   can carry more, by its depth (up to a metre) and the square of its speed above 0.6 m/s. Carrying less, it
