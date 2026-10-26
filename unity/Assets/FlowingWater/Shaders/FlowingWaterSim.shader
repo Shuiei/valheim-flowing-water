@@ -104,6 +104,13 @@ Shader "FlowingWater/SimWater"
             return At(_SimBed, p) + At(_SimH, p);
         }
 
+        // The level at a place in cells if it has water there, else this one (a dry cell, its bank or a wall of ground not
+        // known, is no slope of the water's).
+        float WetLevelAt(float2 p, float otherwise)
+        {
+            return At(_SimH, p) > HIDE_DEPTH ? LevelAt(p) : otherwise;
+        }
+
         // How fast the water is at a place in cells (its faces' speeds there).
         float SpeedAt(float2 p)
         {
@@ -168,7 +175,10 @@ Shader "FlowingWater/SimWater"
             float joined = 1.0 - (_FadeCliffs * saturate((drop - (CLIFF_FROM * steep)) / (CLIFF_FADE * steep)));
             o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, churn);
             o.current = current;
-            o.steep = length(float2(east, north) / (2.0 * _SimDx));
+            float level = bed + depth;
+            float wetEast = WetLevelAt(p + float2(1.0, 0.0), level) - WetLevelAt(p - float2(1.0, 0.0), level);
+            float wetNorth = WetLevelAt(p + float2(0.0, 1.0), level) - WetLevelAt(p - float2(0.0, 1.0), level);
+            o.steep = length(float2(wetEast, wetNorth) / (2.0 * _SimDx));
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }

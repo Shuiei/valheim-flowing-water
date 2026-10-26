@@ -93,8 +93,10 @@ internal sealed class VoxelShell
             {
                 // Over a voxel holding ground it runs down a slope steeper than the voxels, voxel to voxel: the surface
                 // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel). The
-                // server says so with its open faces (the ground under dry voxels is not sent).
-                if ((open & BrickData.GroundUnder) == 0 && Solid(field, x, y - 1, z) < BrickData.HoldsGround)
+                // server says so with its open faces (the ground under dry voxels is not sent). Water falling on into the
+                // voxel under it is a fall all the same, down a cliff's face too (the surface draws a column's top only).
+                bool steps = ((open & BrickData.GroundUnder) != 0 || Solid(field, x, y - 1, z) >= BrickData.HoldsGround) && !field.IsWet(x, y - 1, z);
+                if (!steps)
                 {
                     shell.Fall(field, at, water, open);
                 }

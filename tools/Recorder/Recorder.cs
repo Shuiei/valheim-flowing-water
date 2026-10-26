@@ -1385,12 +1385,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
     }
 
-    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
-    // well above the sea, that keeps falling for 30 m the same way.
     // The generated ground's slope at a place (rise per metre, east and north), over 2 m each way.
     private static Vector2 Gradient(WorldGenerator generator, float x, float z) =>
         new Vector2(generator.GetHeight(x + 2f, z) - generator.GetHeight(x - 2f, z), generator.GetHeight(x, z + 2f) - generator.GetHeight(x, z - 2f)) / 4f;
 
+    // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
+    // well above the sea, that keeps falling for 30 m the same way.
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
     {
         WorldGenerator generator = WorldGenerator.instance;
