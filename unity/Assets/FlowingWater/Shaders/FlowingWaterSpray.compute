@@ -8,8 +8,12 @@
 //   Move           per particle: thrown and falling, slowed by the air; one meeting the water's surface or the ground
 //                  ends there, adding the water it carries there, a sheet that lands fast throwing up a splash; one
 //                  past the square, or over ground not known, fades out where it is.
+//   Curtains       per cell: each face the card's water runs out of over a lip, with the arc its water falls along
+//                  down to where it lands, listed for FlowingWaterFall.shader to draw as one curtain of water from the
+//                  lip to the pool (the sheets carrying the water are drawn faint: its mist).
 #pragma kernel EmitFromWater
 #pragma kernel Move
+#pragma kernel Curtains
 
 // A particle: its place and age (s), its velocity (m/s) and how long it lives (s), its size (m), kind and the water it
 // carries (m3).
@@ -312,4 +316,131 @@ void Move(uint3 id : SV_DispatchThreadID)
     p.placeAge = float4(place, age);
     p.velocityLife = float4(velocity, life);
     _Particles[id.x] = p;
+}
+
+// A curtain: a face of a cell its water runs out of over a lip, drawn by FlowingWaterFall.shader as a strip from the
+// cell's centre over to the face, then falling from the water's top there along the arc it is thrown on. start: the
+// face's middle at the water's top (world), and how long the water falls from there till it lands (s); velocity: how
+// fast it leaves (m/s, along the ground: as fast as over a brink, sqrt(g h), at least), and how much runs out (m2/s:
+// depth times speed); across: along the lip (x, z), the strip's width (m), and whether its two ends are open
+// (no curtain beside: 1 the end to the left, 2 the right one); ends: the water's depth there (m), and whether it lands
+// (1) or runs out of the square or over ground not known (0).
+struct Curtain
+{
+    float4 start;
+    float4 velocity;
+    float4 across;
+    float4 ends;
+};
+
+// The curtains this frame, counted by the buffer's counter (those past _MostCurtains are not kept: SprayParticles draws
+// that many at most).
+RWStructuredBuffer<Curtain> _Curtains;
+uint _MostCurtains;
+
+// The columns the card draws (FlowingWaterSim.compute's _Target: y over 0.5), and the cells along the square's edge
+// whose water is the server's as it is: where the bricks draw the water, they draw its falls.
+Texture2D<float4> _Target;
+int _Border;
+
+// The arc is followed in steps this long (s), for this long at most.
+#define CURTAIN_STEP 0.03
+#define CURTAIN_LONGEST 3.0
+
+// Thinner water than this (m) throws no curtain.
+#define CURTAIN_WATER 0.005
+
+bool InBorder(int2 c)
+{
+    return c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+}
+
+// Whether the water of cell c runs over a lip through its face toward side, as the card's water throws it
+// (FlowingWaterSim.compute's Lip: neither cell in the edge's band, from a column the card draws), and how fast it
+// leaves by it.
+bool OverLip(int2 c, int2 side, out float leaving)
+{
+    leaving = 0.0;
+    int2 next = c + side;
+    if (!Inside(c) || !Inside(next) || InBorder(c) || InBorder(next) || _Target[c / _PerVoxel].y <= 0.5)
+    {
+        return false;
+    }
+
+    leaving = side.x > 0 ? _U[c] : side.x < 0 ? -_U[c - int2(1, 0)] : side.y > 0 ? _V[c] : -_V[c - int2(0, 1)];
+    float bed = _Bed[c];
+    return leaving > 0.0 && _H[c] > CURTAIN_WATER && _Bed[next] < bed - _LipDrop && _Bed[next] + _H[next] < bed - _LipDrop;
+}
+
+[numthreads(8, 8, 1)]
+void Curtains(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float h = _H[c];
+    float level = _Bed[c] + h;
+    float3 centre = float3(_Origin.x + ((c.x + 0.5) * _Dx), level, _Origin.y + ((c.y + 0.5) * _Dx));
+    float brink = max(sqrt(_Gravity * h), 0.3);
+    int2 sides[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
+    for (int s = 0; s < 4; s++)
+    {
+        float leaving;
+        if (!OverLip(c, sides[s], leaving))
+        {
+            continue;
+        }
+
+        float2 along = float2(sides[s]);
+        float2 across = float2(-along.y, along.x);
+        float2 run = along * max(leaving, brink);
+        float3 face = centre + (float3(along.x, 0.0, along.y) * (0.5 * _Dx));
+
+        // Along the arc till it meets the water's top or the ground; past the square or over ground not known, it ends
+        // there, open.
+        float t = 0.0;
+        float lands = 0.0;
+        while (t < CURTAIN_LONGEST)
+        {
+            float next = t + CURTAIN_STEP;
+            float3 at = face + float3(run.x * next, -0.5 * _Gravity * next * next, run.y * next);
+            int2 under = (int2)floor((at.xz - _Origin) / _Dx);
+            if (!Inside(under) || _Bed[under] >= 5000.0)
+            {
+                break;
+            }
+
+            float top = _Bed[under] + _H[under];
+            if (at.y <= top)
+            {
+                // Where between the two steps it met the top.
+                float before = face.y - (0.5 * _Gravity * t * t);
+                t += CURTAIN_STEP * saturate((before - top) / max(before - at.y, 1e-4));
+                lands = 1.0;
+                break;
+            }
+
+            t = next;
+        }
+
+        // Its ends: open where the cell beside along the lip throws no curtain through the same face.
+        float unused;
+        int2 left = c + int2(across);
+        int2 right = c - int2(across);
+        float open = (OverLip(left, sides[s], unused) ? 0.0 : 1.0) + (OverLip(right, sides[s], unused) ? 0.0 : 2.0);
+
+        Curtain curtain;
+        curtain.start = float4(face, t);
+        curtain.velocity = float4(run.x, 0.0, run.y, h * leaving);
+        curtain.across = float4(across, _Dx, open);
+        curtain.ends = float4(h, lands, 0.0, 0.0);
+        uint at = _Curtains.IncrementCounter();
+        if (at < _MostCurtains)
+        {
+            _Curtains[at] = curtain;
+        }
+    }
 }

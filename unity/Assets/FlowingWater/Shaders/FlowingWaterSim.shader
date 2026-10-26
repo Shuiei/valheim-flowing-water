@@ -52,6 +52,7 @@ Shader "FlowingWater/SimWater"
         [HideInInspector] _SimBed ("Ground", 2D) = "black" {}
         [HideInInspector] _SimU ("Speed east", 2D) = "black" {}
         [HideInInspector] _SimV ("Speed north", 2D) = "black" {}
+        [HideInInspector] _SimChurn ("Churned by falling water", 2D) = "black" {}
         [HideInInspector] _SimCells ("Cells along a side", Float) = 384
         [HideInInspector] _SimDx ("Cell side (m)", Float) = 0.25
         [HideInInspector] _Lift ("Lift (m)", Float) = 0
@@ -77,6 +78,7 @@ Shader "FlowingWater/SimWater"
         sampler2D _SimBed;
         sampler2D _SimU;
         sampler2D _SimV;
+        sampler2D _SimChurn;
         float _SimCells;
         float _SimDx;
         float _FadeCliffs;
@@ -179,7 +181,8 @@ Shader "FlowingWater/SimWater"
             float2 along = speed > 0.05 ? current / speed : 0.0;
             float2 ahead = p + (2.0 * along);
             float slowing = At(_SimH, ahead) > SHOW_DEPTH ? SpeedAt(p - (2.0 * along)) - SpeedAt(ahead) : 0.0;
-            float churn = Churn(crest, saturate(speed / _RapidsSpeed), slowing);
+            // And where falling water lands: the pool under a fall churns white.
+            float churn = max(Churn(crest, saturate(speed / _RapidsSpeed), slowing), At(_SimChurn, p));
             float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;

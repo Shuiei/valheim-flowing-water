@@ -53,6 +53,7 @@ public static class SimPreview
                 ("edge", Edge),
                 ("bumps", Bumps),
                 ("shape", ShapeChecks),
+                ("curtains", CurtainChecks),
                 ("waves", Waves),
                 ("cost", Cost),
             };
@@ -254,7 +255,10 @@ public static class SimPreview
         scene.Grid.Throws = throws;
         scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
         var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
-        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath));
+        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath))
+        {
+            Curtain = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.FallMaterialPath),
+        };
         scene.Spray = spray;
         Log.AppendLine(Inv($"Ledge{(throws ? string.Empty : " (water not thrown)")}: 2 m of water (192 m3) let go on a shelf 3 m high, running off its lip at x = 20 m."));
         for (int k = 1; k <= 300; k++)
@@ -264,6 +268,8 @@ public static class SimPreview
             if (k % 30 == 0)
             {
                 int alive = spray.Alive(out int sheets, out float flying);
+                uint[] curtains = new uint[4];
+                spray.CurtainArguments.GetData(curtains);
                 float[] depth = scene.Read();
                 float sheet = depth.Sum() * Dx * Dx;
                 float air = Read(scene.Grid.Airborne).Sum() + (ReadWhole(scene.Grid.Landed).Sum(n => (float)n) / SimGrid.LandScale);
@@ -283,7 +289,7 @@ public static class SimPreview
                     }
                 }
 
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s particles {alive} (sheets {sheets}); water {sheet + air + flying:0.00} m3 (sheet {sheet:0.00}, thrown or landed {air:0.000}, flying {flying:0.000}); on the floor {floor:0.00} m3, {(floor > 0f ? moment / floor : 0f):0.00} m past the lip"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s particles {alive} (sheets {sheets}); water {sheet + air + flying:0.00} m3 (sheet {sheet:0.00}, thrown or landed {air:0.000}, flying {flying:0.000}); on the floor {floor:0.00} m3, {(floor > 0f ? moment / floor : 0f):0.00} m past the lip; curtains {curtains[1]}"));
             }
 
             if (throws && k is 45 or 60 or 75 or 90 or 120 or 180)
@@ -515,6 +521,51 @@ public static class SimPreview
         Log.AppendLine(Check("beside ground not known, 5 cm", 30.4f, 6.1f, 0.05f));
         Log.AppendLine(Check("4 mm of water alone", 30.1f, 30.1f, 0.004f));
         Log.AppendLine(Check("past a sheet's straight edge", 30.1f, 18.1f, 0f));
+    }
+
+    // The curtains a fall off a shelf throws (SprayParticles.Curtains, the kernel itself on the card), checked against
+    // their rules: a 3 m shelf whose water runs off its lip along x = 20 m from z = 0 (in the square's edge band) to 28 m,
+    // its columns from z = 20 to 24 m drawn by the bricks. Every curtain leaves the lip and lands on the floor in the
+    // time a fall of 3 m takes; none from the edge's band nor from the bricks' columns, one for every cell of the lip
+    // between them (past z = 28 m, the water spreading along the lip throws more); a lip's two ends open.
+    private static void CurtainChecks()
+    {
+        float[] bed = Ground((x, z) => x < 20f ? 3f : 0f);
+        using var scene = new Scene("curtains", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.Throws = true;
+        float[] target = new float[scene.Grid.Columns * scene.Grid.Columns * 4];
+        for (int v = 0; v < scene.Grid.Columns * scene.Grid.Columns; v++)
+        {
+            float z = ((v / scene.Grid.Columns) + 0.5f) * Dx * PerVoxel;
+            target[v * 4] = SimGrid.DryTop;
+            target[(v * 4) + 1] = z > 20f && z < 24f ? 0f : 1f;
+        }
+
+        scene.Grid.SetTarget(target);
+        scene.Grid.SetDepth(Depths((x, z) => x > 14f && x < 20f && z < 28f ? 0.2f : 0f));
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath));
+        for (int k = 0; k < 30; k++)
+        {
+            scene.Step();
+            spray.Step(scene.Grid, Vector2.zero, Frame);
+        }
+
+        float[] c = spray.ReadCurtains();
+        int count = c.Length / 16;
+        float border = SimGrid.BorderCells * Dx, fall = Mathf.Sqrt(2f * 3f / SimGrid.Gravity);
+        var starts = Enumerable.Range(0, count).Select(k => (X: c[k * 16], Z: c[(k * 16) + 2], Time: c[(k * 16) + 3], Lands: c[(k * 16) + 13], Open: (int)c[(k * 16) + 11])).ToList();
+        string Check(string what, bool ok) => $"  {what}: {(ok ? "OK" : "FAILED")}";
+        var first = starts.Where(s => s.Z < 20f).ToList();
+        var second = starts.Where(s => s.Z > 24f).ToList();
+        Log.AppendLine(Inv($"Curtains: {count} off the shelf's lip, {first.Count} from z = {first.Min(s => s.Z):0.000} to {first.Max(s => s.Z):0.000} m, {second.Count} from {second.Min(s => s.Z):0.000} to {second.Max(s => s.Z):0.000} m."));
+        Log.AppendLine(Check(Inv($"each from the lip's face, at x = 20 m"), count > 0 && starts.All(s => Mathf.Abs(s.X - 20f) < 0.01f)));
+        Log.AppendLine(Check(Inv($"each landing on the floor in about the time 3 m of fall takes ({fall:0.00} s): {starts.Min(s => s.Time):0.00} to {starts.Max(s => s.Time):0.00} s"), starts.All(s => s.Lands > 0.5f && s.Time > fall * 0.85f && s.Time < fall * 1.15f)));
+        Log.AppendLine(Check("none from the square's edge band", starts.All(s => s.Z > border)));
+        Log.AppendLine(Check("none from the columns the bricks draw", starts.All(s => s.Z < 20f || s.Z > 24f)));
+        Log.AppendLine(Check("one for each cell of the lip from the edge band to the bricks' columns", first.Count == (int)((20f - border) / Dx) && first.Select(s => s.Z).Distinct().Count() == first.Count));
+        Log.AppendLine(Check("open at the ends of each stretch of lip, and only there", starts.Count(s => s.Open != 0) == 4));
     }
 
     // Whether a place is in the cell of another (x, z, m).
@@ -879,6 +930,7 @@ public static class SimPreview
             Grid.Shape();
             _water.SetTexture("_SimH", Grid.Drawn);
             _water.SetTexture("_SimBed", Grid.Bed);
+            _water.SetTexture("_SimChurn", Grid.Churn);
             _water.SetTexture("_SimU", Grid.SpeedEast);
             _water.SetTexture("_SimV", Grid.SpeedNorth);
             _water.SetFloat("_SimCells", Cells);
@@ -897,6 +949,10 @@ public static class SimPreview
                 // Drawn with the next render of this camera only.
                 var commands = new CommandBuffer();
                 commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6, 1, Spray.Properties);
+                if (Spray.Curtain != null)
+                {
+                    commands.DrawProceduralIndirect(Matrix4x4.identity, Spray.Curtain, 0, MeshTopology.Triangles, Spray.CurtainArguments, 0, Spray.CurtainProperties);
+                }
                 camera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, commands);
             }
 

@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: FlowingWaterFall
+  m_Shader: {fileID: 4800000, guid: 6d6616b6743f52b2bbeec140037aac72, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _FoamTex:
+        m_Texture: {fileID: 2800000, guid: 21f9943c184691e569b919268d3e4a92, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _Aerate: 0.5
+    - _Fray: 0.65
+    - _FullFlow: 0.05
+    - _GlassAlpha: 0.35
+    - _StreakAcross: 2.5
+    - _StreakAlong: 1.2
+    - _WhiteAlpha: 0.8
+    m_Colors:
+    - _FallColor: {r: 0.62, g: 0.74, b: 0.78, a: 1}
+    - _FoamColor: {r: 0.838, g: 0.838, b: 0.838, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

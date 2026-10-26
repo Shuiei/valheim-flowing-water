@@ -575,7 +575,14 @@ void LandSpeeds(uint3 id : SV_DispatchThreadID)
     _V[c] = Landing(_V[c], c, c + int2(0, 1), 1);
 }
 
-// The water landed since the last frame, added to the cells it fell in.
+// Where falling water lands, the pool churns white (FlowingWaterSim.shader): wholly where it lands this fast (metres of
+// depth a second), calming over CHURN_CALM seconds once it stops.
+RWTexture2D<float> _Churn;
+float _Frame;
+#define CHURN_FULL 0.05
+#define CHURN_CALM 0.8
+
+// The water landed since the last frame (_Frame seconds), added to the cells it fell in, which it churns.
 [numthreads(8, 8, 1)]
 void Land(uint3 id : SV_DispatchThreadID)
 {
@@ -585,14 +592,19 @@ void Land(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    float churn = _Churn[c] * exp(-_Frame / CHURN_CALM);
     int landed = _Landed[c];
     if (landed != 0)
     {
-        _H[c] += landed / (LAND_SCALE * _Dx * _Dx);
+        float depth = landed / (LAND_SCALE * _Dx * _Dx);
+        _H[c] += depth;
         _Landed[c] = 0;
         _LandedX[c] = 0;
         _LandedZ[c] = 0;
+        churn = max(churn, saturate(depth / (max(_Frame, 0.001) * CHURN_FULL)));
     }
+
+    _Churn[c] = churn;
 }
 
 // No water in the air, none landed.

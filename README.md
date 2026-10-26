@@ -48,7 +48,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
-| `flowingwater mat custom\|card\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`) or the still sea's (`list` names them) |
+| `flowingwater mat custom\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
 
 Who may use the command, and place, change or remove sources and drains with the hoe: the host (and a player
 alone) and the server's admins (its `adminlist.txt`) always; other players while the server's `CommandsForEveryone`
@@ -186,6 +186,14 @@ anywhere: the server's water still says how much water is where):
   throws falling water from the height it falls from, and keeps the pool under it. Where the edge of a build crosses a
   voxel, the water on the build and the pool at its foot each keep their own level (the ground found under the card's
   cells says which is which), so the blocks no longer draw a slanted face between them.
+- **Curtains.** A lip's fall is drawn as one curtain of water: each face of a cell its water runs out of over a lip
+  is a strip from the cell's middle over the brink, then down the arc its water is thrown on to where it lands (found
+  on the card each frame, drawn from there, never read back), the strips of a lip side by side one sheet. Glassy where
+  it leaves the lip, it turns white as it falls (all white after half a second), streaked along its fall, the streaks
+  running down with the water; a long fall frays into streaks near its foot, and its ends along the lip spread a
+  little and fade. The streaks carrying the water are drawn faint (30 %), the curtain's mist. Where it lands, the pool
+  churns white (wholly where water lands 5 cm deep a second or more), calming over a second once it stops. The
+  curtains' material is tuned with `flowingwater mat falls`.
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).

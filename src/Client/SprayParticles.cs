@@ -7,8 +7,9 @@ namespace FlowingWater.Client;
 /// The falls, splashes and spray of the water the graphics card moves (<see cref="SimGrid"/>), as particles on the card
 /// (the mod's FlowingWaterSpray compute shader): fast water throws droplets, water running over a lip leaves it as
 /// sheets that fall and arc at its own speed carrying it (the card's water thrown, <see cref="SimGrid.Airborne"/>), and
-/// add it to the water where they land; a sheet landing fast throws up a splash. Nothing is sent anywhere. Needs only
-/// Unity, so the Unity project's preview runs it too.
+/// add it to the water where they land; a sheet landing fast throws up a splash. A lip's water is drawn as one curtain
+/// falling along the arc it is thrown on to where it lands (<see cref="Curtain"/>), its sheets faint, the curtain's
+/// mist. Nothing is sent anywhere. Needs only Unity, so the Unity project's preview runs it too.
 /// </summary>
 internal sealed class SprayParticles : IDisposable
 {
@@ -41,6 +42,14 @@ internal sealed class SprayParticles : IDisposable
 
     private const int SplashDroplets = 3;
 
+    // Curtains at most a frame (faces of cells over a lip: a kilometre of lip), the rows of each (FlowingWaterFall.shader's
+    // ROWS), and a curtain's floats.
+    private const int MostCurtains = 4096;
+
+    private const int CurtainRows = 20;
+
+    private const int CurtainStride = 16 * sizeof(float);
+
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
     private static readonly int NextId = Shader.PropertyToID("_Next");
     private static readonly int CountId = Shader.PropertyToID("_Count");
@@ -69,6 +78,10 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int LayersId = Shader.PropertyToID("_Layers");
     private static readonly int PerVoxelId = Shader.PropertyToID("_PerVoxel");
     private static readonly int FallRateId = Shader.PropertyToID("_FallRate");
+    private static readonly int CurtainsId = Shader.PropertyToID("_Curtains");
+    private static readonly int MostCurtainsId = Shader.PropertyToID("_MostCurtains");
+    private static readonly int TargetId = Shader.PropertyToID("_Target");
+    private static readonly int BorderId = Shader.PropertyToID("_Border");
 
     private readonly ComputeShader _shader;
 
@@ -76,9 +89,14 @@ internal sealed class SprayParticles : IDisposable
 
     private readonly int _move;
 
+    private readonly int _curtains;
+
     private readonly ComputeBuffer _particles;
 
     private readonly ComputeBuffer _next;
+
+    // The curtains this frame (their arguments drawn with: CurtainArguments).
+    private readonly ComputeBuffer _curtainList;
 
     private uint _seed;
 
@@ -89,11 +107,17 @@ internal sealed class SprayParticles : IDisposable
         Material = material;
         _emit = shader.FindKernel("EmitFromWater");
         _move = shader.FindKernel("Move");
+        _curtains = shader.FindKernel("Curtains");
         _particles = new ComputeBuffer(Count, Stride);
         _particles.SetData(new float[Count * 12]);
         _next = new ComputeBuffer(2, sizeof(uint));
         _next.SetData(new uint[2]);
         Properties.SetBuffer(ParticlesId, _particles);
+        _curtainList = new ComputeBuffer(MostCurtains, CurtainStride, ComputeBufferType.Counter);
+        CurtainArguments = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
+        CurtainArguments.SetData(new uint[] { (CurtainRows - 1) * 6, 0, 0, 0 });
+        CurtainProperties.SetBuffer(CurtainsId, _curtainList);
+        CurtainProperties.SetInt(MostCurtainsId, MostCurtains);
     }
 
     /// <summary>
@@ -104,6 +128,18 @@ internal sealed class SprayParticles : IDisposable
 
     /// <summary>The particles' own buffer, for the material.</summary>
     public MaterialPropertyBlock Properties { get; } = new();
+
+    /// <summary>
+    /// What the curtains are drawn with (the mod's falls material, FlowingWaterFall.shader), none where it has none:
+    /// <see cref="CurtainArguments"/> gives how many and their points, <see cref="CurtainProperties"/> their buffer.
+    /// </summary>
+    public Material Curtain { get; set; }
+
+    /// <summary>The curtains' buffer, for their material.</summary>
+    public MaterialPropertyBlock CurtainProperties { get; } = new();
+
+    /// <summary>The curtains' indirect drawing arguments: points a curtain, curtains this frame (counted on the card).</summary>
+    public ComputeBuffer CurtainArguments { get; }
 
     /// <summary>
     /// Throws new particles from the card's water (its square's south-west corner at world x, z <paramref name="origin"/>)
@@ -141,6 +177,33 @@ internal sealed class SprayParticles : IDisposable
 
         _shader.Dispatch(_emit, (grid.Cells + 7) / 8, (grid.Cells + 7) / 8, 1);
         _shader.Dispatch(_move, Count / 64, 1, 1);
+
+        // The curtains of the water as it is now (after the particles took what they carry from it).
+        _curtainList.SetCounterValue(0);
+        _shader.SetInt(MostCurtainsId, MostCurtains);
+        _shader.SetInt(BorderId, SimGrid.BorderCells);
+        _shader.SetBuffer(_curtains, CurtainsId, _curtainList);
+        _shader.SetTexture(_curtains, TargetId, grid.Target);
+        _shader.SetTexture(_curtains, HId, grid.Depth);
+        _shader.SetTexture(_curtains, BedId, grid.Bed);
+        _shader.SetTexture(_curtains, UId, grid.SpeedEast);
+        _shader.SetTexture(_curtains, VId, grid.SpeedNorth);
+        _shader.Dispatch(_curtains, (grid.Cells + 7) / 8, (grid.Cells + 7) / 8, 1);
+        ComputeBuffer.CopyCount(_curtainList, CurtainArguments, sizeof(uint));
+    }
+
+    /// <summary>
+    /// The curtains of the last step, sixteen floats each (FlowingWaterSpray.compute's Curtain: start and fall time,
+    /// velocity and flow, along the lip with width and open ends, depth and whether it lands), read back from the card:
+    /// for previews and tests.
+    /// </summary>
+    public float[] ReadCurtains()
+    {
+        uint[] arguments = new uint[4];
+        CurtainArguments.GetData(arguments);
+        float[] data = new float[Math.Min((int)arguments[1], MostCurtains) * 16];
+        _curtainList.GetData(data, 0, 0, data.Length);
+        return data;
     }
 
     /// <summary>
@@ -178,8 +241,15 @@ internal sealed class SprayParticles : IDisposable
         return alive;
     }
 
-    /// <summary>Draws them this frame, for every camera, within these bounds (world).</summary>
-    public void Draw(Bounds bounds) => Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Count * 6, 1, null, Properties);
+    /// <summary>Draws them this frame, for every camera, within these bounds (world), and the curtains if they have a material.</summary>
+    public void Draw(Bounds bounds)
+    {
+        Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Count * 6, 1, null, Properties);
+        if (Curtain != null)
+        {
+            Graphics.DrawProceduralIndirect(Curtain, bounds, MeshTopology.Triangles, CurtainArguments, 0, null, CurtainProperties);
+        }
+    }
 
     // What both kernels read: the particles, the rings' next places, the card's water, where water lands (a carrier giving
     // way to a new one lands its water).
@@ -200,5 +270,7 @@ internal sealed class SprayParticles : IDisposable
     {
         _particles.Release();
         _next.Release();
+        _curtainList.Release();
+        CurtainArguments.Release();
     }
 }

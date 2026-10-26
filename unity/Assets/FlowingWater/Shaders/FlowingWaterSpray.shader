@@ -10,6 +10,7 @@ Shader "FlowingWater/Spray"
         _FoamColor ("Foam colour", Color) = (0.838, 0.838, 0.838, 1)
         _FallColor ("Falling water colour", Color) = (0.62, 0.74, 0.78, 1)
         _FallAlpha ("Falling water opacity", Range(0, 1)) = 0.2
+        _CarrierAlpha ("Share of it kept by the sheets carrying a lip's water (its curtain draws the fall)", Range(0, 1)) = 0.3
         _FoamAlpha ("Droplets' opacity", Range(0, 1)) = 0.35
         _Stretch ("Stretch along the motion (s of it), droplets", Float) = 0.015
         _FallStretch ("Stretch along the motion (s of it), falling water", Float) = 0.12
@@ -47,6 +48,7 @@ Shader "FlowingWater/Spray"
             fixed4 _FoamColor;
             fixed4 _FallColor;
             float _FallAlpha;
+            float _CarrierAlpha;
             float _FoamAlpha;
             float _Stretch;
             float _FallStretch;
@@ -103,7 +105,9 @@ Shader "FlowingWater/Spray"
                 // there, over UNKNOWN_LIFE).
                 float fade = saturate((life - age) * 4.0) * saturate(age * 20.0) * saturate(1.0 - (p.sizeKind.w / UNKNOWN_LIFE));
                 float3 light = ShadeSH9(float4(0.0, 1.0, 0.0, 1.0)) + (_LightColor0.rgb * 0.6);
-                o.tint = sheet ? fixed4(_FallColor.rgb * light, _FallAlpha * fade) : fixed4(_FoamColor.rgb * light, _FoamAlpha * fade);
+                // A sheet carrying a lip's water is that fall's mist: its curtain (FlowingWaterFall.shader) draws the fall.
+                float fallAlpha = _FallAlpha * (p.sizeKind.z > 0.0 ? _CarrierAlpha : 1.0);
+                o.tint = sheet ? fixed4(_FallColor.rgb * light, fallAlpha * fade) : fixed4(_FoamColor.rgb * light, _FoamAlpha * fade);
                 UNITY_TRANSFER_FOG(o, o.pos);
                 return o;
             }
