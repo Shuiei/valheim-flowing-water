@@ -108,6 +108,16 @@ float _Top;
 float _Radius;
 float _StepUp;
 
+// What players built, as the bricks have it (ParticleSolids): solid voxels (1) over the square, _SolidColumns a side
+// of _VoxelSize metres from the square's corner, _SolidRows rows up from world height _SolidY0; none where no brick is
+// (the ground alone holds there). A particle keeps a radius out of them: a roof from under it, a floor on posts, a wall.
+int _SolidsOn;
+Texture3D<float> _Solids;
+int _SolidColumns;
+int _SolidRows;
+float _VoxelSize;
+float _SolidY0;
+
 // The smoothing radius (m), its square, the kernels' constants (poly6's 315 / (64 pi h^9), spiky's 45 / (pi h^6)), and
 // the weights of water at rest: the sum of the smoothing kernel over a lattice of particles at their spacing, and the
 // sum of the squared gradients there, which the relaxation is a share of.
@@ -272,9 +282,66 @@ float GroundAt(float2 xz)
     return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
 }
 
-// A place kept out of the ground, the square's walls, its top and the sphere: a particle in a cell whose ground is a
-// wall to it is put back out through the nearest face of the cell with room beyond (none: back where the step started,
-// never up onto the wall, which would throw it); then it stands on the ground where it is under it.
+bool SolidAt(int3 v)
+{
+    return v.x >= 0 && v.y >= 0 && v.z >= 0 && v.x < _SolidColumns && v.y < _SolidRows && v.z < _SolidColumns && _Solids[v] > 0.5;
+}
+
+// A place kept a radius out of what players built: in a solid voxel, out through its nearest face with room beyond
+// (none: back where the step started); then a radius from the solid voxels beside, above and below.
+float3 Solids(float3 x, float3 before)
+{
+    if (_SolidsOn == 0)
+    {
+        return x;
+    }
+
+    float3 rel = float3(x.x - _Origin.x, x.y - _SolidY0, x.z - _Origin.y);
+    int3 v = (int3)floor(rel / _VoxelSize);
+    if (v.y < 0 || v.y >= _SolidRows)
+    {
+        return x;
+    }
+
+    float3 lo = float3(v) * _VoxelSize, hi = lo + _VoxelSize;
+    if (SolidAt(v))
+    {
+        int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
+        float pushes[6] = { rel.x - lo.x, hi.x - rel.x, rel.y - lo.y, hi.y - rel.y, rel.z - lo.z, hi.z - rel.z };
+        float best = 1e9;
+        float3 to = rel;
+        for (int s = 0; s < 6; s++)
+        {
+            if (!SolidAt(v + sides[s]) && pushes[s] < best)
+            {
+                best = pushes[s];
+                to = rel + (float3(sides[s]) * (pushes[s] + _Radius));
+            }
+        }
+
+        if (best >= 1e9)
+        {
+            return before;
+        }
+
+        rel = to;
+        v = (int3)floor(rel / _VoxelSize);
+        lo = float3(v) * _VoxelSize;
+        hi = lo + _VoxelSize;
+    }
+
+    rel.x = SolidAt(v + int3(-1, 0, 0)) ? max(rel.x, lo.x + _Radius) : rel.x;
+    rel.x = SolidAt(v + int3(1, 0, 0)) ? min(rel.x, hi.x - _Radius) : rel.x;
+    rel.y = SolidAt(v + int3(0, -1, 0)) ? max(rel.y, lo.y + _Radius) : rel.y;
+    rel.y = SolidAt(v + int3(0, 1, 0)) ? min(rel.y, hi.y - _Radius) : rel.y;
+    rel.z = SolidAt(v + int3(0, 0, -1)) ? max(rel.z, lo.z + _Radius) : rel.z;
+    rel.z = SolidAt(v + int3(0, 0, 1)) ? min(rel.z, hi.z - _Radius) : rel.z;
+    return float3(rel.x + _Origin.x, rel.y + _SolidY0, rel.z + _Origin.y);
+}
+
+// A place kept out of the ground, the square's walls, its top, what players built and the sphere: a particle in a cell
+// whose ground is a wall to it is put back out through the nearest face of the cell with room beyond (none: back where
+// the step started, never up onto the wall, which would throw it); then it stands on the ground where it is under it.
 float3 Collide(float3 x, float3 before)
 {
     float2 lo = _Origin + _Radius, hi = _Origin + (_N * _Dx) - _Radius;
@@ -326,6 +393,7 @@ float3 Collide(float3 x, float3 before)
         }
     }
 
+    x = Solids(x, before);
     float ground = GroundAt(x.xz);
     x.y = max(x.y, ground + _Radius);
 

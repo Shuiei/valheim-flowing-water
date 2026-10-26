@@ -96,7 +96,7 @@ internal sealed class GpuWater : IDisposable
     private readonly MaterialPropertyBlock _properties = new();
 
     // The build of the server's water for the card under way, and what it was built from.
-    private Task<(float[] Texels, float[] Layers, float[] Cast)> _build;
+    private Task<(float[] Texels, float[] Layers, float[] Cast, byte[] Solids, bool AnySolid)> _build;
 
     // The bricks in the square the build under way, and the last one, were made from (a brick's water is never changed
     // in place: new data is a new view, so the same views are the same water); the ground's version each was made with.
@@ -113,6 +113,16 @@ internal sealed class GpuWater : IDisposable
     private bool _buildingFalls;
 
     private bool _builtFalls;
+
+    // What players built, for the particle water: the bricks' solid voxels round the camera's height (the row the
+    // last build started from; built again once the camera is 8 m from it), as the build gathers them.
+    private readonly ParticleSolids _solids = new();
+
+    private int _buildingBase;
+
+    private int _builtBase = int.MinValue;
+
+    private float _cameraY;
 
     private int _builtGround = -1;
 
@@ -366,6 +376,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         _water ??= Made(window, material, compute);
+        _water._cameraY = camera.y;
         _water.Frame(NearBricks);
     }
 
@@ -424,6 +435,7 @@ internal sealed class GpuWater : IDisposable
         _spray?.Dispose();
         _surface?.Dispose();
         _particles?.Dispose();
+        _solids.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
 
@@ -523,6 +535,7 @@ internal sealed class GpuWater : IDisposable
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
         _particles.SetSheet(exchange ? _grid : null);
+        _particles.SetSolids(_solids.Any ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
         Player player = Player.m_localPlayer;
         if (player != null)
         {
@@ -546,7 +559,7 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        Task<(float[] Texels, float[] Layers, float[] Cast)> build = _build;
+        Task<(float[] Texels, float[] Layers, float[] Cast, byte[] Solids, bool AnySolid)> build = _build;
         _build = null;
 
         // Built for the square before it moved: not taken (the next is built for the square as it is); had it failed,
@@ -574,6 +587,11 @@ internal sealed class GpuWater : IDisposable
         _builtBricks = _buildingBricks;
         _builtGround = _buildingGround;
         _builtFalls = _buildingFalls;
+        if (build.Result.Solids != null)
+        {
+            _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
+            _builtBase = _buildingBase;
+        }
         if (!_seeded)
         {
             _grid.Seed();
@@ -586,7 +604,10 @@ internal sealed class GpuWater : IDisposable
     private void StartBuild(List<BrickView> near)
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && _builtBricks != null && near.SequenceEqual(_builtBricks)))
+        bool solids = _particles != null || FlowingWaterPlugin.Settings.ParticleWater.Value;
+        int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+        bool rebased = solids && Math.Abs(baseRow - _builtBase) > 8;
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
         }
@@ -598,12 +619,50 @@ internal sealed class GpuWater : IDisposable
         _buildingWindow = w;
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
+        _buildingBase = rebased || _builtBase == int.MinValue ? baseRow : _builtBase;
+        int solidsBase = _buildingBase;
         _builtAt = Time.time;
         _build = Task.Run(() =>
         {
             float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, out float[] layers, falls);
-            return (texels, layers, cast);
+            bool any = false;
+            byte[] built = solids ? Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any) : null;
+            return (texels, layers, cast, built, any);
         });
+    }
+
+    // The solid voxels of these bricks (more than half solid: the pieces' colliders as the server reads them) over the
+    // square from voxel column x0, z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by
+    // ParticleSolids.Index; and whether any is.
+    private static byte[] Solids(List<BrickView> bricks, int x0, int z0, int columns, int baseRow, out bool any)
+    {
+        byte[] solids = new byte[columns * ParticleSolids.Rows * columns];
+        any = false;
+        foreach (BrickView brick in bricks)
+        {
+            int bx = (brick.X * Brick.Size) - x0, by = (brick.Y * Brick.Size) - baseRow, bz = (brick.Z * Brick.Size) - z0;
+            if (bx + Brick.Size <= 0 || bx >= columns || bz + Brick.Size <= 0 || bz >= columns || by + Brick.Size <= 0 || by >= ParticleSolids.Rows)
+            {
+                continue;
+            }
+
+            for (int y = Math.Max(0, -by); y < Brick.Size && by + y < ParticleSolids.Rows; y++)
+            {
+                for (int z = Math.Max(0, -bz); z < Brick.Size && bz + z < columns; z++)
+                {
+                    for (int x = Math.Max(0, -bx); x < Brick.Size && bx + x < columns; x++)
+                    {
+                        if (brick.Solid[Brick.Index(x, y, z)] > 0.5f)
+                        {
+                            solids[ParticleSolids.Index(columns, bx + x, by + y, bz + z)] = 255;
+                            any = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return solids;
     }
 
     // The server's water as last built handed to the card, but for the columns it does not draw yet (SimHandover).

@@ -63,6 +63,12 @@ internal sealed class ParticleSurface : IDisposable
         }
 
         _commands.Clear();
+        if (water.LastCount == 0)
+        {
+            // Nothing to draw, as the card last said (a frame or two behind: a fall's first drops wait that long).
+            return;
+        }
+
         Sun();
         if (Spheres)
         {

@@ -61,6 +61,11 @@ public static class ParticlePreview
                 Sheet();
             }
 
+            if (Runs("roof"))
+            {
+                Roof();
+            }
+
             if (Runs("cost"))
             {
                 Cost();
@@ -339,6 +344,60 @@ public static class ParticlePreview
         }
     }
 
+    // What players built (ParticleSolids): a slab 4 m square and 1 m thick standing 1 m over the floor of a box 10 m
+    // square, with water poured onto it: the water lands on the slab (not through it), runs off its edges, and some
+    // gets under it (the slab's underside holds it down); no particle ends inside the slab.
+    private static void Roof()
+    {
+        float[] bed = Field((x, z) => x < 10f || x > 20f || z < 10f || z > 20f ? 10f : 0f);
+        using var scene = new Scene("proof", bed, 8000);
+        const int Columns = Cells / 4;
+        const float Voxel = Dx * 4;
+        byte[] solids = new byte[Columns * ParticleSolids.Rows * Columns];
+        for (int z = 12; z < 16; z++)
+        {
+            for (int x = 12; x < 16; x++)
+            {
+                solids[ParticleSolids.Index(Columns, x, 1, z)] = 255;
+            }
+        }
+
+        using var built = new ParticleSolids();
+        built.Take(solids, Columns, Voxel, 0, true);
+        scene.Water.SetSolids(built.Texture, Columns, ParticleSolids.Rows, Voxel, 0f);
+        scene.Slab = new Bounds(new Vector3(14f, 1.5f, 14f), new Vector3(4f, 1f, 4f));
+        int added = scene.Water.Add(new Vector3(13f, 3f, 13f), new Vector3(15f, 3.75f, 15f));
+        Log.AppendLine(Inv($"Roof: {added} particles poured from 3 m onto a slab 4 m square, 1 m thick, 1 m over the floor."));
+        int inside = 0, under = 0, onTop = 0, floor = 0;
+        for (int k = 1; k <= 300; k++)
+        {
+            scene.Step();
+            if (k % 60 == 0 || k == 300)
+            {
+                float[] data = scene.Water.Read();
+                inside = under = onTop = floor = 0;
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
+                    bool over = x > 12f && x < 16f && z > 12f && z < 16f;
+                    inside += over && y > 1.02f && y < 1.98f ? 1 : 0;
+                    under += over && y < 1f ? 1 : 0;
+                    onTop += over && y >= 1.98f && y < 2.5f ? 1 : 0;
+                    floor += !over && y < 0.5f ? 1 : 0;
+                }
+
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s on the slab {onTop}, under it {under}, inside it {inside}, on the floor round it {floor}"));
+            }
+
+            if (k is 30 or 90 or 180 or 300)
+            {
+                scene.Shot(Inv($"proof_{k * Frame:0.0}s"), new Vector3(14f, 4.5f, 7f), new Vector3(14f, 1.2f, 14f));
+            }
+        }
+
+        Log.AppendLine(Inv($"  Inside the slab at the end: {inside}; on the floor round it: {floor}: {Check(inside == 0 && floor > 0)}"));
+    }
+
     private static float[] ReadFloats(RenderTexture texture)
     {
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
@@ -534,6 +593,9 @@ public static class ParticlePreview
         // Drawn with each shot (xyz its centre, w its radius; none at 0).
         public Vector4 Sphere { get; set; }
 
+        // A slab drawn with each shot, if any (what players built, in the roof scene).
+        public Bounds Slab { get; set; }
+
         public void Step() => Water.Step(Frame);
 
         public void Shot(string file, Vector3 from, Vector3 at)
@@ -545,6 +607,15 @@ public static class ParticlePreview
                 ball.transform.position = Sphere;
                 ball.transform.localScale = Vector3.one * (2f * Sphere.w);
                 ball.GetComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.9f, 0.9f, 0.9f) };
+            }
+
+            GameObject slab = null;
+            if (Slab.size.sqrMagnitude > 0f)
+            {
+                slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                slab.transform.position = Slab.center;
+                slab.transform.localScale = Slab.size;
+                slab.GetComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.55f, 0.4f, 0.3f) };
             }
 
             var camera = new GameObject("Camera").AddComponent<Camera>();
@@ -576,6 +647,11 @@ public static class ParticlePreview
             if (ball != null)
             {
                 UnityEngine.Object.DestroyImmediate(ball);
+            }
+
+            if (slab != null)
+            {
+                UnityEngine.Object.DestroyImmediate(slab);
             }
         }
 

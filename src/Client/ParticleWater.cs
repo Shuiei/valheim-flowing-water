@@ -83,6 +83,12 @@ internal sealed class ParticleWater : IDisposable
     private static readonly int SeaLevelId = Shader.PropertyToID("_SeaLevel");
     private static readonly int LitreId = Shader.PropertyToID("_Litre");
     private static readonly int SeedId = Shader.PropertyToID("_Seed");
+    private static readonly int SolidsOnId = Shader.PropertyToID("_SolidsOn");
+    private static readonly int SolidsId = Shader.PropertyToID("_Solids");
+    private static readonly int SolidColumnsId = Shader.PropertyToID("_SolidColumns");
+    private static readonly int SolidRowsId = Shader.PropertyToID("_SolidRows");
+    private static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
+    private static readonly int SolidY0Id = Shader.PropertyToID("_SolidY0");
 
     private readonly ComputeShader _shader;
 
@@ -110,10 +116,18 @@ internal sealed class ParticleWater : IDisposable
     private readonly ComputeBuffer _slots;
     private readonly ComputeBuffer _delta;
 
-    // What the sheet's textures are bound as when there is no sheet: nothing is read or written there.
+    // What the sheet's textures are bound as when there is no sheet, and the solids' when there are none: nothing is read
+    // or written there.
     private readonly RenderTexture _noSheet;
 
     private readonly RenderTexture _noLanded;
+
+    private readonly Texture3D _noSolids;
+
+    // The particles' count asked of the card now and then, so a frame need not wait for it (LastCount).
+    private UnityEngine.Rendering.AsyncGPUReadbackRequest _counting;
+
+    private bool _countingNow;
 
     // The sums over a lattice of particles at their spacing: of the smoothing kernel (water at rest), and of the squared
     // kernel gradients (what the relaxation is a share of).
@@ -138,6 +152,16 @@ internal sealed class ParticleWater : IDisposable
     private Vector4 _sphere = new(0f, 0f, 0f, -1f);
 
     private SimGrid _sheet;
+
+    private Texture _solids;
+
+    private int _solidColumns;
+
+    private int _solidRows;
+
+    private float _voxelSize;
+
+    private float _solidY0;
 
     /// <summary>
     /// Room for <paramref name="capacity"/> particles, moved by <paramref name="shader"/> and drawn with
@@ -180,6 +204,9 @@ internal sealed class ParticleWater : IDisposable
         _delta = new ComputeBuffer(capacity, 4 * sizeof(float));
         _noSheet = MakeTexture("no sheet", RenderTextureFormat.RFloat);
         _noLanded = MakeTexture("no landed", RenderTextureFormat.RInt);
+        _noSolids = new Texture3D(1, 1, 1, TextureFormat.R8, false) { name = "FlowingWater particles no solids" };
+        _noSolids.SetPixelData(new byte[1], 0);
+        _noSolids.Apply(false);
         (_restWeight, _restGradients) = Lattice();
         Clear();
         Properties.SetBuffer(ParticlesId, _particles[0]);
@@ -201,6 +228,12 @@ internal sealed class ParticleWater : IDisposable
             return (int)Math.Min(alive[0], (uint)Capacity);
         }
     }
+
+    /// <summary>
+    /// Particles as the card last answered (asked each <see cref="Step"/>, answered a frame or two later; set at once
+    /// by <see cref="Add"/> and <see cref="Clear"/>): no wait, for a frame to know whether there is anything to draw.
+    /// </summary>
+    public int LastCount { get; private set; }
 
     /// <summary>The indirect drawing arguments: six points a particle, as many particles as there are (kept on the card).</summary>
     public ComputeBuffer Arguments { get; }
@@ -269,6 +302,20 @@ internal sealed class ParticleWater : IDisposable
 
     /// <summary>A sphere the water meets, at <paramref name="centre"/> (world) of this radius (m); none at a radius of 0 or less.</summary>
     public void SetSphere(Vector3 centre, float radius) => _sphere = new Vector4(centre.x, centre.y, centre.z, radius);
+
+    /// <summary>
+    /// What players built, as <see cref="ParticleSolids"/> holds it: solid voxels over the square (from the same corner
+    /// as the ground's), <paramref name="columns"/> a side of <paramref name="voxelSize"/> metres, <paramref name="rows"/>
+    /// rows up from world height <paramref name="baseY"/>; or none (null).
+    /// </summary>
+    public void SetSolids(Texture solids, int columns, int rows, float voxelSize, float baseY)
+    {
+        _solids = solids;
+        _solidColumns = columns;
+        _solidRows = rows;
+        _voxelSize = voxelSize;
+        _solidY0 = baseY;
+    }
 
     /// <summary>
     /// A block of still water from <paramref name="min"/> to <paramref name="max"/> (world), a lattice of particles at
@@ -351,6 +398,22 @@ internal sealed class ParticleWater : IDisposable
 
         Substeps = steps;
         Properties.SetBuffer(ParticlesId, _particles[_current]);
+
+        // The count, asked once the last asking is answered.
+        if (_countingNow && _counting.done)
+        {
+            _countingNow = false;
+            if (!_counting.hasError)
+            {
+                LastCount = (int)Math.Min(_counting.GetData<uint>()[0], (uint)Capacity);
+            }
+        }
+
+        if (!_countingNow)
+        {
+            _counting = UnityEngine.Rendering.AsyncGPUReadback.Request(_alive);
+            _countingNow = true;
+        }
     }
 
     /// <summary>
@@ -383,6 +446,14 @@ internal sealed class ParticleWater : IDisposable
         _delta.Release();
         _noSheet.Release();
         _noLanded.Release();
+        if (Application.isPlaying)
+        {
+            UnityEngine.Object.Destroy(_noSolids);
+        }
+        else
+        {
+            UnityEngine.Object.DestroyImmediate(_noSolids);
+        }
     }
 
     // The smoothing kernels' sums over a lattice of particles at their spacing round one of them (itself counted in the
@@ -442,6 +513,7 @@ internal sealed class ParticleWater : IDisposable
     {
         _alive.SetData(new[] { (uint)count, 0u });
         Arguments.SetData(new[] { (uint)count * 6u, 1u, 0u, 0u });
+        LastCount = count;
     }
 
     // What every kernel reads.
@@ -477,6 +549,12 @@ internal sealed class ParticleWater : IDisposable
         _shader.SetFloat(SeaLevelId, _sheet == null || float.IsNegativeInfinity(_sheet.SeaLevel) ? -1e9f : _sheet.SeaLevel);
         _shader.SetFloat(LitreId, Spacing * Spacing * Spacing);
         _shader.SetInt(SeedId, (int)_seed);
+        _shader.SetInt(SolidsOnId, _solids != null ? 1 : 0);
+        _shader.SetInt(SolidColumnsId, _solidColumns);
+        _shader.SetInt(SolidRowsId, _solidRows);
+        _shader.SetFloat(VoxelSizeId, Math.Max(_voxelSize, 0.001f));
+        _shader.SetFloat(SolidY0Id, _solidY0);
+        _shader.SetTexture(_apply, SolidsId, _solids ?? _noSolids);
         foreach (int kernel in new[] { _emit, _lambda, _displace, _apply, _finish })
         {
             _shader.SetTexture(kernel, BedId, _bed);

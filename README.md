@@ -225,7 +225,11 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
 - The ground is the card's water's (`SimGrid.Bed`: a height per cell, a wall where it steps up by more than 35 cm):
   particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
   out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
-  still instead of jittering against its walls. A sphere (a player, a boat) pushes the water aside.
+  still instead of jittering against its walls. What players build is the bricks' solid voxels (the server's reading
+  of the pieces' colliders, a voxel each, over the square and 64 rows round the camera's height, built again with the
+  card's water when the bricks change): a particle keeps a radius out of them, so a roof holds water off from above
+  and from below, a floor on posts holds a pool, and water runs off a slab's edges (the preview's roof scene: none
+  ends inside the slab). A sphere (the player) pushes the water aside.
 - With `Client.ParticleWater`, the particles trade water with the card's sheet where a sheet cannot be the water: the
   water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
   each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
@@ -243,8 +247,8 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   `flowingwater particles spheres` shows the particles themselves.
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
-off a ledge into a basin, a sphere pushed through a pool, the card's sheet pouring over a lip as particles, and a
-cost scene, and writes `particles.txt` and frames
+off a ledge into a basin, a sphere pushed through a pool, the card's sheet pouring over a lip as particles, water
+poured onto a slab (what players build), and a cost scene, and writes `particles.txt` and frames
 (`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
 filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches
@@ -253,8 +257,9 @@ costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing th
 
 What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
 floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is
-not the server's until it lands); met by what players build other than through the ground's heights (a floor, a
-wall's top); spread over the frame's budget (a step is one go, and a lip throws at most 16 particles a cell a step);
+not the server's until it lands); met by pieces finer than a voxel (a thin wall is a voxel thick to it, and a piece
+in a brick with no water is only in the ground's heights) or by boats; spread over the frame's budget (a step is one
+go, and a lip throws at most 16 particles a cell a step; the surface is drawn only while there are particles);
 its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
 The console's block stays where the card's square leaves it.
 
