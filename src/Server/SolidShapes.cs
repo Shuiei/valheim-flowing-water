@@ -32,8 +32,9 @@ internal sealed class SolidShapes
     // Each collider mesh read, by the game's mesh, shared by every kind of object that uses it.
     private readonly Dictionary<Mesh, SolidMesh> _meshes = [];
 
-    // The kinds of object told of once: a mesh that cannot be read, a rock whose bits do not match its health.
-    private readonly HashSet<int> _unreadableTold = [];
+    // The kinds of object whose collider mesh the game keeps unreadable (taken as the box round it), by name, and
+    // the kinds of rock told of once because their bits do not match their health.
+    private readonly List<string> _unreadable = [];
 
     private readonly HashSet<int> _healthTold = [];
 
@@ -78,6 +79,10 @@ internal sealed class SolidShapes
                 }
 
                 FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Water: {Kinds} kinds of object are solid for the water ({MeshKinds} by the shape of their mesh), read in {watch.ElapsedMilliseconds} ms; they reach up to {_farthest:0.0} m from their place ({farthest})"));
+                if (_unreadable.Count > 0)
+                {
+                    FlowingWaterPlugin.Log.LogInfo($"Water: the collider mesh of {_unreadable.Count} kinds cannot be read (the game keeps it so), each taken as the box round it: {string.Join(", ", _unreadable)}");
+                }
             }
 
             return _farthest;
@@ -256,19 +261,13 @@ internal sealed class SolidShapes
         bool meshes = false;
         if (prefab.GetComponent<MineRock5>() != null)
         {
-            // A rock mined bit by bit: each bit a child with its collider, in the order the game keeps their health.
-            foreach (Transform child in prefab.transform)
+            // A rock mined bit by bit: the game keeps a health for each collider among its active children, in
+            // their order (whatever the collider is for), and that is a bit's number.
+            Collider[] bits = prefab.GetComponentsInChildren<Collider>();
+            areas = bits.Length;
+            for (int area = 0; area < bits.Length; area++)
             {
-                if (child.GetComponent<Collider>() == null)
-                {
-                    continue;
-                }
-
-                int area = areas++;
-                foreach (Collider collider in child.GetComponentsInChildren<Collider>(true))
-                {
-                    meshes |= Add(parts, collider, toPrefab, area, key, prefab.name);
-                }
+                meshes |= Add(parts, bits[area], toPrefab, area, prefab.name);
             }
         }
         else
@@ -282,7 +281,7 @@ internal sealed class SolidShapes
                     continue;
                 }
 
-                meshes |= Add(parts, collider, toPrefab, -1, key, prefab.name);
+                meshes |= Add(parts, collider, toPrefab, -1, prefab.name);
             }
         }
 
@@ -296,7 +295,7 @@ internal sealed class SolidShapes
     }
 
     // One collider as a part, when it is solid: true when it is a mesh.
-    private bool Add(List<Part> parts, Collider collider, Matrix4x4 toPrefab, int area, int key, string name)
+    private bool Add(List<Part> parts, Collider collider, Matrix4x4 toPrefab, int area, string name)
     {
         if (collider.isTrigger || (_mask & (1 << collider.gameObject.layer)) == 0)
         {
@@ -324,9 +323,9 @@ internal sealed class SolidShapes
                 return false;
             }
 
-            if (_unreadableTold.Add(key))
+            if (!_unreadable.Contains(name))
             {
-                FlowingWaterPlugin.Log.LogWarning($"Water: the collider mesh {mesh.sharedMesh.name} of {name} cannot be read: it is taken as the box round it");
+                _unreadable.Add(name);
             }
 
             parts.Add(new Part(local, mesh.sharedMesh.bounds.center, mesh.sharedMesh.bounds.size * 0.5f, area));

@@ -233,7 +233,8 @@ there to the new grid (same volume), at once when the file is saved.
   such as a felled log or a cart), by the colliders players bump into, fills the voxels it stands in from below
   (a floor) and closes the faces between voxels it separates, so a wall thinner than a voxel holds water, a box on
   posts holds a pool, and breaking a piece or felling a tree lets the water out. A box collider is a box; a mesh
-  collider is its mesh, read once a kind and placed where each object stands, so a rock has its own shape: solid
+  collider is its mesh, read once a kind and placed where each object stands (a mesh the game keeps unreadable, a
+  handful of furniture pieces, is the box round it, listed in the log), so a rock has its own shape: solid
   from each face of it that looks up down to the next that looks down (an overhang ends where its underside does,
   an arch lets water under it, a trunk open at its foot is solid to the ground). A rock mined bit by bit leaves out
   the bits that are gone. A solid only in a voxel's upper half is that voxel's ceiling (the water on

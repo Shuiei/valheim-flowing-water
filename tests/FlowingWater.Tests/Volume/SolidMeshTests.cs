@@ -265,21 +265,26 @@ public class SolidMeshTests
         }
 
         int[] indices = new int[n * n * 6];
-        for (int z = 0, i = 0; z < n; z++)
+        for (int z = 0; z < n; z++)
         {
             for (int x = 0; x < n; x++)
             {
                 int a = (z * (n + 1)) + x;
-                indices[i++] = a;
-                indices[i++] = a + n + 1;
-                indices[i++] = a + 1;
-                indices[i++] = a + 1;
-                indices[i++] = a + n + 1;
-                indices[i++] = a + n + 2;
+                int i = ((z * n) + x) * 6;
+                indices[i] = a;
+                indices[i + 1] = a + n + 1;
+                indices[i + 2] = a + 1;
+                indices[i + 3] = a + 1;
+                indices[i + 4] = a + n + 1;
+                indices[i + 5] = a + n + 2;
             }
         }
 
         var hill = new SolidMeshInstance(new SolidMesh(xyz, indices), Identity());
+
+        // Once warm (the first call pays for the test host's own first-time costs), then timed: about 20 ms on a
+        // desktop; without the mesh's grid every face test would try every triangle, seconds.
+        SolidRaster.Pieces(new Brick(0, 0, 0), 1f, [hill], (_, _) => 0f);
         var brick = new Brick(0, 0, 0);
         var watch = System.Diagnostics.Stopwatch.StartNew();
 

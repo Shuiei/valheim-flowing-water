@@ -135,7 +135,11 @@ internal sealed class SolidMesh
 
         // Nearest first; at one place, going out before going in (two shells of a mesh sharing a face: the one left is
         // left before the next is entered).
-        _hits.Sort(static (a, b) => a.T != b.T ? a.T.CompareTo(b.T) : a.Enter.CompareTo(b.Enter));
+        _hits.Sort(static (a, b) =>
+        {
+            int byPlace = a.T.CompareTo(b.T);
+            return byPlace != 0 ? byPlace : a.Enter.CompareTo(b.Enter);
+        });
         return _hits;
     }
 
