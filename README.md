@@ -310,7 +310,8 @@ solved over the cells that hold water so that no cell makes or loses any (with a
 more or fewer particles than rest, which keeps the volume from drifting); the corrected velocity goes back to the
 particles, mostly as the change (FLIP) and a little as the grid's own (PIC), and they move along it. Cells under the
 ground the card's water knows, in a built voxel (the bricks' solids) or in a body (players, creatures, ships' hulls,
-carts) are solid: the water goes round them, pools over them, is held in by them and breaks out where one is gone.
+carts) are solid, and the faces thin pieces close between voxels are walls to the grid and to the particles: the
+water goes round them, pools over them, is held in by them and breaks out where one is gone.
 
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
@@ -326,7 +327,8 @@ you up and down.
 of water at rest keeps its depth and every particle over 5 s; the 10 m dam break's front reaches the far wall at
 1.40 s (a real one about 1.3 to 1.5 s) and the water comes to rest near 0.5 m; water let go on a shelf pours over the
 lip and pools below, none lost; a source of 8 m³/s grows the water by its rate; a box of walls holds 2 m of water and
-empties through a gap opened at its foot; a drain of 2 m³/s takes exactly that. `FW_PREVIEW_ITERATIONS`,
+empties through a gap opened at its foot, as solid voxels and as thin walls (closed faces); a drain of 2 m³/s takes
+exactly that. `FW_PREVIEW_ITERATIONS`,
 `FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` try other solver settings, `FW_PREVIEW_SPHERES=1` draws the particles.
 
 What it is not yet: its own look (it is drawn as the particle prototype's spheres melted into a surface, which is

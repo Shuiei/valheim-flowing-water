@@ -385,7 +385,7 @@ public static class ParticlePreview
             }
 
             water.Step(Frame);
-            if (k % 60 == 0 || k % 240 == 239)
+            if (k % 60 == 0 || (k + 1) % 240 == 0)
             {
                 float[] data = water.Read();
                 int alive = 0;
@@ -424,7 +424,7 @@ public static class ParticlePreview
 
                 Log.AppendLine(Inv($"    strays over the water or the ground by 0.5 m: {strays}; fastest {fastest:0.0} m/s at ({where.x:0.0}, {where.y:0.0}, {where.z:0.0})"));
                 // Settled: four seconds after each change of the server's water, the gap a tenth of what it was.
-                bool settled = k % 240 == 239;
+                bool settled = (k + 1) % 240 == 0;
                 float slack = Mathf.Max(0.1f * gap, 2f * water.Litre);
                 bool near = have >= standing - slack && have <= worth + slack;
                 ok &= !settled || near;

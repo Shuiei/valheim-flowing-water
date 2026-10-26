@@ -152,7 +152,15 @@ float _BedDx;
 float2 _BedOrigin;
 
 // What is built (ParticleSolids): a byte a voxel, _SolidColumns a side of _VoxelSize metres from _SolidOrigin (world
-// x, z), _SolidRows up from world height _SolidY0; the top bit is a solid voxel.
+// x, z), _SolidRows up from world height _SolidY0; the top bit is a solid voxel, the low six the voxel's faces a piece
+// thinner than a voxel closes (east, west, up, down, north, south).
+#define SOLID_BIT 128u
+#define CLOSED_EAST 1u
+#define CLOSED_WEST 2u
+#define CLOSED_UP 4u
+#define CLOSED_DOWN 8u
+#define CLOSED_NORTH 16u
+#define CLOSED_SOUTH 32u
 int _SolidsOn;
 Texture3D<float> _Solids;
 int _SolidColumns;
@@ -274,21 +282,64 @@ float GroundAt(float2 xz)
     return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
 }
 
+// The voxel a world point is in, in the built voxels' own coordinates.
+int3 VoxelOf(float3 place)
+{
+    return (int3)floor(float3(place.x - _SolidOrigin.x, place.y - _SolidY0, place.z - _SolidOrigin.y) / _VoxelSize);
+}
+
+// A voxel's byte: its solid bit and closed faces (0 out of the built voxels).
+uint Built(int3 v)
+{
+    if (_SolidsOn == 0 || v.x < 0 || v.z < 0 || v.x >= _SolidColumns || v.z >= _SolidColumns || v.y < 0 || v.y >= _SolidRows)
+    {
+        return 0u;
+    }
+
+    return (uint)round(_Solids[v] * 255.0);
+}
+
 bool BuiltAt(float3 place)
+{
+    return (Built(VoxelOf(place)) & SOLID_BIT) != 0u;
+}
+
+// Whether a piece thinner than a voxel closes the way from the voxel of one point to the voxel of another along an
+// axis (a face of either voxel between them).
+bool ClosedBetween(float3 from, float3 to, int axis)
 {
     if (_SolidsOn == 0)
     {
         return false;
     }
 
-    float3 rel = float3(place.x - _SolidOrigin.x, place.y - _SolidY0, place.z - _SolidOrigin.y);
-    int3 v = (int3)floor(rel / _VoxelSize);
-    if (v.x < 0 || v.z < 0 || v.x >= _SolidColumns || v.z >= _SolidColumns || v.y < 0 || v.y >= _SolidRows)
+    int3 a = VoxelOf(from), b = VoxelOf(to);
+    int fromCell = axis == 0 ? a.x : axis == 1 ? a.y : a.z;
+    int toCell = axis == 0 ? b.x : axis == 1 ? b.y : b.z;
+    if (fromCell == toCell)
     {
         return false;
     }
 
-    return (uint)round(_Solids[v] * 255.0) >= 128u;
+    bool forward = toCell > fromCell;
+    uint fromBits = Built(a), toBits = Built(b);
+    if (axis == 0)
+    {
+        return forward ? ((fromBits & CLOSED_EAST) | (toBits & CLOSED_WEST)) != 0u : ((fromBits & CLOSED_WEST) | (toBits & CLOSED_EAST)) != 0u;
+    }
+
+    if (axis == 1)
+    {
+        return forward ? ((fromBits & CLOSED_UP) | (toBits & CLOSED_DOWN)) != 0u : ((fromBits & CLOSED_DOWN) | (toBits & CLOSED_UP)) != 0u;
+    }
+
+    return forward ? ((fromBits & CLOSED_NORTH) | (toBits & CLOSED_SOUTH)) != 0u : ((fromBits & CLOSED_SOUTH) | (toBits & CLOSED_NORTH)) != 0u;
+}
+
+// Whether the grid face between two cells (along an axis) is closed by a thin piece.
+bool ClosedFace(int3 a, int3 b, int axis)
+{
+    return ClosedBetween(CentreOf(a), CentreOf(b), axis);
 }
 
 bool InBody(float3 place)
@@ -664,9 +715,9 @@ void Gather(uint3 id : SV_DispatchThreadID)
         _Vel0[at] = v;
         _Vel[at] = a == 1 && valid ? v - (_Gravity * _Dt) : v;
         _Mask[at] = valid ? 1 : 0;
-        if (within[a] && Held(TypeAt(f - offsets[a])) || within[a] && Held(TypeAt(f)))
+        if (within[a] && (Held(TypeAt(f - offsets[a])) || Held(TypeAt(f)) || ClosedFace(f - offsets[a], f, a)))
         {
-            float held = Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
+            float held = ClosedFace(f - offsets[a], f, a) ? 0.0 : Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
             _Vel[at] = held;
             _Vel0[at] = held;
             _Mask[at] = 1;
@@ -741,7 +792,7 @@ void Relax(uint3 id : SV_DispatchThreadID)
     {
         int3 next = c + sides[s];
         int type = TypeAt(next);
-        if (Held(type))
+        if (Held(type) || ClosedFace(c, next, s / 2))
         {
             continue;
         }
@@ -774,7 +825,7 @@ void Project(uint3 id : SV_DispatchThreadID)
 
         int3 back = f - offsets[a];
         int ta = TypeAt(back), tb = TypeAt(f);
-        if (Held(ta) || Held(tb))
+        if (Held(ta) || Held(tb) || ClosedFace(back, f, a))
         {
             // Held: as Gather set it.
             continue;
@@ -864,10 +915,30 @@ void Move(uint3 id : SV_DispatchThreadID)
     float speed = length(v);
     v = speed > _MaxSpeed ? v * (_MaxSpeed / speed) : v;
 
-    // Moved along the grid's velocity, two half steps.
+    // Moved along the grid's velocity, two half steps; not through a face a thin piece closes (held at the face).
     float3 mid = x + (0.5 * _Dt * grid);
     float3 to = x + (_Dt * Velocity(mid));
     to = Unsolid(to, x);
+    if (_SolidsOn != 0)
+    {
+        int3 was = VoxelOf(x);
+        float3 lo = float3(_SolidOrigin.x, _SolidY0, _SolidOrigin.y) + (float3(was) * _VoxelSize), hi = lo + _VoxelSize;
+        float gap = 0.02 * _VoxelSize;
+        if (ClosedBetween(x, to, 0))
+        {
+            to.x = clamp(to.x, lo.x + gap, hi.x - gap);
+        }
+
+        if (ClosedBetween(x, to, 1))
+        {
+            to.y = clamp(to.y, lo.y + gap, hi.y - gap);
+        }
+
+        if (ClosedBetween(x, to, 2))
+        {
+            to.z = clamp(to.z, lo.z + gap, hi.z - gap);
+        }
+    }
 
     // Out of the square's sides: the server's water now; out of the top: held.
     float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);

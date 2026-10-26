@@ -626,7 +626,8 @@ internal sealed class GpuWater : IDisposable
             _volume = new VolumeWater(compute, material, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
             {
                 OpenSides = true,
-                EdgeBand = 8,
+                // Two metres of the square's edge take the server's water each step, whatever the cells' size.
+                EdgeBand = Mathf.CeilToInt(2f / _window.CellSize),
                 Origin = new Vector3(_window.X0 * _window.VoxelSize, Mathf.Floor((_cameraY - (rows * _window.CellSize / 2f)) / _window.CellSize) * _window.CellSize, _window.Z0 * _window.VoxelSize),
             };
             _volumeSeeded = false;
@@ -760,7 +761,7 @@ internal sealed class GpuWater : IDisposable
     private void StartBuild(List<BrickView> near)
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
-        bool solids = _particles != null || FlowingWaterPlugin.Settings.ParticleWater.Value;
+        bool solids = _particles != null || _volume != null || FlowingWaterPlugin.Settings.ParticleWater.Value || FlowingWaterPlugin.Settings.VolumeWater.Value;
         int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
         bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))

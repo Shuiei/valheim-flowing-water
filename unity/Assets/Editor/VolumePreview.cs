@@ -40,7 +40,7 @@ public static class VolumePreview
             SimPreview.Output = _output;
             BuildBundles.Prepare();
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "drain" };
+            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -70,7 +70,12 @@ public static class VolumePreview
 
             if (Runs("box"))
             {
-                Box();
+                Box(false);
+            }
+
+            if (Runs("fence"))
+            {
+                Box(true);
             }
 
             if (Runs("drain"))
@@ -134,7 +139,7 @@ public static class VolumePreview
         using var scene = new Scene("vdambreak", bed);
         int added = scene.Water.Add(new Vector3(10f, 0f, 18f), new Vector3(12.5f, 2f, 22f));
         Log.AppendLine(Inv($"Dam break: 10 m tank, a 2.5 m x 2 m column: {added} particles ({added * scene.Water.Litre:0.0} m3)."));
-        float hit = 0f;
+        float hit = -1f;
         float highest = 0f;
         for (int k = 1; k <= 480; k++)
         {
@@ -152,7 +157,7 @@ public static class VolumePreview
                     }
                 }
 
-                if (hit == 0f && front >= 19.9f)
+                if (hit < 0f && front >= 19.9f)
                 {
                     hit = k * Frame;
                 }
@@ -250,19 +255,23 @@ public static class VolumePreview
     }
 
     // A box of walls (what players build) 4 m square, 3 m high, filled 2 m deep; at 2 s its east wall is taken away
-    // from the floor up to 1 m: the water bursts out through the gap and the box empties down to the gap's top.
-    private static void Box()
+    // from the floor up to 1 m: the water bursts out through the gap and the box empties down to the gap's top. The
+    // walls are solid voxels, or (thin) the closed faces between voxels, as a wall thinner than a voxel is to the bricks.
+    private static void Box(bool thin)
     {
         float[] bed = Field((x, z) => 0f);
-        using var scene = new Scene("vbox", bed);
-        scene.Walls(16f, 20f, 16f, 20f, 3f, 0f);
+        string name = thin ? "vfence" : "vbox";
+        using var scene = new Scene(name, bed);
+        scene.Walls(16f, 20f, 16f, 20f, 3f, 0f, thin);
         int added = scene.Water.Add(new Vector3(16.3f, 0f, 16.3f), new Vector3(19.7f, 2f, 19.7f));
-        Log.AppendLine(Inv($"Box: a box of walls 4 m square filled 2 m deep ({added} particles); its east wall opened from the floor to 1 m at 2 s."));
+        Log.AppendLine(Inv($"{(thin ? "Fence" : "Box")}: a box of {(thin ? "thin walls (closed faces)" : "walls")} 4 m square filled 2 m deep ({added} particles); its east wall opened from the floor to 1 m at 2 s."));
+        int before = 0;
         for (int k = 1; k <= 480; k++)
         {
             if (k == 120)
             {
-                scene.Walls(16f, 20f, 16f, 20f, 3f, 1f);
+                before = Inside(scene.Water.Read());
+                scene.Walls(16f, 20f, 16f, 20f, 3f, 1f, thin);
             }
 
             scene.Step();
@@ -286,23 +295,34 @@ public static class VolumePreview
 
             if (k is 60 or 130 or 150 or 180 or 240 or 480)
             {
-                scene.Shot(Inv($"vbox_{k * Frame:0.0}s"), new Vector3(26f, 3.5f, 12f), new Vector3(19f, 1f, 18f));
+                scene.Shot(Inv($"{name}_{k * Frame:0.0}s"), new Vector3(26f, 3.5f, 12f), new Vector3(19f, 1f, 18f));
             }
         }
 
         float[] end = scene.Water.Read();
-        int left = 0;
+        int left = Inside(end);
         float topLeft = 0f;
         for (int p = 0; p < end.Length / 12; p++)
         {
             if (end[p * 12] > 16f && end[p * 12] < 20f && end[(p * 12) + 2] > 16f && end[(p * 12) + 2] < 20f)
             {
-                left++;
                 topLeft = Math.Max(topLeft, end[(p * 12) + 1]);
             }
         }
 
-        Log.AppendLine(Inv($"  Held before the gap opened, then out through it: {left} left inside, up to {topLeft:0.00} m (the gap's top 1 m): {Check(left < added / 2 && topLeft < 1.3f)}"));
+        Log.AppendLine(Inv($"  Held before the gap opened ({before} of {added} inside at 2 s), then out through it: {left} left inside, up to {topLeft:0.00} m (the gap's top 1 m): {Check(before >= added * 95 / 100 && left < added / 2 && topLeft < 1.3f)}"));
+    }
+
+    // The particles inside the box scene's walls.
+    private static int Inside(float[] data)
+    {
+        int inside = 0;
+        for (int p = 0; p < data.Length / 12; p++)
+        {
+            inside += data[p * 12] > 16f && data[p * 12] < 20f && data[(p * 12) + 2] > 16f && data[(p * 12) + 2] < 20f ? 1 : 0;
+        }
+
+        return inside;
     }
 
     // A pool 6 m square 1 m deep with a drain in its middle taking 2 m3/s: the pool goes down by the rate.
@@ -337,7 +357,7 @@ public static class VolumePreview
 
     private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 
-    private struct Measure
+    private sealed class Measure
     {
         public int Count { get; set; }
 
@@ -435,9 +455,10 @@ public static class VolumePreview
 
         public void Step() => Water.Step(Frame);
 
-        // Four walls a voxel thick round a box (world x0..x1, z0..z1, up to a height), the east one open from the floor
-        // to the gap's height; as built voxels (ParticleSolids), the voxel the ground's cell.
-        public void Walls(float x0, float x1, float z0, float z1, float height, float gap)
+        // Four walls round a box (world x0..x1, z0..z1, up to a height), the east one open from the floor to the gap's
+        // height; as built voxels (ParticleSolids), the voxel the ground's cell: a voxel thick, or thin (the closed
+        // faces of the voxels just inside the box).
+        public void Walls(float x0, float x1, float z0, float z1, float height, float gap, bool thin)
         {
             byte[] solids = new byte[Cells * ParticleSolids.Rows * Cells];
             int i0 = (int)(x0 / Dx), i1 = (int)(x1 / Dx) - 1, j0 = (int)(z0 / Dx), j1 = (int)(z1 / Dx) - 1, top = (int)(height / Dx), open = (int)(gap / Dx);
@@ -445,16 +466,16 @@ public static class VolumePreview
             {
                 for (int i = i0; i <= i1; i++)
                 {
-                    solids[ParticleSolids.Index(Cells, i, y, j0)] = ParticleSolids.Solid;
-                    solids[ParticleSolids.Index(Cells, i, y, j1)] = ParticleSolids.Solid;
+                    solids[ParticleSolids.Index(Cells, i, y, j0)] |= thin ? ParticleSolids.ClosedSouth : ParticleSolids.Solid;
+                    solids[ParticleSolids.Index(Cells, i, y, j1)] |= thin ? ParticleSolids.ClosedNorth : ParticleSolids.Solid;
                 }
 
                 for (int j = j0; j <= j1; j++)
                 {
-                    solids[ParticleSolids.Index(Cells, i0, y, j)] = ParticleSolids.Solid;
+                    solids[ParticleSolids.Index(Cells, i0, y, j)] |= thin ? ParticleSolids.ClosedWest : ParticleSolids.Solid;
                     if (y >= open)
                     {
-                        solids[ParticleSolids.Index(Cells, i1, y, j)] = ParticleSolids.Solid;
+                        solids[ParticleSolids.Index(Cells, i1, y, j)] |= thin ? ParticleSolids.ClosedEast : ParticleSolids.Solid;
                     }
                 }
             }

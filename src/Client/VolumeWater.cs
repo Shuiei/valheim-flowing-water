@@ -654,7 +654,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _taken.SetData(new uint[MostSprings]);
         _given.SetData(new uint[MostSprings]);
 
-        foreach (int kernel in new[] { _clearCells, _move, _emit, _seed })
+        // (A kernel reads the solids for the faces thin pieces close too: unbound, Unity would skip the kernel.)
+        foreach (int kernel in new[] { _clearCells, _gather, _relax, _project, _move, _emit, _seed })
         {
             _shader.SetTexture(kernel, BedId, _bed);
             _shader.SetTexture(kernel, SolidsId, _solids ?? _noSolids);
