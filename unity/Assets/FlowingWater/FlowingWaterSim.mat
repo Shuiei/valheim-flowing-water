@@ -53,6 +53,8 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BodyBlur: 0.004
+    - _BodyDepth: 1.2
     - _DeepWater: 6
     - _DepthFade: 15
     - _EdgeFade: 0.3
@@ -79,6 +81,7 @@ Material:
     - _SimDx: 0.25
     - _WaveVel: 1
     m_Colors:
+    - _BodyTint: {r: 1.6, g: 1.1, b: 0.9, a: 0}
     - _ColorBottom: {r: 0.098, g: 0.196, b: 0.169, a: 1}
     - _ColorBottomShallow: {r: 0.196, g: 0.176, b: 0.106, a: 1}
     - _ColorTop: {r: 0.315, g: 0.524, b: 0.361, a: 1}

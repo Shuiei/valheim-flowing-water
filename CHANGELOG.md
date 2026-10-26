@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.33.0 — 2026-10-26
+
+### Added
+- Water has a body: what lies under or behind it fades, blurs and turns blue-green with how much water you look through
+  it, more across a pool than straight down into it, so a deep pool or a stream reads as water rather than a tinted film.
+  `flowingwater mat card` tunes the water near you as `mat custom` tunes the rest.
+
 ## v0.32.5 — 2026-10-26
 
 ### Fixed
