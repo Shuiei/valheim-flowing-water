@@ -91,10 +91,15 @@ struct Body
     float4 axisY;
 };
 
+// The game's graphics (Direct3D 12 under Unity) lets a kernel write eight buffers at most: each kernel binds what it
+// writes as RW and what it only reads under an ...In name (the same buffer, read-only), and the faces' fields hold
+// their three axes in one buffer each, one after the other.
 RWStructuredBuffer<Particle> _Particles;
+StructuredBuffer<Particle> _ParticlesIn;
 RWStructuredBuffer<Particle> _Sorted;
 // [0] particles there; [1] the compaction's slot counter; [2] the seed's and emitters' spawn counter.
 RWStructuredBuffer<uint> _Alive;
+StructuredBuffer<uint> _AliveIn;
 RWStructuredBuffer<uint> _Args;
 uint _Capacity;
 
@@ -117,31 +122,28 @@ int _Parity;
 
 // Cells.
 RWStructuredBuffer<int> _Type;
+StructuredBuffer<int> _TypeIn;
 RWStructuredBuffer<int> _Count;
+StructuredBuffer<int> _CountIn;
 RWStructuredBuffer<float> _Div;
+StructuredBuffer<float> _DivIn;
 RWStructuredBuffer<float> _P;
+StructuredBuffer<float> _PIn;
 AppendStructuredBuffer<uint> _ActiveOut;
 StructuredBuffer<uint> _Active;
 RWStructuredBuffer<uint> _ActiveArgs;
-// Faces: one array each for the x, y and z faces, each (_Nx + 1) by (_Ny + 1) by (_Nz + 1).
-RWStructuredBuffer<int> _MomU;
-RWStructuredBuffer<int> _MomV;
-RWStructuredBuffer<int> _MomW;
-RWStructuredBuffer<int> _WgtU;
-RWStructuredBuffer<int> _WgtV;
-RWStructuredBuffer<int> _WgtW;
-RWStructuredBuffer<float> _U;
-RWStructuredBuffer<float> _V;
-RWStructuredBuffer<float> _W;
-RWStructuredBuffer<float> _U0;
-RWStructuredBuffer<float> _V0;
-RWStructuredBuffer<float> _W0;
-RWStructuredBuffer<int> _MaskU;
-RWStructuredBuffer<int> _MaskV;
-RWStructuredBuffer<int> _MaskW;
-RWStructuredBuffer<int> _MaskU2;
-RWStructuredBuffer<int> _MaskV2;
-RWStructuredBuffer<int> _MaskW2;
+StructuredBuffer<uint> _ActiveArgsIn;
+// Faces: the x, y and z faces' values one after the other, each set (_Nx + 1) by (_Ny + 1) by (_Nz + 1) (FaceAt).
+RWStructuredBuffer<int> _Mom;
+StructuredBuffer<int> _MomIn;
+RWStructuredBuffer<int> _Wgt;
+StructuredBuffer<int> _WgtIn;
+RWStructuredBuffer<float> _Vel;
+StructuredBuffer<float> _VelIn;
+RWStructuredBuffer<float> _Vel0;
+StructuredBuffer<float> _Vel0In;
+RWStructuredBuffer<int> _Mask;
+RWStructuredBuffer<int> _Mask2;
 
 // The ground: the card's water's heights (SimGrid.Bed), _BedCells a side of _BedDx metres from _BedOrigin (world x, z).
 Texture2D<float> _Bed;
@@ -167,7 +169,9 @@ uint _SpringCount;
 RWStructuredBuffer<uint> _Taken;
 // What each source gave this step (particles), and the scale of its speed, kept from step to step (Regulate).
 RWStructuredBuffer<uint> _Given;
+StructuredBuffer<uint> _GivenIn;
 RWStructuredBuffer<float> _Scale;
+StructuredBuffer<float> _ScaleIn;
 #define MOST_SCALE 2.0
 
 // The server's water (SimGrid.Target): a texel a voxel column of the card's square, _PerVoxel cells of the bed's to
@@ -199,6 +203,11 @@ uint Alive()
     return min(_Alive[0], _Capacity);
 }
 
+uint AliveIn()
+{
+    return min(_AliveIn[0], _Capacity);
+}
+
 bool Gone(Particle p)
 {
     return asuint(p.place.w) == GONE;
@@ -217,6 +226,17 @@ bool InGrid(int3 c)
 int FaceIndex(int3 f)
 {
     return ((f.z * (_Ny + 1)) + f.y) * (_Nx + 1) + f.x;
+}
+
+int FaceCount()
+{
+    return (_Nx + 1) * (_Ny + 1) * (_Nz + 1);
+}
+
+// A face's place in a field: its axis's set, then its index.
+int FaceAt(int3 f, int axis)
+{
+    return (axis * FaceCount()) + FaceIndex(f);
 }
 
 bool InFaces(int3 f)
@@ -325,7 +345,7 @@ float3 SourceVelocity(int s, float3 place)
     Spring spring = _Springs[s];
     float3 away = place - spring.ring.xyz;
     float d = length(away);
-    return (d > 1e-4 ? away / d : float3(0.0, 1.0, 0.0)) * spring.flow.x * _Scale[s];
+    return (d > 1e-4 ? away / d : float3(0.0, 1.0, 0.0)) * spring.flow.x * _ScaleIn[s];
 }
 
 // A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
@@ -346,16 +366,16 @@ int TypeAt(int3 c)
         return _OpenSides != 0 ? AIR : SOLID;
     }
 
-    return _Type[CellIndex(c)];
+    return _TypeIn[CellIndex(c)];
 }
 
 float PressureAt(int3 c)
 {
-    return InGrid(c) && _Type[CellIndex(c)] == FLUID ? _P[CellIndex(c)] : 0.0;
+    return InGrid(c) && _TypeIn[CellIndex(c)] == FLUID ? _PIn[CellIndex(c)] : 0.0;
 }
 
 // A face's velocity, trilinear at a point of the grid's coordinates (the face's own: the point less the face's offset).
-float SampleFace(RWStructuredBuffer<float> field, float3 g)
+float SampleFace(StructuredBuffer<float> field, float3 g, int axis)
 {
     g = clamp(g, 0.0, float3(_Nx, _Ny, _Nz));
     int3 b = clamp((int3)floor(g), 0, int3(_Nx - 1, _Ny - 1, _Nz - 1));
@@ -368,7 +388,7 @@ float SampleFace(RWStructuredBuffer<float> field, float3 g)
             for (int i = 0; i < 2; i++)
             {
                 float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * (k == 0 ? 1.0 - f.z : f.z);
-                v += w * field[FaceIndex(b + int3(i, j, k))];
+                v += w * field[FaceAt(b + int3(i, j, k), axis)];
             }
         }
     }
@@ -379,17 +399,17 @@ float SampleFace(RWStructuredBuffer<float> field, float3 g)
 float3 Velocity(float3 place)
 {
     float3 g = (place - _Origin) / _H;
-    return float3(SampleFace(_U, g - float3(0.0, 0.5, 0.5)), SampleFace(_V, g - float3(0.5, 0.0, 0.5)), SampleFace(_W, g - float3(0.5, 0.5, 0.0)));
+    return float3(SampleFace(_VelIn, g - float3(0.0, 0.5, 0.5), 0), SampleFace(_VelIn, g - float3(0.5, 0.0, 0.5), 1), SampleFace(_VelIn, g - float3(0.5, 0.5, 0.0), 2));
 }
 
 float3 OldVelocity(float3 place)
 {
     float3 g = (place - _Origin) / _H;
-    return float3(SampleFace(_U0, g - float3(0.0, 0.5, 0.5)), SampleFace(_V0, g - float3(0.5, 0.0, 0.5)), SampleFace(_W0, g - float3(0.5, 0.5, 0.0)));
+    return float3(SampleFace(_Vel0In, g - float3(0.0, 0.5, 0.5), 0), SampleFace(_Vel0In, g - float3(0.5, 0.0, 0.5), 1), SampleFace(_Vel0In, g - float3(0.5, 0.5, 0.0), 2));
 }
 
 // A particle's share of its velocity onto the eight faces round it, and their weights.
-void ScatterFace(RWStructuredBuffer<int> mom, RWStructuredBuffer<int> wgt, float3 g, float value)
+void ScatterFace(float3 g, float value, int axis)
 {
     g = clamp(g, 0.0, float3(_Nx, _Ny, _Nz));
     int3 b = clamp((int3)floor(g), 0, int3(_Nx - 1, _Ny - 1, _Nz - 1));
@@ -403,9 +423,9 @@ void ScatterFace(RWStructuredBuffer<int> mom, RWStructuredBuffer<int> wgt, float
                 float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * (k == 0 ? 1.0 - f.z : f.z);
                 if (w > 1e-5)
                 {
-                    int at = FaceIndex(b + int3(i, j, k));
-                    InterlockedAdd(mom[at], (int)round(w * value * FIX));
-                    InterlockedAdd(wgt[at], (int)round(w * FIX));
+                    int at = FaceAt(b + int3(i, j, k), axis);
+                    InterlockedAdd(_Mom[at], (int)round(w * value * FIX));
+                    InterlockedAdd(_Wgt[at], (int)round(w * FIX));
                 }
             }
         }
@@ -534,33 +554,27 @@ void ClearFaces(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    _MomU[i] = 0;
-    _MomV[i] = 0;
-    _MomW[i] = 0;
-    _WgtU[i] = 0;
-    _WgtV[i] = 0;
-    _WgtW[i] = 0;
-    _U[i] = 0.0;
-    _V[i] = 0.0;
-    _W[i] = 0.0;
-    _U0[i] = 0.0;
-    _V0[i] = 0.0;
-    _W0[i] = 0.0;
-    _MaskU[i] = 0;
-    _MaskV[i] = 0;
-    _MaskW[i] = 0;
+    for (int a = 0; a < 3; a++)
+    {
+        int at = (a * FaceCount()) + (int)i;
+        _Mom[at] = 0;
+        _Wgt[at] = 0;
+        _Vel[at] = 0.0;
+        _Vel0[at] = 0.0;
+        _Mask[at] = 0;
+    }
 }
 
 [numthreads(THREADS, 1, 1)]
 void Scatter(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= Alive())
+    if (i >= AliveIn())
     {
         return;
     }
 
-    Particle p = _Particles[i];
+    Particle p = _ParticlesIn[i];
     if (Gone(p))
     {
         return;
@@ -573,9 +587,9 @@ void Scatter(uint3 id : SV_DispatchThreadID)
     }
 
     float3 g = (p.place.xyz - _Origin) / _H;
-    ScatterFace(_MomU, _WgtU, g - float3(0.0, 0.5, 0.5), p.velocity.x);
-    ScatterFace(_MomV, _WgtV, g - float3(0.5, 0.0, 0.5), p.velocity.y);
-    ScatterFace(_MomW, _WgtW, g - float3(0.5, 0.5, 0.0), p.velocity.z);
+    ScatterFace(g - float3(0.0, 0.5, 0.5), p.velocity.x, 0);
+    ScatterFace(g - float3(0.5, 0.0, 0.5), p.velocity.y, 1);
+    ScatterFace(g - float3(0.5, 0.5, 0.0), p.velocity.z, 2);
     int cell = CellIndex(c);
     InterlockedAdd(_Count[cell], 1);
     InterlockedMax(_Type[cell], FLUID);
@@ -626,54 +640,37 @@ float Prescribed(int3 a, int3 b, float3 facePlace, int axis)
 void Gather(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)((_Nx + 1) * (_Ny + 1) * (_Nz + 1)))
+    if (i >= (uint)FaceCount())
     {
         return;
     }
 
     int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
-    if (_WgtU[i] > 0)
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    // The face's place: at the cell's corner along its axis, at the cell's middle across.
+    float3 corners[3] = { float3(f.x, f.y + 0.5, f.z + 0.5), float3(f.x + 0.5, f.y, f.z + 0.5), float3(f.x + 0.5, f.y + 0.5, f.z) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
+    for (int a = 0; a < 3; a++)
     {
-        _U[i] = (float)_MomU[i] / (float)_WgtU[i];
-        _MaskU[i] = 1;
-    }
+        int at = (a * FaceCount()) + (int)i;
+        float v = 0.0;
+        bool valid = _WgtIn[at] > 0;
+        if (valid)
+        {
+            v = (float)_MomIn[at] / (float)_WgtIn[at];
+        }
 
-    if (_WgtV[i] > 0)
-    {
-        _V[i] = ((float)_MomV[i] / (float)_WgtV[i]) - (_Gravity * _Dt);
-        _MaskV[i] = 1;
-    }
-
-    if (_WgtW[i] > 0)
-    {
-        _W[i] = (float)_MomW[i] / (float)_WgtW[i];
-        _MaskW[i] = 1;
-    }
-
-    // The old velocity, for FLIP: before the pressure (gravity is part of what the particles take as a change).
-    _U0[i] = _U[i];
-    _V0[i] = _V[i] + (_MaskV[i] != 0 ? _Gravity * _Dt : 0.0);
-    _W0[i] = _W[i];
-
-    if (f.y < _Ny && f.z < _Nz && SolidFaceU(f))
-    {
-        _U[i] = Prescribed(f - int3(1, 0, 0), f, _Origin + (float3(f.x, f.y + 0.5, f.z + 0.5) * _H), 0);
-        _U0[i] = _U[i];
-        _MaskU[i] = 1;
-    }
-
-    if (f.x < _Nx && f.z < _Nz && SolidFaceV(f))
-    {
-        _V[i] = Prescribed(f - int3(0, 1, 0), f, _Origin + (float3(f.x + 0.5, f.y, f.z + 0.5) * _H), 1);
-        _V0[i] = _V[i];
-        _MaskV[i] = 1;
-    }
-
-    if (f.x < _Nx && f.y < _Ny && SolidFaceW(f))
-    {
-        _W[i] = Prescribed(f - int3(0, 0, 1), f, _Origin + (float3(f.x + 0.5, f.y + 0.5, f.z) * _H), 2);
-        _W0[i] = _W[i];
-        _MaskW[i] = 1;
+        // The old velocity, for FLIP: before gravity and the pressure (both are the change the particles take).
+        _Vel0[at] = v;
+        _Vel[at] = a == 1 && valid ? v - (_Gravity * _Dt) : v;
+        _Mask[at] = valid ? 1 : 0;
+        if (within[a] && Held(TypeAt(f - offsets[a])) || within[a] && Held(TypeAt(f)))
+        {
+            float held = Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
+            _Vel[at] = held;
+            _Vel0[at] = held;
+            _Mask[at] = 1;
+        }
     }
 }
 
@@ -681,7 +678,7 @@ void Gather(uint3 id : SV_DispatchThreadID)
 void Collect(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i < (uint)(_Nx * _Ny * _Nz) && _Type[i] == FLUID)
+    if (i < (uint)(_Nx * _Ny * _Nz) && _TypeIn[i] == FLUID)
     {
         _ActiveOut.Append(i);
     }
@@ -700,14 +697,14 @@ void Arguments(uint3 id : SV_DispatchThreadID)
 void Divergence(uint3 id : SV_DispatchThreadID)
 {
     uint n = id.x;
-    if (n >= _ActiveArgs[3])
+    if (n >= _ActiveArgsIn[3])
     {
         return;
     }
 
     uint i = _Active[n];
     int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
-    float div = (_U[FaceIndex(c + int3(1, 0, 0))] - _U[FaceIndex(c)] + _V[FaceIndex(c + int3(0, 1, 0))] - _V[FaceIndex(c)] + _W[FaceIndex(c + int3(0, 0, 1))] - _W[FaceIndex(c)]) / _H;
+    float div = (_VelIn[FaceAt(c + int3(1, 0, 0), 0)] - _VelIn[FaceAt(c, 0)] + _VelIn[FaceAt(c + int3(0, 1, 0), 1)] - _VelIn[FaceAt(c, 1)] + _VelIn[FaceAt(c + int3(0, 0, 1), 2)] - _VelIn[FaceAt(c, 2)]) / _H;
     // Too many particles in the cell: a little outflow asked for; too few, in a cell inside the water (one at the
     // surface is part empty by nature): a little inflow.
     int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
@@ -717,7 +714,7 @@ void Divergence(uint3 id : SV_DispatchThreadID)
         inside = inside && TypeAt(c + sides[s]) != AIR;
     }
 
-    float excess = clamp(((float)_Count[i] - REST) / REST, inside ? -1.0 : 0.0, 1.0);
+    float excess = clamp(((float)_CountIn[i] - REST) / REST, inside ? -1.0 : 0.0, 1.0);
     _Div[i] = div - (_Drift * excess / _Dt);
 }
 
@@ -725,7 +722,7 @@ void Divergence(uint3 id : SV_DispatchThreadID)
 void Relax(uint3 id : SV_DispatchThreadID)
 {
     uint n = id.x;
-    if (n >= _ActiveArgs[3])
+    if (n >= _ActiveArgsIn[3])
     {
         return;
     }
@@ -753,72 +750,53 @@ void Relax(uint3 id : SV_DispatchThreadID)
         sum += type == FLUID ? _P[CellIndex(next)] : 0.0;
     }
 
-    _P[i] = open > 0.0 ? (sum - (_Div[i] * _H * _H / _Dt)) / open : 0.0;
+    _P[i] = open > 0.0 ? (sum - (_DivIn[i] * _H * _H / _Dt)) / open : 0.0;
 }
 
 [numthreads(THREADS, 1, 1)]
 void Project(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)((_Nx + 1) * (_Ny + 1) * (_Nz + 1)))
+    if (i >= (uint)FaceCount())
     {
         return;
     }
 
     int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
-    if (f.y < _Ny && f.z < _Nz)
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
+    for (int a = 0; a < 3; a++)
     {
-        int3 a = f - int3(1, 0, 0);
-        bool fluid = TypeAt(a) == FLUID || TypeAt(f) == FLUID;
-        if (SolidFaceU(f))
+        if (!within[a])
+        {
+            continue;
+        }
+
+        int3 back = f - offsets[a];
+        int ta = TypeAt(back), tb = TypeAt(f);
+        if (Held(ta) || Held(tb))
         {
             // Held: as Gather set it.
+            continue;
         }
-        else if (fluid)
-        {
-            _U[i] -= _Dt * (PressureAt(f) - PressureAt(a)) / _H;
-            _MaskU[i] = 1;
-        }
-    }
 
-    if (f.x < _Nx && f.z < _Nz)
-    {
-        int3 a = f - int3(0, 1, 0);
-        bool fluid = TypeAt(a) == FLUID || TypeAt(f) == FLUID;
-        if (SolidFaceV(f))
+        if (ta == FLUID || tb == FLUID)
         {
-            // Held.
-        }
-        else if (fluid)
-        {
-            _V[i] -= _Dt * (PressureAt(f) - PressureAt(a)) / _H;
-            _MaskV[i] = 1;
-        }
-    }
-
-    if (f.x < _Nx && f.y < _Ny)
-    {
-        int3 a = f - int3(0, 0, 1);
-        bool fluid = TypeAt(a) == FLUID || TypeAt(f) == FLUID;
-        if (SolidFaceW(f))
-        {
-            // Held.
-        }
-        else if (fluid)
-        {
-            _W[i] -= _Dt * (PressureAt(f) - PressureAt(a)) / _H;
-            _MaskW[i] = 1;
+            int at = (a * FaceCount()) + (int)i;
+            _Vel[at] -= _Dt * (PressureAt(f) - PressureAt(back)) / _H;
+            _Mask[at] = 1;
         }
     }
 }
 
 // One face's velocity, new and old alike (a particle at the surface takes the change between them: both must come
-// from the same faces), from its valid neighbours, when it has none of its own.
-void ExtendOne(RWStructuredBuffer<float> field, RWStructuredBuffer<float> old, RWStructuredBuffer<int> mask, RWStructuredBuffer<int> mask2, int3 f, uint i)
+// from the same faces), from its valid neighbours along its axis's set, when it has none of its own.
+void ExtendOne(int3 f, uint i, int axis)
 {
-    if (mask[i] != 0)
+    int at = (axis * FaceCount()) + (int)i;
+    if (_Mask[at] != 0)
     {
-        mask2[i] = 1;
+        _Mask2[at] = 1;
         return;
     }
 
@@ -829,23 +807,23 @@ void ExtendOne(RWStructuredBuffer<float> field, RWStructuredBuffer<float> old, R
     for (int s = 0; s < 6; s++)
     {
         int3 next = f + sides[s];
-        if (InFaces(next) && mask[FaceIndex(next)] != 0)
+        if (InFaces(next) && _Mask[FaceAt(next, axis)] != 0)
         {
-            sum += field[FaceIndex(next)];
-            sumOld += old[FaceIndex(next)];
+            sum += _Vel[FaceAt(next, axis)];
+            sumOld += _Vel0[FaceAt(next, axis)];
             n += 1.0;
         }
     }
 
     if (n > 0.0)
     {
-        field[i] = sum / n;
-        old[i] = sumOld / n;
-        mask2[i] = 1;
+        _Vel[at] = sum / n;
+        _Vel0[at] = sumOld / n;
+        _Mask2[at] = 1;
     }
     else
     {
-        mask2[i] = 0;
+        _Mask2[at] = 0;
     }
 }
 
@@ -853,22 +831,22 @@ void ExtendOne(RWStructuredBuffer<float> field, RWStructuredBuffer<float> old, R
 void Extend(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)((_Nx + 1) * (_Ny + 1) * (_Nz + 1)))
+    if (i >= (uint)FaceCount())
     {
         return;
     }
 
     int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
-    ExtendOne(_U, _U0, _MaskU, _MaskU2, f, i);
-    ExtendOne(_V, _V0, _MaskV, _MaskV2, f, i);
-    ExtendOne(_W, _W0, _MaskW, _MaskW2, f, i);
+    ExtendOne(f, i, 0);
+    ExtendOne(f, i, 1);
+    ExtendOne(f, i, 2);
 }
 
 [numthreads(THREADS, 1, 1)]
 void Move(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= Alive())
+    if (i >= AliveIn())
     {
         return;
     }
@@ -933,7 +911,7 @@ void Move(uint3 id : SV_DispatchThreadID)
     }
 
     int3 c = CellOf(to);
-    int count = InGrid(c) ? _Count[CellIndex(c)] : 0;
+    int count = InGrid(c) ? _CountIn[CellIndex(c)] : 0;
     bool clear = to.y > GroundAt(to.xz) + _H;
     p.place.xyz = to;
     p.velocity = float4(v, (float)count / REST);
@@ -947,7 +925,7 @@ void Move(uint3 id : SV_DispatchThreadID)
 void Emit(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)(_Nx * _Ny * _Nz) || _Type[i] != EMIT)
+    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] != EMIT)
     {
         return;
     }
@@ -961,7 +939,7 @@ void Emit(uint3 id : SV_DispatchThreadID)
     }
 
     uint state = (i * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
-    int lack = REST - _Count[i];
+    int lack = REST - _CountIn[i];
     for (int k = 0; k < lack; k++)
     {
         float3 place = centre + ((float3(Random(state), Random(state), Random(state)) - 0.5) * _H);
@@ -994,7 +972,7 @@ void Regulate(uint3 id : SV_DispatchThreadID)
 
         // Particles a step: the rate's water in particles of a cell's water over REST.
         float want = spring.flow.y * _Dt * REST / (_H * _H * _H);
-        float given = (float)_Given[s];
+        float given = (float)_GivenIn[s];
         float scale = _Scale[s] <= 0.0 ? 1.0 : _Scale[s];
         scale = given > 0.5 ? scale * lerp(1.0, want / given, 0.2) : scale * 1.05;
         _Scale[s] = clamp(scale, 0.25, MOST_SCALE);
@@ -1010,7 +988,7 @@ void Compact(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    Particle p = _Particles[i];
+    Particle p = _ParticlesIn[i];
     if (Gone(p))
     {
         return;
@@ -1042,7 +1020,7 @@ void Settle(uint3 id : SV_DispatchThreadID)
 void Seed(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)(_Nx * _Ny * _Nz) || _Type[i] == SOLID || _Count[i] >= REST)
+    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] == SOLID || _CountIn[i] >= REST)
     {
         return;
     }
@@ -1085,7 +1063,7 @@ void Seed(uint3 id : SV_DispatchThreadID)
     }
 
     uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
-    int lack = REST - _Count[i];
+    int lack = REST - _CountIn[i];
     int n = (int)floor((lack * _SeedShare) + Random(state));
     for (int k = 0; k < n; k++)
     {

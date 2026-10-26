@@ -37,8 +37,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private const float SourceSpeed = 3f;
 
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
+    private static readonly int ParticlesInId = Shader.PropertyToID("_ParticlesIn");
     private static readonly int SortedId = Shader.PropertyToID("_Sorted");
     private static readonly int AliveId = Shader.PropertyToID("_Alive");
+    private static readonly int AliveInId = Shader.PropertyToID("_AliveIn");
     private static readonly int ArgsId = Shader.PropertyToID("_Args");
     private static readonly int CapacityId = Shader.PropertyToID("_Capacity");
     private static readonly int NxId = Shader.PropertyToID("_Nx");
@@ -55,18 +57,27 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int SeedId = Shader.PropertyToID("_Seed");
     private static readonly int ParityId = Shader.PropertyToID("_Parity");
     private static readonly int TypeId = Shader.PropertyToID("_Type");
+    private static readonly int TypeInId = Shader.PropertyToID("_TypeIn");
     private static readonly int CountId = Shader.PropertyToID("_Count");
+    private static readonly int CountInId = Shader.PropertyToID("_CountIn");
     private static readonly int DivId = Shader.PropertyToID("_Div");
+    private static readonly int DivInId = Shader.PropertyToID("_DivIn");
     private static readonly int PId = Shader.PropertyToID("_P");
+    private static readonly int PInId = Shader.PropertyToID("_PIn");
     private static readonly int ActiveOutId = Shader.PropertyToID("_ActiveOut");
     private static readonly int ActiveId = Shader.PropertyToID("_Active");
     private static readonly int ActiveArgsId = Shader.PropertyToID("_ActiveArgs");
-    private static readonly int[] MomIds = Ids("_MomU", "_MomV", "_MomW");
-    private static readonly int[] WgtIds = Ids("_WgtU", "_WgtV", "_WgtW");
-    private static readonly int[] VelIds = Ids("_U", "_V", "_W");
-    private static readonly int[] Vel0Ids = Ids("_U0", "_V0", "_W0");
-    private static readonly int[] MaskIds = Ids("_MaskU", "_MaskV", "_MaskW");
-    private static readonly int[] Mask2Ids = Ids("_MaskU2", "_MaskV2", "_MaskW2");
+    private static readonly int ActiveArgsInId = Shader.PropertyToID("_ActiveArgsIn");
+    private static readonly int MomId = Shader.PropertyToID("_Mom");
+    private static readonly int MomInId = Shader.PropertyToID("_MomIn");
+    private static readonly int WgtId = Shader.PropertyToID("_Wgt");
+    private static readonly int WgtInId = Shader.PropertyToID("_WgtIn");
+    private static readonly int VelId = Shader.PropertyToID("_Vel");
+    private static readonly int VelInId = Shader.PropertyToID("_VelIn");
+    private static readonly int Vel0Id = Shader.PropertyToID("_Vel0");
+    private static readonly int Vel0InId = Shader.PropertyToID("_Vel0In");
+    private static readonly int MaskId = Shader.PropertyToID("_Mask");
+    private static readonly int Mask2Id = Shader.PropertyToID("_Mask2");
     private static readonly int BedId = Shader.PropertyToID("_Bed");
     private static readonly int BedCellsId = Shader.PropertyToID("_BedCells");
     private static readonly int BedDxId = Shader.PropertyToID("_BedDx");
@@ -84,7 +95,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int SpringCountId = Shader.PropertyToID("_SpringCount");
     private static readonly int TakenId = Shader.PropertyToID("_Taken");
     private static readonly int GivenId = Shader.PropertyToID("_Given");
+    private static readonly int GivenInId = Shader.PropertyToID("_GivenIn");
     private static readonly int ScaleId = Shader.PropertyToID("_Scale");
+    private static readonly int ScaleInId = Shader.PropertyToID("_ScaleIn");
     private static readonly int TargetId = Shader.PropertyToID("_Target");
     private static readonly int PerVoxelId = Shader.PropertyToID("_PerVoxel");
     private static readonly int SeedBandId = Shader.PropertyToID("_SeedBand");
@@ -127,12 +140,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private readonly ComputeBuffer _pressure;
     private readonly ComputeBuffer _active;
     private readonly ComputeBuffer _activeArgs;
-    private readonly ComputeBuffer[] _mom = new ComputeBuffer[3];
-    private readonly ComputeBuffer[] _wgt = new ComputeBuffer[3];
-    private readonly ComputeBuffer[] _vel = new ComputeBuffer[3];
-    private readonly ComputeBuffer[] _vel0 = new ComputeBuffer[3];
-    private readonly ComputeBuffer[] _mask = new ComputeBuffer[3];
-    private readonly ComputeBuffer[] _mask2 = new ComputeBuffer[3];
+    private readonly ComputeBuffer _mom;
+    private readonly ComputeBuffer _wgt;
+    private readonly ComputeBuffer _vel;
+    private readonly ComputeBuffer _vel0;
+    private readonly ComputeBuffer _mask;
+    private readonly ComputeBuffer _mask2;
     private readonly ComputeBuffer _bodies;
     private readonly ComputeBuffer _springs;
     private readonly ComputeBuffer _taken;
@@ -239,15 +252,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _pressure = new ComputeBuffer(_cells, sizeof(float));
         _active = new ComputeBuffer(_cells, sizeof(uint), ComputeBufferType.Append);
         _activeArgs = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
-        for (int a = 0; a < 3; a++)
-        {
-            _mom[a] = new ComputeBuffer(_faces, sizeof(int));
-            _wgt[a] = new ComputeBuffer(_faces, sizeof(int));
-            _vel[a] = new ComputeBuffer(_faces, sizeof(float));
-            _vel0[a] = new ComputeBuffer(_faces, sizeof(float));
-            _mask[a] = new ComputeBuffer(_faces, sizeof(int));
-            _mask2[a] = new ComputeBuffer(_faces, sizeof(int));
-        }
+        _mom = new ComputeBuffer(3 * _faces, sizeof(int));
+        _wgt = new ComputeBuffer(3 * _faces, sizeof(int));
+        _vel = new ComputeBuffer(3 * _faces, sizeof(float));
+        _vel0 = new ComputeBuffer(3 * _faces, sizeof(float));
+        _mask = new ComputeBuffer(3 * _faces, sizeof(int));
+        _mask2 = new ComputeBuffer(3 * _faces, sizeof(int));
 
         _bodies = new ComputeBuffer(MostBodies, 16 * sizeof(float));
         _springs = new ComputeBuffer(MostSprings, 8 * sizeof(float));
@@ -521,15 +531,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _pressure.Release();
         _active.Release();
         _activeArgs.Release();
-        for (int a = 0; a < 3; a++)
-        {
-            _mom[a].Release();
-            _wgt[a].Release();
-            _vel[a].Release();
-            _vel0[a].Release();
-            _mask[a].Release();
-            _mask2[a].Release();
-        }
+        _mom.Release();
+        _wgt.Release();
+        _vel.Release();
+        _vel0.Release();
+        _mask.Release();
+        _mask2.Release();
 
         _bodies.Release();
         _springs.Release();
@@ -583,8 +590,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
         public override readonly int GetHashCode() => (Ring.GetHashCode() * 397) ^ Flow.GetHashCode();
     }
-
-    private static int[] Ids(params string[] names) => Array.ConvertAll(names, Shader.PropertyToID);
 
     private static uint[] Counts(params uint[] values) => values;
 
@@ -657,54 +662,96 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         }
 
         _shader.SetTexture(_seed, TargetId, _target ?? _noTarget);
-        foreach (int kernel in new[] { _clearCells, _scatter, _gather, _collect, _divergence, _relax, _project, _move, _emit, _seed })
+
+        // Each kernel writes what it must and reads the rest (the game's graphics let a kernel write eight buffers).
+        foreach (int kernel in new[] { _clearCells, _scatter })
         {
             _shader.SetBuffer(kernel, TypeId, _type);
             _shader.SetBuffer(kernel, CountId, _count);
         }
 
-        foreach (int kernel in new[] { _clearCells, _divergence, _relax, _project })
+        foreach (int kernel in new[] { _gather, _collect, _divergence, _relax, _project, _move, _emit, _seed })
         {
-            _shader.SetBuffer(kernel, DivId, _div);
-            _shader.SetBuffer(kernel, PId, _pressure);
+            _shader.SetBuffer(kernel, TypeInId, _type);
         }
 
-        foreach (int kernel in new[] { _scatter, _move, _emit, _compact, _seed, _settle })
+        foreach (int kernel in new[] { _divergence, _move, _emit, _seed })
+        {
+            _shader.SetBuffer(kernel, CountInId, _count);
+        }
+
+        _shader.SetBuffer(_clearCells, DivId, _div);
+        _shader.SetBuffer(_divergence, DivId, _div);
+        _shader.SetBuffer(_relax, DivInId, _div);
+        _shader.SetBuffer(_relax, PId, _pressure);
+        _shader.SetBuffer(_project, PInId, _pressure);
+
+        foreach (int kernel in new[] { _move, _emit, _seed })
         {
             _shader.SetBuffer(kernel, ParticlesId, _particles[_current]);
+        }
+
+        foreach (int kernel in new[] { _scatter, _compact })
+        {
+            _shader.SetBuffer(kernel, ParticlesInId, _particles[_current]);
+        }
+
+        foreach (int kernel in new[] { _emit, _seed, _compact, _settle })
+        {
             _shader.SetBuffer(kernel, AliveId, _alive);
         }
 
-        foreach (int kernel in new[] { _clearFaces, _scatter, _gather, _divergence, _project, _extend, _move })
+        foreach (int kernel in new[] { _scatter, _move })
         {
-            for (int a = 0; a < 3; a++)
-            {
-                _shader.SetBuffer(kernel, MomIds[a], _mom[a]);
-                _shader.SetBuffer(kernel, WgtIds[a], _wgt[a]);
-                _shader.SetBuffer(kernel, VelIds[a], _vel[a]);
-                _shader.SetBuffer(kernel, Vel0Ids[a], _vel0[a]);
-                _shader.SetBuffer(kernel, MaskIds[a], _mask[a]);
-                _shader.SetBuffer(kernel, Mask2Ids[a], _mask2[a]);
-            }
+            _shader.SetBuffer(kernel, AliveInId, _alive);
         }
+
+        _shader.SetBuffer(_clearFaces, MomId, _mom);
+        _shader.SetBuffer(_clearFaces, WgtId, _wgt);
+        _shader.SetBuffer(_scatter, MomId, _mom);
+        _shader.SetBuffer(_scatter, WgtId, _wgt);
+        _shader.SetBuffer(_gather, MomInId, _mom);
+        _shader.SetBuffer(_gather, WgtInId, _wgt);
+        foreach (int kernel in new[] { _clearFaces, _gather, _project, _extend })
+        {
+            _shader.SetBuffer(kernel, VelId, _vel);
+            _shader.SetBuffer(kernel, MaskId, _mask);
+        }
+
+        foreach (int kernel in new[] { _clearFaces, _gather, _extend })
+        {
+            _shader.SetBuffer(kernel, Vel0Id, _vel0);
+        }
+
+        _shader.SetBuffer(_extend, Mask2Id, _mask2);
+        foreach (int kernel in new[] { _divergence, _move })
+        {
+            _shader.SetBuffer(kernel, VelInId, _vel);
+        }
+
+        _shader.SetBuffer(_move, Vel0InId, _vel0);
 
         _shader.SetBuffer(_collect, ActiveOutId, _active);
         _shader.SetBuffer(_arguments, ActiveArgsId, _activeArgs);
         foreach (int kernel in new[] { _divergence, _relax })
         {
             _shader.SetBuffer(kernel, ActiveId, _active);
-            _shader.SetBuffer(kernel, ActiveArgsId, _activeArgs);
+            _shader.SetBuffer(kernel, ActiveArgsInId, _activeArgs);
         }
 
         foreach (int kernel in new[] { _clearCells, _gather, _move, _emit, _regulate })
         {
             _shader.SetBuffer(kernel, SpringsId, _springs);
-            _shader.SetBuffer(kernel, ScaleId, _scale);
         }
 
-        _shader.SetBuffer(_emit, GivenId, _given);
-        _shader.SetBuffer(_regulate, GivenId, _given);
+        foreach (int kernel in new[] { _gather, _emit })
+        {
+            _shader.SetBuffer(kernel, ScaleInId, _scale);
+        }
 
+        _shader.SetBuffer(_regulate, ScaleId, _scale);
+        _shader.SetBuffer(_emit, GivenId, _given);
+        _shader.SetBuffer(_regulate, GivenInId, _given);
         _shader.SetBuffer(_move, TakenId, _taken);
         _shader.SetBuffer(_compact, SortedId, _particles[1 - _current]);
     }
@@ -737,12 +784,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         DispatchFaces(_project);
         for (int pass = 0; pass < 2; pass++)
         {
-            for (int a = 0; a < 3; a++)
-            {
-                _shader.SetBuffer(_extend, MaskIds[a], pass == 0 ? _mask[a] : _mask2[a]);
-                _shader.SetBuffer(_extend, Mask2Ids[a], pass == 0 ? _mask2[a] : _mask[a]);
-            }
-
+            _shader.SetBuffer(_extend, MaskId, pass == 0 ? _mask : _mask2);
+            _shader.SetBuffer(_extend, Mask2Id, pass == 0 ? _mask2 : _mask);
             DispatchFaces(_extend);
         }
 
