@@ -122,6 +122,8 @@ internal sealed class GpuWater : IDisposable
 
     private Ship[] _ships = [];
 
+    private Rigidbody[] _rigidbodies = [];
+
     private int _shipsLookedFor = -60;
 
     private int _buildingBase;
@@ -634,7 +636,8 @@ internal sealed class GpuWater : IDisposable
     }
 
     // The bodies in the square this frame, for the particle water: every character (players, creatures) as the box of
-    // its capsule, and every ship as the box its hull floats by (the game's own), the nearest first.
+    // its capsule, every ship as the box its hull floats by (the game's own), and every other rigid body (carts, things
+    // dropped, felled trees) as the box round its collider, as many as fit in that order.
     private List<ParticleWater.Body> Bodies(Vector2 origin)
     {
         _bodies.Clear();
@@ -655,11 +658,12 @@ internal sealed class GpuWater : IDisposable
             _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
         }
 
-        // The ships, looked for once a second (there are few, and they come and go slowly).
+        // The ships and the other rigid bodies, looked for once a second (they come and go slowly).
         if (Time.frameCount - _shipsLookedFor >= 60)
         {
             _shipsLookedFor = Time.frameCount;
             _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
+            _rigidbodies = UnityEngine.Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
         }
 
         foreach (Ship ship in _ships)
@@ -677,6 +681,31 @@ internal sealed class GpuWater : IDisposable
 
             Transform t = hull.transform;
             _bodies.Add(ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation));
+        }
+
+        // The rest of what moves: looked for once a second too, with the ships; a body of a ship or a character is
+        // counted above, one with no collider or too small to matter (under 10 cm) is not water's concern.
+        foreach (Rigidbody body in _rigidbodies)
+        {
+            if (body == null || body.isKinematic || !Inside(body.position) || _bodies.Count >= ParticleWater.MostBodies
+                || body.GetComponentInParent<Ship>() != null || body.GetComponentInParent<Character>() != null)
+            {
+                continue;
+            }
+
+            Collider collider = body.GetComponentInChildren<Collider>();
+            if (collider == null || collider.isTrigger)
+            {
+                continue;
+            }
+
+            Bounds bounds = collider.bounds;
+            if (bounds.size.x < 0.1f && bounds.size.z < 0.1f)
+            {
+                continue;
+            }
+
+            _bodies.Add(ParticleWater.Body.Box(bounds.center, bounds.extents, Quaternion.identity));
         }
 
         return _bodies;

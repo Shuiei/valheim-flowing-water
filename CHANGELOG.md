@@ -11,7 +11,8 @@ All notable changes to FlowingWater. Newest first.
   and give their water back to the water near you where they land, instead of the curtains and sheets of spray. The
   console's `flowingwater particles [m³]` pours a block of it over you either way, drawn as water with the sea's look
   (foam where it splashes), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
-  a pool, a wall holds it in), and pushed aside by you, by creatures and by ships' hulls as they move through it;
+  a pool, a wall holds it in), and pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
+  they move through it;
   `clear` takes it away, `spheres` shows the particles themselves.
 
 ## v0.36.0 — 2026-10-26
