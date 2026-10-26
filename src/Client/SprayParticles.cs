@@ -15,6 +15,10 @@ internal sealed class SprayParticles : IDisposable
     /// <summary>Particles at most (the oldest give way to new ones).</summary>
     public const int Count = 32768;
 
+    // Of them, places kept for the sheets carrying the card's water (a ring of their own: a droplet never takes the place
+    // of one still in the air, and one that gives way lands its water where it is).
+    private const int Carriers = 8192;
+
     // A particle's floats: place and age, velocity and life, size and kind.
     private const int Stride = 12 * sizeof(float);
 
@@ -37,6 +41,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
     private static readonly int NextId = Shader.PropertyToID("_Next");
     private static readonly int CountId = Shader.PropertyToID("_Count");
+    private static readonly int CarriersId = Shader.PropertyToID("_Carriers");
     private static readonly int HId = Shader.PropertyToID("_H");
     private static readonly int BedId = Shader.PropertyToID("_Bed");
     private static readonly int UId = Shader.PropertyToID("_U");
@@ -73,22 +78,28 @@ internal sealed class SprayParticles : IDisposable
 
     private uint _seed;
 
-    /// <summary>Particles moved by <paramref name="shader"/> and drawn with <paramref name="material"/> (copied: it holds the buffer).</summary>
+    /// <summary>Particles moved by <paramref name="shader"/> and drawn with <paramref name="material"/>.</summary>
     public SprayParticles(ComputeShader shader, Material material)
     {
         _shader = shader;
-        Material = new Material(material) { name = material.name + " particles" };
+        Material = material;
         _emit = shader.FindKernel("EmitFromWater");
         _move = shader.FindKernel("Move");
         _particles = new ComputeBuffer(Count, Stride);
         _particles.SetData(new float[Count * 12]);
-        _next = new ComputeBuffer(1, sizeof(uint));
-        _next.SetData(new uint[1]);
-        Material.SetBuffer(ParticlesId, _particles);
+        _next = new ComputeBuffer(2, sizeof(uint));
+        _next.SetData(new uint[2]);
+        Properties.SetBuffer(ParticlesId, _particles);
     }
 
-    /// <summary>What they are drawn with: <see cref="Count"/> times six points (two triangles each), the particles' own buffer.</summary>
+    /// <summary>
+    /// What they are drawn with: <see cref="Count"/> times six points (two triangles each), with <see cref="Properties"/>.
+    /// The mod's spray material itself (not a copy), so the sea's look taken onto it later shows on them too.
+    /// </summary>
     public Material Material { get; }
+
+    /// <summary>The particles' own buffer, for the material.</summary>
+    public MaterialPropertyBlock Properties { get; } = new();
 
     /// <summary>
     /// Throws new particles from the card's water (its square's south-west corner at world x, z <paramref name="origin"/>)
@@ -103,6 +114,7 @@ internal sealed class SprayParticles : IDisposable
 
         _seed++;
         _shader.SetInt(CountId, Count);
+        _shader.SetInt(CarriersId, Carriers);
         _shader.SetInt(NId, grid.Cells);
         _shader.SetFloat(DxId, grid.CellSize);
         _shader.SetVector(OriginId, origin);
@@ -119,18 +131,8 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetFloat(FallRateId, FallRate);
         _shader.SetTexture(_emit, LayersId, grid.Layers);
         _shader.SetTexture(_emit, AirborneId, grid.Airborne);
-        _shader.SetTexture(_move, LandedId, grid.Landed);
-        _shader.SetTexture(_move, LandedXId, grid.LandedEast);
-        _shader.SetTexture(_move, LandedZId, grid.LandedNorth);
-        foreach (int kernel in new[] { _emit, _move })
-        {
-            _shader.SetBuffer(kernel, ParticlesId, _particles);
-            _shader.SetBuffer(kernel, NextId, _next);
-            _shader.SetTexture(kernel, HId, grid.Depth);
-            _shader.SetTexture(kernel, BedId, grid.Bed);
-            _shader.SetTexture(kernel, UId, grid.SpeedEast);
-            _shader.SetTexture(kernel, VId, grid.SpeedNorth);
-        }
+        Bind(_emit, grid);
+        Bind(_move, grid);
 
         _shader.Dispatch(_emit, (grid.Cells + 7) / 8, (grid.Cells + 7) / 8, 1);
         _shader.Dispatch(_move, Count / 64, 1, 1);
@@ -161,12 +163,26 @@ internal sealed class SprayParticles : IDisposable
     }
 
     /// <summary>Draws them this frame, for every camera, within these bounds (world).</summary>
-    public void Draw(Bounds bounds) => Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Count * 6);
+    public void Draw(Bounds bounds) => Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Count * 6, 1, null, Properties);
+
+    // What both kernels read: the particles, the rings' next places, the card's water, where water lands (a carrier giving
+    // way to a new one lands its water).
+    private void Bind(int kernel, SimGrid grid)
+    {
+        _shader.SetBuffer(kernel, ParticlesId, _particles);
+        _shader.SetBuffer(kernel, NextId, _next);
+        _shader.SetTexture(kernel, HId, grid.Depth);
+        _shader.SetTexture(kernel, BedId, grid.Bed);
+        _shader.SetTexture(kernel, UId, grid.SpeedEast);
+        _shader.SetTexture(kernel, VId, grid.SpeedNorth);
+        _shader.SetTexture(kernel, LandedId, grid.Landed);
+        _shader.SetTexture(kernel, LandedXId, grid.LandedEast);
+        _shader.SetTexture(kernel, LandedZId, grid.LandedNorth);
+    }
 
     public void Dispose()
     {
         _particles.Release();
         _next.Release();
-        UnityEngine.Object.Destroy(Material);
     }
 }

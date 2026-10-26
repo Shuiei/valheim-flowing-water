@@ -155,13 +155,13 @@ internal static class SimColumns
     // What one column holds: the top of its water resting on the ground, whether the card may draw it there (one layer,
     // resting, nothing falling into it, or anything when it draws falls), its foam, the faces pieces close at its level
     // (this column's own, and those it shares with the columns west and south of it, which they ask for). Where it draws
-    // falls: the floor that water rests on (NaN: none), the top and water of the pool under it all (if any), whether the
+    // falls: the floor that water rests on (NaN: none), the top of the pool under it all (if any), whether the
     // card may draw it all once a ledge is found across the column, and the top of the water falling in it (NaN: none).
     private readonly struct Column
     {
         public static readonly Column None = new(DryTop, 0f, int.MinValue, false, 0f, BrickData.AllOpen);
 
-        public Column(float top, float depth, int row, bool drawn, float foam, byte open, float floor = float.NaN, float fallTop = float.NaN, float footTop = DryTop, float footDepth = 0f, bool overPool = false)
+        public Column(float top, float depth, int row, bool drawn, float foam, byte open, float floor = float.NaN, float fallTop = float.NaN, float footTop = DryTop, bool overPool = false)
         {
             Top = top;
             Depth = depth;
@@ -172,7 +172,6 @@ internal static class SimColumns
             Floor = floor;
             FallTop = fallTop;
             FootTop = footTop;
-            FootDepth = footDepth;
             OverPool = overPool;
         }
 
@@ -203,15 +202,13 @@ internal static class SimColumns
 
         public float FootTop { get; }
 
-        public float FootDepth { get; }
-
         public bool OverPool { get; }
 
         // The same with water falling in it from this height.
-        public Column Falling(float fallTop) => new(Top, Depth, Row, Drawn, Foam, Open, Floor, fallTop, FootTop, FootDepth, OverPool);
+        public Column Falling(float fallTop) => new(Top, Depth, Row, Drawn, Foam, Open, Floor, fallTop, FootTop, OverPool);
 
-        // The same over a pool at a ledge's foot (that pool's top and water), water falling into it from this height.
-        public Column Over(Column foot, float fallTop) => new(Top, Depth, Row, Drawn, Foam, Open, Floor, fallTop, foot.Top, foot.Depth, true);
+        // The same over a pool at a ledge's foot (that pool's top), water falling into it from this height.
+        public Column Over(Column foot, float fallTop) => new(Top, Depth, Row, Drawn, Foam, Open, Floor, fallTop, foot.Top, true);
     }
 
     // A voxel of a run of wet voxels.
@@ -299,9 +296,11 @@ internal static class SimColumns
         }
         else
         {
+            // The pool's water only (a fall into it left to the bricks): the falling water is not kept on the card's
+            // ground there, where it would stand as a mound at the fall's foot.
             Wet at = run[top];
             float fill = Math.Min(1f, at.Solid + at.Water);
-            here = Of(at, (at.Row + fill) * voxelSize, depth, !under && top == 0, at.Brick.VelocityY[at.Index], floor);
+            here = Of(at, (at.Row + fill) * voxelSize, Water(run, run.Count - top, voxelSize), !under && top == 0, at.Brick.VelocityY[at.Index], floor);
         }
 
         if (!falls || !under)

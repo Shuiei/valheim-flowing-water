@@ -444,7 +444,7 @@ public static class SimPreview
             {
                 // Drawn with the next render of this camera only.
                 var commands = new CommandBuffer();
-                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6);
+                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6, 1, Spray.Properties);
                 camera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, commands);
             }
 

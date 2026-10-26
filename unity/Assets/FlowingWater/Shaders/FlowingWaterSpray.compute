@@ -23,9 +23,12 @@ struct Particle
 #define SHEET 1.0
 #define SPLASH 2.0
 
+// Two rings: the first _Carriers places for the sheets carrying the card's water (never given to anything else, so none
+// is lost to a droplet), the rest for everything else; the next place to fill in each, counted on (taken modulo its ring).
 RWStructuredBuffer<Particle> _Particles;
-RWStructuredBuffer<uint> _Next;   // the next place to fill, counted on (taken modulo the ring)
-uint _Count;                      // places in the ring
+RWStructuredBuffer<uint> _Next;
+uint _Count;
+uint _Carriers;
 
 // The water the card moves (its textures, a cell each), the square's south-west corner (world x, z) and cells.
 Texture2D<float> _H;
@@ -83,15 +86,45 @@ bool Inside(int2 c)
     return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
 }
 
+// The water a particle carries (m3) added where it is, with the way it moves along the ground (it runs on so): on the
+// card's water or ground under it, inside the square (over ground not known, or past the square, it is lost to the card;
+// the server's water pulls the card's back to it).
+void Land(float3 place, float3 velocity, float water)
+{
+    int2 c = (int2)floor((place.xz - _Origin) / _Dx);
+    if (water > 0.0 && Inside(c) && _Bed[c] < 5000.0)
+    {
+        InterlockedAdd(_Landed[c], (int)(water * LAND_SCALE + 0.5));
+        InterlockedAdd(_LandedX[c], (int)round(water * velocity.x * LAND_SCALE));
+        InterlockedAdd(_LandedZ[c], (int)round(water * velocity.z * LAND_SCALE));
+    }
+}
+
+// A new particle, in its ring's next place: a carrier still in the air there lands its water where it is first.
 void Add(float3 place, float3 velocity, float life, float size, float kind, float water)
 {
     uint at;
-    InterlockedAdd(_Next[0], 1u, at);
+    if (water > 0.0)
+    {
+        InterlockedAdd(_Next[1], 1u, at);
+        at %= _Carriers;
+        Particle old = _Particles[at];
+        if (old.placeAge.w < old.velocityLife.w)
+        {
+            Land(old.placeAge.xyz, old.velocityLife.xyz, old.sizeKind.z);
+        }
+    }
+    else
+    {
+        InterlockedAdd(_Next[0], 1u, at);
+        at = _Carriers + (at % (_Count - _Carriers));
+    }
+
     Particle p;
     p.placeAge = float4(place, 0.0);
     p.velocityLife = float4(velocity, life);
     p.sizeKind = float4(size, kind, water, 0.0);
-    _Particles[at % _Count] = p;
+    _Particles[at] = p;
 }
 
 // How many of something expected this step: its whole part, and one more as often as its fraction.
@@ -136,14 +169,19 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
     float thrown = _Airborne[c];
     if (thrown >= _SheetVolume)
     {
+        // The faces over a lip as the card's water throws it (the ground and the water beyond well under this ground),
+        // each as much more often as more leaves by it now; the speed out through each.
         int2 sides[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
         float weights[4];
+        float brinks[4];
         float total = 0.0;
         for (int s = 0; s < 4; s++)
         {
             int2 next = c + sides[s];
             float leaving = s == 0 ? _U[c] : s == 1 ? -_U[c - int2(1, 0)] : s == 2 ? _V[c] : -_V[c - int2(0, 1)];
-            weights[s] = _Bed[next] < bed - _LipDrop && _Bed[next] < 5000.0 ? max(leaving, 0.0) : 0.0;
+            bool lip = _Bed[next] < bed - _LipDrop && _Bed[next] + _H[next] < bed - _LipDrop;
+            brinks[s] = max(leaving, 0.0);
+            weights[s] = lip ? brinks[s] + 0.05 : 0.0;
             total += weights[s];
         }
 
@@ -151,7 +189,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
         float carried = n == MOST_SHEETS ? thrown : n * _SheetVolume;
         for (uint k = 0; k < n; k++)
         {
-            // The face it leaves by, as much more often as more leaves by it (along the current where none does now).
+            // The face it leaves by (none, if no face is over a lip now: it drops where it is, with the current).
             float pick = Random(state) * total;
             int side = -1;
             for (int t = 0; t < 4 && total > 0.0; t++)
@@ -160,13 +198,12 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
                 side = side < 0 && pick <= 0.0 ? t : side;
             }
 
-            float2 along = side >= 0 ? float2(sides[side]) : (length(speed) > 0.01 ? normalize(speed) : float2(1.0, 0.0));
-            float2 across = float2(-along.y, along.x);
+            float2 along = side >= 0 ? float2(sides[side]) : 0.0;
+            float2 across = side >= 0 ? float2(-along.y, along.x) : float2(1.0, 0.0);
             float3 place = centre + (float3(along.x, 0.0, along.y) * (0.55 * _Dx)) + (float3(across.x, 0.0, across.y) * ((Random(state) - 0.5) * _Dx)) - float3(0.0, Random(state) * h, 0.0);
 
             // Out through the face as fast as the water goes over it (the brink's speed), along it as fast as it runs.
-            float brink = side >= 0 ? weights[side] : length(speed);
-            float2 flat = (along * (brink + (0.2 * Random(state)))) + (across * dot(speed, across));
+            float2 flat = side >= 0 ? (along * (brinks[side] + (0.2 * Random(state)))) + (across * dot(speed, across)) : speed;
             float3 velocity = float3(flat.x, 0.0, flat.y);
             Add(place, velocity, 6.0, 0.04 + (0.06 * min(h, 1.0)) + (0.03 * Random(state)), SHEET, carried / n);
         }
@@ -221,13 +258,8 @@ void Move(uint3 id : SV_DispatchThreadID)
         float h = _H[c];
         if (bed < 5000.0 && place.y <= bed + h)
         {
-            if (p.sizeKind.z > 0.0)
-            {
-                // The water it carries, and the way it moved along the ground (it runs on so).
-                InterlockedAdd(_Landed[c], (int)(p.sizeKind.z * LAND_SCALE + 0.5));
-                InterlockedAdd(_LandedX[c], (int)round(p.sizeKind.z * velocity.x * LAND_SCALE));
-                InterlockedAdd(_LandedZ[c], (int)round(p.sizeKind.z * velocity.z * LAND_SCALE));
-            }
+            Land(place, velocity, p.sizeKind.z);
+            p.sizeKind.z = 0.0;
 
             if (kind == SHEET && -velocity.y > _SplashFrom)
             {
@@ -244,6 +276,13 @@ void Move(uint3 id : SV_DispatchThreadID)
 
             age = life;
         }
+    }
+
+    // At its life's end in the air, a carrier lands its water where it is.
+    if (age >= life && p.sizeKind.z > 0.0)
+    {
+        Land(place, velocity, p.sizeKind.z);
+        p.sizeKind.z = 0.0;
     }
 
     p.placeAge = float4(place, age);

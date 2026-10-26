@@ -65,6 +65,7 @@ again within a couple of seconds. The main ones:
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes; off = drawn as the server sends it |
 | `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres |
+| `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1): smaller is finer and costs the card more |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 | `Client.Spray` | true | Falls, splashes and spray as particles on your graphics card (with `Client.GpuWater`) |

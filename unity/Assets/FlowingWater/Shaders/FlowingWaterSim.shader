@@ -47,6 +47,7 @@ Shader "FlowingWater/SimWater"
         [HideInInspector] _SimCells ("Cells along a side", Float) = 384
         [HideInInspector] _SimDx ("Cell side (m)", Float) = 0.25
         [HideInInspector] _Lift ("Lift (m)", Float) = 0
+        [HideInInspector] _FadeCliffs ("Falls drawn by particles (1): drops faded", Float) = 0
     }
 
     SubShader
@@ -70,6 +71,7 @@ Shader "FlowingWater/SimWater"
         sampler2D _SimV;
         float _SimCells;
         float _SimDx;
+        float _FadeCliffs;
 
         #include "FlowingWaterLook.cginc"
 
@@ -77,9 +79,12 @@ Shader "FlowingWater/SimWater"
         #define HIDE_DEPTH 0.01
         #define SHOW_DEPTH 0.02
 
-        // Water this much higher or lower than the water a cell away (m) begins to fade out from it, gone this much more.
+        // Water this much higher or lower than the water a cell away (m, for cells of a quarter metre: as steep for others)
+        // begins to fade out from it, gone this much more; only while the falls are particles (_FadeCliffs), which draw
+        // that drop (else the grid joins the two levels, as the blocks would).
         #define CLIFF_FROM 0.5
         #define CLIFF_FADE 0.3
+        #define CLIFF_CELL 0.25
 
         // A face of the grid steeper than this (the up of its normal) begins to fade, gone at the second.
         #define STEEP_FROM 0.45
@@ -136,7 +141,8 @@ Shader "FlowingWater/SimWater"
             o.world = world;
             // Water a cell from water much higher or lower (over a ledge, down a fall) is not joined to it: the grid's
             // squares between them would be a wall of water, drawn by the falls instead.
-            float joined = 1.0 - saturate((drop - CLIFF_FROM) / CLIFF_FADE);
+            float steep = _SimDx / CLIFF_CELL;
+            float joined = 1.0 - (_FadeCliffs * saturate((drop - (CLIFF_FROM * steep)) / (CLIFF_FADE * steep)));
             o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, 0.0);
             o.current = current;
             o.cell = p;
@@ -153,7 +159,7 @@ Shader "FlowingWater/SimWater"
 
             // A face of the grid standing up (between water far apart in height: a wet cell and a dry one raised by water
             // higher beside it) is no water: it fades out as it stands up.
-            float up = abs(normalize(cross(ddy(i.worldPos), ddx(i.worldPos))).y);
+            float up = _FadeCliffs > 0.5 ? abs(normalize(cross(ddy(i.worldPos), ddx(i.worldPos))).y) : 1.0;
             if (up < STEEP_GONE)
             {
                 discard;

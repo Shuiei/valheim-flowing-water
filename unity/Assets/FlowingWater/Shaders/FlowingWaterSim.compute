@@ -88,6 +88,9 @@ int _Border;      // cells along the square's edge that are the server's water a
 #define DRY_TOP -1000.0
 #define WET 0.0001
 
+// Ground at least this high is a wall (not known, or nothing met under it: SimGrid.Wall).
+#define WALL 5000.0
+
 bool Inside(int2 c)
 {
     return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
@@ -320,11 +323,18 @@ float Flux(int2 a, int2 b, float speed)
     return speed * depth * _Scale[from];
 }
 
+// Whether a cell is in the band along the square's edge (the server's water as it is: none is thrown from there, as the
+// spray throws none from the edge).
+bool InBorder(int2 c)
+{
+    return c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+}
+
 // Whether water running from cell a into cell b goes over a lip, thrown (while the card throws falls): b's ground and
-// its water both under a's ground by the lip's drop.
+// its water both under a's ground by the lip's drop, both out of the edge's band.
 bool Lip(int2 a, int2 b)
 {
-    return _Throw != 0 && Overfall(a, b);
+    return _Throw != 0 && !InBorder(a) && !InBorder(b) && Overfall(a, b);
 }
 
 // What comes into cell c through the face toward its neighbour n (m2/s; less than 0: goes out): what goes out over a lip
@@ -447,7 +457,7 @@ void Relax(uint3 id : SV_DispatchThreadID)
     float bed = _Bed[c];
     float top = ServerTop(bed, c / _PerVoxel);
     float h = _H[c];
-    bool edge = c.x < _Border || c.y < _Border || c.x >= _N - _Border || c.y >= _N - _Border;
+    bool edge = InBorder(c);
     if (bed < _SeaLevel)
     {
         h = 0.0;
@@ -485,7 +495,9 @@ void Relax(uint3 id : SV_DispatchThreadID)
     _H[c] = h;
 }
 
-// Rows of ground cast on the processor, written in.
+// Rows of ground cast on the processor, written in. A cell found a wall holds no water (else drawn at its level, 10 km
+// up, and pushed out of it at full speed); a cell whose ground is found where none was known takes the server's water
+// there as it is (as Seed), so the water near the camera is whole as soon as its ground is, not filled in by the pull.
 [numthreads(64, 1, 1)]
 void WriteBed(uint3 id : SV_DispatchThreadID)
 {
@@ -496,7 +508,19 @@ void WriteBed(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    _Bed[int2(x, _BedRow + r)] = _BedRows[(r * _N) + x];
+    int2 c = int2(x, _BedRow + r);
+    float was = _Bed[c];
+    float bed = _BedRows[(r * _N) + x];
+    _Bed[c] = bed;
+    if (bed >= WALL)
+    {
+        _H[c] = 0.0;
+    }
+    else if (was >= WALL)
+    {
+        float top = ServerTop(bed, c / _PerVoxel);
+        _H[c] = top > DRY_TOP && bed >= _SeaLevel ? max(0.0, top - bed) : 0.0;
+    }
 }
 
 // The depth (m) and momentum (m times m/s) landed in cell c since the last frame; none past the square's edge.

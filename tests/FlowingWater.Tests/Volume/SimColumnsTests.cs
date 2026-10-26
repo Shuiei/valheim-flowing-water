@@ -152,6 +152,28 @@ public class SimColumnsTests
     }
 
     [Fact]
+    public void WithoutFallsOnTheCardFallsAndThePoolsTheyFallIntoAreTheBricks()
+    {
+        // Spray off: a fall from high over a pool, and water falling into a pool, are the bricks' as before (nothing
+        // thrown, no fall's top), as the card would draw no falls over them.
+        BrickView high = Pool(3, 3, groundShare: 0.5f, top: 0.8f);
+        BrickView into = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
+        for (int y = 4; y <= 6; y++)
+        {
+            Wet(high, 3, y, 3, 0.5f, solid: 0f, open: OpenAll);
+            Wet(into, 3, y - 2, 3, 0.3f, solid: 0f, open: OpenAll);
+        }
+
+        foreach (BrickView brick in new[] { high, into })
+        {
+            float[] texels = SimColumns.Build([brick], 0, 0, Columns, 1f, Bed(0.5f), PerVoxel, out _, out float[] layers);
+
+            Assert.Equal(0f, Drawn(texels, 3, 3));
+            Assert.Equal(SimColumns.DryTop, FallTop(layers, 3, 3));
+        }
+    }
+
+    [Fact]
     public void WaterOnALedgeAndThePoolAtItsFootAreEachTheCardsAtTheirOwnLevels()
     {
         // A floor half way up row 3 holding water to 3.7 m, a trickle falling through row 1, a pool to 0.8 m on the
@@ -270,7 +292,8 @@ public class SimColumnsTests
     [Fact]
     public void WaterFallingIntoAPoolIsLeftToTheBricksAtThePoolsLevel()
     {
-        // A pool to half way up row 1, and water falling into it from rows 2 to 4 (not full).
+        // A pool to half way up row 1, and water falling into it from rows 2 to 4 (not full): the card keeps the pool's
+        // water only (a metre), not the falling water's.
         BrickView brick = Pool(3, 3, groundShare: 0.5f, top: 1.5f);
         Wet(brick, 3, 2, 3, 0.3f, solid: 0f, open: OpenAll);
         Wet(brick, 3, 3, 3, 0.3f, solid: 0f, open: OpenAll);
@@ -280,6 +303,7 @@ public class SimColumnsTests
 
         Assert.Equal(1.5f, Top(texels, 3, 3), 3);
         Assert.Equal(0f, Drawn(texels, 3, 3));
+        Assert.Equal(1f, Depth(texels, 3, 3), 3);
     }
 
     [Fact]
