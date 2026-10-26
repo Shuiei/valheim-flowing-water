@@ -2,6 +2,31 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.27.0 — 2026-10-25
+
+### Changed
+- The server's water now carries its momentum: a surge let go runs out over the ground faster and further, and water
+  off an edge keeps going the way it went; sideways it is slowed by the ground, far more as a thin sheet than deep. A
+  stream down a smooth slope runs as a wider sheet than before. The server spends about 40% more on moving water.
+
+## v0.26.0 — 2026-10-25
+
+### Added
+- Water pouring off a ledge now arcs out as a stream and splashes where it lands, falls from high are drawn as falling
+  water instead of blocks, and fast water throws spray: all on your graphics card, with `Client.Spray` (on by
+  default) and the water moved on the card. The pool at the foot of a fall, and water by the edge of a build, are drawn
+  smooth instead of as slanted blocks. Falling water carries its water: the pool forms where the fall lands, and the
+  water landing runs on the way it fell. The console's `flowingwater gpu columns` logs the water and ground round you.
+
+## v0.25.0 — 2026-10-25
+
+### Added
+- Near you, your graphics card now moves the water between the server's changes, as water moves: let go, it surges
+  out over the ground, runs up the walls and sloshes back, and waves cross a pool and come back. The server still
+  says how much water is where, and what you swim in. Settings `Client.GpuWater`, `Client.GpuWaterRange` and
+  `Client.GpuWaterCell`; the console command `flowingwater gpu` tells what it is doing. On a graphics card without
+  compute shaders, the water is drawn as the server sends it.
+
 ## v0.24.1 — 2026-10-26
 
 ### Fixed

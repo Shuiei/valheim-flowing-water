@@ -1,0 +1,291 @@
+// FlowingWater's falls, splashes and spray near the camera, on the graphics card: particles thrown from the water the
+// card moves (FlowingWaterSim.compute), only for the look (nothing of them is sent, nor is any water taken from the
+// sheet for them). A ring of particles: each new one takes the next place, the oldest giving way.
+//   EmitFromWater  per cell: fast water throws droplets (rapids); the water the card threw over a lip (where the
+//                  ground beside falls away) leaves as sheets of water at the water's own speed, which fall and arc,
+//                  carrying it; where the server's water falls through the air (a fall the card draws), sheets fall from
+//                  its top (carrying none: the server's pool under it is the card's already).
+//   Move           per particle: thrown and falling, slowed by the air; one meeting the water's surface or the ground
+//                  ends there, adding the water it carries there, a sheet that lands fast throwing up a splash.
+#pragma kernel EmitFromWater
+#pragma kernel Move
+
+// A particle: its place and age (s), its velocity (m/s) and how long it lives (s), its size (m), kind and the water it
+// carries (m3).
+struct Particle
+{
+    float4 placeAge;
+    float4 velocityLife;
+    float4 sizeKind;
+};
+
+#define DROPLET 0.0
+#define SHEET 1.0
+#define SPLASH 2.0
+
+// Two rings: the first _Carriers places for the sheets carrying the card's water (never given to anything else, so none
+// is lost to a droplet), the rest for everything else; the next place to fill in each, counted on (taken modulo its ring).
+RWStructuredBuffer<Particle> _Particles;
+RWStructuredBuffer<uint> _Next;
+uint _Count;
+uint _Carriers;
+
+// The water the card moves (its textures, a cell each), the square's south-west corner (world x, z) and cells.
+Texture2D<float> _H;
+Texture2D<float> _Bed;
+Texture2D<float> _U;
+Texture2D<float> _V;
+int _N;
+float _Dx;
+float2 _Origin;
+
+// The server's water's falls, a texel per voxel column (FlowingWaterSim.compute's _Layers): z = the top of water
+// falling through the air over it (under -1000 none); cells along a voxel's side.
+Texture2D<float4> _Layers;
+int _PerVoxel;
+
+// Falls: so many sheets a second for each square metre a fall covers.
+float _FallRate;
+
+float _Dt;
+float _Gravity;
+uint _Seed;
+
+// Rapids: water faster than this throws droplets, so many a second for each m/s more over each square metre.
+float _SprayFrom;
+float _SprayRate;
+
+// Lips: ground this much lower than the ground beside it (the water's) is a fall; the water thrown over one, by the cell
+// it left (the card's: FlowingWaterSim.compute's), a sheet for each so much of it (m3); the water landed, by the cell
+// (m3 times LAND_SCALE), with its momentum east and north (m3 times m/s, times LAND_SCALE).
+float _LipDrop;
+float _SheetVolume;
+RWTexture2D<float> _Airborne;
+RWTexture2D<int> _Landed;
+RWTexture2D<int> _LandedX;
+RWTexture2D<int> _LandedZ;
+
+#define LAND_SCALE 1000000.0
+#define MOST_SHEETS 8u
+
+// Splashes: a sheet landing faster than this throws up so many droplets.
+float _SplashFrom;
+uint _SplashDroplets;
+
+// A random number in [0, 1) from a seed, which it moves on (PCG hash).
+float Random(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return word / 4294967296.0;
+}
+
+bool Inside(int2 c)
+{
+    return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
+}
+
+// The water a particle carries (m3) added where it is, with the way it moves along the ground (it runs on so): on the
+// card's water or ground under it, inside the square (over ground not known, or past the square, it is lost to the card;
+// the server's water pulls the card's back to it).
+void Land(float3 place, float3 velocity, float water)
+{
+    int2 c = (int2)floor((place.xz - _Origin) / _Dx);
+    if (water > 0.0 && Inside(c) && _Bed[c] < 5000.0)
+    {
+        InterlockedAdd(_Landed[c], (int)(water * LAND_SCALE + 0.5));
+        InterlockedAdd(_LandedX[c], (int)round(water * velocity.x * LAND_SCALE));
+        InterlockedAdd(_LandedZ[c], (int)round(water * velocity.z * LAND_SCALE));
+    }
+}
+
+// A new particle, in its ring's next place: a carrier still in the air there lands its water where it is first.
+void Add(float3 place, float3 velocity, float life, float size, float kind, float water)
+{
+    uint at;
+    if (water > 0.0)
+    {
+        InterlockedAdd(_Next[1], 1u, at);
+        at %= _Carriers;
+        Particle old = _Particles[at];
+        if (old.placeAge.w < old.velocityLife.w)
+        {
+            Land(old.placeAge.xyz, old.velocityLife.xyz, old.sizeKind.z);
+        }
+    }
+    else
+    {
+        InterlockedAdd(_Next[0], 1u, at);
+        at = _Carriers + (at % (_Count - _Carriers));
+    }
+
+    Particle p;
+    p.placeAge = float4(place, 0.0);
+    p.velocityLife = float4(velocity, life);
+    p.sizeKind = float4(size, kind, water, 0.0);
+    _Particles[at] = p;
+}
+
+// How many of something expected this step: its whole part, and one more as often as its fraction.
+uint Count(float expected, inout uint state)
+{
+    return (uint)floor(expected + Random(state));
+}
+
+[numthreads(8, 8, 1)]
+void EmitFromWater(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c) || c.x == 0 || c.y == 0 || c.x == _N - 1 || c.y == _N - 1)
+    {
+        return;
+    }
+
+    uint state = (uint)(c.x * 73856093) ^ (uint)(c.y * 19349663) ^ (_Seed * 83492791u);
+
+    // A fall: sheets from its top down through the air, a little apart, over the cells whose ground is under it.
+    float fallTop = _Layers[c / _PerVoxel].z;
+    if (fallTop > -1000.0 && _Bed[c] + _H[c] < fallTop)
+    {
+        uint n = min(Count(_FallRate * _Dx * _Dx * _Dt, state), 3u);
+        for (uint k = 0; k < n; k++)
+        {
+            float3 place = float3(_Origin.x + ((c.x + Random(state)) * _Dx), fallTop - (0.3 * Random(state)), _Origin.y + ((c.y + Random(state)) * _Dx));
+            float3 velocity = float3(Random(state) - 0.5, -0.5 - Random(state), Random(state) - 0.5) * 0.6;
+            Add(place, velocity, 4.0, 0.04 + (0.05 * Random(state)), SHEET, 0.0);
+        }
+    }
+
+    float h = _H[c];
+    float bed = _Bed[c];
+    float level = bed + h;
+    float2 speed = float2(0.5 * (_U[c] + _U[c - int2(1, 0)]), 0.5 * (_V[c] + _V[c - int2(0, 1)]));
+    float3 centre = float3(_Origin.x + ((c.x + 0.5) * _Dx), level, _Origin.y + ((c.y + 0.5) * _Dx));
+
+    // Lips: the water thrown over them, once there is a sheet's worth, leaves as sheets carrying it all (as few as that
+    // takes), through the faces it leaves by as each carries, where the ground beyond falls away; at its speed, from
+    // just past the face, at the water's top and under it.
+    float thrown = _Airborne[c];
+    if (thrown >= _SheetVolume)
+    {
+        // The faces over a lip as the card's water throws it (the ground and the water beyond well under this ground),
+        // each as much more often as more leaves by it now; the speed out through each.
+        int2 sides[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
+        float weights[4];
+        float brinks[4];
+        float total = 0.0;
+        for (int s = 0; s < 4; s++)
+        {
+            int2 next = c + sides[s];
+            float leaving = s == 0 ? _U[c] : s == 1 ? -_U[c - int2(1, 0)] : s == 2 ? _V[c] : -_V[c - int2(0, 1)];
+            bool lip = _Bed[next] < bed - _LipDrop && _Bed[next] + _H[next] < bed - _LipDrop;
+            brinks[s] = max(leaving, 0.0);
+            weights[s] = lip ? brinks[s] + 0.05 : 0.0;
+            total += weights[s];
+        }
+
+        uint n = min((uint)(thrown / _SheetVolume), MOST_SHEETS);
+        float carried = n == MOST_SHEETS ? thrown : n * _SheetVolume;
+        for (uint k = 0; k < n; k++)
+        {
+            // The face it leaves by (none, if no face is over a lip now: it drops where it is, with the current).
+            float pick = Random(state) * total;
+            int side = -1;
+            for (int t = 0; t < 4 && total > 0.0; t++)
+            {
+                pick -= weights[t];
+                side = side < 0 && pick <= 0.0 ? t : side;
+            }
+
+            float2 along = side >= 0 ? float2(sides[side]) : 0.0;
+            float2 across = side >= 0 ? float2(-along.y, along.x) : float2(1.0, 0.0);
+            float3 place = centre + (float3(along.x, 0.0, along.y) * (0.55 * _Dx)) + (float3(across.x, 0.0, across.y) * ((Random(state) - 0.5) * _Dx)) - float3(0.0, Random(state) * h, 0.0);
+
+            // Out through the face as fast as the water goes over it (the brink's speed), along it as fast as it runs.
+            float2 flat = side >= 0 ? (along * (brinks[side] + (0.2 * Random(state)))) + (across * dot(speed, across)) : speed;
+            float3 velocity = float3(flat.x, 0.0, flat.y);
+            Add(place, velocity, 6.0, 0.04 + (0.06 * min(h, 1.0)) + (0.03 * Random(state)), SHEET, carried / n);
+        }
+
+        _Airborne[c] = thrown - carried;
+    }
+
+    // Rapids: droplets off the surface, along the current, up into the air.
+    float fast = length(speed);
+    if (h >= 0.02 && fast > _SprayFrom)
+    {
+        uint n = min(Count(_SprayRate * (fast - _SprayFrom) * _Dx * _Dx * _Dt, state), 4u);
+        for (uint k = 0; k < n; k++)
+        {
+            float3 jitter = float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * _Dx;
+            float up = 1.0 + (2.5 * Random(state)) + (0.15 * fast);
+            float3 velocity = float3(speed.x * 0.8, up, speed.y * 0.8) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 1.2);
+            Add(centre + jitter, velocity, 0.5 + (0.7 * Random(state)), 0.015 + (0.025 * Random(state)), DROPLET, 0.0);
+        }
+    }
+}
+
+[numthreads(64, 1, 1)]
+void Move(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Count)
+    {
+        return;
+    }
+
+    Particle p = _Particles[id.x];
+    float age = p.placeAge.w;
+    float life = p.velocityLife.w;
+    if (age >= life)
+    {
+        return;
+    }
+
+    float kind = p.sizeKind.y;
+    float3 place = p.placeAge.xyz;
+    float3 velocity = p.velocityLife.xyz;
+    velocity.y -= _Gravity * _Dt;
+    velocity /= 1.0 + (_Dt * (kind == SHEET ? 0.15 : 1.2));
+    place += velocity * _Dt;
+    age += _Dt;
+
+    // Met the water's surface or the ground, inside the square: it ends; a sheet landing fast throws up a splash.
+    int2 c = (int2)floor((place.xz - _Origin) / _Dx);
+    if (Inside(c))
+    {
+        float bed = _Bed[c];
+        float h = _H[c];
+        if (bed < 5000.0 && place.y <= bed + h)
+        {
+            Land(place, velocity, p.sizeKind.z);
+            p.sizeKind.z = 0.0;
+
+            if (kind == SHEET && -velocity.y > _SplashFrom)
+            {
+                uint state = id.x * 9781u + _Seed * 6271u;
+                float strength = min(-velocity.y, 12.0);
+                for (uint k = 0; k < _SplashDroplets; k++)
+                {
+                    float angle = 6.2831853 * Random(state);
+                    float outward = (0.3 + Random(state)) * 0.25 * strength;
+                    float3 kick = float3(cos(angle) * outward, (0.3 + (0.5 * Random(state))) * 0.45 * strength, sin(angle) * outward);
+                    Add(float3(place.x, bed + h, place.z), kick + (0.3 * float3(velocity.x, 0.0, velocity.z)), 0.4 + (0.6 * Random(state)), 0.02 + (0.03 * Random(state)), SPLASH, 0.0);
+                }
+            }
+
+            age = life;
+        }
+    }
+
+    // At its life's end in the air, a carrier lands its water where it is.
+    if (age >= life && p.sizeKind.z > 0.0)
+    {
+        Land(place, velocity, p.sizeKind.z);
+        p.sizeKind.z = 0.0;
+    }
+
+    p.placeAge = float4(place, age);
+    p.velocityLife = float4(velocity, life);
+    _Particles[id.x] = p;
+}
