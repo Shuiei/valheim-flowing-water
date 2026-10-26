@@ -119,6 +119,14 @@ Shader "FlowingWater/Water"
             return float4(lerp(tex2Dlod(_SurfacePrev, uv).xyz, next.xyz, BlendShare()), next.w);
         }
 
+        // The top at a place in the columns where water shows there, else this one (a dry column's top is no slope of the
+        // water's).
+        float WetTopAt(float2 cell, float otherwise)
+        {
+            float4 surface = SurfaceAt(cell);
+            return surface.z > 0.01 ? surface.x : otherwise;
+        }
+
         float4 FlowAt(float2 cell)
         {
             float4 uv = float4(GridUv(cell), 0.0, 0.0);
@@ -153,7 +161,9 @@ Shader "FlowingWater/Water"
             o.world = world;
             o.water = float4(surface.y, flow.z, surface.z, Churn(crest, saturate(length(flow.xy) / _RapidsSpeed), 0.0));
             o.current = flow.xy;
-            o.steep = length(float2(east, north)) / max(_VoxelSize, 0.001);
+            float wetEast = WetTopAt(cell + float2(0.5, 0.0), surface.x) - WetTopAt(cell - float2(0.5, 0.0), surface.x);
+            float wetNorth = WetTopAt(cell + float2(0.0, 0.5), surface.x) - WetTopAt(cell - float2(0.0, 0.5), surface.x);
+            o.steep = length(float2(wetEast, wetNorth)) / max(_VoxelSize, 0.001);
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }

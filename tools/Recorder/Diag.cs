@@ -128,9 +128,11 @@ public sealed partial class Recorder
         WorldGenerator generator = WorldGenerator.instance;
         float sea = ZoneSystem.instance.m_waterLevel;
         Site best = null;
-        for (float dz = -reach; dz <= reach; dz += 8f)
+        // At most 200 places along a side (40 000 in all): the search runs on the game's thread, in one frame.
+        float step = Mathf.Max(8f, 2f * reach / 200f);
+        for (float dz = -reach; dz <= reach; dz += step)
         {
-            for (float dx = -reach; dx <= reach; dx += 8f)
+            for (float dx = -reach; dx <= reach; dx += step)
             {
                 float x = around.x + dx, z = around.z + dz;
                 float h = generator.GetHeight(x, z);
