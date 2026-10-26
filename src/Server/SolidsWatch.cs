@@ -6,10 +6,11 @@ using UnityEngine;
 namespace FlowingWater.Server;
 
 /// <summary>
-/// Keeps the water's solids up to date: a piece destroyed (the server hears of each) or built, moved, turned, opened
-/// or closed (each zone holding water is looked over every few seconds), and the bricks within its reach read their
-/// solids again; the ground changed by a player, and the bricks over that zone do. The looking is spread over
-/// frames, a part of a zone's objects at a time, so that a big base by the water does not stall one.
+/// Keeps the water's solids up to date: an object destroyed (the server hears of each: a piece broken, a tree felled,
+/// a rock mined away) or built, moved, turned, mined, opened or closed (each zone holding water is looked over every
+/// few seconds), and the bricks within its reach read their solids again; the ground changed by a player, and the
+/// bricks over that zone do. The looking is spread over frames, a part of a zone's objects at a time, so that a big
+/// base by the water does not stall one.
 /// </summary>
 internal sealed class SolidsWatch
 {
@@ -20,8 +21,8 @@ internal sealed class SolidsWatch
 
     private const int PartObjects = 64;
 
-    // Zones this close to a brick are looked over, metres, at least (farther when the game's pieces reach farther): a
-    // piece standing in one may reach the brick. Zones holding pieces scaled to reach farther are looked over too.
+    // Zones this close to a brick are looked over, metres, at least (farther when the game's prefabs reach farther): an
+    // object standing in one may reach the brick. Zones holding objects reaching farther are looked over too.
     private const float Reach = 4f;
 
     // The most of a frame bricks reading their solids again may take, milliseconds (a brick at least), after the look.
@@ -31,7 +32,7 @@ internal sealed class SolidsWatch
 
     private readonly ZoneTerrain _terrain;
 
-    // The pieces as last looked at, and what changed since the bricks read their solids.
+    // The objects as last looked at, and what changed since the bricks read their solids.
     private readonly SolidsChanges<Vector2s, ZDOID> _changes = new(TileData.Key);
 
     // Each round of looking, spread over frames.
@@ -43,12 +44,12 @@ internal sealed class SolidsWatch
 
     private float _timer;
 
-    // How many zones holding far-reaching pieces had been found when last looked at.
+    // How many zones holding far-reaching objects had been found when last looked at.
     private int _grown;
 
     /// <summary>
     /// Zones whose ground is read with no brick near them (the config's fixed sources and drains stand on it): their
-    /// heights are kept, not let go and made again at each look for markers. Not looked over for pieces.
+    /// heights are kept, not let go and made again at each look for markers. Not looked over for objects.
     /// </summary>
     public HashSet<Vector2s> Pinned { get; } = [];
 
@@ -76,13 +77,15 @@ internal sealed class SolidsWatch
     /// <returns>How many bricks read their solids again.</returns>
     public int Update(float dt, VoxelGrid grid)
     {
-        // A zone holding pieces reaching farther than the game's own was found: bricks that read their solids before
-        // may have missed them, so every brick reads them again.
+        // A zone holding objects reaching farther than the game's prefabs was found (a whole place, a rock scaled
+        // up): bricks that read their solids before may have missed them, so those meeting them read them again.
         if (_solids.Grown != _grown)
         {
             _grown = _solids.Grown;
-            _solids.ForgetAll();
-            _changes.All();
+            foreach ((Vec3 low, Vec3 high) in _solids.TakeGrown())
+            {
+                _changes.Place(low, high);
+            }
         }
 
         _timer += dt;
@@ -100,7 +103,7 @@ internal sealed class SolidsWatch
         return _changes.Refill(grid, _solids.Forget, _refillTimeLeft);
     }
 
-    // What is kept of the zones no brick is near any more is let go: their pieces as last looked at, their solids and
+    // What is kept of the zones no brick is near any more is let go: their objects as last looked at, their solids and
     // heights (but the heights of the pinned zones). A brick there again reads them anew.
     private void Keep(HashSet<Vector2s> zones)
     {
@@ -123,21 +126,21 @@ internal sealed class SolidsWatch
     private void Destroyed(ZDO zdo)
     {
         // The water switched off is not watched (nothing would read what piled up until it is on again): the first look
-        // once it is on finds the piece gone, as it is still among those last looked at.
-        if (FlowingWaterPlugin.Settings.Enabled.Value && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
+        // once it is on finds the object gone, as it is still among those last looked at.
+        if (FlowingWaterPlugin.Settings.Enabled.Value && _solids.Shapes.Has(zdo))
         {
             _changes.Destroyed(ZoneSystem.GetZone(zdo.GetPosition()), zdo.m_uid, At(zdo.GetPosition()), _solids.Shapes.Reach(zdo));
         }
     }
 
-    // One object of a zone looked at: a piece's place, reach, turn, state and scale. One destroyed since it was found is
-    // left out, or read as whatever object it is now: at worst a change that was none.
+    // One object of a zone looked at: its place, reach, turn, state (a door's, a mined rock's bits) and scale. One
+    // destroyed since it was found is left out, or read as whatever object it is now: at worst a change that was none.
     private void Read(ZDO zdo)
     {
-        if (zdo.IsValid() && _solids.Shapes.Count(zdo.GetPrefab()) > 0)
+        if (zdo.IsValid() && _solids.Shapes.Has(zdo))
         {
-            Vector3 scale = PieceShapes.Scale(zdo);
-            _changes.Found(zdo.m_uid, At(zdo.GetPosition()), _solids.Shapes.Reach(zdo, scale), unchecked((((zdo.GetRotation().GetHashCode() * 31) + zdo.GetInt(ZDOVars.s_state)) * 31) + scale.GetHashCode()));
+            Vector3 scale = SolidShapes.Scale(zdo);
+            _changes.Found(zdo.m_uid, At(zdo.GetPosition()), _solids.Shapes.Reach(zdo, scale), unchecked((((zdo.GetRotation().GetHashCode() * 31) + _solids.Shapes.State(zdo)) * 31) + scale.GetHashCode()));
         }
     }
 
@@ -155,7 +158,7 @@ internal sealed class SolidsWatch
 
     private static Vec3 At(Vector3 point) => new(point.x, point.y, point.z);
 
-    // The zones a piece of which may reach a brick or the voxel round it: those under each brick, or within that far
+    // The zones an object of which may reach a brick or the voxel round it: those under each brick, or within that far
     // of it.
     private static HashSet<Vector2s> Zones(VoxelGrid grid, float reach)
     {

@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.37.0 — 2026-10-26
+
+### Added
+- Everything solid is ground for the water, not only what players build: rocks, trees, stumps and the ruins and rocks
+  of the game's places, each by the real shape of its collider mesh (an overhang, an arch, a cave under a rock), so a
+  source on a rock pours over its top and down its side instead of through it. A rock mined bit by bit lets the water
+  through where it is gone. The players' game already cast its ground on the same things, so what it draws and what
+  the server moves now agree there.
+
 ## v0.36.0 — 2026-10-26
 
 ### Added
