@@ -245,7 +245,9 @@ there to the new grid (same volume), at once when the file is saved.
   shallow to deep with the water's depth. Running water, churned and carrying silt, is less clear (a quarter as clear
   once it fully runs) and takes the deep colour at 1.5 m deep instead of 6 m, so a river reads as a river. Still water's ripples drift with the game's wind, as the sea's; running
   water's are dragged along the current in two offset phases (flow mapping), finer than the sea's, and it foams
-  with its speed (rapids) and where the simulation says it falls. Its edge fades out over the last two centimetres
+  with its speed (rapids) and where the simulation says it falls. The faster it runs, the more its foam is drawn out
+  in streaks along the current (each point looks back up its own current a few times, over 0.4 s of its way), and
+  the foam is broken into lace by a finer foam running with it. Its edge fades out over the last two centimetres
   of water in front of the ground, with a band of foam just off it; shallow water a few centimetres deep, a stream
   from a source or a puddle, is drawn (the sea hides its shallows, ours lies on the water's own top).
 - **Erosion** (off by default). Water carries ground (sediment, counted as a height over the cell): fast water
