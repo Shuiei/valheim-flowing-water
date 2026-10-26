@@ -140,9 +140,10 @@ internal sealed class VoxelShell
 
                 bottom = Math.Max(bottom, beside);
             }
-            else if (field.IsWet(x + dx, y - 1, z + dz))
+            else if (field.IsWet(x + dx, y - 1, z + dz) && !field.IsWet(x + dx, y + 1, z + dz))
             {
-                // Water beside a voxel lower: the water steps down to it, the surface joining them.
+                // Water beside a voxel lower, the top of its column: the water steps down to it, the surface joining
+                // them (with water higher up that column, on a ledge or a floor, the surface joins that: the side stays).
                 continue;
             }
 
