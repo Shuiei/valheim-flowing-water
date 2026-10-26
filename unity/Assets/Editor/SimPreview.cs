@@ -35,25 +35,30 @@ public static class SimPreview
             Directory.CreateDirectory(_output);
             BuildBundles.Prepare();
 
-            // FW_PREVIEW_ONLY (a scene's name, as "edge"): that scene alone.
+            // FW_PREVIEW_ONLY (a scene's name, as "edge"): that scene alone; a name of none is refused.
             string only = Environment.GetEnvironmentVariable("FW_PREVIEW_ONLY");
             var scenes = new (string Name, Action Run)[]
             {
                 ("dambreak", () => DamBreak(0.03f)),
-                ("dambreak", () => DamBreak(0f)),
+                ("dambreak-smooth", () => DamBreak(0f)),
                 ("slosh", Slosh),
                 ("obstacle", Obstacle),
                 ("follow", Follow),
                 ("ledge", () => Ledge(true)),
-                ("ledge", () => Ledge(false)),
+                ("ledge-unthrown", () => Ledge(false)),
                 ("shift", Shift),
-                ("shift", ShiftThrown),
+                ("shift-thrown", ShiftThrown),
                 ("spray", Spray),
                 ("look", LookOnly),
                 ("edge", Edge),
                 ("waves", Waves),
                 ("cost", Cost),
             };
+            if (!string.IsNullOrEmpty(only) && scenes.All(s => s.Name != only))
+            {
+                throw new ArgumentException($"FW_PREVIEW_ONLY: no scene {only} ({string.Join(", ", scenes.Select(s => s.Name))})");
+            }
+
             foreach (var scene in scenes.Where(s => string.IsNullOrEmpty(only) || s.Name == only))
             {
                 scene.Run();
@@ -415,7 +420,8 @@ public static class SimPreview
                     }
                 }
 
-                int last = (int)(front / Dx);
+                // The last wet cell (front is its far side).
+                int last = (int)(front / Dx) - 1;
                 string behind = string.Join(" ", Enumerable.Range(0, 12).Select(n => h[(80 * Cells) + Math.Max(last - n, 0)].ToString("0.000", CultureInfo.InvariantCulture)));
                 Log.AppendLine(Inv($"  t={k * Frame:0.0}s front at x = {front:0.00} m along z = 20 m; depth back from it, every 0.25 m: {behind}"));
                 float Height(float x) => 0.04f * (40f - x);

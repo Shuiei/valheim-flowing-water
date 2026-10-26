@@ -135,9 +135,10 @@ where), so the waves finer than a voxel are the card's own.
   near it, so walls round a pool hold the card's water; only the faces pieces close at the water's level are walls
   besides (the server's faces closed by the ground itself, each step of a slope, are left to the ground cast).
 - **The water's body.** What is behind or under the water is seen through so much of it along the view (more looking
-  across a pool than down into it): its light goes as it does in water, red first (two thirds of it through 1.2 m), and
-  it blurs; the water's own colour takes its place. A few centimetres of water stay clear. `_BodyDepth`, `_BodyTint`
-  and `_BodyBlur` on both water materials (`flowingwater mat custom\|card`).
+  across a pool than down into it): its light goes as it does in water, red first (through 1.2 m, four fifths of its
+  red, two thirds of its green and three fifths of its blue), and it blurs; the water's own colour takes its place. A
+  few centimetres of water stay clear. `_BodyDepth`, `_BodyTint` and `_BodyBlur` on both water materials
+  (`flowingwater mat custom\|card`).
 - **The water's edge.** Near the camera, the water ends where its depth between the cells runs out, a smooth curve
   rather than the cells' steps, and stays whole up to it. Within its front's height of that edge (5 cm at most) the
   surface rounds over down to the ground, its ripples smoothed out, what is behind bent more (a lens) and darker where
