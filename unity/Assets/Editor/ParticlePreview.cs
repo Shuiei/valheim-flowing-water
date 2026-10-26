@@ -71,6 +71,11 @@ public static class ParticlePreview
                 Cost();
             }
 
+            if (Runs("surface"))
+            {
+                SurfaceCost();
+            }
+
             File.WriteAllText(Path.Combine(_output, "particles.txt"), Log.ToString());
             Debug.Log($"FlowingWater: particle preview written to {_output}");
         }
@@ -433,6 +438,70 @@ public static class ParticlePreview
             float moving = Measure(scene.Water, 120);
             Log.AppendLine(Inv($"Cost: {added} particles, frames of 60 fps ({scene.Water.Substeps} steps of {scene.Water.Iterations} rounds each): {still:0.000} ms a frame at rest, {moving:0.000} ms stirred (with {scene.Water.Count - added} more dropped in)"));
         }
+    }
+
+    // What drawing the surface costs: a pool of 32 000 particles filling the view, drawn 60 times with no particles
+    // (the scene alone), as spheres, as water at half the screen's size and at its full size (1280 x 720), the time of
+    // each render waited for.
+    private static void SurfaceCost()
+    {
+        float[] bed = Field((x, z) => x < 10f || x > 20f || z < 10f || z > 20f ? 10f : 0f);
+        using var scene = new Scene("psurface", bed, 32000);
+        scene.Water.Add(new Vector3(10f, 0f, 10f), new Vector3(16f, 0.9f, 16f));
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        var material = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath);
+        float Time(bool spheres, float scale, bool none)
+        {
+            ParticleSurface.Spheres = spheres;
+            ParticleSurface.Scale = scale;
+            var camera = new GameObject("Camera").AddComponent<Camera>();
+            camera.transform.position = new Vector3(13f, 3.5f, 8f);
+            camera.transform.LookAt(new Vector3(13f, 0.4f, 13f));
+            camera.clearFlags = CameraClearFlags.Skybox;
+            camera.depthTextureMode = DepthTextureMode.Depth;
+            camera.fieldOfView = 60f;
+            var target = new RenderTexture(1280, 720, 24);
+            camera.targetTexture = target;
+            using var surface = new ParticleSurface();
+            using var empty = new ParticleWater(AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.ParticlesComputePath), scene.Water.Material, 16);
+            ParticleWater drawn = none ? empty : scene.Water;
+            for (int k = 0; k < 5; k++)
+            {
+                surface.Render(camera, drawn, material);
+                camera.Render();
+            }
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int k = 0; k < 60; k++)
+            {
+                surface.Render(camera, drawn, material);
+                camera.Render();
+            }
+
+            AsyncGPUReadback.Request(target).WaitForCompletion();
+            float ms = (float)(watch.Elapsed.TotalMilliseconds / 60);
+            camera.targetTexture = null;
+            UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            UnityEngine.Object.DestroyImmediate(target);
+            return ms;
+        }
+
+        // Each way twice, the second time counted: the first renders of a way compile its shaders.
+        Time(true, 0.5f, false);
+        Time(false, 0.5f, false);
+        Time(false, 1f, false);
+        Time(false, 0.5f, true);
+        float spheres = Time(true, 0.5f, false);
+        float half = Time(false, 0.5f, false);
+        float full = Time(false, 1f, false);
+        float nothing = Time(false, 0.5f, true);
+        ParticleSurface.Spheres = false;
+        ParticleSurface.Scale = 0.5f;
+        Log.AppendLine(Inv($"Surface: 32 000 particles filling a 1280 x 720 view, a render with none {nothing:0.00} ms, as spheres {spheres:0.00} ms, as water at half the size {half:0.00} ms, at the full size {full:0.00} ms"));
     }
 
     // Milliseconds a frame over so many frames, waited for.

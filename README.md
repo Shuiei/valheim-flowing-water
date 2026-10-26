@@ -46,7 +46,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
-| `flowingwater particles [m³\|clear\|spheres]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water |
+| `flowingwater particles [m³\|clear\|spheres\|full]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water; `full` draws the water's surface at the screen's full size instead of half, again for half |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
@@ -244,7 +244,9 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
   air: thin water, spray); then one triangle over the screen, drawn with the transparent things after the sheet, takes
   the surface's slope from the distances and gives it the sea's look as the sheet has it: what is behind bent and
   tinted by the water seen through, the sky and the sun on the surface, foam where the water is air, the sea's fog.
-  `flowingwater particles spheres` shows the particles themselves.
+  The two textures are half the screen's size each way (a quarter of the pixels: the surface is smooth anyway, and its
+  edge steps by two pixels); `flowingwater particles full` draws them at the screen's size, `spheres` shows the
+  particles themselves.
 
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
 off a ledge into a basin, a sphere pushed through a pool, the card's sheet pouring over a lip as particles, water
@@ -253,7 +255,9 @@ poured onto a slab (what players build), and a cost scene, and writes `particles
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
 filled 1 m deep settles 1 % pressed down, its particles drifting 3 cm/s after 3 s; the 10 m dam break's front reaches
 the far wall at 1.30 s (a real one about 1.3 to 1.5 s; the sheet 1.25 s) and runs 3 m up it; moving 64 000 particles
-costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms), drawing them comes on top.
+costs 1.1 ms a frame at 60 fps (8 rounds a step; 16 000 cost 0.8 ms); drawing 32 000 of them filling a 1280 × 720
+view as water costs 0.55 ms more than the scene alone with the surface at half the screen's size (0.95 ms at its full
+size; 0.45 ms as spheres), and grows with the screen.
 
 What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
 floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is

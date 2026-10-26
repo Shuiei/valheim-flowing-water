@@ -9,8 +9,9 @@ namespace FlowingWater.Client;
 /// command buffer on the camera, before the scene's transparent things, makes two textures with the mod's
 /// FlowingWaterParticles shader (the nearest particle's distance at each pixel, smoothed into one surface; the water
 /// the view goes through there), and the FlowingWaterParticleSurface shader then draws the water over the scene with
-/// the transparent things, after the sheet of water near the camera, grabbing what is behind as the sheet does. Needs
-/// only Unity, so the Unity project's preview draws it too.
+/// the transparent things, after the sheet of water near the camera, grabbing what is behind as the sheet does. The two
+/// textures are smaller than the screen (<see cref="Scale"/>): the surface is smooth, and its passes cost a quarter.
+/// Needs only Unity, so the Unity project's preview draws it too.
 /// </summary>
 internal sealed class ParticleSurface : IDisposable
 {
@@ -49,6 +50,13 @@ internal sealed class ParticleSurface : IDisposable
     public static bool Spheres { get; set; }
 
     /// <summary>
+    /// The size of the surface's textures as a share of the screen's, each way: half (the default) costs a quarter of
+    /// the full size's passes, and the surface's edge steps by two pixels; 1 is the screen's own (the console's
+    /// "flowingwater particles full").
+    /// </summary>
+    public static float Scale { get; set; } = 0.5f;
+
+    /// <summary>
     /// The water as this camera will draw it next: the command buffer filled for this frame's particles (as many as the
     /// card says there are), on the camera (moved from the last one if it changed), and the surface drawn over the scene
     /// with <paramref name="surface"/> (the mod's particle surface material).
@@ -76,7 +84,7 @@ internal sealed class ParticleSurface : IDisposable
             return;
         }
 
-        Textures(camera.pixelWidth, camera.pixelHeight);
+        Textures(Mathf.Max(1, Mathf.RoundToInt(camera.pixelWidth * Scale)), Mathf.Max(1, Mathf.RoundToInt(camera.pixelHeight * Scale)));
         _commands.SetRenderTarget(_depth);
         _commands.ClearRenderTarget(true, true, Color.clear);
         _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, DepthPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
