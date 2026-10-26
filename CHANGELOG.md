@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.5 — 2026-10-26
+
+### Changed
+- Shallow still water keeps more of its ripples and takes on the water's colour with its depth, so a flooded meadow
+  reads less like a pale sheet of ice.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed
