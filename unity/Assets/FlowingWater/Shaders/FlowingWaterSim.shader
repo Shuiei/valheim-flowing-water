@@ -47,6 +47,7 @@ Shader "FlowingWater/SimWater"
         [HideInInspector] _SimCells ("Cells along a side", Float) = 384
         [HideInInspector] _SimDx ("Cell side (m)", Float) = 0.25
         [HideInInspector] _Lift ("Lift (m)", Float) = 0
+        [HideInInspector] _FadeCliffs ("Falls drawn by particles (1): drops faded", Float) = 0
     }
 
     SubShader
@@ -70,12 +71,24 @@ Shader "FlowingWater/SimWater"
         sampler2D _SimV;
         float _SimCells;
         float _SimDx;
+        float _FadeCliffs;
 
         #include "FlowingWaterLook.cginc"
 
         // Water thinner than this is not drawn, and this much deeper it is drawn whole (m), as the bricks' (1 to 3 cm).
         #define HIDE_DEPTH 0.01
         #define SHOW_DEPTH 0.02
+
+        // Water this much higher or lower than the water a cell away (m, for cells of a quarter metre: as steep for others)
+        // begins to fade out from it, gone this much more; only while the falls are particles (_FadeCliffs), which draw
+        // that drop (else the grid joins the two levels, as the blocks would).
+        #define CLIFF_FROM 0.5
+        #define CLIFF_FADE 0.3
+        #define CLIFF_CELL 0.25
+
+        // A face of the grid steeper than this (the up of its normal) begins to fade, gone at the second.
+        #define STEEP_FROM 0.45
+        #define STEEP_GONE 0.3
 
         float At(sampler2D state, float2 p)
         {
@@ -99,12 +112,15 @@ Shader "FlowingWater/SimWater"
             // the grid's squares join diagonal ones too), or under its own ground where that is lower: its squares fade
             // out at the water's edge, and never reach up to a cell whose ground is not known (a wall far over everything).
             float wet = -1e9;
+            float drop = 0.0;
             float2 sides[8] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0), float2(1.0, -1.0), float2(-1.0, -1.0) };
             for (int k = 0; k < 8; k++)
             {
                 if (At(_SimH, p + sides[k]) > HIDE_DEPTH * 0.5)
                 {
-                    wet = max(wet, LevelAt(p + sides[k]));
+                    float there = LevelAt(p + sides[k]);
+                    wet = max(wet, there);
+                    drop = max(drop, abs(there - (bed + depth)));
                 }
             }
 
@@ -123,7 +139,11 @@ Shader "FlowingWater/SimWater"
             float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;
-            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)), 0.0);
+            // Water a cell from water much higher or lower (over a ledge, down a fall) is not joined to it: the grid's
+            // squares between them would be a wall of water, drawn by the falls instead.
+            float steep = _SimDx / CLIFF_CELL;
+            float joined = 1.0 - (_FadeCliffs * saturate((drop - (CLIFF_FROM * steep)) / (CLIFF_FADE * steep)));
+            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, 0.0);
             o.current = current;
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
@@ -137,8 +157,17 @@ Shader "FlowingWater/SimWater"
                 discard;
             }
 
+            // A face of the grid standing up (between water far apart in height: a wet cell and a dry one raised by water
+            // higher beside it) is no water: it fades out as it stands up.
+            float up = _FadeCliffs > 0.5 ? abs(normalize(cross(ddy(i.worldPos), ddx(i.worldPos))).y) : 1.0;
+            if (up < STEEP_GONE)
+            {
+                discard;
+            }
+
             Look(i, o);
             DebugColour(o, float3(0.1, 0.3, 1.0));
+            o.Alpha *= saturate((up - STEEP_GONE) / (STEEP_FROM - STEEP_GONE));
         }
         ENDCG
     }

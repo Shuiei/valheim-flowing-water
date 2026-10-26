@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using FlowingWater.Volume;
@@ -44,6 +45,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
     private static readonly int CellSizeId = Shader.PropertyToID("_SimDx");
     private static readonly int LiftId = Shader.PropertyToID("_Lift");
+    private static readonly int FadeCliffsId = Shader.PropertyToID("_FadeCliffs");
     private static readonly int DebugColoursId = Shader.PropertyToID("_FWDebugColours");
 
     // The grid drawn, and its shape (cells and cell size): each square of that shape draws the same; one of another shape
@@ -69,6 +71,9 @@ internal sealed class GpuWater : IDisposable
 
     private readonly SimGrid _grid;
 
+    // Its falls, splashes and spray (Client.Spray), made when first wanted.
+    private SprayParticles _spray;
+
     private readonly BedCast _cast;
 
     // The ground under each cell as cast (NaN where not yet), and how many times a cast changed it.
@@ -83,7 +88,7 @@ internal sealed class GpuWater : IDisposable
     private readonly MaterialPropertyBlock _properties = new();
 
     // The build of the server's water for the card under way, and what it was built from.
-    private Task<(float[] Texels, float[] Cast)> _build;
+    private Task<(float[] Texels, float[] Layers, float[] Cast)> _build;
 
     // The bricks in the square the build under way, and the last one, were made from (a brick's water is never changed
     // in place: new data is a new view, so the same views are the same water); the ground's version each was made with.
@@ -92,6 +97,11 @@ internal sealed class GpuWater : IDisposable
     private List<BrickView> _builtBricks;
 
     private int _buildingGround;
+
+    // Whether the build under way, and the last one, mark falls for the card's spray (Client.Spray).
+    private bool _buildingFalls;
+
+    private bool _builtFalls;
 
     private int _builtGround = -1;
 
@@ -111,6 +121,9 @@ internal sealed class GpuWater : IDisposable
     private bool _castOnce;
 
     private bool _seeded;
+
+    // The last build's texels (for the console).
+    private float[] _texels;
 
     private GpuWater(SimWindow window, Material material, ComputeShader compute)
     {
@@ -191,6 +204,76 @@ internal sealed class GpuWater : IDisposable
             $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}");
     }
 
+    /// <summary>
+    /// The nine voxel columns round a place, for the console ("flowingwater gpu columns"): each one's texel as last built
+    /// for the card, the ground cast under its cells, and its voxels holding water or part solid within 8 m of it.
+    /// </summary>
+    public static IEnumerable<string> Columns(Vector3 point)
+    {
+        if (_water?._texels == null)
+        {
+            yield return "flowingwater: " + Describe();
+            yield break;
+        }
+
+        SimWindow w = _water._window;
+        int cx = (int)Math.Floor(point.x / w.VoxelSize), cz = (int)Math.Floor(point.z / w.VoxelSize);
+        int cy = (int)Math.Floor(point.y / w.VoxelSize), reach = (int)Math.Ceiling(8f / w.VoxelSize);
+
+        // Who draws each column with water within 8 voxels up or down, 8 voxels round (north up): '.' no water, 'c' the
+        // card, 'b' the bricks; '@' here.
+        for (int z = cz + 8; z >= cz - 8; z--)
+        {
+            var line = new System.Text.StringBuilder(FormattableString.Invariant($"  z {z,5}: "));
+            for (int x = cx - 8; x <= cx + 8; x++)
+            {
+                int vx = x - w.X0, vz = z - w.Z0;
+                int k = (vz * w.Columns) + vx;
+                bool inside = vx >= 0 && vz >= 0 && vx < w.Columns && vz < w.Columns;
+                bool wet = false;
+                for (int y = cy - reach; y <= cy + reach && inside && !wet; y++)
+                {
+                    wet = VoxelWater.Field.IsWet(x, y, z);
+                }
+
+                line.Append(x == cx && z == cz ? '@' : !wet ? '.' : _water._texels[(k * SimColumns.Texel) + 1] > 0.5f ? 'c' : 'b');
+            }
+
+            yield return line.ToString();
+        }
+        for (int x = cx - 1; x <= cx + 1; x++)
+        {
+            for (int z = cz - 1; z <= cz + 1; z++)
+            {
+                int vx = x - w.X0, vz = z - w.Z0;
+                if (vx < 0 || vz < 0 || vx >= w.Columns || vz >= w.Columns)
+                {
+                    continue;
+                }
+
+                int k = (vz * w.Columns) + vx;
+                float[] t = _water._texels;
+                var beds = new List<string>();
+                for (int j = 0; j < w.PerVoxel; j++)
+                {
+                    for (int i = 0; i < w.PerVoxel; i++)
+                    {
+                        beds.Add(_water._ground[(((vz * w.PerVoxel) + j) * w.Cells) + (vx * w.PerVoxel) + i].ToString("0.00", CultureInfo.InvariantCulture));
+                    }
+                }
+
+                yield return FormattableString.Invariant($"column {x},{z}: top {t[k * SimColumns.Texel]:0.00} drawn {t[(k * SimColumns.Texel) + 1]} depth {t[(k * SimColumns.Texel) + 2]:0.00} w {t[(k * SimColumns.Texel) + 3]:0.00}; ground {string.Join(" ", beds)}");
+                for (int y = cy + reach; y >= cy - reach; y--)
+                {
+                    if (VoxelWater.Field.Voxel(x, y, z, out BrickView view, out int index) && (view.Water[index] > VoxelField.Wet || (view.Solid[index] > 0f && view.Solid[index] < 1f)))
+                    {
+                        yield return FormattableString.Invariant($"  row {y} ({y * w.VoxelSize:0.0} m): solid {view.Solid[index]:0.00} water {view.Water[index]:0.00} open {view.Open[index]}");
+                    }
+                }
+            }
+        }
+    }
+
     private static void TickOn()
     {
         if (!Wanted(out string why, out Material material, out ComputeShader compute, out Vector3 camera))
@@ -269,6 +352,7 @@ internal sealed class GpuWater : IDisposable
     public void Dispose()
     {
         _cast.Dispose();
+        _spray?.Dispose();
         _grid.Dispose();
         UnityEngine.Object.Destroy(_object);
 
@@ -295,7 +379,9 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
+        _grid.Throws = _spray != null;
         _grid.Step(Time.deltaTime);
+        Spray();
         Shader.SetGlobalFloat(OnId, 1f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
@@ -307,8 +393,32 @@ internal sealed class GpuWater : IDisposable
         _properties.SetFloat(CellsId, _window.Cells);
         _properties.SetFloat(CellSizeId, _window.CellSize);
         _properties.SetFloat(LiftId, WaterBrick.Lift);
+        _properties.SetFloat(FadeCliffsId, _spray != null ? 1f : 0f);
         _renderer.SetPropertyBlock(_properties);
         _renderer.enabled = true;
+    }
+
+    // The falls, splashes and spray, while Client.Spray is on: thrown from the water just moved, moved, and drawn over
+    // the square (as high as any water).
+    private void Spray()
+    {
+        if (!FlowingWaterPlugin.Settings.Spray.Value || !Materials.Spray(out Material material, out ComputeShader compute))
+        {
+            // Gone: the water it would have carried or landed is let go (the server's pulls the card's back to it).
+            if (_spray != null)
+            {
+                _spray.Dispose();
+                _spray = null;
+                _grid.ClearThrown();
+            }
+
+            return;
+        }
+
+        var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        _spray ??= new SprayParticles(compute, material);
+        _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
+        _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }
 
     // The server's water built for the card, handed to it: the first one seeds it.
@@ -319,18 +429,20 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        Task<(float[] Texels, float[] Cast)> build = _build;
+        Task<(float[] Texels, float[] Layers, float[] Cast)> build = _build;
         _build = null;
         if (build.IsFaulted)
         {
             throw new InvalidOperationException("the server's water could not be built for the graphics card", build.Exception);
         }
 
-        _grid.SetTarget(build.Result.Texels);
+        _grid.SetTarget(build.Result.Texels, build.Result.Layers);
+        _texels = build.Result.Texels;
         _castFrom = build.Result.Cast;
         MarkCastFirst();
         _builtBricks = _buildingBricks;
         _builtGround = _buildingGround;
+        _builtFalls = _buildingFalls;
         if (!_seeded)
         {
             _grid.Seed();
@@ -342,7 +454,8 @@ internal sealed class GpuWater : IDisposable
     // it changed, on another thread (water changing elsewhere in the world builds nothing).
     private void StartBuild(List<BrickView> near)
     {
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && _builtBricks != null && near.SequenceEqual(_builtBricks)))
+        bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
         }
@@ -352,11 +465,12 @@ internal sealed class GpuWater : IDisposable
         SimWindow w = _window;
         _buildingBricks = bricks;
         _buildingGround = _groundVersion;
+        _buildingFalls = falls;
         _builtAt = Time.time;
         _build = Task.Run(() =>
         {
-            float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast);
-            return (texels, cast);
+            float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, out float[] layers, falls);
+            return (texels, layers, cast);
         });
     }
 

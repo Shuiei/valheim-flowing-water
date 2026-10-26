@@ -8,7 +8,9 @@ out="$(realpath -m "${1:-preview}")"
 unity="${UNITY:-$HOME/Unity/Hub/Editor/6000.0.75f1/Editor/Unity}"
 mkdir -p "$root/unity/Assets/Editor/Shared" "$out"
 # Unity compiles C# 9: the file-scoped namespace becomes a block.
-sed -e 's/^namespace \(.*\);$/namespace \1 {/' "$root/src/Client/SimGrid.cs" > "$root/unity/Assets/Editor/Shared/SimGrid.cs"
-echo "}" >> "$root/unity/Assets/Editor/Shared/SimGrid.cs"
+for file in SimGrid SprayParticles; do
+  sed -e 's/^namespace \(.*\);$/namespace \1 {/' "$root/src/Client/$file.cs" > "$root/unity/Assets/Editor/Shared/$file.cs"
+  echo "}" >> "$root/unity/Assets/Editor/Shared/$file.cs"
+done
 FW_PREVIEW_OUT="$out" xvfb-run -a -s "-screen 0 1920x1080x24" "$unity" -batchmode -quit -projectPath "$root/unity" \
   -executeMethod SimPreview.Run -logFile "$out/unity.log"

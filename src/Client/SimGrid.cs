@@ -21,6 +21,15 @@ internal sealed class SimGrid : IDisposable
     /// <summary>The ground of a cell whose ground is not known: so high no water goes there.</summary>
     public const float Wall = 10000f;
 
+    /// <summary>
+    /// Ground this much lower than the ground beside it (and its water too), metres, is past a lip: water running over it
+    /// falls, thrown while <see cref="Throws"/>.
+    /// </summary>
+    public const float LipDrop = 0.6f;
+
+    /// <summary>The units of <see cref="Landed"/> in a cubic metre (the compute shaders' LAND_SCALE).</summary>
+    public const float LandScale = 1000000f;
+
     // A step is kept stable for water this deep running this fast (m, m/s): a wave crosses at most half a cell. Deeper
     // water carries its flow as if this deep (its waves a little slower), so the step never needs to be shorter.
     private const float DeepestStable = 8f;
@@ -53,6 +62,7 @@ internal sealed class SimGrid : IDisposable
     private static readonly int QYId = Shader.PropertyToID("_QY");
     private static readonly int PullId = Shader.PropertyToID("_Pull");
     private static readonly int TargetId = Shader.PropertyToID("_Target");
+    private static readonly int LayersId = Shader.PropertyToID("_Layers");
     private static readonly int BedRowsId = Shader.PropertyToID("_BedRows");
     private static readonly int BedRowId = Shader.PropertyToID("_BedRow");
     private static readonly int BedRowCountId = Shader.PropertyToID("_BedRowCount");
@@ -68,6 +78,12 @@ internal sealed class SimGrid : IDisposable
     private static readonly int RelaxId = Shader.PropertyToID("_Relax");
     private static readonly int DrainId = Shader.PropertyToID("_Drain");
     private static readonly int BorderId = Shader.PropertyToID("_Border");
+    private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
+    private static readonly int LandedId = Shader.PropertyToID("_Landed");
+    private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
+    private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
+    private static readonly int ThrowId = Shader.PropertyToID("_Throw");
+    private static readonly int LipDropId = Shader.PropertyToID("_LipDrop");
 
     private readonly ComputeShader _shader;
 
@@ -79,6 +95,9 @@ internal sealed class SimGrid : IDisposable
     private readonly int _reduce;
     private readonly int _relax;
     private readonly int _writeBed;
+    private readonly int _landSpeeds;
+    private readonly int _land;
+    private readonly int _clear;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -90,6 +109,7 @@ internal sealed class SimGrid : IDisposable
     private readonly RenderTexture _scale;
     private readonly RenderTexture _pull;
     private readonly float[] _targetPixels;
+    private readonly float[] _noLayers;
 
     private ComputeBuffer _bedRows;
 
@@ -117,6 +137,8 @@ internal sealed class SimGrid : IDisposable
         _reduce = shader.FindKernel("Reduce");
         _relax = shader.FindKernel("Relax");
         _writeBed = shader.FindKernel("WriteBed");
+        _landSpeeds = shader.FindKernel("LandSpeeds");
+        _land = shader.FindKernel("Land");
         for (int k = 0; k < 2; k++)
         {
             _h[k] = MakeCells("depth " + k, cells);
@@ -129,6 +151,12 @@ internal sealed class SimGrid : IDisposable
         Bed = MakeCells("ground", cells);
         _scale = MakeCells("outflow share", cells);
         _pull = MakeCells("pull", Columns, RenderTextureFormat.ARGBFloat);
+        Airborne = MakeCells("airborne", cells);
+        Landed = MakeCells("landed", cells, RenderTextureFormat.RInt);
+        LandedEast = MakeCells("landed east", cells, RenderTextureFormat.RInt);
+        LandedNorth = MakeCells("landed north", cells, RenderTextureFormat.RInt);
+        _clear = shader.FindKernel("Clear");
+        ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
             name = "FlowingWater sim target",
@@ -143,6 +171,20 @@ internal sealed class SimGrid : IDisposable
 
         Target.SetPixelData(_targetPixels, 0);
         Target.Apply(false);
+        Layers = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
+        {
+            name = "FlowingWater sim layers",
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        _noLayers = new float[Columns * Columns * 4];
+        for (int k = 0; k < _noLayers.Length; k++)
+        {
+            _noLayers[k] = (k & 3) == 3 ? 0f : DryTop;
+        }
+
+        Layers.SetPixelData(_noLayers, 0);
+        Layers.Apply(false);
         SeaLevel = float.NegativeInfinity;
 
         // No ground is known yet: every cell is a wall until its own is written.
@@ -188,6 +230,34 @@ internal sealed class SimGrid : IDisposable
     /// </summary>
     public Texture2D Target { get; }
 
+    /// <summary>
+    /// The server's water's ledges and falls, a texel per voxel column: where a ledge crosses it, the top of the water
+    /// at its foot (<see cref="DryTop"/> for none) and the height under which a cell's ground is at its foot (DryTop: no
+    /// ledge); the top of water falling through the air over it (DryTop for none); nothing.
+    /// </summary>
+    public Texture2D Layers { get; }
+
+    /// <summary>Water thrown over a lip, by the cell it left (m³), until the spray throws it (and takes it from here).</summary>
+    public RenderTexture Airborne { get; }
+
+    /// <summary>
+    /// Water landed by the cell it fell in (m³ times <see cref="LandScale"/>, whole numbers), added to the cells at the next
+    /// <see cref="Step"/>.
+    /// </summary>
+    public RenderTexture Landed { get; }
+
+    /// <summary>The momentum of the water landed east and north, by the cell (m³ times m/s, times <see cref="LandScale"/>).</summary>
+    public RenderTexture LandedEast { get; }
+
+    /// <inheritdoc cref="LandedEast"/>
+    public RenderTexture LandedNorth { get; }
+
+    /// <summary>
+    /// Whether water running over a lip is thrown (<see cref="Airborne"/>, for the spray to carry and land), not run into
+    /// the cell past it: while the spray throws falls.
+    /// </summary>
+    public bool Throws { get; set; }
+
     /// <summary>The ground's roughness (Manning's: 0.03 a natural bed, as the server's; 0 none, for previews).</summary>
     public float Roughness { get; set; } = 0.03f;
 
@@ -200,16 +270,26 @@ internal sealed class SimGrid : IDisposable
     /// <summary>The substeps the last <see cref="Step"/> took.</summary>
     public int Substeps { get; private set; }
 
-    /// <summary>Sets the server's water (four floats a voxel column, as <see cref="Target"/>'s texels), for the next steps.</summary>
-    public void SetTarget(float[] texels)
+    /// <summary>
+    /// Sets the server's water (four floats a voxel column, as <see cref="Target"/>'s texels, and as many of its ledges
+    /// and falls, as <see cref="Layers"/>'; null: none), for the next steps.
+    /// </summary>
+    public void SetTarget(float[] texels, float[] layers = null)
     {
         if (texels.Length != _targetPixels.Length)
         {
             throw new ArgumentException($"{texels.Length} floats for {Columns * Columns} columns", nameof(texels));
         }
 
+        if (layers != null && layers.Length != _noLayers.Length)
+        {
+            throw new ArgumentException($"{layers.Length} floats for {Columns * Columns} columns", nameof(layers));
+        }
+
         Target.SetPixelData(texels, 0);
         Target.Apply(false);
+        Layers.SetPixelData(layers ?? _noLayers, 0);
+        Layers.Apply(false);
     }
 
     /// <summary>
@@ -236,6 +316,7 @@ internal sealed class SimGrid : IDisposable
         _shader.SetTexture(_writeBed, BedId, Bed);
         _shader.SetTexture(_writeBed, HId, _h[_current]);
         _shader.SetTexture(_writeBed, TargetId, Target);
+        _shader.SetTexture(_writeBed, LayersId, Layers);
         _shader.SetInt(BedRowId, row);
         _shader.SetInt(BedRowCountId, rows);
         Common();
@@ -260,6 +341,7 @@ internal sealed class SimGrid : IDisposable
         Bind(_seed, VId, _v[_speeds]);
         Bind(_seed, BedId, Bed);
         _shader.SetTexture(_seed, TargetId, Target);
+        _shader.SetTexture(_seed, LayersId, Layers);
         Common();
         Dispatch(_seed, Cells);
     }
@@ -279,8 +361,16 @@ internal sealed class SimGrid : IDisposable
         float dt = seconds / steps;
         float fastest = 0.5f * CellSize / dt;
         Common();
-        _shader.SetFloat(DtId, dt);
         _shader.SetFloat(MaxSpeedId, fastest);
+        Bind(_landSpeeds, HId, _h[_current]);
+        Bind(_landSpeeds, UId, _u[_speeds]);
+        Bind(_landSpeeds, VId, _v[_speeds]);
+        BindLanded(_landSpeeds);
+        Dispatch(_landSpeeds, Cells);
+        Bind(_land, HId, _h[_current]);
+        BindLanded(_land);
+        Dispatch(_land, Cells);
+        _shader.SetFloat(DtId, dt);
         _shader.SetFloat(MaxDepthId, fastest * fastest / Gravity);
         for (int k = 0; k < steps; k++)
         {
@@ -298,23 +388,35 @@ internal sealed class SimGrid : IDisposable
         Bind(_reduce, BedId, Bed);
         Bind(_reduce, PullId, _pull);
         _shader.SetTexture(_reduce, TargetId, Target);
+        _shader.SetTexture(_reduce, LayersId, Layers);
         Dispatch(_reduce, Columns);
         Bind(_relax, HId, _h[_current]);
         Bind(_relax, BedId, Bed);
         Bind(_relax, PullId, _pull);
         _shader.SetTexture(_relax, TargetId, Target);
+        _shader.SetTexture(_relax, LayersId, Layers);
         Dispatch(_relax, Cells);
+    }
+
+    /// <summary>No water in the air nor landed (the spray that would carry or land it is gone).</summary>
+    public void ClearThrown()
+    {
+        Bind(_clear, AirborneId, Airborne);
+        BindLanded(_clear);
+        Common();
+        Dispatch(_clear, Cells);
     }
 
     public void Dispose()
     {
-        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull })
+        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth })
         {
             texture.Release();
             Free(texture);
         }
 
         Free(Target);
+        Free(Layers);
         _bedRows?.Release();
     }
 
@@ -352,6 +454,7 @@ internal sealed class SimGrid : IDisposable
         Bind(_depth, UId, _u[_speeds]);
         Bind(_depth, VId, _v[_speeds]);
         Bind(_depth, ScaleId, _scale);
+        Bind(_depth, AirborneId, Airborne);
         Dispatch(_depth, Cells);
         _current = 1 - _current;
     }
@@ -368,9 +471,18 @@ internal sealed class SimGrid : IDisposable
         _shader.SetFloat(RelaxId, Relax);
         _shader.SetFloat(DrainId, Drain);
         _shader.SetInt(BorderId, BorderCells);
+        _shader.SetInt(ThrowId, Throws ? 1 : 0);
+        _shader.SetFloat(LipDropId, LipDrop);
     }
 
     private void Bind(int kernel, int id, RenderTexture texture) => _shader.SetTexture(kernel, id, texture);
+
+    private void BindLanded(int kernel)
+    {
+        Bind(kernel, LandedId, Landed);
+        Bind(kernel, LandedXId, LandedEast);
+        Bind(kernel, LandedZId, LandedNorth);
+    }
 
     // Gone: in the game as Unity frees things, in the editor's preview (not playing) at once, as it must there.
     private static void Free(UnityEngine.Object thing)

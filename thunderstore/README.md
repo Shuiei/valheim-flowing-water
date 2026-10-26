@@ -9,10 +9,11 @@ the river follows it.
 - **Players** see the water (its sides and its falls too, drawn as the voxels it fills, and from inside it), swim
   in it, float on it, get wet, and are carried by its current; ships are
   placed and sail on it. The game's own water checks (fishing, building, creatures) see it too. Running water
-  is silent and throws no spray for now: its sound and spray come back in a later version.
+  is silent for now: its sound comes back in a later version.
 - Near you, **your graphics card moves the water** between the server's changes, as water moves: let go, it surges
   out over the ground, runs up the walls and sloshes back; waves cross a pool and come back. The server still says
   how much water is where (and what you swim in); a card without compute shaders draws it as the server sends it.
+  Water pouring off a ledge arcs out and splashes where it lands, and fast water throws spray.
 
 **A prototype.** The server's flow is tuned for rivers and ponds; the waves are your graphics card's. What you build holds water as the terrain
 does: walls, floors, a pool on posts, a plank chute or slide the water runs down.
@@ -67,7 +68,7 @@ again within a couple of seconds. The main ones:
 | `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1): smaller is finer and costs the card more |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
-| `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water rushes down steep ground |
+| `Client.Spray` | true | Falls, splashes and spray as particles on your graphics card (with `Client.GpuWater`) |
 
 Every setting, how the simulation works and how to build it:
 [the project's page](https://github.com/Shuiei/valheim-flowing-water#readme).
