@@ -1,6 +1,6 @@
 // FlowingWater's falls, splashes and spray near the camera (FlowingWaterSpray.compute): each particle a soft quad
-// facing the camera, stretched along its motion (at most _MostStretch each way), drawn straight from the particles' buffer (six points a particle,
-// none for one whose life is over). Sheets of falling water take the water's colour, droplets and splashes the foam's
+// facing the camera, stretched along its motion (at most _MostStretch each way), drawn straight from the particles'
+// buffer (six points a particle, none for one whose life is over). Sheets of falling water take the water's colour, droplets and splashes the foam's
 // (the sea's, copied onto this material when the game runs), lit by the sky and the sun, fogged as the water is.
 Shader "FlowingWater/Spray"
 {
@@ -51,6 +51,10 @@ Shader "FlowingWater/Spray"
             float _Stretch;
             float _FallStretch;
             float _MostStretch;
+
+            // A particle over ground not known ends after this long there (s), fading out: FlowingWaterSpray.compute's.
+            #define UNKNOWN_LIFE 0.25
+
             fixed4 _LightColor0;
 
             struct v2f
@@ -95,8 +99,9 @@ Shader "FlowingWater/Spray"
                 o.pos = UnityWorldToClipPos(world);
                 o.uv = q;
 
-                // Fading in as it is thrown and out as its life ends.
-                float fade = saturate((life - age) * 4.0) * saturate(age * 20.0);
+                // Fading in as it is thrown and out as its life ends, or as it flies over ground not known (its time
+                // there, over UNKNOWN_LIFE).
+                float fade = saturate((life - age) * 4.0) * saturate(age * 20.0) * saturate(1.0 - (p.sizeKind.w / UNKNOWN_LIFE));
                 float3 light = ShadeSH9(float4(0.0, 1.0, 0.0, 1.0)) + (_LightColor0.rgb * 0.6);
                 o.tint = sheet ? fixed4(_FallColor.rgb * light, _FallAlpha * fade) : fixed4(_FoamColor.rgb * light, _FoamAlpha * fade);
                 UNITY_TRANSFER_FOG(o, o.pos);

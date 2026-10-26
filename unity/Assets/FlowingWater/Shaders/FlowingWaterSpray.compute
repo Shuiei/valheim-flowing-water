@@ -71,8 +71,10 @@ RWTexture2D<int> _LandedZ;
 #define LAND_SCALE 1000000.0
 #define MOST_SHEETS 8u
 
-// A particle over ground not known, or past the square, lives this much longer at most (s): it fades out, not gone at
-// once in mid-air (crossing a cell of a wall, or rows not cast yet).
+// A particle over ground not known, or past the square, fades out over this long there (s), and ends once it has been
+// there so long: not gone at once in mid-air (crossing a cell of a wall, or rows not cast yet), nor falling on through
+// the ground. Its time there is kept in sizeKind.w (FlowingWaterSpray.shader fades it by it); back over ground known,
+// it comes back as fast.
 #define UNKNOWN_LIFE 0.25
 
 // Splashes: a sheet landing faster than this throws up so many droplets.
@@ -260,15 +262,18 @@ void Move(uint3 id : SV_DispatchThreadID)
     age += _Dt;
 
     // Met the water's surface or the ground, inside the square: it ends; a sheet landing fast throws up a splash. Past
-    // the square, or over ground not known, nothing says where it lands: it fades out within UNKNOWN_LIFE (else it fell
-    // on through the ground for the rest of its life, ever faster), landing still if it comes over ground known first.
+    // the square, or over ground not known, nothing says where it lands: it fades out, ending after UNKNOWN_LIFE there
+    // (else it fell on through the ground for the rest of its life, ever faster); one that comes over ground known
+    // first lives on, landing there.
     int2 c = (int2)floor((place.xz - _Origin) / _Dx);
     if (!Inside(c) || _Bed[c] >= 5000.0)
     {
-        age = max(age, life - UNKNOWN_LIFE);
+        p.sizeKind.w += _Dt;
+        age = p.sizeKind.w >= UNKNOWN_LIFE ? life : age;
     }
     else
     {
+        p.sizeKind.w = max(0.0, p.sizeKind.w - _Dt);
         float bed = _Bed[c];
         float h = _H[c];
         if (place.y <= bed + h)
