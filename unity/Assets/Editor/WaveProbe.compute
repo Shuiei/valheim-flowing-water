@@ -1,0 +1,44 @@
+// The waves drawn on running water (FlowingWaterWaves.cginc, the shaders' own) asked at given points, for the preview's
+// check of them (SimPreview.Waves): one answer in _Out for each question in _In.
+#pragma kernel Heights
+#pragma kernel Noises
+#pragma kernel Chops
+
+float4 _Time;
+float _Length;
+
+#include "../FlowingWater/Shaders/FlowingWaterWaves.cginc"
+
+StructuredBuffer<float4> _In;
+RWStructuredBuffer<float4> _Out;
+uint _Count;
+
+// _In: speed (m/s), depth (m). _Out: the waves' height (m).
+[numthreads(64, 1, 1)]
+void Heights(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        _Out[id.x] = float4(WaveHeight(_In[id.x].x, _In[id.x].y), 0.0, 0.0, 0.0);
+    }
+}
+
+// _In: a point of the plane. _Out: the noise's value and slope there.
+[numthreads(64, 1, 1)]
+void Noises(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        _Out[id.x] = float4(WaveNoise(_In[id.x].xy), 0.0);
+    }
+}
+
+// _In: a world place (m), the current there (m/s). _Out: the chop of waves _Length long, at _Time.
+[numthreads(64, 1, 1)]
+void Chops(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count)
+    {
+        _Out[id.x] = float4(Chop(_In[id.x].xy, _In[id.x].zw, _Length), 0.0);
+    }
+}

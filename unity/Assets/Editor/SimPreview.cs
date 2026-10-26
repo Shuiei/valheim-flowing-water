@@ -45,6 +45,7 @@ public static class SimPreview
             ShiftThrown();
             Spray();
             LookOnly();
+            Waves();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -376,6 +377,100 @@ public static class SimPreview
         float[] drawnDepth = Run(true), plainDepth = Run(false);
         float most = drawnDepth.Zip(plainDepth, (a, b) => Mathf.Abs(a - b)).Max();
         Log.AppendLine(Inv($"Look: a dam drawn with its waves and the same never drawn differ by {most:0.000000} m at most: {(most <= 0f ? "OK" : "FAILED")}"));
+    }
+
+    // The waves drawn on running water (the shaders' own functions, asked on the card): their height by speed and depth;
+    // the noise's and the chop's slopes those of their heights; the chop's height within -1 to 1 at every moment (its
+    // two phases' weights adding to one), carried with the current, its second phase the first's half a cycle later,
+    // and never jumping as a phase starts again.
+    private static void Waves()
+    {
+        const float Cycle = 4f, Length = 2.4f;
+        var probe = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/Editor/WaveProbe.compute");
+        probe.SetFloat("_FlowCycle", Cycle);
+        probe.SetFloat("_Length", Length);
+        Vector4[] Ask(string kernel, Vector4[] questions, float time)
+        {
+            probe.SetVector("_Time", new Vector4(time / 20f, time, 2f * time, 3f * time));
+            probe.SetInt("_Count", questions.Length);
+            using var input = new ComputeBuffer(questions.Length, 16);
+            using var output = new ComputeBuffer(questions.Length, 16);
+            input.SetData(questions);
+            int k = probe.FindKernel(kernel);
+            probe.SetBuffer(k, "_In", input);
+            probe.SetBuffer(k, "_Out", output);
+            probe.Dispatch(k, (questions.Length + 63) / 64, 1, 1);
+            var answers = new Vector4[questions.Length];
+            output.GetData(answers);
+            return answers;
+        }
+
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+
+        // Speed, depth, the height expected: still water, by the speed squared, the most, a share of shallow water's
+        // depth, no water.
+        float[][] heights =
+        {
+            new[] { 0f, 1f, 0f }, new[] { 2f, 1f, 0.06f }, new[] { 10f, 1f, 0.15f }, new[] { 4f, 0.1f, 0.025f }, new[] { 4f, 0.003f, 0f },
+        };
+        Vector4[] height = Ask("Heights", heights.Select(q => new Vector4(q[0], q[1], 0f, 0f)).ToArray(), 0f);
+        float heightOff = heights.Select((q, i) => Mathf.Abs(height[i].x - q[2])).Max();
+        Log.AppendLine(Inv($"Waves: heights still, 2 m/s, 10 m/s, 4 m/s on 10 cm and on 3 mm: {string.Join(", ", height.Select(a => a.x.ToString("0.000", CultureInfo.InvariantCulture)))} m: {Check(heightOff < 1e-5f)}"));
+
+        // Points inside the noise's cells (not by their edges, where its curvature changes at once), each with its
+        // neighbours a step east, west, north and south.
+        var random = new System.Random(7);
+        Vector2[] points = Enumerable.Range(0, 256).Select(_ => new Vector2(random.Next(-40, 40) + 0.05f + (0.9f * (float)random.NextDouble()), random.Next(-40, 40) + 0.05f + (0.9f * (float)random.NextDouble()))).ToArray();
+        Vector4[] Asked(string kernel, Vector2 current, float time, float step) =>
+            Ask(kernel, points.SelectMany(p => new[] { Vector2.zero, new(step, 0f), new(-step, 0f), new(0f, step), new(0f, -step) }.Select(d => new Vector4((p + d).x, (p + d).y, current.x, current.y))).ToArray(), time);
+        // The most a slope given differs from the slope of the values given a step around it, and the largest value's
+        // size.
+        (float Slope, float Value) Compare(Vector4[] answers, float step)
+        {
+            float slope = 0f, value = 0f;
+            for (int i = 0; i < points.Length; i++)
+            {
+                Vector4 at = answers[5 * i];
+                float east = (answers[(5 * i) + 1].x - answers[(5 * i) + 2].x) / (2f * step);
+                float north = (answers[(5 * i) + 3].x - answers[(5 * i) + 4].x) / (2f * step);
+                slope = Mathf.Max(slope, Mathf.Max(Mathf.Abs(at.y - east), Mathf.Abs(at.z - north)));
+                value = Mathf.Max(value, Mathf.Abs(at.x));
+            }
+
+            return (slope, value);
+        }
+
+        var noise = Compare(Asked("Noises", Vector2.zero, 0f, 1e-2f), 1e-2f);
+        Log.AppendLine(Inv($"Waves: noise's slope off its values' by {noise.Slope:0.0000} at most, values within {noise.Value:0.000}: {Check(noise.Slope < 0.02f && noise.Value <= 1f)}"));
+
+        // The chop over a cycle (a millimetre's step: its noise's cells are not avoided there): its slope its height's,
+        // its height within 1.
+        float chopSlope = 0f, chopValue = 0f;
+        foreach (float time in new[] { 0.3f, 1.1f, 2.5f, 3.9f })
+        {
+            var chop = Compare(Asked("Chops", new Vector2(1.5f, -0.7f), time, 1e-3f), 1e-3f);
+            chopSlope = Mathf.Max(chopSlope, chop.Slope);
+            chopValue = Mathf.Max(chopValue, chop.Value);
+        }
+
+        Log.AppendLine(Inv($"Waves: chop's slope off its heights' by {chopSlope:0.0000} /m at most, heights within {chopValue:0.000}: {Check(chopSlope < 0.02f && chopValue <= 1f)}"));
+
+        // Half a cycle in, the first phase alone is seen, carried half a cycle's run of the current: as still water's chop
+        // that far upstream. The second phase at the start is the first half a cycle later, moved by its offset.
+        Vector2 current = new(1.5f, -0.7f), offset = 0.5f * new Vector2(23.7f, 41.3f);
+        Vector4[] places = points.Select(p => new Vector4(p.x, p.y, current.x, current.y)).ToArray();
+        Vector4[] carried = Ask("Chops", places, 0.5f * Cycle);
+        Vector4[] upstream = Ask("Chops", places.Select(p => new Vector4(p.x - (current.x * 0.5f * Cycle), p.y - (current.y * 0.5f * Cycle), 0f, 0f)).ToArray(), 0.5f * Cycle);
+        Vector4[] start = Ask("Chops", places, 0f);
+        Vector4[] later = Ask("Chops", places.Select(p => new Vector4(p.x + offset.x, p.y + offset.y, p.z, p.w)).ToArray(), 0.5f * Cycle);
+        float carriedOff = carried.Zip(upstream, (a, b) => (a - b).magnitude).Max();
+        float phaseOff = start.Zip(later, (a, b) => (a - b).magnitude).Max();
+        Log.AppendLine(Inv($"Waves: chop carried with the current off still water's upstream by {carriedOff:0.000000}, second phase off the first's by {phaseOff:0.000000}: {Check(carriedOff < 1e-4f && phaseOff < 1e-4f)}"));
+
+        // A phase starting again (its weight none then): the chop a millisecond before and after differs by little.
+        Vector4[] before = Ask("Chops", places, Cycle - 0.001f), after = Ask("Chops", places, Cycle + 0.001f);
+        float jump = before.Zip(after, (a, b) => Mathf.Abs(a.x - b.x)).Max();
+        Log.AppendLine(Inv($"Waves: chop across a phase's start changes by {jump:0.0000} at most: {Check(jump < 0.01f)}"));
     }
 
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
