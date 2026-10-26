@@ -175,6 +175,21 @@ public class VoxelGridTests
     }
 
     [Fact]
+    public void SolidsReadAgainCountAChangeOfTheBricksBesideToo()
+    {
+        // The brick under a pool's has its ground dug: what the pool's brick sends (the ground under its water) changed.
+        var grid = new VoxelGrid(1f, new TestSolids(-1000));
+        grid.Pour(3, 16, 3, 1f);
+        grid.Pour(3, 3, 3, 1f);
+        Brick upper = grid.Find(0, 1, 0);
+        int before = upper.Changes;
+
+        grid.Refill(grid.Find(0, 0, 0));
+
+        Assert.True(upper.Changes > before);
+    }
+
+    [Fact]
     public void WaterPouredWhereNoMoreBricksAreAllowedIsRefused()
     {
         var grid = new VoxelGrid(1f, new TestSolids(-1000)) { MaxBricks = 1 };

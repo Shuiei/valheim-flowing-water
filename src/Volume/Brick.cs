@@ -374,7 +374,8 @@ internal sealed class Brick
     /// <summary>
     /// The faces of a voxel water could leave it by, a bit per side as <see cref="Beside"/> (east, west, up, down,
     /// north, south): those no piece closes, not onto a solid voxel, and not shut against a brick forgotten there. A
-    /// face onto a brick there is none of is open.
+    /// face onto a brick there is none of is open. Besides, <see cref="BrickData.GroundUnder"/> where the voxel under it
+    /// holds ground.
     /// </summary>
     public byte OpenFaces(int i)
     {
@@ -401,6 +402,11 @@ internal sealed class Brick
             {
                 open |= 1 << side;
             }
+        }
+
+        if (Neighbour(i, 3, out Brick under, out int k) && under.Solid[k] >= BrickData.HoldsGround)
+        {
+            open |= BrickData.GroundUnder;
         }
 
         return (byte)open;
