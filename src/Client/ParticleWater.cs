@@ -80,14 +80,14 @@ internal sealed class ParticleWater : IDisposable
     private static readonly int BodiesId = Shader.PropertyToID("_Bodies");
     private static readonly int BodyCountId = Shader.PropertyToID("_BodyCount");
     private static readonly int ExchangeId = Shader.PropertyToID("_Exchange");
-    private static readonly int SheetHId = Shader.PropertyToID("_SheetH");
-    private static readonly int SheetUId = Shader.PropertyToID("_SheetU");
-    private static readonly int SheetVId = Shader.PropertyToID("_SheetV");
-    private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
-    private static readonly int LandedId = Shader.PropertyToID("_Landed");
-    private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
-    private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
     private static readonly int SeaLevelId = Shader.PropertyToID("_SeaLevel");
+    private static readonly int LandedId = Shader.PropertyToID("_Landed");
+    private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
+    private static readonly int SheetHId = Shader.PropertyToID("_SheetH");
+    private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
+    private static readonly int SheetUId = Shader.PropertyToID("_SheetU");
+    private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
+    private static readonly int SheetVId = Shader.PropertyToID("_SheetV");
     private static readonly int LitreId = Shader.PropertyToID("_Litre");
     private static readonly int SeedId = Shader.PropertyToID("_Seed");
     private static readonly int SolidsOnId = Shader.PropertyToID("_SolidsOn");
@@ -330,7 +330,7 @@ internal sealed class ParticleWater : IDisposable
 
     /// <summary>A box in the water: its centre, its half extents along its own axes, and two of those axes; or a sphere.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct Body
+    public struct Body : IEquatable<Body>
     {
         /// <summary>The centre (world), and the kind: 1 a box, 2 a sphere.</summary>
         public Vector4 Centre;
@@ -365,6 +365,22 @@ internal sealed class ParticleWater : IDisposable
             AxisX = new Vector4(1f, 0f, 0f, 0f),
             AxisY = new Vector4(0f, 1f, 0f, 0f),
         };
+
+        public static bool operator ==(Body a, Body b) => a.Equals(b);
+
+        public static bool operator !=(Body a, Body b) => !a.Equals(b);
+
+        public readonly bool Equals(Body other) => Centre == other.Centre && Half == other.Half && AxisX == other.AxisX && AxisY == other.AxisY;
+
+        public override readonly bool Equals(object obj) => obj is Body other && Equals(other);
+
+        public override readonly int GetHashCode()
+        {
+            int hash = Centre.GetHashCode();
+            hash = (hash * 397) ^ Half.GetHashCode();
+            hash = (hash * 397) ^ AxisX.GetHashCode();
+            return (hash * 397) ^ AxisY.GetHashCode();
+        }
     }
 
     /// <summary>
@@ -383,8 +399,8 @@ internal sealed class ParticleWater : IDisposable
 
     /// <summary>
     /// A block of still water from <paramref name="min"/> to <paramref name="max"/> (world), a lattice of particles at
-    /// their spacing, each nudged by a hair so no two rows fall alike; as many as there is room for (a wait for the card,
-    /// which says how many there are).
+    /// their spacing, each nudged by a hair (a fixed sequence: the same block is the same each time) so no two rows fall
+    /// alike; as many as there is room for (a wait for the card, which says how many there are).
     /// </summary>
     public int Add(Vector3 min, Vector3 max)
     {
@@ -399,14 +415,14 @@ internal sealed class ParticleWater : IDisposable
         }
 
         float[] data = new float[count * 12];
-        var random = new System.Random(before + 1);
         int n = 0;
         for (int k = 0; k < count; k++)
         {
             int i = k % nx, j = (k / nx) % ny, l = k / (nx * ny);
-            float x = min.x + ((i + 0.5f) * Spacing) + ((float)(random.NextDouble() - 0.5) * 0.02f * Spacing);
-            float y = min.y + ((j + 0.5f) * Spacing) + ((float)(random.NextDouble() - 0.5) * 0.02f * Spacing);
-            float z = min.z + ((l + 0.5f) * Spacing) + ((float)(random.NextDouble() - 0.5) * 0.02f * Spacing);
+            int step = before + k;
+            float x = min.x + ((i + 0.5f) * Spacing) + (Nudge(step, 0.618034f) * 0.02f * Spacing);
+            float y = min.y + ((j + 0.5f) * Spacing) + (Nudge(step, 0.754878f) * 0.02f * Spacing);
+            float z = min.z + ((l + 0.5f) * Spacing) + (Nudge(step, 0.569840f) * 0.02f * Spacing);
             data[n++] = x;
             data[n++] = y;
             data[n++] = z;
@@ -520,6 +536,9 @@ internal sealed class ParticleWater : IDisposable
             UnityEngine.Object.DestroyImmediate(_noSolids);
         }
     }
+
+    // A nudge in -0.5 to 0.5 for the step of a sequence, spread as an irrational's multiples are (no two steps alike).
+    private static float Nudge(int step, float spread) => Mathf.Repeat(step * spread, 1f) - 0.5f;
 
     // The smoothing kernels' sums over a lattice of particles at their spacing round one of them (itself counted in the
     // weight): the weight of water at rest, and the squared gradients a particle at rest feels (the compute shader's own

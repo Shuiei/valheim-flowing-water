@@ -871,18 +871,32 @@ public static class SimPreview
         return values;
     }
 
+    // What a camera drew into its texture, written as a PNG of that name in the output folder; the camera, its
+    // texture and the image are gone after.
+    internal static void Save(Camera camera, RenderTexture target, string file)
+    {
+        RenderTexture.active = target;
+        var image = new Texture2D(target.width, target.height, TextureFormat.RGB24, false);
+        image.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
+        image.Apply();
+        File.WriteAllBytes(Path.Combine(_output, file + ".png"), image.EncodeToPNG());
+        RenderTexture.active = null;
+        camera.targetTexture = null;
+        UnityEngine.Object.DestroyImmediate(camera.gameObject);
+        UnityEngine.Object.DestroyImmediate(target);
+        UnityEngine.Object.DestroyImmediate(image);
+    }
+
     // The ground as a mesh, a checker of 2 m squares: a point per cell, at its centre and height.
     internal static void MakeGround(float[] bed, int cells, float dx)
     {
         var vertices = new Vector3[cells * cells];
         var uvs = new Vector2[cells * cells];
-        for (int j = 0; j < cells; j++)
+        for (int k = 0; k < vertices.Length; k++)
         {
-            for (int i = 0; i < cells; i++)
-            {
-                vertices[(j * cells) + i] = new Vector3((i + 0.5f) * dx, bed[(j * cells) + i], (j + 0.5f) * dx);
-                uvs[(j * cells) + i] = new Vector2((i + 0.5f) * dx / 4f, (j + 0.5f) * dx / 4f);
-            }
+            float x = ((k % cells) + 0.5f) * dx, z = ((k / cells) + 0.5f) * dx;
+            vertices[k] = new Vector3(x, bed[k], z);
+            uvs[k] = new Vector2(x / 4f, z / 4f);
         }
 
         var mesh = new Mesh { indexFormat = IndexFormat.UInt32, vertices = vertices, uv = uvs, triangles = Triangles(cells) };
@@ -1024,16 +1038,7 @@ public static class SimPreview
                 camera.Render();
             }
 
-            RenderTexture.active = target;
-            var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);
-            image.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
-            image.Apply();
-            File.WriteAllBytes(Path.Combine(_output, file + ".png"), image.EncodeToPNG());
-            RenderTexture.active = null;
-            camera.targetTexture = null;
-            UnityEngine.Object.DestroyImmediate(camera.gameObject);
-            UnityEngine.Object.DestroyImmediate(target);
-            UnityEngine.Object.DestroyImmediate(image);
+            Save(camera, target, file);
         }
 
         public void Dispose() => Grid.Dispose();

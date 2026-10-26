@@ -122,13 +122,17 @@ internal sealed class GpuWater : IDisposable
 
     private Ship[] _ships = [];
 
-    private Rigidbody[] _rigidbodies = [];
+    private readonly List<(Rigidbody Body, Collider[] Colliders)> _rigidbodies = [];
 
     private int _shipsLookedFor = -60;
 
     private int _buildingBase;
 
     private int _builtBase = int.MinValue;
+
+    // The square the solids were taken for: the particles get them only while it is the square (the square moved on,
+    // they would stand the move's columns away from the pieces until the next build).
+    private SimWindow _solidsWindow;
 
     private float _cameraY;
 
@@ -543,7 +547,8 @@ internal sealed class GpuWater : IDisposable
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _particles.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin, 10000f);
         _particles.SetSheet(exchange ? _grid : null);
-        _particles.SetSolids(_solids.Any ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
+        bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
+        _particles.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
         _particles.SetBodies(Bodies(origin));
 
         _particles.Step(Math.Min(Time.deltaTime, 1f / 15f));
@@ -595,6 +600,7 @@ internal sealed class GpuWater : IDisposable
         {
             _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
             _builtBase = _buildingBase;
+            _solidsWindow = _buildingWindow;
         }
         if (!_seeded)
         {
@@ -610,7 +616,7 @@ internal sealed class GpuWater : IDisposable
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
         bool solids = _particles != null || FlowingWaterPlugin.Settings.ParticleWater.Value;
         int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
-        bool rebased = solids && Math.Abs(baseRow - _builtBase) > 8;
+        bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
@@ -623,7 +629,7 @@ internal sealed class GpuWater : IDisposable
         _buildingWindow = w;
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
-        _buildingBase = rebased || _builtBase == int.MinValue ? baseRow : _builtBase;
+        _buildingBase = rebased ? baseRow : _builtBase;
         int solidsBase = _buildingBase;
         _builtAt = Time.time;
         _build = Task.Run(() =>
@@ -635,46 +641,50 @@ internal sealed class GpuWater : IDisposable
         });
     }
 
-    // The bodies in the square this frame, for the particle water: every character (players, creatures) as the box of
-    // its capsule, every ship as the box its hull floats by (the game's own), and every other rigid body (carts, things
-    // dropped, felled trees) as the box round its collider, as many as fit in that order.
+    // The bodies in the square this frame, for the particle water, as many as fit in this order: every ship as the box
+    // its hull floats by (the game's own; the hull is what the water is for, so ships come first), every character
+    // (players, creatures) as the box of its capsule, and every other rigid body (carts, things dropped, felled trees)
+    // as the box round each of its colliders.
     private List<ParticleWater.Body> Bodies(Vector2 origin)
     {
         _bodies.Clear();
         float size = _window.Size;
-        bool Inside(Vector3 p) => p.x >= origin.x && p.z >= origin.y && p.x < origin.x + size && p.z < origin.y + size;
-        foreach (Character character in Character.GetAllCharacters())
+        var square = new Bounds(new Vector3(origin.x + (size / 2f), 0f, origin.y + (size / 2f)), new Vector3(size, 100000f, size));
+        LookForBodies();
+        AddShips(square);
+        AddCharacters(square);
+        AddRigidbodies(square);
+        return _bodies;
+    }
+
+    // The ships and the other rigid bodies (with their colliders), looked for once a second (they come and go slowly).
+    private void LookForBodies()
+    {
+        if (Time.frameCount - _shipsLookedFor < 60)
         {
-            if (character == null || !Inside(character.transform.position) || _bodies.Count >= ParticleWater.MostBodies)
+            return;
+        }
+
+        _shipsLookedFor = Time.frameCount;
+        _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
+        _rigidbodies.Clear();
+        foreach (Rigidbody body in UnityEngine.Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None))
+        {
+            if (!body.isKinematic && body.GetComponentInParent<Ship>() == null && body.GetComponentInParent<Character>() == null)
             {
-                continue;
+                _rigidbodies.Add((body, body.GetComponentsInChildren<Collider>()));
             }
-
-            CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
-            Transform t = character.transform;
-            Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
-            float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
-            float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
-            _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
         }
+    }
 
-        // The ships and the other rigid bodies, looked for once a second (they come and go slowly).
-        if (Time.frameCount - _shipsLookedFor >= 60)
-        {
-            _shipsLookedFor = Time.frameCount;
-            _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
-            _rigidbodies = UnityEngine.Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
-        }
+    private bool RoomForBodies() => _bodies.Count < ParticleWater.MostBodies;
 
+    private void AddShips(Bounds square)
+    {
         foreach (Ship ship in _ships)
         {
-            if (ship == null || !Inside(ship.transform.position) || _bodies.Count >= ParticleWater.MostBodies)
-            {
-                continue;
-            }
-
-            BoxCollider hull = ship.m_floatCollider;
-            if (hull == null)
+            BoxCollider hull = ship?.m_floatCollider;
+            if (hull == null || !hull.bounds.Intersects(square) || !RoomForBodies())
             {
                 continue;
             }
@@ -682,33 +692,56 @@ internal sealed class GpuWater : IDisposable
             Transform t = hull.transform;
             _bodies.Add(ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation));
         }
+    }
 
-        // The rest of what moves: looked for once a second too, with the ships; a body of a ship or a character is
-        // counted above, one with no collider or too small to matter (under 10 cm) is not water's concern.
-        foreach (Rigidbody body in _rigidbodies)
+    private void AddCharacters(Bounds square)
+    {
+        foreach (Character character in Character.GetAllCharacters())
         {
-            if (body == null || body.isKinematic || !Inside(body.position) || _bodies.Count >= ParticleWater.MostBodies
-                || body.GetComponentInParent<Ship>() != null || body.GetComponentInParent<Character>() != null)
+            if (character == null || !RoomForBodies())
             {
                 continue;
             }
 
-            Collider collider = body.GetComponentInChildren<Collider>();
-            if (collider == null || collider.isTrigger)
+            Transform t = character.transform;
+            if (!square.Contains(new Vector3(t.position.x, 0f, t.position.z)))
             {
                 continue;
             }
 
-            Bounds bounds = collider.bounds;
-            if (bounds.size.x < 0.1f && bounds.size.z < 0.1f)
-            {
-                continue;
-            }
-
-            _bodies.Add(ParticleWater.Body.Box(bounds.center, bounds.extents, Quaternion.identity));
+            CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
+            Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
+            float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
+            float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
+            _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
         }
+    }
 
-        return _bodies;
+    // Each solid collider of the rest (a cart is several) that reaches into the square and is not too small to matter
+    // (under 10 cm across).
+    private void AddRigidbodies(Bounds square)
+    {
+        foreach ((Rigidbody body, Collider[] colliders) in _rigidbodies)
+        {
+            if (body == null)
+            {
+                continue;
+            }
+
+            foreach (Collider collider in colliders)
+            {
+                if (collider == null || collider.isTrigger || !RoomForBodies())
+                {
+                    continue;
+                }
+
+                Bounds bounds = collider.bounds;
+                if (bounds.Intersects(square) && (bounds.size.x >= 0.1f || bounds.size.z >= 0.1f))
+                {
+                    _bodies.Add(ParticleWater.Body.Box(bounds.center, bounds.extents, Quaternion.identity));
+                }
+            }
+        }
     }
 
     // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,

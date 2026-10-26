@@ -34,8 +34,15 @@ public static class ParticlePreview
             Directory.CreateDirectory(_output);
             SimPreview.Output = _output;
             BuildBundles.Prepare();
-            // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run.
+            // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run. A name of none is refused.
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
+            string[] known = { "rest", "dambreak", "ledge", "ball", "sheet", "roof", "walls", "boat", "cost", "surface" };
+            string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
+            if (unknown.Length > 0)
+            {
+                throw new ArgumentException($"FW_PREVIEW_SCENES: no scene {string.Join(", ", unknown)} ({string.Join(", ", known)})");
+            }
+
             bool Runs(string scene) => chosen.Length == 0 || Array.IndexOf(chosen, scene) >= 0;
             if (Runs("rest"))
             {
@@ -315,7 +322,8 @@ public static class ParticlePreview
         scene.Particles = water;
         const float Total = 192f;
         Log.AppendLine(Inv($"Sheet: {Total:0} m3 of the card's water let go on a shelf 3 m high, running off its lip at x = 20 m as particles."));
-        float start = -1f, most = 0f, worst = 0f;
+        const float start = Total;
+        float most = 0f, worst = 0f;
         int mostParticles = 0;
         for (int k = 1; k <= 480; k++)
         {
@@ -344,7 +352,6 @@ public static class ParticlePreview
                 float landed = ReadInts(scene.Grid.Landed).Sum(n => (float)n) / SimGrid.LandScale;
                 float carried = particles * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing;
                 float all = sheet + thrown + landed + carried;
-                start = start < 0f ? all : start;
                 worst = Mathf.Max(worst, Mathf.Abs(all - start));
                 Log.AppendLine(Inv($"  t={k * Frame:0.0}s sheet {sheet:0.00} m3, particles {particles} ({carried:0.00} m3, {floor:0} down on the floor), thrown {thrown:0.000}, landed {landed:0.000}: {all:0.00} m3 in all"));
                 if (k == 480)
@@ -384,7 +391,7 @@ public static class ParticlePreview
         scene.Slab = new Bounds(new Vector3(14f, 1.5f, 14f), new Vector3(4f, 1f, 4f));
         int added = scene.Water.Add(new Vector3(13f, 3f, 13f), new Vector3(15f, 3.75f, 15f));
         Log.AppendLine(Inv($"Roof: {added} particles poured from 3 m onto a slab 4 m square, 1 m thick, 1 m over the floor."));
-        int inside = 0, under = 0, onTop = 0, floor = 0;
+        int inside = 0, under = 0, onTop = 0, floor = 0, mostOnTop = 0;
         for (int k = 1; k <= 300; k++)
         {
             scene.Step();
@@ -402,6 +409,7 @@ public static class ParticlePreview
                     floor += !over && y < 0.5f ? 1 : 0;
                 }
 
+                mostOnTop = Math.Max(mostOnTop, onTop);
                 Log.AppendLine(Inv($"  t={k * Frame:0.0}s on the slab {onTop}, under it {under}, inside it {inside}, on the floor round it {floor}"));
             }
 
@@ -411,7 +419,7 @@ public static class ParticlePreview
             }
         }
 
-        Log.AppendLine(Inv($"  Inside the slab at the end: {inside}; on the floor round it: {floor}: {Check(inside == 0 && floor > 0)}"));
+        Log.AppendLine(Inv($"  On the slab at most: {mostOnTop} (it landed there, not through it); inside the slab at the end: {inside}; on the floor round it: {floor}: {Check(mostOnTop > added / 2 && inside == 0 && floor > 0)}"));
     }
 
     // Walls thinner than a voxel (closed faces, as the server has a wall piece): a pen 2 m square and 8 m high (the
@@ -458,7 +466,7 @@ public static class ParticlePreview
                     float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
                     bool pen = x > 12f && x < 14f && z > 12f && z < 14f;
                     inside += pen ? 1 : 0;
-                    if (!pen && y < 2f)
+                    if (!pen)
                     {
                         outside++;
                         if (outside <= 5)
@@ -548,14 +556,14 @@ public static class ParticlePreview
         return request.GetData<int>().ToArray();
     }
 
-    // What a frame costs the card: so many particles in a tank, settled and then stirred (a block of water dropped in),
-    // the time of many frames' steps, waited for, over their count.
+    // What a frame costs the card: so many particles in a tank, settled and then stirred (a block of water dropped in,
+    // a quarter as many again: the scene has room for it), the time of many frames' steps, waited for, over their count.
     private static void Cost()
     {
         foreach (int target in new[] { 16384, 32768, 65536 })
         {
             float[] bed = Field((x, z) => x < 4f || x > 36f || z < 4f || z > 36f ? 20f : 0f);
-            using var scene = new Scene("pcost", bed, target);
+            using var scene = new Scene("pcost", bed, target + (target / 4));
             // A square block of water 1 m deep whose lattice holds about so many particles.
             float side = Mathf.Sqrt(target * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing);
             int added = scene.Water.Add(new Vector3(20f - (side / 2f), 0f, 20f - (side / 2f)), new Vector3(20f + (side / 2f), 1f, 20f + (side / 2f)));
@@ -565,9 +573,10 @@ public static class ParticlePreview
             }
 
             float still = Measure(scene.Water, 300);
-            scene.Water.Add(new Vector3(18f, 3f, 18f), new Vector3(22f, 4f, 22f));
+            float drop = Mathf.Sqrt(target / 4f * ParticleWater.Spacing * ParticleWater.Spacing * ParticleWater.Spacing);
+            int dropped = scene.Water.Add(new Vector3(20f - (drop / 2f), 3f, 20f - (drop / 2f)), new Vector3(20f + (drop / 2f), 4f, 20f + (drop / 2f)));
             float moving = Measure(scene.Water, 120);
-            Log.AppendLine(Inv($"Cost: {added} particles, frames of 60 fps ({scene.Water.Substeps} steps of {scene.Water.Iterations} rounds each): {still:0.000} ms a frame at rest, {moving:0.000} ms stirred (with {scene.Water.Count - added} more dropped in)"));
+            Log.AppendLine(Inv($"Cost: {added} particles, frames of 60 fps ({scene.Water.Substeps} steps of {scene.Water.Iterations} rounds each): {still:0.000} ms a frame at rest, {moving:0.000} ms stirred (with {dropped} more dropped in)"));
         }
     }
 
@@ -846,16 +855,8 @@ public static class ParticlePreview
                 surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath));
                 camera.Render();
             }
-            RenderTexture.active = target;
-            var image = new Texture2D(1280, 720, TextureFormat.RGB24, false);
-            image.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
-            image.Apply();
-            File.WriteAllBytes(Path.Combine(_output, file + ".png"), image.EncodeToPNG());
-            RenderTexture.active = null;
-            camera.targetTexture = null;
-            UnityEngine.Object.DestroyImmediate(camera.gameObject);
-            UnityEngine.Object.DestroyImmediate(target);
-            UnityEngine.Object.DestroyImmediate(image);
+
+            SimPreview.Save(camera, target, file);
             if (ball != null)
             {
                 UnityEngine.Object.DestroyImmediate(ball);
