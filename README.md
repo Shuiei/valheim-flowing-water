@@ -225,11 +225,13 @@ either way (`flowingwater particles [m³]`, while the card moves the water near 
 - The ground is the card's water's (`SimGrid.Bed`: a height per cell, a wall where it steps up by more than 35 cm):
   particles stand a radius over it and off the walls' faces, and the ground and the walls count as the water they keep
   out (the part of the smoothing kernel beyond them), so water by a wall is as dense as water inside and a pool lies
-  still instead of jittering against its walls. What players build is the bricks' solid voxels (the server's reading
-  of the pieces' colliders, a voxel each, over the square and 64 rows round the camera's height, built again with the
-  card's water when the bricks change): a particle keeps a radius out of them, so a roof holds water off from above
-  and from below, a floor on posts holds a pool, and water runs off a slab's edges (the preview's roof scene: none
-  ends inside the slab). A sphere (the player) pushes the water aside.
+  still instead of jittering against its walls. What players build is as the bricks have it (the server's reading of
+  the pieces' colliders, over the square and 64 rows round the camera's height, built again with the card's water when
+  the bricks change): solid voxels, which a particle keeps a radius out of, so a roof holds water off from above and
+  from below, a floor on posts holds a pool, and water runs off a slab's edges (the preview's roof scene: none ends
+  inside the slab); and the faces pieces close between voxels (a wall thinner than a voxel), which a particle stays on
+  its side of (the preview's walls scene: a pen's walls hold what is poured in). A sphere (the player) pushes the
+  water aside.
 - With `Client.ParticleWater`, the particles trade water with the card's sheet where a sheet cannot be the water: the
   water the sheet throws over a lip (what the spray's sheets carried, and the curtains drew) becomes particles, a litre
   each, leaving through the lip's face at the brink's speed; a particle that comes under the sheet's water, or to rest
@@ -262,8 +264,8 @@ size; 0.45 ms as spheres), and grows with the screen.
 
 What it is not yet: the water of a dam bursting or struck (only lips hand water to the particles); swum in or
 floated on (the particles are only drawn: the server's water says what you swim in, and what the particles carry is
-not the server's until it lands); met by pieces finer than a voxel (a thin wall is a voxel thick to it, and a piece
-in a brick with no water is only in the ground's heights) or by boats; spread over the frame's budget (a step is one
+not the server's until it lands); met by pieces where no brick with water is (there only the ground's heights hold)
+or by boats; spread over the frame's budget (a step is one
 go, and a lip throws at most 16 particles a cell a step; the surface is drawn only while there are particles);
 its surface's silhouette is still the spheres' (bumpy at the edge), and its look is a first pass on the sheet's.
 The console's block stays where the card's square leaves it.

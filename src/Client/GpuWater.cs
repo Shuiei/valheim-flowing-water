@@ -631,9 +631,10 @@ internal sealed class GpuWater : IDisposable
         });
     }
 
-    // The solid voxels of these bricks (more than half solid: the pieces' colliders as the server reads them) over the
-    // square from voxel column x0, z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by
-    // ParticleSolids.Index; and whether any is.
+    // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,
+    // z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by ParticleSolids.Index: a byte a
+    // voxel, ParticleSolids.Solid where the voxel is more than half solid, and the bits of the faces a piece closes
+    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is.
     private static byte[] Solids(List<BrickView> bricks, int x0, int z0, int columns, int baseRow, out bool any)
     {
         byte[] solids = new byte[columns * ParticleSolids.Rows * columns];
@@ -652,9 +653,12 @@ internal sealed class GpuWater : IDisposable
                 {
                     for (int x = Math.Max(0, -bx); x < Brick.Size && bx + x < columns; x++)
                     {
-                        if (brick.Solid[Brick.Index(x, y, z)] > 0.5f)
+                        int i = Brick.Index(x, y, z);
+                        int closed = ~brick.Open[i] & BrickData.AllOpen;
+                        byte built = (byte)((brick.Solid[i] > 0.5f ? ParticleSolids.Solid : 0) | closed);
+                        if (built != 0)
                         {
-                            solids[ParticleSolids.Index(columns, bx + x, by + y, bz + z)] = 255;
+                            solids[ParticleSolids.Index(columns, bx + x, by + y, bz + z)] = built;
                             any = true;
                         }
                     }

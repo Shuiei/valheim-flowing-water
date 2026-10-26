@@ -4,8 +4,10 @@ using UnityEngine;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// What players built, for the particle water (<see cref="ParticleWater.SetSolids"/>): solid voxels over the card's
-/// square at the voxel's size, <see cref="Rows"/> rows up from a base row, as a 3D texture (a byte a voxel: 255 solid).
+/// What players built, for the particle water (<see cref="ParticleWater.SetSolids"/>): a byte a voxel over the card's
+/// square at the voxel's size, <see cref="Rows"/> rows up from a base row, as a 3D texture: <see cref="Solid"/> where
+/// the voxel is solid, and a bit for each of its faces a piece closes (east, west, up, down, north, south: a wall
+/// thinner than a voxel).
 /// GpuWater gathers them from the bricks near the camera (the server's reading of the pieces' colliders) on another
 /// thread with the card's water, laid out by <see cref="Index"/>, and takes them onto the card on the main one
 /// (<see cref="Take"/>). Needs only Unity, so the Unity project's preview fills one by hand.
@@ -14,6 +16,12 @@ internal sealed class ParticleSolids : IDisposable
 {
     /// <summary>Rows of voxels the texture holds: so many metres of height (at the voxel's size), round the camera.</summary>
     public const int Rows = 64;
+
+    /// <summary>The byte's bit for a solid voxel; the six below it close its east, west, up, down, north and south faces.</summary>
+    public const byte Solid = 128;
+
+    /// <inheritdoc cref="Solid"/>
+    public const byte ClosedEast = 1, ClosedWest = 2, ClosedUp = 4, ClosedDown = 8, ClosedNorth = 16, ClosedSouth = 32;
 
     private Texture3D _texture;
 

@@ -66,6 +66,11 @@ public static class ParticlePreview
                 Roof();
             }
 
+            if (Runs("walls"))
+            {
+                Walls();
+            }
+
             if (Runs("cost"))
             {
                 Cost();
@@ -363,7 +368,7 @@ public static class ParticlePreview
         {
             for (int x = 12; x < 16; x++)
             {
-                solids[ParticleSolids.Index(Columns, x, 1, z)] = 255;
+                solids[ParticleSolids.Index(Columns, x, 1, z)] = ParticleSolids.Solid;
             }
         }
 
@@ -401,6 +406,73 @@ public static class ParticlePreview
         }
 
         Log.AppendLine(Inv($"  Inside the slab at the end: {inside}; on the floor round it: {floor}: {Check(inside == 0 && floor > 0)}"));
+    }
+
+    // Walls thinner than a voxel (closed faces, as the server has a wall piece): a pen 2 m square and 8 m high (the
+    // pour's splash throws drops metres up) on the floor of a box, its walls closed faces of the voxels inside and
+    // outside, with water poured into it: it fills the pen and none gets out.
+    private static void Walls()
+    {
+        float[] bed = Field((x, z) => x < 10f || x > 20f || z < 10f || z > 20f ? 10f : 0f);
+        using var scene = new Scene("pwalls", bed, 8000);
+        const int Columns = Cells / 4;
+        const float Voxel = Dx * 4;
+        byte[] solids = new byte[Columns * ParticleSolids.Rows * Columns];
+        for (int y = 0; y < 8; y++)
+        {
+            for (int k = 12; k < 14; k++)
+            {
+                solids[ParticleSolids.Index(Columns, 12, y, k)] |= ParticleSolids.ClosedWest;
+                solids[ParticleSolids.Index(Columns, 11, y, k)] |= ParticleSolids.ClosedEast;
+                solids[ParticleSolids.Index(Columns, 13, y, k)] |= ParticleSolids.ClosedEast;
+                solids[ParticleSolids.Index(Columns, 14, y, k)] |= ParticleSolids.ClosedWest;
+                solids[ParticleSolids.Index(Columns, k, y, 12)] |= ParticleSolids.ClosedSouth;
+                solids[ParticleSolids.Index(Columns, k, y, 11)] |= ParticleSolids.ClosedNorth;
+                solids[ParticleSolids.Index(Columns, k, y, 13)] |= ParticleSolids.ClosedNorth;
+                solids[ParticleSolids.Index(Columns, k, y, 14)] |= ParticleSolids.ClosedSouth;
+            }
+        }
+
+        using var built = new ParticleSolids();
+        built.Take(solids, Columns, Voxel, 0, true);
+        scene.Water.SetSolids(built.Texture, Columns, ParticleSolids.Rows, Voxel, 0f);
+        int added = scene.Water.Add(new Vector3(12.2f, 2.5f, 12.2f), new Vector3(13.8f, 3.5f, 13.8f));
+        Log.AppendLine(Inv($"Walls: {added} particles poured into a pen 2 m square, 8 m high, with walls thinner than a voxel (closed faces)."));
+        int outside = 0, inside = 0;
+        for (int k = 1; k <= 240; k++)
+        {
+            scene.Step();
+            if (k % 60 == 0)
+            {
+                float[] data = scene.Water.Read();
+                outside = inside = 0;
+                var where = new System.Text.StringBuilder();
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
+                    bool pen = x > 12f && x < 14f && z > 12f && z < 14f;
+                    inside += pen ? 1 : 0;
+                    if (!pen && y < 2f)
+                    {
+                        outside++;
+                        if (outside <= 5)
+                        {
+                            where.Append(Inv($" ({x:0.00}, {y:0.00}, {z:0.00})"));
+                        }
+                    }
+                }
+
+                var now = Settled(scene.Water);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s in the pen {inside}, out of it {outside}{where}, the water {now.Level:0.00} m deep (0.64 if all stays in)"));
+            }
+
+            if (k is 30 or 120 or 240)
+            {
+                scene.Shot(Inv($"pwalls_{k * Frame:0.0}s"), new Vector3(13f, 3.5f, 8.5f), new Vector3(13f, 0.6f, 13f));
+            }
+        }
+
+        Log.AppendLine(Inv($"  Out of the pen at the end: {outside}: {Check(outside == 0 && inside > added * 9 / 10)}"));
     }
 
     private static float[] ReadFloats(RenderTexture texture)

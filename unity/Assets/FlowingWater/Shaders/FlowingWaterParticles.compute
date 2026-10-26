@@ -108,11 +108,20 @@ float _Top;
 float _Radius;
 float _StepUp;
 
-// What players built, as the bricks have it (ParticleSolids): solid voxels (1) over the square, _SolidColumns a side
-// of _VoxelSize metres from the square's corner, _SolidRows rows up from world height _SolidY0; none where no brick is
-// (the ground alone holds there). A particle keeps a radius out of them: a roof from under it, a floor on posts, a wall.
+// What players built, as the bricks have it (ParticleSolids): a byte a voxel over the square, _SolidColumns a side of
+// _VoxelSize metres from the square's corner, _SolidRows rows up from world height _SolidY0: SOLID where the voxel is
+// solid, and a bit for each of its faces a piece closes (a wall thinner than a voxel: east, west, up, down, north,
+// south); none where no brick is (the ground alone holds there). A particle keeps a radius out of a solid voxel (a roof
+// from under it, a floor on posts) and on its side of a closed face (a wall).
 int _SolidsOn;
 Texture3D<float> _Solids;
+#define SOLID 128u
+#define CLOSED_EAST 1u
+#define CLOSED_WEST 2u
+#define CLOSED_UP 4u
+#define CLOSED_DOWN 8u
+#define CLOSED_NORTH 16u
+#define CLOSED_SOUTH 32u
 int _SolidColumns;
 int _SolidRows;
 float _VoxelSize;
@@ -282,9 +291,48 @@ float GroundAt(float2 xz)
     return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
 }
 
+uint BuiltAt(int3 v)
+{
+    bool inside = v.x >= 0 && v.y >= 0 && v.z >= 0 && v.x < _SolidColumns && v.y < _SolidRows && v.z < _SolidColumns;
+    return inside ? (uint)round(_Solids[v] * 255.0) : 0u;
+}
+
 bool SolidAt(int3 v)
 {
-    return v.x >= 0 && v.y >= 0 && v.z >= 0 && v.x < _SolidColumns && v.y < _SolidRows && v.z < _SolidColumns && _Solids[v] > 0.5;
+    return (BuiltAt(v) & SOLID) != 0u;
+}
+
+// A particle held on its side of its voxel's closed faces: one that crossed a closed face this step is put back just
+// inside it (the way it came), and one against a closed face is kept a radius from it.
+float3 Faces(float3 rel, float3 beforeRel)
+{
+    int3 v = (int3)floor(rel / _VoxelSize);
+    int3 was = (int3)floor(beforeRel / _VoxelSize);
+    float3 lo = float3(v) * _VoxelSize, hi = lo + _VoxelSize;
+    if (any(v != was))
+    {
+        uint from = BuiltAt(was);
+        float3 lastLo = float3(was) * _VoxelSize, lastHi = lastLo + _VoxelSize;
+        bool crossed = (v.x > was.x && (from & CLOSED_EAST) != 0u) || (v.x < was.x && (from & CLOSED_WEST) != 0u)
+            || (v.y > was.y && (from & CLOSED_UP) != 0u) || (v.y < was.y && (from & CLOSED_DOWN) != 0u)
+            || (v.z > was.z && (from & CLOSED_NORTH) != 0u) || (v.z < was.z && (from & CLOSED_SOUTH) != 0u);
+        if (crossed)
+        {
+            rel = clamp(rel, lastLo + _Radius, lastHi - _Radius);
+            v = was;
+            lo = lastLo;
+            hi = lastHi;
+        }
+    }
+
+    uint faces = BuiltAt(v);
+    rel.x = (faces & CLOSED_EAST) != 0u ? min(rel.x, hi.x - _Radius) : rel.x;
+    rel.x = (faces & CLOSED_WEST) != 0u ? max(rel.x, lo.x + _Radius) : rel.x;
+    rel.y = (faces & CLOSED_UP) != 0u ? min(rel.y, hi.y - _Radius) : rel.y;
+    rel.y = (faces & CLOSED_DOWN) != 0u ? max(rel.y, lo.y + _Radius) : rel.y;
+    rel.z = (faces & CLOSED_NORTH) != 0u ? min(rel.z, hi.z - _Radius) : rel.z;
+    rel.z = (faces & CLOSED_SOUTH) != 0u ? max(rel.z, lo.z + _Radius) : rel.z;
+    return rel;
 }
 
 // A place kept a radius out of what players built: in a solid voxel, out through its nearest face with room beyond
@@ -336,6 +384,7 @@ float3 Solids(float3 x, float3 before)
     rel.y = SolidAt(v + int3(0, 1, 0)) ? min(rel.y, hi.y - _Radius) : rel.y;
     rel.z = SolidAt(v + int3(0, 0, -1)) ? max(rel.z, lo.z + _Radius) : rel.z;
     rel.z = SolidAt(v + int3(0, 0, 1)) ? min(rel.z, hi.z - _Radius) : rel.z;
+    rel = Faces(rel, float3(before.x - _Origin.x, before.y - _SolidY0, before.z - _Origin.y));
     return float3(rel.x + _Origin.x, rel.y + _SolidY0, rel.z + _Origin.y);
 }
 
