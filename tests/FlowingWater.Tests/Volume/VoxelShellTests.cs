@@ -94,16 +94,20 @@ public class VoxelShellTests
     }
 
     [Fact]
-    public void WaterFallingDownACliffFaceOverGroundIsStillAFall()
+    public void WaterFallingDownACliffFaceOverGroundIsStillAFallDownToTheGround()
     {
-        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a fall all the same.
+        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a fall all the same,
+        // its foot (over the ground, the voxel under it dry) too.
         var view = new BrickView(0, 0, 0, 1f);
         for (int y = 4; y < 8; y++)
         {
             Wet(view, 8, y, 8, 0.09f, BrickData.AllOpen | BrickData.GroundUnder);
         }
 
-        Assert.True(VoxelShell.Build(Field(view), 0, 0, 0).Faces >= 3 * 4);
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal((4 * 4) + 2, shell.Faces);
+        Assert.Equal(-4f, Corners(shell).Min(c => c.Y), 3);
     }
 
     [Fact]

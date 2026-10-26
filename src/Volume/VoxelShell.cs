@@ -94,8 +94,10 @@ internal sealed class VoxelShell
                 // Over a voxel holding ground it runs down a slope steeper than the voxels, voxel to voxel: the surface
                 // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel). The
                 // server says so with its open faces (the ground under dry voxels is not sent). Water falling on into the
-                // voxel under it is a fall all the same, down a cliff's face too (the surface draws a column's top only).
-                bool steps = ((open & BrickData.GroundUnder) != 0 || Solid(field, x, y - 1, z) >= BrickData.HoldsGround) && !field.IsWet(x, y - 1, z);
+                // voxel under it is a fall all the same, down a cliff's face too (the surface draws a column's top only),
+                // and so is the foot of a fall, water falling into it from over it: its column goes down to the ground.
+                bool steps = ((open & BrickData.GroundUnder) != 0 || Solid(field, x, y - 1, z) >= BrickData.HoldsGround)
+                    && !field.IsWet(x, y - 1, z) && !FallsInto(field, x, y, z);
                 if (!steps)
                 {
                     shell.Fall(field, at, water, open);
@@ -113,6 +115,10 @@ internal sealed class VoxelShell
     // Over the air, holding no floor, the voxel under it not full: falling.
     private static bool Falling(VoxelField field, BrickView view, int i, int x, int y, int z, int open) =>
         (open & (1 << 3)) != 0 && view.Solid[i] < BrickData.HoldsGround && field.WaterAt(x, y - 1, z) + Solid(field, x, y - 1, z) < Full;
+
+    // Whether the voxel over (x, y, z) holds water falling into it.
+    private static bool FallsInto(VoxelField field, int x, int y, int z) =>
+        field.Voxel(x, y + 1, z, out BrickView view, out int i) && VoxelField.IsWet(view, i) && Falling(field, view, i, x, y + 1, z, view.Open[i]);
 
     private static float Solid(VoxelField field, int x, int y, int z) =>
         field.Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f;
