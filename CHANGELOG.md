@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.32.2 — 2026-10-26
+
+### Fixed
+- The water near you no longer shows a strip of bare ground, a step, or a ripple where the water your graphics card
+  moves meets the blocks of water farther off: the card hands a place over only once its water there has settled, and
+  never draws the edge of its square.
+
 ## v0.32.0 — 2026-10-26
 
 ### Changed

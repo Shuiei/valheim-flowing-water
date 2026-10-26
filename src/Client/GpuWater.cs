@@ -34,6 +34,9 @@ internal sealed class GpuWater : IDisposable
     // Shortest time between two builds of the server's water for the card, seconds.
     private const float BuildSeconds = 0.1f;
 
+    // While columns wait to be drawn by the card, how often the server's water is handed to it again, s.
+    private const float HandSeconds = 0.25f;
+
     private static readonly int OnId = Shader.PropertyToID("_FWSimOn");
     private static readonly int OriginId = Shader.PropertyToID("_FWSimOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
@@ -132,6 +135,16 @@ internal sealed class GpuWater : IDisposable
     // The last build's ledges and falls (moved with the square).
     private float[] _layers;
 
+    // Which columns the card draws of those the build lets it (none along the square's edge, a new one once its water
+    // settled), the build as handed to the card so, and when it was last handed (again while columns wait).
+    private readonly SimHandover _handover;
+
+    private readonly float[] _drawnTexels;
+
+    private readonly float[] _drawnLayers;
+
+    private float _handedAt = float.NegativeInfinity;
+
     private GpuWater(SimWindow window, Material material, ComputeShader compute)
     {
         _window = window;
@@ -142,6 +155,9 @@ internal sealed class GpuWater : IDisposable
         }
 
         _cast = new BedCast(window.Cells);
+        _handover = new SimHandover(window.Columns, window.VoxelSize);
+        _drawnTexels = new float[window.Columns * window.Columns * SimColumns.Texel];
+        _drawnLayers = new float[window.Columns * window.Columns * SimColumns.LayerTexel];
         _castUsed = new float[window.Cells * window.Columns];
         _castFirst = new bool[window.Cells];
         for (int k = 0; k < _castUsed.Length; k++)
@@ -228,7 +244,7 @@ internal sealed class GpuWater : IDisposable
         int cy = (int)Math.Floor(point.y / w.VoxelSize), reach = (int)Math.Ceiling(8f / w.VoxelSize);
 
         // Who draws each column with water within 8 voxels up or down, 8 voxels round (north up): '.' no water, 'c' the
-        // card, 'b' the bricks; '@' here.
+        // card, 'w' the bricks while the card's water there settles or along the square's edge, 'b' the bricks; '@' here.
         for (int z = cz + 8; z >= cz - 8; z--)
         {
             var line = new System.Text.StringBuilder(FormattableString.Invariant($"  z {z,5}: "));
@@ -243,7 +259,7 @@ internal sealed class GpuWater : IDisposable
                     wet = VoxelWater.Field.IsWet(x, y, z);
                 }
 
-                line.Append(x == cx && z == cz ? '@' : !wet ? '.' : _water._texels[(k * SimColumns.Texel) + 1] > 0.5f ? 'c' : 'b');
+                line.Append(x == cx && z == cz ? '@' : !wet ? '.' : _water._drawnTexels[(k * SimColumns.Texel) + 1] > 0.5f ? 'c' : _water._texels[(k * SimColumns.Texel) + 1] > 0.5f ? 'w' : 'b');
             }
 
             yield return line.ToString();
@@ -389,6 +405,11 @@ internal sealed class GpuWater : IDisposable
         }
 
         TakeBuild();
+        if (_handover.Waiting && Time.time - _handedAt >= HandSeconds)
+        {
+            Hand();
+        }
+
         StartBuild(near);
         StartCast();
         if (!_seeded)
@@ -466,9 +487,9 @@ internal sealed class GpuWater : IDisposable
             throw new InvalidOperationException("the server's water could not be built for the graphics card", build.Exception);
         }
 
-        _grid.SetTarget(build.Result.Texels, build.Result.Layers);
         _texels = build.Result.Texels;
         _layers = build.Result.Layers;
+        Hand();
         _castFrom = build.Result.Cast;
         MarkCastFirst();
         _builtBricks = _buildingBricks;
@@ -506,6 +527,14 @@ internal sealed class GpuWater : IDisposable
         });
     }
 
+    // The server's water as last built handed to the card, but for the columns it does not draw yet (SimHandover).
+    private void Hand()
+    {
+        _handover.Apply(_texels, _layers, Time.time, _drawnTexels, _drawnLayers);
+        _grid.SetTarget(_drawnTexels, _drawnLayers);
+        _handedAt = Time.time;
+    }
+
     // The square moved on by dx, dz voxel columns (the camera went on): the card's water, the server's as last built and
     // the ground found kept where both squares have them, the new edge's to be found and built; any cast or build under
     // way for the old square let go.
@@ -515,9 +544,10 @@ internal sealed class GpuWater : IDisposable
         _cast.Drop();
         _grid.Shift(dx * per, dz * per);
         window.Move(dx, dz, _ground, _castUsed, _castFirst, ref _texels, ref _layers);
+        _handover.Shift(dx, dz);
         if (_texels != null)
         {
-            _grid.SetTarget(_texels, _layers);
+            Hand();
         }
 
         _castFrom = null;
