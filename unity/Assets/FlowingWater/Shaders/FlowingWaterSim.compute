@@ -26,6 +26,7 @@
 #pragma kernel LandSpeeds
 #pragma kernel Land
 #pragma kernel Clear
+#pragma kernel ShiftCells
 
 // The cells: depth (m), and where a step writes it (each step reads one and writes the other); ground (world height,
 // m), the share of its outflow each can give.
@@ -604,4 +605,24 @@ void Clear(uint3 id : SV_DispatchThreadID)
     _Landed[c] = 0;
     _LandedX[c] = 0;
     _LandedZ[c] = 0;
+}
+
+// A texture of cells as the square moved by _Shift cells sees it (the camera went on): each cell takes the one at its
+// place plus the move; those past the old square's edge take _Outside.
+RWTexture2D<float> _ShiftFrom;
+RWTexture2D<float> _ShiftTo;
+int2 _Shift;
+float _Outside;
+
+[numthreads(8, 8, 1)]
+void ShiftCells(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    int2 from = c + _Shift;
+    _ShiftTo[c] = Inside(from) ? _ShiftFrom[from] : _Outside;
 }

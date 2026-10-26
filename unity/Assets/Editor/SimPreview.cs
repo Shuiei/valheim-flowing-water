@@ -41,6 +41,7 @@ public static class SimPreview
             Follow();
             Ledge(true);
             Ledge(false);
+            Shift();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -283,6 +284,45 @@ public static class SimPreview
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
         request.WaitForCompletion();
         return request.GetData<float>().ToArray();
+    }
+
+    // The square moved on with the camera: a sloshing pool shifted 8 cells (2 m) east and 4 north mid-slosh keeps its water
+    // where it was in the world (its middle moves 8 and 4 cells the other way in the square), and its sloshing goes on.
+    private static void Shift()
+    {
+        float[] bed = Ground((x, z) => x < 8f || x > 32f || z < 8f || z > 32f ? 20f : 0f);
+        using var scene = new Scene("shift", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 8f && x < 32f && z > 8f && z < 32f ? (x < 20f ? 1.5f : 0.5f) : 0f));
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        (float before, float beforeX, float beforeZ) = Middle(scene.Read());
+        scene.Grid.Shift(8, 4);
+        (float after, float afterX, float afterZ) = Middle(scene.Read());
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        (float later, _, _) = Middle(scene.Read());
+        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells"));
+    }
+
+    // The water in all (m3), and its middle (cells).
+    private static (float Water, float X, float Z) Middle(float[] h)
+    {
+        float sum = 0f, x = 0f, z = 0f;
+        for (int k = 0; k < h.Length; k++)
+        {
+            sum += h[k];
+            x += h[k] * (k % Cells);
+            z += h[k] * (k / Cells);
+        }
+
+        return (sum * Dx * Dx, x / sum, z / sum);
     }
 
     // What a frame costs the card at the game's size (384 cells a side, 96 m of 0.25 m), the square full of moving water:

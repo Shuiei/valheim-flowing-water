@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.28.0 — 2026-10-26
+
+### Changed
+- Walking or sailing along a river, the water your graphics card moves now goes with you as it is: its waves and
+  currents carry on, where before they started over (and the water refilled) every 24 m or so.
+
 ## v0.27.2 — 2026-10-26
 
 ### Fixed

@@ -122,14 +122,19 @@ internal sealed class BedCast : IDisposable
         return true;
     }
 
-    public void Dispose()
+    /// <summary>The batch under way let go, its rays waited for and not taken (the square moved).</summary>
+    public void Drop()
     {
         if (Busy)
         {
             _job.Complete();
             _row = -1;
         }
+    }
 
+    public void Dispose()
+    {
+        Drop();
         Free();
     }
 

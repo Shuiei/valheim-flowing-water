@@ -68,7 +68,7 @@ public static class BuildBundles
         MakeMaterial(ShellShaderPath, ShellMaterialPath, "FlowingWaterShell");
         Material sim = MakeMaterial(SimShaderPath, SimMaterialPath, "FlowingWaterSim");
         sim.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
-        CheckCompute(SimComputePath, "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed", "LandSpeeds", "Land", "Clear");
+        CheckCompute(SimComputePath, "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed", "LandSpeeds", "Land", "Clear", "ShiftCells");
         MakeMaterial(SprayShaderPath, SprayMaterialPath, "FlowingWaterSpray");
         CheckCompute(SprayComputePath, "EmitFromWater", "Move");
 

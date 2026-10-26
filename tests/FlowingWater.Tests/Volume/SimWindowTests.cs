@@ -58,4 +58,30 @@ public class SimWindowTests
         Assert.False(window.Keeps(middle, middle - 25f));
         Assert.Equal(window, SimWindow.Around(501f, 499f, 1f, 96f, 0.25f));
     }
+
+    [Fact]
+    public void ASquareMovedOnTakesOverTheWaterOfOneCutTheSameItOverlaps()
+    {
+        var before = SimWindow.Around(0f, 0f, 1f, 96f, 0.25f);
+        var after = SimWindow.Around(30f, -30f, 1f, 96f, 0.25f);
+        var far = SimWindow.Around(500f, 0f, 1f, 96f, 0.25f);
+        var finer = SimWindow.Around(30f, -30f, 1f, 96f, 0.125f);
+
+        Assert.True(after.ShiftedFrom(before, out int dx, out int dz));
+        Assert.Equal(after.X0 - before.X0, dx);
+        Assert.Equal(after.Z0 - before.Z0, dz);
+        Assert.False(far.ShiftedFrom(before, out _, out _));
+        Assert.False(finer.ShiftedFrom(before, out _, out _));
+    }
+
+    [Fact]
+    public void ShiftedValuesComeFromTheirPlaceMovedAndThoseNewAreOutside()
+    {
+        // A grid 3 wide and 2 high, two values a place, seen from a square one place east and one north.
+        float[] values = [0, 0.5f, 1, 1.5f, 2, 2.5f, 10, 10.5f, 11, 11.5f, 12, 12.5f];
+
+        float[] shifted = SimWindow.Shifted(values, 3, 1, 1, [-1f, 7f]);
+
+        Assert.Equal(new[] { 11, 11.5f, 12, 12.5f, -1, 7, -1, 7, -1, 7, -1, 7 }, shifted);
+    }
 }

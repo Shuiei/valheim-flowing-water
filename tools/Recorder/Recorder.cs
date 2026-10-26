@@ -551,6 +551,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             Note($"frame rate over the steep stream, {mode}: {(Time.frameCount - frames) / (Time.realtimeSinceStartup - since):0.0} fps");
         }
 
+        // Flying 50 m down the steep stream: the card's square moves on with the camera twice or so, its water kept (no
+        // pop, no refill); the square before and after.
+        Command("flowingwater gpu");
+        yield return Fly(t => (steep.At(6f + (50f * t)) + (steep.Across * 4f) + new Vector3(0f, 5f, 0f), steep.At(14f + (50f * t))), "steep-fly", 8f, 15);
+        Command("flowingwater gpu");
+
         // The fall off the platform (its source placed first): falls, splashes and spray as particles, filmed close and
         // from further off; who draws what.
         Vector3 fall = tower + new Vector3(0f, -2f, 0f);
@@ -1103,6 +1109,30 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         }
 
         Note($"burst {name}: {frames} frames at {fps} fps");
+    }
+
+    // A burst with the camera moving: path gives where it is and where it looks at each share of the time (0 to 1).
+    private IEnumerator Fly(Func<float, (Vector3 From, Vector3 At)> path, string name, float seconds, int fps)
+    {
+        (_cameraAt, _cameraLook) = path(0f);
+        yield return new WaitForSeconds(0.6f);
+        int frames = Mathf.RoundToInt(seconds * fps);
+        float step = 1f / fps;
+        for (int i = 0; i < frames; i++)
+        {
+            float next = Time.time + step;
+            (Vector3 from, Vector3 at) = path(i / (float)(frames - 1));
+            _cameraAt = from;
+            _cameraLook = at;
+            yield return new WaitForEndOfFrame();
+            ScreenCapture.CaptureScreenshot(Path.Combine(_out, $"{name}-{i:000}.png"));
+            while (Time.time < next)
+            {
+                yield return null;
+            }
+        }
+
+        Note($"fly {name}: {frames} frames at {fps} fps");
     }
 
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there

@@ -72,6 +72,45 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
         return Math.Abs(x - middleX) <= quarter && Math.Abs(z - middleZ) <= quarter;
     }
 
+    /// <summary>
+    /// How far, in voxel columns, this square is from <paramref name="other"/> when it can take over that one's water
+    /// (cut the same, sharing some of it); false when it cannot (another size or voxels, or no column in common).
+    /// </summary>
+    public bool ShiftedFrom(SimWindow other, out int dx, out int dz)
+    {
+        dx = X0 - other.X0;
+        dz = Z0 - other.Z0;
+        return Columns == other.Columns && PerVoxel == other.PerVoxel && VoxelSize.Equals(other.VoxelSize)
+            && Math.Abs(dx) < Columns && Math.Abs(dz) < Columns;
+    }
+
+    /// <summary>
+    /// A grid of values (rows of <paramref name="width"/> places along x, each <paramref name="outside"/>.Length values)
+    /// as seen from a square moved by <paramref name="dx"/>, <paramref name="dz"/> places: each place takes the value at
+    /// its place plus the move, and those past the old grid's edge are <paramref name="outside"/>.
+    /// </summary>
+    public static T[] Shifted<T>(T[] values, int width, int dx, int dz, T[] outside)
+    {
+        int stride = outside.Length;
+        int height = values.Length / (width * stride);
+        var shifted = new T[values.Length];
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int fromX = x + dx, fromZ = z + dz;
+                bool inside = fromX >= 0 && fromZ >= 0 && fromX < width && fromZ < height;
+                int to = ((z * width) + x) * stride, from = ((fromZ * width) + fromX) * stride;
+                for (int k = 0; k < stride; k++)
+                {
+                    shifted[to + k] = inside ? values[from + k] : outside[k];
+                }
+            }
+        }
+
+        return shifted;
+    }
+
     public bool Equals(SimWindow other) =>
         X0 == other.X0 && Z0 == other.Z0 && Columns == other.Columns && PerVoxel == other.PerVoxel && VoxelSize.Equals(other.VoxelSize);
 
