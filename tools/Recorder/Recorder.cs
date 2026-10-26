@@ -1092,27 +1092,20 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     private IEnumerator Burst(Vector3 from, Vector3 at, string name, float seconds, int fps)
     {
         from = Clear(from, at);
-        _cameraAt = from;
-        _cameraLook = at;
-        yield return new WaitForSeconds(0.6f);
-        int frames = Mathf.RoundToInt(seconds * fps);
-        float step = 1f / fps;
-        for (int i = 0; i < frames; i++)
-        {
-            float next = Time.time + step;
-            yield return new WaitForEndOfFrame();
-            ScreenCapture.CaptureScreenshot(Path.Combine(_out, $"{name}-{i:000}.png"));
-            while (Time.time < next)
-            {
-                yield return null;
-            }
-        }
-
-        Note($"burst {name}: {frames} frames at {fps} fps");
+        yield return Capture(_ => (from, at), name, seconds, fps);
+        Note($"burst {name}: {Mathf.RoundToInt(seconds * fps)} frames at {fps} fps");
     }
 
     // A burst with the camera moving: path gives where it is and where it looks at each share of the time (0 to 1).
     private IEnumerator Fly(Func<float, (Vector3 From, Vector3 At)> path, string name, float seconds, int fps)
+    {
+        yield return Capture(path, name, seconds, fps);
+        Note($"fly {name}: {Mathf.RoundToInt(seconds * fps)} frames at {fps} fps");
+    }
+
+    // Frames captured at this rate for this long, the camera where path says at each share of the time (0 to 1), after
+    // a moment to settle where it starts.
+    private IEnumerator Capture(Func<float, (Vector3 From, Vector3 At)> path, string name, float seconds, int fps)
     {
         (_cameraAt, _cameraLook) = path(0f);
         yield return new WaitForSeconds(0.6f);
@@ -1131,8 +1124,6 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 yield return null;
             }
         }
-
-        Note($"fly {name}: {frames} frames at {fps} fps");
     }
 
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there

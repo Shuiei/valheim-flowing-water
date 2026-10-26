@@ -42,6 +42,8 @@ public static class SimPreview
             Ledge(true);
             Ledge(false);
             Shift();
+            ShiftThrown();
+            Spray();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
             Debug.Log($"FlowingWater: sim preview written to {_output}");
@@ -308,7 +310,30 @@ public static class SimPreview
         }
 
         (float later, _, _) = Middle(scene.Read());
-        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells"));
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells: {Check(Mathf.Abs(after - before) < 0.01f && Mathf.Abs(beforeX - afterX - 8f) < 0.01f && Mathf.Abs(beforeZ - afterZ - 4f) < 0.01f)}"));
+
+    }
+
+    // Water thrown over a shelf's lip (no spray to carry it, so it stays in the air) is let go when the square moves. (A
+    // scene of its own: a new scene unloads the textures of one still open.)
+    private static void ShiftThrown()
+    {
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        float[] shelf = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var thrown = new Scene("shift-thrown", shelf);
+        thrown.Grid.Pulled = false;
+        thrown.Grid.Throws = true;
+        thrown.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        for (int k = 0; k < 150; k++)
+        {
+            thrown.Step();
+        }
+
+        float air = Read(thrown.Grid.Airborne).Sum();
+        thrown.Grid.Shift(4, 0);
+        float left = Read(thrown.Grid.Airborne).Sum() + ReadWhole(thrown.Grid.Landed).Sum(n => (float)n);
+        Log.AppendLine(Inv($"Shift: water in the air {air:0.00} m3 before, {left:0.00} after: {Check(air > 0f && left == 0f)}"));
     }
 
     // The water in all (m3), and its middle (cells).
@@ -323,6 +348,65 @@ public static class SimPreview
         }
 
         return (sum * Dx * Dx, x / sum, z / sum);
+    }
+
+    // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
+    // sheet shooting down a ramp throws no droplet, a dam let go throws some from its deep fast water, a still pool none;
+    // and every droplet is fine (at most 2.5 cm across), short-lived (0.7 s at most) and thrown up at 1.5 m/s at most.
+    private static void Spray()
+    {
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+        var material = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath);
+        // The most droplets alive at once while all the water is shallower than thinUnder (m), and the fastest current
+        // then; the droplets' largest size, longest life and fastest rise.
+        (int Droplets, float Current, float Largest, float Longest, float Fastest) Throw(string name, float[] bed, float[] depth, float thinUnder)
+        {
+            using var scene = new Scene(name, bed);
+            scene.Grid.Pulled = false;
+            scene.Grid.Roughness = 0f;
+            scene.Grid.SetDepth(depth);
+            using var spray = new SprayParticles(compute, material);
+            int droplets = 0;
+            float current = 0f, largest = 0f, longest = 0f, fastest = 0f;
+            for (int k = 1; k <= 120; k++)
+            {
+                scene.Step();
+                spray.Step(scene.Grid, Vector2.zero, Frame);
+                if (k % 6 == 0)
+                {
+                    float[] data = spray.Read();
+                    int alive = 0;
+                    for (int p = 0; p < SprayParticles.Count; p++)
+                    {
+                        int at = p * 12;
+                        if (data[at + 3] < data[at + 7] && data[at + 9] < 0.5f)
+                        {
+                            alive++;
+                            largest = Mathf.Max(largest, 2f * data[at + 8]);
+                            longest = Mathf.Max(longest, data[at + 7]);
+                            fastest = Mathf.Max(fastest, data[at + 5]);
+                        }
+                    }
+
+                    if (scene.Read().Max() < thinUnder)
+                    {
+                        droplets = Math.Max(droplets, alive);
+                        current = Mathf.Max(current, Read(scene.Grid.SpeedEast).Max(Mathf.Abs));
+                    }
+                }
+            }
+
+            return (droplets, current, largest, longest, fastest);
+        }
+
+        var thin = Throw("spray-thin", Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 40f : 0.8f * (34f - x)), Depths((x, z) => x > 6f && x < 14f && z > 12f && z < 28f ? 0.03f : 0f), 0.1f);
+        var deep = Throw("spray-deep", Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : 0f), Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f), float.MaxValue);
+        var still = Throw("spray-still", Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : 0f), Depths((x, z) => x > 6f && x < 34f && z > 12f && z < 28f ? 1f : 0f), float.MaxValue);
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        Log.AppendLine(Inv($"Spray: thin sheet down a ramp (under 10 cm), running up to {thin.Current:0.0} m/s, {thin.Droplets} droplets: {Check(thin.Droplets == 0 && thin.Current > 4.5f)}"));
+        Log.AppendLine(Inv($"Spray: dam let go, {deep.Droplets} droplets at most: {Check(deep.Droplets > 0)}"));
+        Log.AppendLine(Inv($"Spray: still pool, {still.Droplets} droplets: {Check(still.Droplets == 0)}"));
+        Log.AppendLine(Inv($"Spray: droplets at most {deep.Largest * 100f:0.0} cm across, living {deep.Longest:0.00} s, rising {deep.Fastest:0.00} m/s: {Check(deep.Largest <= 0.025f && deep.Longest <= 0.7f && deep.Fastest <= 1.5f)}"));
     }
 
     // What a frame costs the card at the game's size (384 cells a side, 96 m of 0.25 m), the square full of moving water:

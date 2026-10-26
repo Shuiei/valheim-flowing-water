@@ -144,6 +144,17 @@ internal sealed class SprayParticles : IDisposable
     }
 
     /// <summary>
+    /// Every particle's twelve floats (place and age, velocity and life, size, kind and water carried, one unused), read
+    /// back from the card: for previews and tests.
+    /// </summary>
+    public float[] Read()
+    {
+        float[] data = new float[Count * 12];
+        _particles.GetData(data);
+        return data;
+    }
+
+    /// <summary>
     /// How many are alive, how many of them are sheets, and the water they carry (m³; read back from the card: for
     /// previews and tests).
     /// </summary>
