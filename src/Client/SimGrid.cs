@@ -481,6 +481,10 @@ internal sealed class SimGrid : IDisposable
         Bind(_depth, VId, _v[_speeds]);
         Bind(_depth, ScaleId, _scale);
         Bind(_depth, AirborneId, Airborne);
+
+        // Which columns the card draws: water runs over a lip, thrown, only from those (where the bricks draw the water,
+        // they draw its falls).
+        _shader.SetTexture(_depth, TargetId, Target);
         Dispatch(_depth, Cells);
         _current = 1 - _current;
     }
