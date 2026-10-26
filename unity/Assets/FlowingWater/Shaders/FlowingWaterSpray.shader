@@ -10,8 +10,8 @@ Shader "FlowingWater/Spray"
         _FoamColor ("Foam colour", Color) = (0.838, 0.838, 0.838, 1)
         _FallColor ("Falling water colour", Color) = (0.62, 0.74, 0.78, 1)
         _FallAlpha ("Falling water opacity", Range(0, 1)) = 0.3
-        _FoamAlpha ("Droplets' opacity", Range(0, 1)) = 0.5
-        _Stretch ("Stretch along the motion (s of it), droplets", Float) = 0.04
+        _FoamAlpha ("Droplets' opacity", Range(0, 1)) = 0.35
+        _Stretch ("Stretch along the motion (s of it), droplets", Float) = 0.015
         _FallStretch ("Stretch along the motion (s of it), falling water", Float) = 0.12
     }
 

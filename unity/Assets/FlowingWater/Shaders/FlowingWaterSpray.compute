@@ -51,7 +51,9 @@ float _Dt;
 float _Gravity;
 uint _Seed;
 
-// Rapids: water faster than this throws droplets, so many a second for each m/s more over each square metre.
+// Rapids: water at least this deep (m) and faster than this (m/s) throws droplets, so many a second for each m/s more
+// over each square metre (a thin sheet running fast down a slope throws none: it does not break up into spray).
+float _SprayDepth;
 float _SprayFrom;
 float _SprayRate;
 
@@ -211,17 +213,18 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
         _Airborne[c] = thrown - carried;
     }
 
-    // Rapids: droplets off the surface, along the current, up into the air.
+    // Rapids: fine droplets off the surface, along the current, a little up into the air (most fall back within a
+    // few tens of centimetres, as real spray off running water).
     float fast = length(speed);
-    if (h >= 0.02 && fast > _SprayFrom)
+    if (h >= _SprayDepth && fast > _SprayFrom)
     {
-        uint n = min(Count(_SprayRate * (fast - _SprayFrom) * _Dx * _Dx * _Dt, state), 4u);
+        uint n = min(Count(_SprayRate * (fast - _SprayFrom) * _Dx * _Dx * _Dt, state), 2u);
         for (uint k = 0; k < n; k++)
         {
             float3 jitter = float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * _Dx;
-            float up = 1.0 + (2.5 * Random(state)) + (0.15 * fast);
-            float3 velocity = float3(speed.x * 0.8, up, speed.y * 0.8) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 1.2);
-            Add(centre + jitter, velocity, 0.5 + (0.7 * Random(state)), 0.015 + (0.025 * Random(state)), DROPLET, 0.0);
+            float up = 0.5 + Random(state) + (0.05 * fast);
+            float3 velocity = float3(speed.x * 0.9, up, speed.y * 0.9) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 0.6);
+            Add(centre + jitter, velocity, 0.3 + (0.4 * Random(state)), 0.004 + (0.008 * Random(state)), DROPLET, 0.0);
         }
     }
 }
@@ -270,7 +273,7 @@ void Move(uint3 id : SV_DispatchThreadID)
                     float angle = 6.2831853 * Random(state);
                     float outward = (0.3 + Random(state)) * 0.25 * strength;
                     float3 kick = float3(cos(angle) * outward, (0.3 + (0.5 * Random(state))) * 0.45 * strength, sin(angle) * outward);
-                    Add(float3(place.x, bed + h, place.z), kick + (0.3 * float3(velocity.x, 0.0, velocity.z)), 0.4 + (0.6 * Random(state)), 0.02 + (0.03 * Random(state)), SPLASH, 0.0);
+                    Add(float3(place.x, bed + h, place.z), kick + (0.3 * float3(velocity.x, 0.0, velocity.z)), 0.3 + (0.5 * Random(state)), 0.008 + (0.015 * Random(state)), SPLASH, 0.0);
                 }
             }
 
