@@ -131,6 +131,12 @@ where), so the waves finer than a voxel are the card's own.
   flood's front is the card's as it spreads. Under the water from just over its top, elsewhere from 3 m over the water
   near it, so walls round a pool hold the card's water; only the faces pieces close at the water's level are walls
   besides (the server's faces closed by the ground itself, each step of a slope, are left to the ground cast).
+- **Running water's surface.** Running water is drawn with waves on it, running with the current: chop that rises
+  with its speed (1.5 cm for each (m/s) squared, at most 15 cm and a quarter of its depth: still water lies flat, a
+  thin sheet barely ripples), lit as the waves it is, and a finer layer of ripples on fast water that catches the sun
+  in glints. White water gathers on the tops of fast chop's crests and where the water slows hard into the water
+  ahead (piling up against a rock or a post, a jump from shooting water to deep), besides the foam of fast water
+  running with it. Only the look: the card's water does not move by these waves.
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.
