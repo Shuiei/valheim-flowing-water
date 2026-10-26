@@ -15,6 +15,11 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
     // Columns line up in groups of this many (the card works on groups of eight cells).
     private const int Group = 8;
 
+    // A voxel column with no water, ledge nor fall (SimColumns' texels and layers), for the edge a moved square is new to.
+    private static readonly float[] NoTexel = [SimColumns.DryTop, 0f, 0f, 0f];
+
+    private static readonly float[] NoLayers = [SimColumns.DryTop, SimColumns.DryTop, SimColumns.DryTop, 0f];
+
     private SimWindow(int x0, int z0, int columns, int perVoxel, float voxelSize)
     {
         X0 = x0;
@@ -70,6 +75,64 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
         float middleX = (X0 + (Columns / 2f)) * VoxelSize;
         float middleZ = (Z0 + (Columns / 2f)) * VoxelSize;
         return Math.Abs(x - middleX) <= quarter && Math.Abs(z - middleZ) <= quarter;
+    }
+
+    /// <summary>
+    /// How far, in voxel columns, this square is from <paramref name="other"/> when it can take over that one's water
+    /// (cut the same, sharing some of it); false when it cannot (another size or voxels, or no column in common).
+    /// </summary>
+    public bool ShiftedFrom(SimWindow other, out int dx, out int dz)
+    {
+        dx = X0 - other.X0;
+        dz = Z0 - other.Z0;
+        return Columns == other.Columns && PerVoxel == other.PerVoxel && VoxelSize.Equals(other.VoxelSize)
+            && Math.Abs(dx) < Columns && Math.Abs(dz) < Columns;
+    }
+
+    /// <summary>
+    /// A grid of values (rows of <paramref name="width"/> places along x, each <paramref name="outside"/>.Length values)
+    /// as seen from a square moved by <paramref name="dx"/>, <paramref name="dz"/> places: each place takes the value at
+    /// its place plus the move, and those past the old grid's edge are <paramref name="outside"/>.
+    /// </summary>
+    public static T[] Shifted<T>(T[] values, int width, int dx, int dz, T[] outside)
+    {
+        int stride = outside.Length;
+        int height = values.Length / (width * stride);
+        var shifted = new T[values.Length];
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int fromX = x + dx, fromZ = z + dz;
+                bool inside = fromX >= 0 && fromZ >= 0 && fromX < width && fromZ < height;
+                int to = ((z * width) + x) * stride, from = ((fromZ * width) + fromX) * stride;
+                for (int k = 0; k < stride; k++)
+                {
+                    shifted[to + k] = inside ? values[from + k] : outside[k];
+                }
+            }
+        }
+
+        return shifted;
+    }
+
+    /// <summary>
+    /// The card's own record of its square, kept for this square, moved on by <paramref name="dx"/>, <paramref name="dz"/>
+    /// voxel columns from the last: the ground found under each cell (NaN where the move brings cells not cast yet), and
+    /// for each row of cells the heights its voxel columns were cast from (NaN: never) and whether it is cast first,
+    /// shifted in place; the server's water as last built for each column (texels and layers, as SimColumns gives
+    /// them; null while none was), shifted anew, the new edge's columns holding none.
+    /// </summary>
+    public void Move(int dx, int dz, float[] ground, float[] castUsed, bool[] castFirst, ref float[] texels, ref float[] layers)
+    {
+        Array.Copy(Shifted(ground, Cells, dx * PerVoxel, dz * PerVoxel, [float.NaN]), ground, ground.Length);
+        Array.Copy(Shifted(castUsed, Columns, dx, dz * PerVoxel, [float.NaN]), castUsed, castUsed.Length);
+        Array.Copy(Shifted(castFirst, 1, 0, dz * PerVoxel, [false]), castFirst, castFirst.Length);
+        if (texels != null)
+        {
+            texels = Shifted(texels, Columns, dx, dz, NoTexel);
+            layers = Shifted(layers, Columns, dx, dz, NoLayers);
+        }
     }
 
     public bool Equals(SimWindow other) =>

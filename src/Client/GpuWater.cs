@@ -17,8 +17,8 @@ namespace FlowingWater.Client;
 /// runs out and up the walls, a pool sloshes, waves cross. It draws where the server's water is one layer resting on
 /// the ground (the bricks' shader leaves those columns to it); elsewhere, and on a card or setting without it, the
 /// bricks draw as they do. Nothing of it is sent anywhere: swimming, floating and the game's water checks read the
-/// server's water as before. When the camera goes a quarter of the square from its middle, the square is made again
-/// round it.
+/// server's water as before. When the camera goes a quarter of the square from its middle, the square moves on round
+/// it, its water kept where both squares have it (waves and currents go on); its new edge's is the server's.
 /// </summary>
 internal sealed class GpuWater : IDisposable
 {
@@ -67,7 +67,8 @@ internal sealed class GpuWater : IDisposable
 
     private static string _off = "not started";
 
-    private readonly SimWindow _window;
+    // The square, moved on with the camera (Move).
+    private SimWindow _window;
 
     private readonly SimGrid _grid;
 
@@ -93,6 +94,9 @@ internal sealed class GpuWater : IDisposable
     // The bricks in the square the build under way, and the last one, were made from (a brick's water is never changed
     // in place: new data is a new view, so the same views are the same water); the ground's version each was made with.
     private List<BrickView> _buildingBricks = [];
+
+    // The square the build under way is for (it is not taken if the square moved since).
+    private SimWindow _buildingWindow;
 
     private List<BrickView> _builtBricks;
 
@@ -124,6 +128,9 @@ internal sealed class GpuWater : IDisposable
 
     // The last build's texels (for the console).
     private float[] _texels;
+
+    // The last build's ledges and falls (moved with the square).
+    private float[] _layers;
 
     private GpuWater(SimWindow window, Material material, ComputeShader compute)
     {
@@ -284,9 +291,19 @@ internal sealed class GpuWater : IDisposable
 
         Settings settings = FlowingWaterPlugin.Settings;
         var window = SimWindow.Around(camera.x, camera.z, VoxelWater.Field.VoxelSize, settings.GpuWaterRange.Value, settings.GpuWaterCell.Value);
-        if (_water != null && (_water._window.VoxelSize != window.VoxelSize || _water._window.Columns != window.Columns || _water._window.PerVoxel != window.PerVoxel || !_water._window.Keeps(camera.x, camera.z)))
+        bool reshaped = _water != null && (_water._window.VoxelSize != window.VoxelSize || _water._window.Columns != window.Columns || _water._window.PerVoxel != window.PerVoxel);
+        if (_water != null && (reshaped || !_water._window.Keeps(camera.x, camera.z)))
         {
-            Stop("moved");
+            // The camera went on: the square goes with it, its water kept where both squares have it (waves and currents
+            // go on); cut otherwise, or too far to share any, it is made again.
+            if (!reshaped && window.ShiftedFrom(_water._window, out int dx, out int dz))
+            {
+                _water.Move(window, dx, dz);
+            }
+            else
+            {
+                Stop("moved");
+            }
         }
 
         // No water in the square: nothing to move or draw (water far off does not keep the card busy).
@@ -431,6 +448,19 @@ internal sealed class GpuWater : IDisposable
 
         Task<(float[] Texels, float[] Layers, float[] Cast)> build = _build;
         _build = null;
+
+        // Built for the square before it moved: not taken (the next is built for the square as it is); had it failed,
+        // that is told, the water going on (a fault of its own is the current square's own build's to throw).
+        if (!_buildingWindow.Equals(_window))
+        {
+            if (build.IsFaulted)
+            {
+                FlowingWaterPlugin.Log.LogError($"The water for the graphics card could not be built (for the square before it moved): {build.Exception}");
+            }
+
+            return;
+        }
+
         if (build.IsFaulted)
         {
             throw new InvalidOperationException("the server's water could not be built for the graphics card", build.Exception);
@@ -438,6 +468,7 @@ internal sealed class GpuWater : IDisposable
 
         _grid.SetTarget(build.Result.Texels, build.Result.Layers);
         _texels = build.Result.Texels;
+        _layers = build.Result.Layers;
         _castFrom = build.Result.Cast;
         MarkCastFirst();
         _builtBricks = _buildingBricks;
@@ -464,6 +495,7 @@ internal sealed class GpuWater : IDisposable
         float[] ground = (float[])_ground.Clone();
         SimWindow w = _window;
         _buildingBricks = bricks;
+        _buildingWindow = w;
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
         _builtAt = Time.time;
@@ -472,6 +504,28 @@ internal sealed class GpuWater : IDisposable
             float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, out float[] layers, falls);
             return (texels, layers, cast);
         });
+    }
+
+    // The square moved on by dx, dz voxel columns (the camera went on): the card's water, the server's as last built and
+    // the ground found kept where both squares have them, the new edge's to be found and built; any cast or build under
+    // way for the old square let go.
+    private void Move(SimWindow window, int dx, int dz)
+    {
+        int per = window.PerVoxel;
+        _cast.Drop();
+        _grid.Shift(dx * per, dz * per);
+        window.Move(dx, dz, _ground, _castUsed, _castFirst, ref _texels, ref _layers);
+        if (_texels != null)
+        {
+            _grid.SetTarget(_texels, _layers);
+        }
+
+        _castFrom = null;
+        _nextRow = 0;
+        _builtBricks = null;
+        _groundVersion++;
+        _window = window;
+        _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
 
     // The bricks (of the square's voxel size) in a square, into a list, which it gives back.

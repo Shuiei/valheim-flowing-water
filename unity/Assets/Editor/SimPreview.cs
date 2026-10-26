@@ -41,6 +41,8 @@ public static class SimPreview
             Follow();
             Ledge(true);
             Ledge(false);
+            Shift();
+            ShiftThrown();
             Spray();
             Cost();
             File.WriteAllText(Path.Combine(_output, "sim.txt"), Log.ToString());
@@ -284,6 +286,68 @@ public static class SimPreview
         AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture);
         request.WaitForCompletion();
         return request.GetData<float>().ToArray();
+    }
+
+    // The square moved on with the camera: a sloshing pool shifted 8 cells (2 m) east and 4 north mid-slosh keeps its water
+    // where it was in the world (its middle moves 8 and 4 cells the other way in the square), and its sloshing goes on.
+    private static void Shift()
+    {
+        float[] bed = Ground((x, z) => x < 8f || x > 32f || z < 8f || z > 32f ? 20f : 0f);
+        using var scene = new Scene("shift", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 8f && x < 32f && z > 8f && z < 32f ? (x < 20f ? 1.5f : 0.5f) : 0f));
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        (float before, float beforeX, float beforeZ) = Middle(scene.Read());
+        scene.Grid.Shift(8, 4);
+        (float after, float afterX, float afterZ) = Middle(scene.Read());
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        (float later, _, _) = Middle(scene.Read());
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        Log.AppendLine(Inv($"Shift: a sloshing pool moved 8 cells east and 4 north: water {before:0.00} -> {after:0.00} m3 (then {later:0.00}); its middle {beforeX:0.00}, {beforeZ:0.00} -> {afterX:0.00}, {afterZ:0.00} cells: {Check(Mathf.Abs(after - before) < 0.01f && Mathf.Abs(beforeX - afterX - 8f) < 0.01f && Mathf.Abs(beforeZ - afterZ - 4f) < 0.01f)}"));
+
+    }
+
+    // Water thrown over a shelf's lip (no spray to carry it, so it stays in the air) is let go when the square moves. (A
+    // scene of its own: a new scene unloads the textures of one still open.)
+    private static void ShiftThrown()
+    {
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        float[] shelf = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var thrown = new Scene("shift-thrown", shelf);
+        thrown.Grid.Pulled = false;
+        thrown.Grid.Throws = true;
+        thrown.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        for (int k = 0; k < 150; k++)
+        {
+            thrown.Step();
+        }
+
+        float air = Read(thrown.Grid.Airborne).Sum();
+        thrown.Grid.Shift(4, 0);
+        float left = Read(thrown.Grid.Airborne).Sum() + ReadWhole(thrown.Grid.Landed).Sum(n => (float)n);
+        Log.AppendLine(Inv($"Shift: water in the air {air:0.00} m3 before, {left:0.00} after: {Check(air > 0f && left <= 0f)}"));
+    }
+
+    // The water in all (m3), and its middle (cells).
+    private static (float Water, float X, float Z) Middle(float[] h)
+    {
+        float sum = 0f, x = 0f, z = 0f;
+        for (int k = 0; k < h.Length; k++)
+        {
+            sum += h[k];
+            x += h[k] * (k % Cells);
+            z += h[k] * (k / Cells);
+        }
+
+        return (sum * Dx * Dx, x / sum, z / sum);
     }
 
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin

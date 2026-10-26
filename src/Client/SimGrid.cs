@@ -80,6 +80,10 @@ internal sealed class SimGrid : IDisposable
     private static readonly int BorderId = Shader.PropertyToID("_Border");
     private static readonly int AirborneId = Shader.PropertyToID("_Airborne");
     private static readonly int LandedId = Shader.PropertyToID("_Landed");
+    private static readonly int ShiftFromId = Shader.PropertyToID("_ShiftFrom");
+    private static readonly int ShiftToId = Shader.PropertyToID("_ShiftTo");
+    private static readonly int ShiftId = Shader.PropertyToID("_Shift");
+    private static readonly int OutsideId = Shader.PropertyToID("_Outside");
     private static readonly int LandedXId = Shader.PropertyToID("_LandedX");
     private static readonly int LandedZId = Shader.PropertyToID("_LandedZ");
     private static readonly int ThrowId = Shader.PropertyToID("_Throw");
@@ -98,6 +102,7 @@ internal sealed class SimGrid : IDisposable
     private readonly int _landSpeeds;
     private readonly int _land;
     private readonly int _clear;
+    private readonly int _shiftCells;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -156,6 +161,7 @@ internal sealed class SimGrid : IDisposable
         LandedEast = MakeCells("landed east", cells, RenderTextureFormat.RInt);
         LandedNorth = MakeCells("landed north", cells, RenderTextureFormat.RInt);
         _clear = shader.FindKernel("Clear");
+        _shiftCells = shader.FindKernel("ShiftCells");
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -398,6 +404,26 @@ internal sealed class SimGrid : IDisposable
         Dispatch(_relax, Cells);
     }
 
+    /// <summary>
+    /// The water as the square moved by <paramref name="dx"/>, <paramref name="dz"/> cells sees it (the camera went on):
+    /// each cell's depth, speeds and ground taken from its place plus the move, so the water goes on as it was; the cells
+    /// new to the square dry, their ground not known (each takes the server's water as its ground is written). The water
+    /// in the air is let go (a frame's: the server's pulls the card's back to it). The server's water is set again after.
+    /// </summary>
+    public void Shift(int dx, int dz)
+    {
+        Common();
+        _shader.SetInts(ShiftId, dx, dz);
+        ShiftInto(_h[_current], _h[1 - _current], 0f);
+        _current = 1 - _current;
+        ShiftInto(_u[_speeds], _u[1 - _speeds], 0f);
+        ShiftInto(_v[_speeds], _v[1 - _speeds], 0f);
+        _speeds = 1 - _speeds;
+        ShiftInto(Bed, _scale, Wall);
+        Graphics.CopyTexture(_scale, Bed);
+        ClearThrown();
+    }
+
     /// <summary>No water in the air nor landed (the spray that would carry or land it is gone).</summary>
     public void ClearThrown()
     {
@@ -476,6 +502,14 @@ internal sealed class SimGrid : IDisposable
     }
 
     private void Bind(int kernel, int id, RenderTexture texture) => _shader.SetTexture(kernel, id, texture);
+
+    private void ShiftInto(RenderTexture from, RenderTexture to, float outside)
+    {
+        Bind(_shiftCells, ShiftFromId, from);
+        Bind(_shiftCells, ShiftToId, to);
+        _shader.SetFloat(OutsideId, outside);
+        Dispatch(_shiftCells, Cells);
+    }
 
     private void BindLanded(int kernel)
     {
