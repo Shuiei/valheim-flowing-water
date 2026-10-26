@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.29.0 — 2026-10-26
+
+### Added
+- Running water near you now has waves on it that run with the current and rise with its speed, catches the sun in
+  glints on fast water, and turns white on the tops of fast chop and where it piles up against a rock or a post.
+  Still water stays flat.
+
 ## v0.28.0 — 2026-10-26
 
 ### Changed

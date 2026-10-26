@@ -86,6 +86,18 @@ Shader "FlowingWater/SimWater"
         #define CLIFF_FADE 0.3
         #define CLIFF_CELL 0.25
 
+        // Waves on running water, only for the look (the card's water does not move by them): chop running with the
+        // current, the higher the faster (so many metres for each (m/s) squared), no higher than so many metres nor than
+        // a share of the water's depth; its length (m), and the shorter layer's share of it.
+        #define WAVE_PER_SPEED2 0.015
+        #define WAVE_MOST 0.15
+        #define WAVE_DEPTH_SHARE 0.25
+        #define WAVE_LENGTH 1.6
+        #define WAVE_FINE 0.45
+
+        // Water slowing this much (m/s) from two cells behind to two ahead (a jump, an obstacle) churns fully white.
+        #define CHURN_SLOWING 1.5
+
         // A face of the grid steeper than this (the up of its normal) begins to fade, gone at the second.
         #define STEEP_FROM 0.45
         #define STEEP_GONE 0.3
@@ -99,6 +111,45 @@ Shader "FlowingWater/SimWater"
         float LevelAt(float2 p)
         {
             return At(_SimBed, p) + At(_SimH, p);
+        }
+
+        // Smooth noise over the plane, -1 to 1 (one feature a unit).
+        float Hash(float2 c)
+        {
+            return frac(sin(dot(c, float2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float Noise(float2 x)
+        {
+            float2 i = floor(x);
+            float2 f = frac(x);
+            float2 u = f * f * (3.0 - (2.0 * f));
+            float bottom = lerp(Hash(i), Hash(i + float2(1.0, 0.0)), u.x);
+            float top = lerp(Hash(i + float2(0.0, 1.0)), Hash(i + float2(1.0, 1.0)), u.x);
+            return (2.0 * lerp(bottom, top, u.y)) - 1.0;
+        }
+
+        // The chop at a world place on water running at this current, -1 to 1: two layers of noise dragged along at the
+        // water's speed in two phases blended, as the running ripples are (never stretched, never seen to jump back).
+        float Chop(float2 world, float2 current)
+        {
+            float chop = 0.0;
+            for (int k = 0; k < 2; k++)
+            {
+                float offset = 0.5 * k;
+                float t = frac((_Time.y / _FlowCycle) + offset);
+                float weight = 1.0 - abs((2.0 * t) - 1.0);
+                float2 at = world - (current * t * _FlowCycle) + (offset * float2(23.7, 41.3));
+                chop += weight * (Noise(at / WAVE_LENGTH) + (0.5 * Noise((at / (WAVE_LENGTH * WAVE_FINE)) + 17.0)));
+            }
+
+            return chop / 1.5;
+        }
+
+        // How fast the water is at a place in cells (its faces' speeds there).
+        float SpeedAt(float2 p)
+        {
+            return length(float2(At(_SimU, p - float2(0.5, 0.0)), At(_SimV, p - float2(0.0, 0.5))));
         }
 
         void vert(inout appdata_full v, out Input o)
@@ -127,15 +178,33 @@ Shader "FlowingWater/SimWater"
             float dry = (wet > -1e8 ? min(bed, wet) : bed) - 0.05;
             v.vertex.y = (depth > HIDE_DEPTH * 0.5 ? bed + depth : dry) + _Lift;
 
+            // The current at the cell's centre: the speeds through its faces either side (u at (i + 1, j + 0.5)).
+            float2 current = float2(At(_SimU, p - float2(0.5, 0.0)), At(_SimV, p - float2(0.0, 0.5)));
+            float speed = length(current);
+            float2 world = mul(unity_ObjectToWorld, v.vertex).xz;
+
+            // The chop of running water, raised on its level, and its slope with the water's own for the light.
+            float wave = depth > HIDE_DEPTH * 0.5 ? min(min(WAVE_PER_SPEED2 * speed * speed, WAVE_MOST), WAVE_DEPTH_SHARE * depth) : 0.0;
+            float chop = Chop(world, current);
+            v.vertex.y += wave * chop;
+
             float east = LevelAt(p + float2(1.0, 0.0)) - LevelAt(p - float2(1.0, 0.0));
             float north = LevelAt(p + float2(0.0, 1.0)) - LevelAt(p - float2(0.0, 1.0));
+            float2 dx = float2(_SimDx, 0.0);
+            float2 dz = float2(0.0, _SimDx);
+            east += wave * (Chop(world + dx, current) - Chop(world - dx, current));
+            north += wave * (Chop(world + dz, current) - Chop(world - dz, current));
             float2 slope = float2(east, north) / (2.0 * _SimDx);
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
 
-            // The current at the cell's centre: the speeds through its faces either side (u at (i + 1, j + 0.5)).
-            float2 current = float2(At(_SimU, p - float2(0.5, 0.0)), At(_SimV, p - float2(0.0, 0.5)));
-            float2 world = mul(unity_ObjectToWorld, v.vertex).xz;
+            // Churn: white water on the tops of fast chop's crests, and where the water slows hard along its way into water
+            // ahead (it piles up against an obstacle, or jumps from shooting to deep; not at a front onto dry ground).
+            float2 along = speed > 0.05 ? current / speed : 0.0;
+            float2 ahead = p + (2.0 * along);
+            float slowing = At(_SimH, ahead) > SHOW_DEPTH ? SpeedAt(p - (2.0 * along)) - SpeedAt(ahead) : 0.0;
+            float fast = saturate(speed / _RapidsSpeed);
+            float churn = 0.7 * saturate((smoothstep(0.35, 0.8, chop) * fast * fast) + saturate(slowing / CHURN_SLOWING));
             float foam = 2.0 * frac(tex2Dlod(_FWSimTarget, float4((world - _FWSimOrigin) / _FWSimSize, 0.0, 0.0)).w);
 
             o.world = world;
@@ -143,7 +212,7 @@ Shader "FlowingWater/SimWater"
             // squares between them would be a wall of water, drawn by the falls instead.
             float steep = _SimDx / CLIFF_CELL;
             float joined = 1.0 - (_FadeCliffs * saturate((drop - (CLIFF_FROM * steep)) / (CLIFF_FADE * steep)));
-            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, 0.0);
+            o.water = float4(depth, foam, saturate((depth - HIDE_DEPTH) / (SHOW_DEPTH - HIDE_DEPTH)) * joined, churn);
             o.current = current;
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));

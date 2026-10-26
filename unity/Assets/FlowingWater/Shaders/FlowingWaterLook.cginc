@@ -49,7 +49,7 @@ float4 _SunFogColor;
 struct Input
 {
     float2 world;   // world x, z
-    float4 water;   // depth, foam, shore
+    float4 water;   // depth, foam, shore, churn (white water the card's waves make: their crests, the water slowing hard)
     float2 current; // m/s
     float3 worldPos;
     float4 screenPos;
@@ -94,7 +94,8 @@ float2 FlowPhase(float2 uv, float2 run, float offset, out float weight)
 }
 
 // Ripples that run with the current, the sea's layers finer (a stream is narrower than the sea's swell):
-// dragged along at the water's own speed, two phases blended so they never stretch.
+// dragged along at the water's own speed, two phases blended so they never stretch; on fast water a finer layer
+// besides, that catches the sun in glints.
 float3 RunningRipples(float2 world, float2 current)
 {
     float scale = _NormalScale * _FlowTiling;
@@ -106,7 +107,8 @@ float3 RunningRipples(float2 world, float2 current)
     float2 b = FlowPhase(uv, run, 0.5, wb);
     float3 large = (UnpackNormal(tex2D(_Normal, a * 0.2)) * wa) + (UnpackNormal(tex2D(_Normal, b * 0.2)) * wb);
     float3 fine = (UnpackNormal(tex2D(_Normal, a)) * wa) + (UnpackNormal(tex2D(_Normal, b)) * wb);
-    return large + (0.6 * fine);
+    float3 glints = (UnpackNormal(tex2D(_Normal, (a * 3.1) + 0.3)) * wa) + (UnpackNormal(tex2D(_Normal, (b * 3.1) + 0.7)) * wb);
+    return large + (0.6 * fine) + (0.5 * saturate(length(current) / _RapidsSpeed) * glints);
 }
 
 // The fog over the water as over the sea: the game's fog, towards the sun's colour where one looks at the
@@ -180,9 +182,10 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float shoreFoam = deep * min(shore, 1.0 - band);
     colour = lerp(colour, _FoamColor.rgb, saturate(8.0 * tex2D(_FoamTex, (i.world * 0.1) + wobble).r * shoreFoam * _FoamColor.a));
 
-    // Rapids: fast water foams, its foam running with it; the simulation's own foam (falls) on top.
+    // Rapids: fast water foams, its foam running with it; the simulation's own foam (falls) and its waves' churn on
+    // top.
     float fast = saturate(speed / _RapidsSpeed);
-    float want = saturate((fast * fast * 0.8) + i.water.y);
+    float want = saturate((fast * fast * 0.8) + i.water.y + i.water.w);
     float fa;
     float fb;
     float2 foamUv = i.world * _RapidsTiling;
