@@ -343,8 +343,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     /// <summary>
     /// All the mod's water gone from the world, and every placed source and drain with it: the grid empty, the bricks'
     /// objects destroyed (and any old column tile), the markers' objects destroyed and forgotten at once (the config's
-    /// fixed sources and drains stay, and pour again). The players' games see the objects go as the game sends their
-    /// destruction out.
+    /// fixed sources and drains stay, and pour again). The objects' destruction is sent out to the players' games before
+    /// this returns.
     /// </summary>
     /// <returns>The cubic metres gone, and the sources and drains removed.</returns>
     public (float Water, int Markers) Wipe()
@@ -372,6 +372,9 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             DestroyZdo(zdo);
         }
 
+        // Sent out now, not at the frame's end: a look for markers ending this frame would find the destroyed sources
+        // and drains still there and keep them pouring till the next look, and a save taken now would keep it all.
+        _lateDestroys.Flush();
         _drained.Clear();
         NewGrid(_grid.VoxelSize);
         _markers.DropPlaced();
