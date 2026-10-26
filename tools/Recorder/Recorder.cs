@@ -272,7 +272,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         string chosen = Environment.GetEnvironmentVariable("FW_REC_SCENARIO");
         Site steep = null;
         Site gentle = null;
-        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "at"
+        bool ownPlaces = chosen is "prep" or "pools" or "cascade" or "diag" or "flood" or "at"
             || (chosen == "perf" && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FW_REC_PERF")));
         if (!ownPlaces)
         {
@@ -285,6 +285,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         IEnumerator scenario = chosen switch
         {
             "cascade" => Cascade(spawn),
+            "diag" => Diag(spawn),
+            "flood" => Flood(spawn),
             "look" => Look(steep, gentle),
             "prep" => Prep(),
             "pools" => Pools(),
@@ -1383,6 +1385,10 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note($"pit dug with {dig.name} at {centre.ToString("F1")}: ground {centre.y:0.0} -> {bottom:0.0} m");
     }
 
+    // The generated ground's slope at a place (rise per metre, east and north), over 2 m each way.
+    private static Vector2 Gradient(WorldGenerator generator, float x, float z) =>
+        new Vector2(generator.GetHeight(x + 2f, z) - generator.GetHeight(x - 2f, z), generator.GetHeight(x, z + 2f) - generator.GetHeight(x, z - 2f)) / 4f;
+
     // The nearest place within 400 m of the spawn whose slope lies in the range, on dry land
     // well above the sea, that keeps falling for 30 m the same way.
     private Site FindSite(Vector3 spawn, float minSlope, float maxSlope, bool open)
@@ -1404,7 +1410,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                     continue;
                 }
 
-                var gradient = new Vector2(generator.GetHeight(x + 2f, z) - generator.GetHeight(x - 2f, z), generator.GetHeight(x, z + 2f) - generator.GetHeight(x, z - 2f)) / 4f;
+                Vector2 gradient = Gradient(generator, x, z);
                 float slope = gradient.magnitude;
                 if (slope < minSlope || slope > maxSlope)
                 {

@@ -123,8 +123,11 @@ where), so the waves finer than a voxel are the card's own.
 
 - **Where it draws.** Where the server's water is one layer resting on the ground. Water falling through the air, a
   pool under another and water under a roof are drawn by the blocks, as before, and so is everything beyond the
-  square. The square moves with the camera once it is a quarter of the square from its middle, its water moved with
-  it where both squares have it (waves and currents go on, nothing refills); the new edge's water is the server's.
+  square, and a band 4 m wide along its edge (where the card's water is the server's as it is, or still pulled toward
+  it). The square moves with the camera once it is a quarter of the square from its middle, its water moved with it
+  where both squares have it (waves and currents go on, nothing refills); the new edge's water is the server's, and
+  the blocks go on drawing each of its columns for 3 s after the card can have it, while the card's water there
+  settles from the server's steps (falls too: the card throws none from a column it does not draw).
 - **The ground.** Rays cast straight down onto the terrain and what players built, a few rows of cells a frame on the
   game's worker threads, all of the square in a fraction of a second, then again and again (what is built, a door
   opened); only near water. Rows where water comes near, or rises or falls more than 25 cm, are cast first, so a
@@ -146,7 +149,9 @@ where), so the waves finer than a voxel are the card's own.
   in glints. The long waves (2.4 m) are raised on the surface, by the blocks beyond the square too, so they run on
   past its edge; the fine ones (0.8 m) are only lit, at each point drawn, near and far alike. White water gathers on the tops of fast chop's crests and where the water slows hard into the water
   ahead (piling up against a rock or a post, a jump from shooting water to deep), besides the foam of fast water
-  running with it. Only the look: the card's water does not move by these waves.
+  running with it. Water running down a steep slope (from about 20°, all of it from 45° and 1 m/s) is a cascade:
+  broken white water, streaked down the slope as it runs, hiding what is behind it and mirroring nothing, near and far
+  alike. Only the look: the card's water does not move by these waves.
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.
@@ -177,11 +182,12 @@ anywhere: the server's water still says how much water is where):
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).
 
-At most 32768 particles live at once (the oldest give way). Moving them took 0.02 ms a frame on a Radeon RX 9070 XT
-(`tools/sim-preview.sh`, which also runs a shelf of water poured off its lip); drawing them comes on top, and grows
-with how many there are on screen. A wall of water between two levels (a ledge with water on its top and at its
-foot) is left to the falls: the card's surface fades out where the water a cell away is more than half a metre higher
-or lower.
+At most 32768 particles live at once (the oldest give way); one that leaves the square, or flies over ground the card
+has not found, fades out there within a quarter of a second, and none is drawn much longer than a metre along its
+motion. Moving them took 0.02 ms a frame on a Radeon RX 9070 XT (`tools/sim-preview.sh`, which also runs a shelf of
+water poured off its lip); drawing them comes on top, and grows with how many there are on screen. A wall of water
+between two levels (a ledge with water on its top and at its foot) is left to the falls: the card's surface fades out
+where the water a cell away is more than half a metre higher or lower.
 
 ### Grid size
 
@@ -292,10 +298,15 @@ there to the new grid (same volume), at once when the file is saved.
   sends, so the water moves on smoothly instead of jumping; nothing is built in the game's frame but the textures.
   Beside the surface, the water is drawn as the voxels it fills where it meets the air: the server sends with each
   wet voxel which of its faces water could leave by (no piece closing it, no solid beyond), and the block draws a side
-  where its water stands open to the air (from its floor, or the water beside it, up to its level), and water falling
-  through the air as a column through each voxel it falls through, as wide as its water, capped where the fall starts
-  and ends, so a fall is one cascade of white water. These faces and the surface are drawn from both sides: from
-  inside the water, it is still seen.
+  where its water stands open to the air (from its floor, or the water beside it, up to its level; not toward water
+  beside it at most 0.35 of a voxel lower, or a voxel lower, which the surface joins it to, unless that column holds
+  water higher up, which the surface joins instead, or the server says the dry voxel beside holds some ground: the
+  side shows over it), and water falling through the air as a column through each voxel it falls through, as wide as
+  its water, capped where the fall starts and ends, so a fall is one cascade of white water (only over open air: water
+  stepping down a slope steeper than the voxels, from one to the next with ground under it, is the surface's, one
+  sheet down the slope: the server marks with each wet voxel's open faces whether the voxel under it holds ground,
+  which it does not send otherwise). These faces and the surface are drawn from both sides: from inside the water, it
+  is still seen.
   With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
   instead: the top of each wet voxel with no water over it, its corners shared with the tops beside it that are one
   water with it, sides where the water ends (a fall's sheet, a pool's edge over a cliff), eased to new water over 0.4
@@ -357,7 +368,12 @@ FW_REC_OUT=/tmp/rec gamescope --backend headless -W 1920 -H 1080 -- <Steam runti
 `WINEDLLOVERRIDES` for BepInEx). A character new to the world rides in with the Valkyrie first; the recorder
 waits for it to land. Remove the dll from the client afterwards.
 
-`FW_REC_SCENARIO` picks one scenario instead of every command: `at` takes the player to each place of
+`FW_REC_SCENARIO` picks one scenario instead of every command: `diag` pours a cascade down the steepest face near the
+spawn (or `FW_REC_AROUND`, within `FW_REC_REACH` metres; `FW_REC_DRY=1` pours none, `FW_REC_WAIT` seconds before the
+shots) and shoots it from several places as it looks and in the debug colours, with `flowingwater gpu` and
+`gpu columns` in the log; `flood` floods a gentle meadow near the spawn from three sources (`FW_REC_RATE` each,
+`FW_REC_WAIT` seconds) and shoots it from inside the card's square, across its edge and from far off, the same way;
+`at` takes the player to each place of
 `FW_REC_AT` (`x,z[,y]|command;...`, standing at `y` when given: on a floor, in a box) and runs the command there;
 `pools` fills and films the pools of a test world (`FW_REC_POOLS`, `x,z,radius,depth;...`) in each look of
 `FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground

@@ -111,12 +111,6 @@ Shader "FlowingWater/SimWater"
             return tex2Dlod(state, float4(p / _SimCells, 0.0, 0.0)).r;
         }
 
-        // The level at a place in cells (cell centres at half cells).
-        float LevelAt(float2 p)
-        {
-            return At(_SimBed, p) + At(_SimH, p);
-        }
-
         // How fast the water is at a place in cells (its faces' speeds there).
         float SpeedAt(float2 p)
         {
@@ -133,22 +127,30 @@ Shader "FlowingWater/SimWater"
             // Raised to the water's level. Where there is none, just under the water round it (its eight neighbours: the
             // grid's squares join diagonal ones too), or under its own ground where that is lower: the water's front runs
             // down to the ground (cut where the water runs out, in surf), and never reaches up to a cell whose ground is
-            // not known (a wall far over everything).
+            // not known (a wall far over everything). The four beside it (east, west, north, south), their levels and
+            // whether each has water to show, kept for the slope below.
             float wet = -1e9;
             float drop = 0.0;
             float beside = 0.0;
             bool wetHere = depth > HIDE_DEPTH * 0.5;
+            float levels[4];
+            bool shows[4];
             float2 sides[8] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0), float2(1.0, -1.0), float2(-1.0, -1.0) };
             for (int k = 0; k < 8; k++)
             {
-                float there = At(_SimH, p + sides[k]);
-                bool wetThere = there > HIDE_DEPTH * 0.5;
-                if (wetThere)
+                float h = At(_SimH, p + sides[k]);
+                float there = At(_SimBed, p + sides[k]) + h;
+                if (k < 4)
                 {
-                    float level = LevelAt(p + sides[k]);
-                    wet = max(wet, level);
-                    drop = max(drop, abs(level - (bed + depth)));
-                    beside = max(beside, there);
+                    levels[k] = there;
+                    shows[k] = h > HIDE_DEPTH;
+                }
+
+                if (h > HIDE_DEPTH * 0.5)
+                {
+                    wet = max(wet, there);
+                    drop = max(drop, abs(there - (bed + depth)));
+                    beside = max(beside, h);
                 }
             }
 
@@ -166,8 +168,8 @@ Shader "FlowingWater/SimWater"
             float3 wave = LongWaves(world, current, depth, 1.0, crest);
             v.vertex.y += wave.x;
 
-            float east = LevelAt(p + float2(1.0, 0.0)) - LevelAt(p - float2(1.0, 0.0));
-            float north = LevelAt(p + float2(0.0, 1.0)) - LevelAt(p - float2(0.0, 1.0));
+            float east = levels[0] - levels[1];
+            float north = levels[2] - levels[3];
             float2 slope = (float2(east, north) / (2.0 * _SimDx)) + wave.yz;
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
@@ -189,6 +191,12 @@ Shader "FlowingWater/SimWater"
             shown *= wetHere ? 1.0 : 1.0 - saturate(((wet - dry) - EDGE_TALL) / EDGE_TALL);
             o.water = float4(depth, foam, shown * joined, churn);
             o.current = current;
+            // The slope for the cascade from the cells beside with water only (a dry cell, its bank or a wall of ground
+            // not known, is no slope of the water's).
+            float level = bed + depth;
+            float wetEast = (shows[0] ? levels[0] : level) - (shows[1] ? levels[1] : level);
+            float wetNorth = (shows[2] ? levels[2] : level) - (shows[3] ? levels[3] : level);
+            o.steep = length(float2(wetEast, wetNorth) / (2.0 * _SimDx));
             o.cell = p;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }

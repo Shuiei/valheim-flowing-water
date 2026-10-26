@@ -47,6 +47,13 @@ internal sealed class BrickObjects<TId>
     /// <summary>Sends a changed brick may be held back for, its change not showing, before it is sent all the same.</summary>
     public const int RefreshSends = 10;
 
+    /// <summary>
+    /// Most objects a send writes, unless the world is about to be saved: the rest are written by the sends after it (a
+    /// flood changing many bricks at once, or every brick at the first start of a version whose data says more, does not
+    /// write the whole world's water in one frame).
+    /// </summary>
+    public const int MostWrites = 64;
+
     private readonly IBrickWorld<TId> _world;
 
     private readonly Dictionary<long, TId> _objects = [];
@@ -65,6 +72,10 @@ internal sealed class BrickObjects<TId>
     private int _packedCount;
 
     private readonly HashSet<long> _kept = [];
+
+    // The bricks a send left for the next ones (MostWrites), by how many sends each has waited: the longest waiting are
+    // written first, so the same first bricks of a round do not take every send's writes while a flood goes on.
+    private readonly Dictionary<long, int> _waiting = [];
 
     // The bricks packed so far: what to write (null: its object keeps what it has) and what it was last sent as.
     private readonly List<(long Key, byte[] Data, Sent Sent)> _packed = [];
@@ -180,15 +191,30 @@ internal sealed class BrickObjects<TId>
     {
         _round = null;
         int written = 0;
-        foreach ((long key, byte[] data, Sent sent) in _packed)
+        IEnumerable<(long Key, byte[] Data, Sent Sent)> order = _waiting.Count == 0 ? _packed : _packed.OrderByDescending(p => _waiting.TryGetValue(p.Key, out int waited) ? waited : 0);
+        foreach ((long key, byte[] data, Sent sent) in order.ToList())
         {
             if (data != null)
             {
+                if (!_exact && written >= MostWrites)
+                {
+                    // Left for the next send: not taken as sent, so it is packed and written again then (before those
+                    // that waited less).
+                    _waiting[key] = (_waiting.TryGetValue(key, out int waited) ? waited : 0) + 1;
+                    continue;
+                }
+
                 _world.Write(Object(sent.Brick, key), data);
                 written++;
             }
 
+            _waiting.Remove(key);
             _sent[key] = sent;
+        }
+
+        foreach (long gone in _waiting.Keys.Where(k => !_kept.Contains(k)).ToList())
+        {
+            _waiting.Remove(gone);
         }
 
         Forget([.. _objects.Keys.Where(k => !_kept.Contains(k))]);
@@ -208,6 +234,7 @@ internal sealed class BrickObjects<TId>
     public void Drop()
     {
         _round = null;
+        _waiting.Clear();
         Forget([.. _objects.Keys]);
     }
 

@@ -29,9 +29,10 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _FallAlpha: 0.3
+    - _FallAlpha: 0.2
     - _FallStretch: 0.12
     - _FoamAlpha: 0.35
+    - _MostStretch: 0.5
     - _Stretch: 0.015
     m_Colors:
     - _FallColor: {r: 0.62, g: 0.74, b: 0.78, a: 1}
