@@ -110,7 +110,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
-| `Client.ParticleSize` | 0.5 | Side of a particle of the particle water, metres: 0.25 is finer water (splashes, thin streams) and eight times the particles for the same water; 0.5 is coarser and cheap. Takes effect when the water near you is made again |
+| `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
@@ -219,7 +219,7 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
 `Client.ParticleWater` is on (then the water near you is particles), and the console pours some either way
 (`flowingwater particles [m³]`, while the card moves the water near you). What it is:
 
-- Each particle is a cube of water `Client.ParticleSize` metres on a side (0.5, or 0.25 for finer water; the preview's
+- Each particle is a cube of water `Client.ParticleSize` metres on a side (0.25, or 0.5 for a slow card; the preview's
   scenes use 10 cm, a litre). Position based fluids (Macklin and Müller, 2013): each step guesses where every
   particle goes, then pulls the guesses a few rounds until the water round each is as dense as water at rest, no
   denser (thinner water, the surface and spray, is not pulled together: that pull, against the paper's artificial
@@ -257,8 +257,9 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
   water within a tenth of the way to the server's four seconds after each change, never thrown up.
 - A placed source's water comes out of it: each frame, the source's water for the frame is made as particles all
   round the rim of its marker (the golden angle from one to the next, so even a few are spread evenly), going outward
-  as fast as the rate pushes water through the marker's side (1 to 8 m/s). The jet is the water (a particle in the
-  air is never let go), and where it lands ahead of the server's pool the fill and the loss trade it at their rate.
+  as fast as the rate pushes water through the marker's side (1 to 8 m/s), no more a frame than the rim passes (a
+  ring of particles each frame; a big source's rest comes as the columns' fill). The jet is the water (a particle in
+  the air is never let go), and where it lands ahead of the server's pool the fill and the loss trade it at their rate.
   The server's config's fixed sources have no marker to see: their water comes as the square's other water does. The
   preview's spout scene (8 m³/s for 6 s) keeps the particles' water within 15 % of the server's from 3 s on.
 - Drawn as water over the scene, from the screen (van der Laan, Green and Sainz, 2009): the camera first draws the

@@ -223,7 +223,7 @@ Shader "FlowingWater/ParticleSurface"
                 // brighter than the light.
                 float lone = saturate(1.0 - (thickness / max(2.0 * _FWParticleSize, 0.01)));
                 float foam = smoothstep(0.7, 0.95, air) * (1.0 - lone) * _FoamColor.a;
-                float3 foamLit = _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
+                float3 foamLit = 0.7 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
                 colour = lerp(colour, foamLit, foam);
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.
@@ -235,8 +235,10 @@ Shader "FlowingWater/ParticleSurface"
                 colour = lerp(fogColour, colour, saturate(unityFogFactor));
 #endif
 
-                // Thin water at the edge fades out into the scene; a lone drop is faint, not a disc.
-                return fixed4(colour, saturate(thickness / max(_EdgeThickness, 0.5 * _FWParticleSize)));
+                // Thin water at the edge fades out into the scene; a lone drop is faint, not a disc; a cloud of drops
+                // (a jet's spray, the churn of a fall) is a mist the scene shows through, not a wall.
+                float alpha = saturate(thickness / max(_EdgeThickness, 0.5 * _FWParticleSize));
+                return fixed4(colour, alpha * (1.0 - (0.6 * foam)));
             }
             ENDCG
         }

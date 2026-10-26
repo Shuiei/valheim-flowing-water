@@ -12,8 +12,8 @@ All notable changes to FlowingWater. Newest first.
   up, splashes and pools), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
   a pool, a wall holds it in), pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
   they move through it, and coming out of a placed source all round it, as fast as its rate pushes it. The sheet and
-  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.5 m, or 0.25 for finer
-  water at eight times the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
+  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.25 m, or 0.5 for a slow
+  graphics card, at an eighth of the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
   the setting, drawn as water with the sea's look (foam where it splashes); `clear` takes it away, `spheres` shows
   the particles themselves.
 

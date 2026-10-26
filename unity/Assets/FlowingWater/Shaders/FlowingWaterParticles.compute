@@ -697,7 +697,10 @@ void Fill(uint3 id : SV_DispatchThreadID)
 }
 
 // A source's water this frame, as particles out of its rim: all round it (the golden angle from one to the next, so
-// any few are spread evenly), outward at the source's speed, a little above and below the rim's height.
+// any few are spread evenly), outward at the source's speed, a little above and below the rim's height. No more a
+// frame than the rim passes (a ring of particles a frame, each the frame's way along: more would be set in each
+// other and thrown everywhere by the pulls); the rest of a big source's water comes as the column's fill, as the
+// server has it. The particle's way this frame is spread over the frame, so a ring is not a lockstep shell.
 [numthreads(1, 1, 1)]
 void Spout(uint3 id : SV_DispatchThreadID)
 {
@@ -709,6 +712,8 @@ void Spout(uint3 id : SV_DispatchThreadID)
     Spring s = _Spouts[id.x];
     uint state = (id.x * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
     uint n = min((uint)floor((s.flow.y * _Frame / _Litre) + Random(state)), MOST_SPOUTED);
+    uint fits = max(1u, (uint)floor(6.2831853 * s.ring.w / (2.0 * _Radius))) * max(1u, (uint)floor((s.flow.x * _Frame / (2.0 * _Radius)) + 0.5));
+    n = min(n, fits);
     float2 lo = _Origin + _Radius, hi = _Origin + (_N * _Dx) - _Radius;
     // Out over the water the source stands in, not into it (a particle set in water at rest is thrown out of it): the
     // rim's height, or just over the column's water where that is higher.
@@ -725,7 +730,7 @@ void Spout(uint3 id : SV_DispatchThreadID)
 
         float angle = at * 2.39996323;
         float3 outward = float3(cos(angle), 0.0, sin(angle));
-        float3 place = float3(s.ring.x, rim, s.ring.z) + (outward * s.ring.w) + float3(0.0, Random(state) * _Radius, 0.0);
+        float3 place = float3(s.ring.x, rim, s.ring.z) + (outward * (s.ring.w + (Random(state) * s.flow.x * _Frame))) + float3(0.0, Random(state) * _Radius, 0.0);
         place.xz = clamp(place.xz, lo, hi);
         place.y = max(place.y, GroundAt(place.xz) + _Radius);
         Particle p;

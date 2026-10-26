@@ -78,7 +78,7 @@ again within a couple of seconds. The main ones:
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 | `Client.Spray` | true | Falls (as curtains), splashes and spray on your graphics card (with `Client.GpuWater`) |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on your graphics card instead of a sheet, made from the server's water and held to it, moving as water moves (it falls, breaks up, splashes, pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the console's `flowingwater particles` pours some either way |
-| `Client.ParticleSize` | 0.5 | Side of a particle, metres: 0.25 is finer and eight times the particles; 0.5 coarser and cheap |
+| `Client.ParticleSize` | 0.25 | Side of a particle, metres: 0.25 is water as it looks; 0.5 is coarse and an eighth of the particles, for a slow card |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144); more costs the card more |
 
 Every setting, how the simulation works and how to build it:
