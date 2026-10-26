@@ -23,6 +23,12 @@ public static class BuildBundles
 
     public const string ShellMaterialPath = "Assets/FlowingWater/FlowingWaterShell.mat";
 
+    public const string SimShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterSim.shader";
+
+    public const string SimMaterialPath = "Assets/FlowingWater/FlowingWaterSim.mat";
+
+    public const string SimComputePath = "Assets/FlowingWater/Shaders/FlowingWaterSim.compute";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -54,6 +60,9 @@ public static class BuildBundles
         Material material = MakeMaterial(ShaderPath, MaterialPath, "FlowingWater");
         material.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
         MakeMaterial(ShellShaderPath, ShellMaterialPath, "FlowingWaterShell");
+        Material sim = MakeMaterial(SimShaderPath, SimMaterialPath, "FlowingWaterSim");
+        sim.SetTexture("_RandomFoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
+        CheckCompute(SimComputePath);
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -98,6 +107,34 @@ public static class BuildBundles
         material.SetTexture("_FoamTex", AssetDatabase.LoadAssetAtPath<Texture2D>(FoamPath));
         EditorUtility.SetDirty(material);
         return material;
+    }
+
+    // The compute shader the water near the camera is moved with, imported and compiled without errors.
+    private static void CheckCompute(string path)
+    {
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(path);
+        if (compute == null)
+        {
+            throw new InvalidOperationException($"{path} did not import");
+        }
+
+        foreach (ShaderMessage message in ShaderUtil.GetComputeShaderMessages(compute))
+        {
+            Debug.Log($"FlowingWater compute {message.severity}: {message.message} (line {message.line}, {message.platform})");
+            if (message.severity == ShaderCompilerMessageSeverity.Error)
+            {
+                throw new InvalidOperationException($"{path} error: {message.message} at line {message.line}");
+            }
+        }
+
+        // A kernel that did not compile is not always told above: each must be there and run here.
+        foreach (string kernel in new[] { "Seed", "Fluxes", "Momentum", "Outflow", "Depth", "Reduce", "Relax", "WriteBed" })
+        {
+            if (!compute.HasKernel(kernel) || !compute.IsSupported(compute.FindKernel(kernel)))
+            {
+                throw new InvalidOperationException($"{path}: kernel {kernel} did not compile");
+            }
+        }
     }
 
     // A material asset keeps the values it was first made with; when the shader's defaults change
@@ -167,7 +204,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

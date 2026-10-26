@@ -45,6 +45,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the coming 3D water will treat as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
+| `flowingwater gpu [colours]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
 | `flowingwater mat custom\|still <property> [values]` | Change a water material property in game (`list` names them) |
@@ -99,11 +100,48 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Markers.DefaultDrainRadius` | 1 | How far around it a drain placed without a radius takes water, metres (the hoe's panel starts from it) |
 | `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place, change and remove sources and drains (the server's setting counts, and the server simulates only the sources and drains placed by a player who may; the host and admins always may) |
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
+| `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes (see [Water on the graphics card](#water-on-the-graphics-card)); off = drawn as the server sends it |
+| `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres (32 to 256) |
+| `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1; never larger than the server's voxels) |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | Unused for now (waits for spray on the 3D water): spray where the water falls or runs steeply |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
+
+### Water on the graphics card
+
+The server says how much water is where, about once a second; between its changes each player's graphics card moves
+the water near them as water moves. In a square round the camera (`Client.GpuWaterRange`, 96 m), cut into cells of
+`Client.GpuWaterCell` (a quarter metre: sixteen to a metre voxel), the card runs shallow water: a depth over the
+ground in each cell, a speed through each face between two, carried along by the water as Stelling and Duinmeijer's
+scheme carries it, so a front runs out at the speed it should; pushed by the levels, slowed by the ground (Manning's
+friction, as the server's). A dam of 2 m let go in a 10 m tank reaches its far wall in 1.25 s (a real one in about
+1.3 s; the server alone, 2.9 s), runs up it and sloshes back; a pool tipped rocks for half a minute. Each frame the
+water of each voxel column is pulled toward the server's level there (the server keeps the say on how much water is
+where), so the waves finer than a voxel are the card's own.
+
+- **Where it draws.** Where the server's water is one layer resting on the ground. Water falling through the air, a
+  pool under another and water under a roof are drawn by the blocks, as before, and so is everything beyond the
+  square. The square moves with the camera once it is a quarter of the square from its middle.
+- **The ground.** Rays cast straight down onto the terrain and what players built, a few rows of cells a frame on the
+  game's worker threads, all of the square in a fraction of a second, then again and again (what is built, a door
+  opened); only near water. Rows where water comes near, or rises or falls more than 25 cm, are cast first, so a
+  flood's front is the card's as it spreads. Under the water from just over its top, elsewhere from 3 m over the water
+  near it, so walls round a pool hold the card's water; only the faces pieces close at the water's level are walls
+  besides (the server's faces closed by the ground itself, each step of a slope, are left to the ground cast).
+- **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
+  water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
+  is drawn as the server sends it.
+- **Cost.** A frame takes two to four steps of a few passes over the square's cells on the graphics card: on a Radeon
+  RX 9070 XT, 0.07 ms a frame at 60 fps for the 96 m square of quarter metre cells (0.13 ms at 30 fps; 0.17 ms for a
+  square four times as big), measured by `tools/sim-preview.sh`; drawing its surface comes on top. Nothing more on
+  the server.
+
+`tools/sim-preview.sh <folder>` runs the card's water (the plugin's own `SimGrid` and compute shader) in the Unity
+editor on a dam break, a sloshing tank, a block of water let go on a slope with a block in its way, and a basin
+following a server's level, and writes what it measured (`sim.txt`, with the dam break's depth against Ritter's, and
+what a frame costs the card) and frames.
 
 ### Grid size
 
@@ -194,7 +232,7 @@ there to the new grid (same volume), at once when the file is saved.
   the 3D water is silent and sprays nothing until they come back on it in a later version (`Spray` and
   `WaterVolume` wait for them). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
-- **Client.** Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
+- **Client.** Near the camera the graphics card moves the water (see [Water on the graphics card](#water-on-the-graphics-card)) and draws it where it is one layer on the ground; the blocks draw the rest. Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
   card shapes the surface: the block's columns' tops (its highest top in its own rows, else the nearest within three
   rows over or under them, so a sheet running into the block over or under joins it), how much of each is shown
   (fading in from 1 cm to 3 cm of water) and its current go into two small textures, one column more east and north

@@ -66,6 +66,8 @@ Shader "FlowingWater/WaterShell"
         float _Clearness;
         float _FoamTiling;
 
+        #include "FlowingWaterSimMask.cginc"
+
         // The game's, as the surface reads them (unset in a preview: the fog takes its own colour).
         float4 _SunDir;
         float4 _SunFogColor;
@@ -75,6 +77,7 @@ Shader "FlowingWater/WaterShell"
             float2 place;   // on the face, world metres
             float2 water;   // foam, shown
             float2 current; // along the face, m/s
+            float2 inside;  // world x, z a little inside the water the face is the side of
             float3 worldPos;
             float4 screenPos;
             float4 grabPos;
@@ -87,6 +90,7 @@ Shader "FlowingWater/WaterShell"
             o.place = v.texcoord.xy;
             o.water = v.texcoord1.xy;
             o.current = v.texcoord2.xy;
+            o.inside = (mul(unity_ObjectToWorld, v.vertex).xyz - (UnityObjectToWorldNormal(v.normal) * 0.1)).xz;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
 
@@ -116,6 +120,12 @@ Shader "FlowingWater/WaterShell"
 
         void surf(Input i, inout SurfaceOutputStandard o)
         {
+            // The side of water the card draws near the camera is the card's (its surface moves; falls stay here).
+            if (SimDraws(i.inside))
+            {
+                discard;
+            }
+
             // Ripples running with the current along the face, two phases blended so they never stretch.
             float scale = _NormalScale * _FlowTiling;
             float wa;
@@ -148,6 +158,7 @@ Shader "FlowingWater/WaterShell"
             o.Metallic = _Metallic * (1.0 - foam);
             o.Smoothness = lerp(_Glossiness, 0.1, foam);
             o.Alpha = saturate(i.water.y) * lerp(0.85, 1.0, foam);
+            DebugColour(o, float3(1.0, 0.9, 0.1));
         }
         ENDCG
     }

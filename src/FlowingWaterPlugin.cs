@@ -101,6 +101,11 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _server.Update(Time.deltaTime);
     }
 
+    // After every brick's frame: the water near the camera moved and drawn on the graphics card.
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls it on the plugin's object.")]
+    private void LateUpdate() => Client.GpuWater.Tick();
+
     // The settings as the file has them now: what reads a setting reads it as it goes (each frame, each scan, each
     // placing), and what must act at once on a change (the shader, the commands' rights) listens for it.
     private void ReadSettingsAgain()

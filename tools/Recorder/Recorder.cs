@@ -293,6 +293,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             "perf" => Perf(spawn, steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
+            "gpu" => Gpu(steep, gentle, FindSite(spawn + new Vector3(0f, 0f, -150f), 0.02f, 0.09f, true) ?? FindSite(spawn + new Vector3(150f, 0f, 0f), 0.02f, 0.09f, false)),
             _ => null,
         };
         if (scenario != null)
@@ -501,6 +502,76 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Command("flowingwater remove");
         yield return Go(gentleDrain);
         Command("flowingwater remove");
+    }
+
+    // The water moved on the graphics card near the camera (Client.GpuWater) against the water as the server sends it:
+    // a stream on each slope seen and filmed with it on, then off, then on again, the frame rate each way; then a flood
+    // on nearly flat open ground (a strong source for a few seconds, then taken away) filmed as it runs out, from the side
+    // and from above. Each site's source of an earlier run on the same world is taken away first.
+    private IEnumerator Gpu(Site steep, Site gentle, Site flat)
+    {
+        Note($"flat site {flat}");
+        string rate = Environment.GetEnvironmentVariable("FW_REC_RATE") ?? "4";
+        yield return Go(flat.At(0f));
+        Command("flowingwater remove");
+        yield return Go(steep.At(0f));
+        Command("flowingwater remove");
+        Command("flowingwater source " + rate);
+        yield return Go(gentle.At(0f));
+        Command("flowingwater remove");
+        Command("flowingwater source " + rate);
+        yield return Go(steep.At(8f));
+        yield return new WaitForSeconds(40f);
+        foreach (bool on in new[] { true, false, true })
+        {
+            SetGpuWater(on);
+            yield return new WaitForSeconds(3f);
+            string mode = on ? "gpu" : "server";
+            Command("flowingwater gpu");
+            yield return Views(steep, $"steep-{mode}");
+            yield return Views(gentle, $"gentle-{mode}");
+            yield return Burst(steep.Close(), steep.At(7f), $"steep-close-{mode}", 3f, 15);
+            yield return Burst(gentle.Behind(), gentle.At(14f), $"gentle-motion-{mode}", 3f, 15);
+            _cameraAt = Clear(steep.Behind(), steep.At(14f));
+            _cameraLook = steep.At(14f);
+            yield return new WaitForSeconds(1f);
+            int frames = Time.frameCount;
+            float since = Time.realtimeSinceStartup;
+            yield return new WaitForSeconds(5f);
+            Note($"frame rate over the steep stream, {mode}: {(Time.frameCount - frames) / (Time.realtimeSinceStartup - since):0.0} fps");
+        }
+
+        // A flood on the flat site: 40 m3/s for six seconds, then gone, seen from the side; then what is left, from above.
+        Vector3 flood = flat.At(0f);
+        yield return Go(flood);
+        Command("flowingwater source 40");
+        Vector3 from = flat.At(8f) + (flat.Across * 16f) + new Vector3(0f, 7f, 0f);
+        Vector3 at = flat.At(8f);
+        yield return Burst(from, at, "flood-on", 6f, 12);
+
+        // Who draws what while it pours: the card's water blue, the bricks' surface red, their sides and falls yellow.
+        Command("flowingwater gpu colours");
+        yield return Shot(from, at, "flood-colours-side");
+        yield return Shot(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-colours-above");
+        yield return Burst(from, at, "flood-colours", 2f, 12);
+        Command("flowingwater gpu colours");
+        Command("flowingwater remove");
+        yield return Burst(from, at, "flood-off", 6f, 12);
+        yield return Burst(flat.At(6f) + new Vector3(0f, 22f, 0f) - (flat.Down * 6f), flat.At(8f), "flood-above", 6f, 12);
+        Command("flowingwater gpu");
+    }
+
+    // Turns the water moved on the graphics card on or off, as its setting in the plugin's file does.
+    private void SetGpuWater(bool on)
+    {
+        if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue("Tie.FlowingWater", out BepInEx.PluginInfo plugin)
+            || !plugin.Instance.Config.TryGetEntry("Client", "GpuWater", out BepInEx.Configuration.ConfigEntry<bool> entry))
+        {
+            throw new InvalidOperationException("FlowingWater's Client.GpuWater setting not found");
+        }
+
+        entry.Value = on;
+        Note($"Client.GpuWater = {on}");
     }
 
     // Erosion as players see it (run with the server's erosion on and fast): the ground over the steep site
