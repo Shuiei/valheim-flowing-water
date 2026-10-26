@@ -133,7 +133,7 @@ internal sealed class VoxelShell
             {
                 // Water beside nearly as high: the surface joins the two (a sheet down a gentle slope), no side between.
                 float beside = field.GoesUp(x + dx, y, z + dz) ? (y + 1) * s : field.Level(x + dx, y, z + dz);
-                if (level - beside < JoinStep * s)
+                if (level - beside <= JoinStep * s)
                 {
                     continue;
                 }
