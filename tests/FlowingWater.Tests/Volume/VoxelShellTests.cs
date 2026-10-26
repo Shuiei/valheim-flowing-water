@@ -69,6 +69,20 @@ public class VoxelShellTests
         Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
     }
 
+    [Theory]
+    [InlineData(0.15f, 0)]
+    [InlineData(0.14f, 1)]
+    public void WaterBesideWaterJoinsUpToTheJoinStepLowerAndKeepsItsSidePast(float beside, int faces)
+    {
+        // Water 0.35 of a voxel over the water beside (the join step, inclusive) is joined by the surface; a little more,
+        // and its side shows over the water beside.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 0, 5, 0.5f, East | Up);
+        Wet(view, 6, 0, 5, beside, West | Up);
+
+        Assert.Equal(faces, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
     [Fact]
     public void WaterSteppingDownToWaterAVoxelLowerShowsNoSide()
     {
