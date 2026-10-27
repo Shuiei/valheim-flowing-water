@@ -683,7 +683,7 @@ void MakeFroth(uint i, float3 x, float3 v, float3 pushed, int count, int3 c)
         if (impact > trapped && impact > crest)
         {
             // Thrown back off what it struck, up to half as fast as it came, spread about the push's direction.
-            float3 away = normalize(pushed + (RandomDirection(state) * 0.6));
+            float3 away = normalize((pushed / max(length(pushed), 1e-6)) + (RandomDirection(state) * 0.6));
             velocity = away * struck * lerp(0.2, 0.5, Random(state));
         }
         else

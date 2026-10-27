@@ -254,6 +254,11 @@ internal static class Materials
         {
             TakeSeaLook(_particleSurface);
         }
+
+        if (_froth != null)
+        {
+            TakeSeaLook(_froth);
+        }
     }
 
     /// <summary>
@@ -376,10 +381,6 @@ internal static class Materials
             }
 
             _froth = FromBundle("FlowingWaterFroth", "FlowingWater froth", "the volume water makes no spray, foam or bubbles");
-            if (_froth != null)
-            {
-                TakeSeaLook(_froth);
-            }
         }
 
         compute = _volumeCompute;
