@@ -40,6 +40,8 @@
     <Compile Include="../../src/Client/NextPlacement.cs" Link="Mod/NextPlacement.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
     <Compile Include="../../src/Client/BrickPick.cs" Link="Mod/BrickPick.cs" />
+    <Compile Include="../../src/Client/VolumeFollow.cs" Link="Mod/VolumeFollow.cs" />
+    <Compile Include="../../src/Client/SpringShape.cs" Link="Mod/SpringShape.cs" />
     <Compile Include="../../src/FaultGate.cs" Link="Mod/FaultGate.cs" />
     <Compile Include="../../src/PatchTargets.cs" Link="Mod/PatchTargets.cs" />
     <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />

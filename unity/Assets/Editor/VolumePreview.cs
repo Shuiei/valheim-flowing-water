@@ -40,7 +40,7 @@ public static class VolumePreview
             SimPreview.Output = _output;
             BuildBundles.Prepare();
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain" };
+            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -81,6 +81,11 @@ public static class VolumePreview
             if (Runs("drain"))
             {
                 Drain();
+            }
+
+            if (Runs("follow"))
+            {
+                Follow();
             }
 
             File.WriteAllText(Path.Combine(_output, "volume.txt"), Log.ToString());
@@ -359,6 +364,85 @@ public static class VolumePreview
         Log.AppendLine($"  The pool went down by the rate: {Check(ok)}");
     }
 
+    // The grid following the camera over the server's water, as the game moves it (GpuWater): a pool 1 m deep the
+    // server knows over a band of the ground, a grid 20 m square (half the ground's, its sides open) poured from it,
+    // then moved east 2 m at a time and north once (its new strip seeded from the server's water, as a move of the
+    // square does; the water left behind is the server's), then dropped 2 m (as it follows a camera climbing down,
+    // poured again): after each, the square holds the server's water there, 1 m deep, nothing in the ground, nothing
+    // left west of it.
+    private static void Follow()
+    {
+        // The pool lies between banks 3 m high (a flat bed would let it spread south over dry ground, as the server's
+        // own water would not, it being held there by the server).
+        float[] bed = Field((x, z) => z >= 10f && z < 30f ? 0f : 3f);
+        using var scene = new Scene("vfollow", bed, 80);
+        scene.Water.Origin = new Vector3(5f, -6f, 5f);
+        scene.Water.OpenSides = true;
+        scene.Water.EdgeBand = VolumeFollow.Band(Dx);
+        scene.Server((x, z) => z >= 10f && z < 30f ? 1f : 0f);
+        scene.Water.SeedFromServer();
+        Log.AppendLine(Inv($"Follow: a grid 20 m square, sides open, over a pool 1 m deep the server has between banks from z = 10 to 30 m; poured from the server ({scene.Water.Count} particles, {scene.Water.Count * scene.Water.Litre:0.0} m3), moved east 2 m three times and north 2 m once (the strip seeded), then dropped 2 m."));
+        bool ok = true;
+        for (int k = 1; k <= 20; k++)
+        {
+            scene.Step();
+            if (k is 1 or 5 or 20)
+            {
+                Measure early = Measure.Of(scene.Water, bed);
+                Log.AppendLine(Inv($"  step {k}: {early.Count} particles, level {early.Level:0.000}, top {early.Top:0.00}, mean {early.Speed:0.000} m/s, fastest {early.Fastest:0.00} m/s"));
+            }
+        }
+
+        Followed(scene, bed, "poured", 300f, ref ok);
+        for (int m = 1; m <= 4; m++)
+        {
+            Vector3 step = m <= 3 ? new Vector3(2f, 0f, 0f) : new Vector3(0f, 0f, 2f);
+            scene.Water.Origin += step;
+            scene.Water.SeedFromServer(1f, VolumeFollow.Reseed((int)(step.x / Dx), (int)(step.z / Dx), 1));
+            Log.AppendLine(Inv($"  moved by ({step.x:0},{step.y:0},{step.z:0}) and the strip poured: {scene.Water.Count * scene.Water.Litre:0.0} m3"));
+            Followed(scene, bed, m <= 3 ? Inv($"east {m}") : "north", m <= 3 ? 300f : 340f, ref ok);
+            if (m == 1)
+            {
+                scene.Shot("vfollow_east", new Vector3(16f, 7f, 2f), new Vector3(17f, 0.5f, 15f));
+            }
+        }
+
+        scene.Water.Origin += new Vector3(0f, -2f, 0f);
+        scene.Water.SeedFromServer();
+        Log.AppendLine(Inv($"  dropped 2 m and poured again: {scene.Water.Count * scene.Water.Litre:0.0} m3"));
+        Followed(scene, bed, "dropped", 340f, ref ok);
+        Log.AppendLine($"  The square keeps the server's water as it follows: {Check(ok)}");
+    }
+
+    // A second of the follow scene, then what the square holds against what the server has in it (m3), 1 m deep, none
+    // in the ground, none left outside the square.
+    private static void Followed(Scene scene, float[] bed, string after, float expected, ref bool ok)
+    {
+        for (int k = 1; k <= 60; k++)
+        {
+            scene.Step();
+            if (k is 10 or 30)
+            {
+                Log.AppendLine(Inv($"    after {k} steps: {scene.Water.Count * scene.Water.Litre:0.0} m3"));
+            }
+        }
+
+        Measure m = Measure.Of(scene.Water, bed);
+        float have = m.Count * scene.Water.Litre;
+        float[] data = scene.Water.Read();
+        Vector3 lo = scene.Water.Origin, hi = lo + (new Vector3(scene.Water.CellsX, scene.Water.CellsY, scene.Water.CellsZ) * Dx);
+        int outside = 0;
+        for (int p = 0; p < data.Length / 12; p++)
+        {
+            var at = new Vector3(data[p * 12], data[(p * 12) + 1], data[(p * 12) + 2]);
+            outside += at.x < lo.x || at.z < lo.z || at.x > hi.x || at.z > hi.z || at.y < lo.y || at.y > hi.y ? 1 : 0;
+        }
+
+        bool near = Mathf.Abs(have - expected) <= 0.03f * expected && Mathf.Abs(m.Level - 1f) < 0.06f && m.Buried == 0 && outside == 0;
+        ok &= near;
+        Log.AppendLine(Inv($"  {after}, square from ({lo.x:0},{lo.y:0},{lo.z:0}): {have:0.0} m3 (the server's there {expected:0.0}), {m.Level:0.000} m deep, {m.Buried} in the ground, {outside} outside the square: {Check(near)}"));
+    }
+
     private static string Check(bool ok) => ok ? "OK" : "FAILED";
 
     private static float[] Field(Func<float, float, float> at) => SimPreview.Field(Cells, Dx, at);
@@ -454,7 +538,8 @@ public static class VolumePreview
 
         private readonly float[] _ground;
 
-        public Scene(string name, float[] bed)
+        // The grid over the whole square, or (gridCells) a smaller one within it.
+        public Scene(string name, float[] bed, int gridCells = Cells)
         {
             _ground = bed;
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -464,7 +549,7 @@ public static class VolumePreview
             var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.VolumeComputePath);
             var particles = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath);
             var froth = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.FrothMaterialPath);
-            Water = new VolumeWater(compute, particles, froth, 1 << 20, Cells, Rows, Cells, Dx) { Origin = Vector3.zero, OpenSides = false };
+            Water = new VolumeWater(compute, particles, froth, 1 << 20, gridCells, Rows, gridCells, Dx) { Origin = Vector3.zero, OpenSides = false };
             Water.SetGround(_bed, Cells, Dx, Vector2.zero);
             if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_FROTH"), NumberStyles.Float, CultureInfo.InvariantCulture, out float frothRate))
             {
@@ -500,6 +585,32 @@ public static class VolumePreview
         }
 
         public VolumeWater Water { get; }
+
+        // The server's water over the ground (SimGrid.Target's layout, a texel a cell of the ground): this deep over
+        // each cell's ground (0: none).
+        public void Server(Func<float, float, float> depth)
+        {
+            float[] texels = new float[Cells * Cells * 4];
+            for (int j = 0; j < Cells; j++)
+            {
+                for (int i = 0; i < Cells; i++)
+                {
+                    float x = (i + 0.5f) * Dx, z = (j + 0.5f) * Dx;
+                    float d = depth(x, z);
+                    int at = ((j * Cells) + i) * 4;
+                    texels[at] = d > 0f ? _ground[(j * Cells) + i] + d : -10000f;
+                    texels[at + 1] = d > 0f ? 1f : 0f;
+                    texels[at + 2] = d;
+                }
+            }
+
+            _target = new Texture2D(Cells, Cells, TextureFormat.RGBAFloat, false, true) { name = "server water", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+            _target.SetPixelData(texels, 0);
+            _target.Apply(false);
+            Water.SetServer(_target, 1);
+        }
+
+        private Texture2D _target;
 
         // The box the walls scene draws, if any.
         private Bounds _walls;
@@ -580,6 +691,10 @@ public static class VolumePreview
             Water.Dispose();
             _solids.Dispose();
             UnityEngine.Object.DestroyImmediate(_bed);
+            if (_target != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_target);
+            }
         }
 
         private static GameObject Slab(Vector3 centre, Vector3 size, Material material)

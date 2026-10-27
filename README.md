@@ -281,7 +281,8 @@ code (`src/Client/ParticleWater.cs`, `unity/Assets/FlowingWater/Shaders/FlowingW
 `tools/sim-preview.sh <folder> ParticlePreview.Run` runs it on a box of water at rest, the dam break, water poured
 off a ledge into a basin, a sphere pushed through a pool, a basin filled and emptied by the server's water (own), a
 source's spout, the look of a pool with a source in it at the game's particle sizes (look: frames only), water poured
-onto a slab (what players build), a pen's walls, a hull driven through a pool, and a cost scene, and writes
+onto a slab (what players build), a pen's walls, a hull driven through a pool, a cost scene, and three blocks poured
+one after another onto the same cloud (each particle at its place in its block, laid out as poured), and writes
 `particles.txt` and frames
 (`FW_PREVIEW_SCENES` picks scenes; `FW_PREVIEW_RELAXATION`, `FW_PREVIEW_ITERATIONS`, `FW_PREVIEW_VISCOSITY`,
 `FW_PREVIEW_TENSION` and `FW_PREVIEW_SUBSTEPS` try other solver settings). On a Radeon RX 9070 XT: a box 2 m square
@@ -317,7 +318,9 @@ water goes round them, pools over them, is held in by them and breaks out where 
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
 two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
-or top is the server's again. A placed source is an inflow in the grid: its cells are kept full of particles going
+or top is the server's again. Where the server has water beyond a side, that side holds the square's water in, as a
+wall does, so a lake the square cuts stays level at its edge (the band along it takes the server's water as it
+changes); where the world beyond is dry, the side is open and the water goes out. A placed source is an inflow in the grid: its cells are kept full of particles going
 out of it at about three metres a second (its reach grows with its rate: a big spring boils up over a wide patch),
 scaled each step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
@@ -329,7 +332,10 @@ of water at rest keeps its depth and every particle over 5 s; the 10 m dam break
 1.40 s (a real one about 1.3 to 1.5 s) and the water comes to rest near 0.5 m; water let go on a shelf pours over the
 lip and pools below, none lost; a source of 8 m³/s grows the water by its rate; a box of walls holds 2 m of water and
 empties through a gap opened at its foot, as solid voxels and as thin walls (closed faces); a drain of 2 m³/s takes
-exactly that. `FW_PREVIEW_ITERATIONS`,
+exactly that; a grid 20 m square with open sides, poured from a pool the server has, keeps the server's water in the
+square (within 3 %, 1 m deep, none left behind) as it is moved east and north 2 m at a time with its new strip seeded,
+and as it is dropped 2 m, as the game moves it after the camera (the arithmetic of that following, and of a source's
+sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover). `FW_PREVIEW_ITERATIONS`,
 `FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` and `FW_PREVIEW_FROTH` try other solver settings, `FW_PREVIEW_SPHERES=1` draws
 the particles.
 

@@ -20,7 +20,8 @@ All notable changes to FlowingWater. Newest first.
   round you, its mass its own. It is poured in from the server's water once and at the square's edge, and from then
   on it moves as water moves: it pools and levels, a box of walls holds it and it bursts out where a wall is broken,
   it falls off a ledge and pools below, flows round rocks and what you build, and placed sources pour into it and
-  drains take from it at their rate, nothing made or lost in between. `Client.VolumeRange`, `Client.VolumeHeight` and
+  drains take from it at their rate, nothing made or lost in between; a lake the square cuts stays level at its edge,
+  held by the water beyond. `Client.VolumeRange`, `Client.VolumeHeight` and
   `Client.VolumeCapacity` size it. Drawn as the particle water is for now; its own look, and spray and foam where it
   is thrown, come next.
 
