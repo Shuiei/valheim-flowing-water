@@ -1392,12 +1392,18 @@ void Seed(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    // The water this cell is to hold: its clear share, less what lies over the water's top or outside the pour (the
+    // ground fills the cell from its bottom up, so the clear part is its upper 1 - clear share: the water is the part
+    // of that under the top).
+    float clear = _FracIn[i];
+    float groundAt = centre.y + (0.5 * _H) - (clear * _H);
+    float water = saturate((min(hi.y, top) - max(lo.y, groundAt)) / _H) * saturate((hi.x - lo.x) / _H) * saturate((hi.z - lo.z) / _H);
     uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
-    int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
+    int lack = (int)round(REST * water) - _CountIn[i];
     int n = (int)floor((lack * _SeedShare) + Random(state));
     // Places in the ground or over the water's top are passed over: as many tries as it takes to make n (a cell half
     // clear needs about twice the tries), within reason.
-    int tries = (int)ceil(n / max(_FracIn[i], LEAST_CLEAR)) + 2;
+    int tries = (int)ceil(n / max(water, LEAST_CLEAR)) + 2;
     for (int k = 0, made = 0; k < tries && made < n; k++)
     {
         float3 place = lerp(lo, hi, float3(Random(state), Random(state), Random(state)));
