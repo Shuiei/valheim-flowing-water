@@ -156,7 +156,7 @@ public static class ParticlePreview
                 bool inside = at.x >= min.x - slack && at.y >= min.y - slack && at.z >= min.z - slack && at.x <= max.x + slack && at.y <= max.y + slack && at.z <= max.z + slack;
                 misplaced += inside ? 0 : 1;
                 var predicted = new Vector3(data[(p * 12) + 4], data[(p * 12) + 5], data[(p * 12) + 6]);
-                bool formed = data[(p * 12) + 3] == 1f && predicted == at && data[(p * 12) + 8] == 0f && data[(p * 12) + 9] == 0f && data[(p * 12) + 10] == 0f && data[(p * 12) + 11] == 1f;
+                bool formed = Mathf.Approximately(data[(p * 12) + 3], 1f) && predicted == at && new Vector3(data[(p * 12) + 8], data[(p * 12) + 9], data[(p * 12) + 10]) == Vector3.zero && Mathf.Approximately(data[(p * 12) + 11], 1f);
                 malformed += formed ? 0 : 1;
             }
         }

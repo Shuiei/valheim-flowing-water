@@ -85,6 +85,10 @@ internal sealed class GpuWater : IDisposable
 
     private bool _volumeSeeded;
 
+    // Cells of the square's sides to seed from the server's water at the next frame (the square moved: its strip is
+    // poured once the volume has the moved square's ground and solids, not before).
+    private int _volumeReseed;
+
     private readonly List<(Vector3 At, float Rate, bool Drain, float Radius)> _markers = [];
 
     private readonly List<VolumeWater.Spring> _springs = [];
@@ -509,6 +513,19 @@ internal sealed class GpuWater : IDisposable
         // The volume water, or the particle water, as the water near the camera: the sheet is neither moved nor drawn
         // then, nor its spray; the bricks still draw beyond the square and where the card draws nothing (the texels say
         // where).
+        if (!FlowingWaterPlugin.Settings.VolumeWater.Value && _volume != null)
+        {
+            // Switched off: its memory given back, and its last drawing taken off the camera (the particle water, if
+            // any, makes the surface again as it needs).
+            _volume.Dispose();
+            _volume = null;
+            if (_particles == null)
+            {
+                _surface?.Dispose();
+                _surface = null;
+            }
+        }
+
         bool own = FlowingWaterPlugin.Settings.VolumeWater.Value ? Volume() : Particles();
         if (own)
         {
@@ -657,6 +674,14 @@ internal sealed class GpuWater : IDisposable
             _volume.SeedFromServer();
             _volumeSeeded = true;
         }
+        else if (_volumeReseed > 0)
+        {
+            // The square moved this frame: its new strip takes the server's water, now that the volume has the moved
+            // square's ground, water and solids.
+            _volume.SeedFromServer(1f, _volumeReseed);
+        }
+
+        _volumeReseed = 0;
 
         _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
         _volume.Step(Math.Min(Time.deltaTime, 1f / 15f));
@@ -957,10 +982,10 @@ internal sealed class GpuWater : IDisposable
         _window = window;
         if (_volume != null)
         {
-            // The square's new strip takes the server's water (the volume's own water stays where it is in the world).
+            // The square's new strip takes the server's water at the next frame, once the volume is bound to the moved
+            // square (the volume's own water stays where it is in the world).
             _volume.Origin = new Vector3(window.X0 * window.VoxelSize, _volume.Origin.y, window.Z0 * window.VoxelSize);
-            _volume.SetServer(_grid.Target, window.PerVoxel);
-            _volume.SeedFromServer(1f, VolumeFollow.Reseed(dx, dz, per));
+            _volumeReseed = Math.Max(_volumeReseed, VolumeFollow.Reseed(dx, dz, per));
         }
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
