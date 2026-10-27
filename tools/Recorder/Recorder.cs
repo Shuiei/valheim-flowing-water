@@ -1187,9 +1187,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 continue;
             }
 
+            string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
             bool vantage = command.StartsWith("!wait ", StringComparison.Ordinal) || command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal);
             yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null, vantage);
-            string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {
                 if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
