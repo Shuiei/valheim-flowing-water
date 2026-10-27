@@ -313,11 +313,15 @@ public static class VolumePreview
         // FW_PREVIEW_ROUGH=1: the ramp faceted as the game's terrain is, a lattice a metre apart with a few centimetres
         // of random height at each knot and the ground linear between (the game's heightmap mesh, as the card casts it).
         bool rough = Environment.GetEnvironmentVariable("FW_PREVIEW_ROUGH") == "1";
-        var knots = new System.Random(7);
+        // Each knot's height from a hash of its place (the same ramp every run, no random numbers).
         float[] bumps = new float[64 * 64];
         for (int k = 0; k < bumps.Length; k++)
         {
-            bumps[k] = ((float)knots.NextDouble() - 0.5f) * 0.16f;
+            uint hash = ((uint)k * 2654435761u) ^ 0x9E3779B9u;
+            hash ^= hash >> 15;
+            hash *= 2246822519u;
+            hash ^= hash >> 13;
+            bumps[k] = (((hash & 0xFFFFu) / 65535f) - 0.5f) * 0.16f;
         }
 
         float Bump(float x, float z)
@@ -829,9 +833,9 @@ public static class VolumePreview
                     march.SetFloat("_SmoothFalloff", falloff);
                 }
 
+                VolumeSurface.OnlyDirection = Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_ONLY");
                 surface.Render(camera, Water, march, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
                 camera.Render();
-                VolumeSurface.OnlyDirection = Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_ONLY");
                 if (Environment.GetEnvironmentVariable("FW_PREVIEW_DUMP") == "1")
                 {
                     DumpFound(surface.Found, file);
