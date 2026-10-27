@@ -981,7 +981,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     // The density, water and foam textures for the drawing, from the particles as the last step left them.
     private void Shape()
     {
+        // The cells typed and the particles counted where the step left them (Prepare's count is from before the
+        // step: water a source emitted this step, or that moved a cell, would be missing from the drawing's cells).
         _shader.SetInt(CapacityId, Capacity);
+        _shader.SetBuffer(_scatter, ParticlesInId, _particles[_current]);
+        Prepare();
         int groups = (_fineCells + Threads - 1) / Threads;
         _shader.SetBuffer(_fineClear, FineCountId, _fine[0]);
         _shader.Dispatch(_fineClear, groups, 1, 1);
