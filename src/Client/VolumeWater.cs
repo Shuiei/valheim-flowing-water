@@ -58,6 +58,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int TypeId = Shader.PropertyToID("_Type");
     private static readonly int TypeInId = Shader.PropertyToID("_TypeIn");
     private static readonly int CountId = Shader.PropertyToID("_Count");
+    private static readonly int FracId = Shader.PropertyToID("_Frac");
+    private static readonly int FracInId = Shader.PropertyToID("_FracIn");
+    private static readonly int AreaId = Shader.PropertyToID("_Area");
+    private static readonly int AreaInId = Shader.PropertyToID("_AreaIn");
     private static readonly int CountInId = Shader.PropertyToID("_CountIn");
     private static readonly int DivId = Shader.PropertyToID("_Div");
     private static readonly int DivInId = Shader.PropertyToID("_DivIn");
@@ -117,6 +121,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
+    private static readonly int SheetTopId = Shader.PropertyToID("_SheetTop");
+    private static readonly int SheetTopInId = Shader.PropertyToID("_SheetTopIn");
+    private static readonly int SheetId = Shader.PropertyToID("_Sheet");
 
     // No particles: the counters and the drawing's arguments.
     private static readonly uint[] NoAlive = new uint[3];
@@ -158,11 +165,15 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     private readonly ComputeBuffer[] _fine = new ComputeBuffer[2];
 
+    private readonly ComputeBuffer _sheetTop;
+
     private readonly int _fineCells;
 
     private readonly ComputeBuffer _alive;
     private readonly ComputeBuffer _type;
     private readonly ComputeBuffer _count;
+    private readonly ComputeBuffer _frac;
+    private readonly ComputeBuffer _area;
     private readonly ComputeBuffer _div;
     private readonly ComputeBuffer _pressure;
     private readonly ComputeBuffer _active;
@@ -200,14 +211,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private int _frothCurrent;
 
     private uint _seedCounter;
-
-    private Texture _bed;
-
-    private int _bedCells;
-
-    private float _bedDx;
-
-    private Vector2 _bedOrigin;
 
     private Texture _solids;
 
@@ -294,6 +297,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _fineCells = _cells * 8;
         _fine[0] = new ComputeBuffer(_fineCells, sizeof(uint));
         _fine[1] = new ComputeBuffer(_fineCells, sizeof(uint));
+        _sheetTop = new ComputeBuffer(cellsX * cellsZ * 4, sizeof(uint));
+        Sheet = Flat("sheet", cellsX * 2, cellsZ * 2);
         Fine = Volume("density", cellsX * 2, cellsY * 2, cellsZ * 2);
         Coarse = Volume("water", cellsX, cellsY, cellsZ);
         Foam = Volume("foam", cellsX, cellsY, cellsZ);
@@ -303,6 +308,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _frothCounted = new Counter(_frothAlive, FrothCapacity);
         _type = new ComputeBuffer(_cells, sizeof(int));
         _count = new ComputeBuffer(_cells, sizeof(int));
+        _frac = new ComputeBuffer(_cells, sizeof(float));
+        _area = new ComputeBuffer(3 * _faces, sizeof(float));
         _div = new ComputeBuffer(_cells, sizeof(float));
         // Kept from step to step (the relaxation starts from the last step's), so it must start from nothing: a new buffer
         // holds whatever the card's memory last held, which 80 sweeps would not wash out of a big pool.
@@ -352,6 +359,24 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     /// <summary>The froth in each cell as a share of full, a texel a cell: foam on the water's surface.</summary>
     public RenderTexture Foam { get; }
+
+    /// <summary>
+    /// The top of the water lying on the ground in each half-cell column (height over the grid's bottom, m; 0 none),
+    /// for the drawing: water too thin for the density is drawn from the ground up to this.
+    /// </summary>
+    public RenderTexture Sheet { get; }
+
+    /// <summary>The ground as set (<see cref="SetGround"/>), for the drawing.</summary>
+    public Texture Bed { get; private set; }
+
+    /// <inheritdoc cref="Bed"/>
+    public int BedCells { get; private set; }
+
+    /// <inheritdoc cref="Bed"/>
+    public float BedDx { get; private set; }
+
+    /// <inheritdoc cref="Bed"/>
+    public Vector2 BedOrigin { get; private set; }
 
     /// <summary>Cells east, up and north.</summary>
     public int CellsX { get; }
@@ -431,10 +456,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     /// <summary>The ground: a world height per cell of the card's water, <paramref name="cells"/> a side of <paramref name="dx"/> metres from <paramref name="origin"/> (world x, z).</summary>
     public void SetGround(Texture bed, int cells, float dx, Vector2 origin)
     {
-        _bed = bed;
-        _bedCells = cells;
-        _bedDx = dx;
-        _bedOrigin = origin;
+        Bed = bed;
+        BedCells = cells;
+        BedDx = dx;
+        BedOrigin = origin;
     }
 
     /// <summary>What is built (<see cref="ParticleSolids"/>): solid voxels over the square from <paramref name="origin"/> (world x, z), <paramref name="rows"/> up from <paramref name="baseY"/>; or none (null).</summary>
@@ -531,7 +556,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             return;
         }
 
-        if (_bed == null)
+        if (Bed == null)
         {
             throw new InvalidOperationException("the volume water has no ground: SetGround first");
         }
@@ -616,6 +641,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _frothCount.Release();
         _fine[0].Release();
         _fine[1].Release();
+        _sheetTop.Release();
+        Sheet.Release();
+        Free(Sheet);
         Fine.Release();
         Coarse.Release();
         Foam.Release();
@@ -626,6 +654,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Froth.Arguments.Release();
         _type.Release();
         _count.Release();
+        _frac.Release();
+        _area.Release();
         _div.Release();
         _pressure.Release();
         _active.Release();
@@ -726,9 +756,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetInt(SeedId, (int)_seedCounter);
         _shader.SetInt(FrothCapacityId, FrothCapacity);
         _shader.SetFloat(FrothRateId, Froth.Material != null ? Math.Max(0f, FrothRate) : 0f);
-        _shader.SetInt(BedCellsId, _bedCells);
-        _shader.SetFloat(BedDxId, _bedDx);
-        _shader.SetVector(BedOriginId, _bedOrigin);
+        _shader.SetInt(BedCellsId, BedCells);
+        _shader.SetFloat(BedDxId, BedDx);
+        _shader.SetVector(BedOriginId, BedOrigin);
         _shader.SetInt(SolidsOnId, _solids != null ? 1 : 0);
         _shader.SetInt(SolidColumnsId, _solidColumns);
         _shader.SetInt(SolidRowsId, _solidRows);
@@ -754,16 +784,16 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _given.SetData(new uint[MostSprings]);
 
         // (A kernel reads the solids for the faces thin pieces close too: unbound, Unity would skip the kernel.)
-        foreach (int kernel in new[] { _clearCells, _gather, _relax, _project, _move, _emit, _seed, _frothMove })
+        foreach (int kernel in new[] { _clearCells, _clearFaces, _gather, _relax, _project, _move, _emit, _seed, _frothMove })
         {
-            _shader.SetTexture(kernel, BedId, _bed);
+            _shader.SetTexture(kernel, BedId, Bed);
             _shader.SetTexture(kernel, SolidsId, _solids ?? _noSolids);
             _shader.SetBuffer(kernel, BodiesId, _bodies);
         }
 
         // (The server's water beyond an open side is a wall to the solver: every kernel that reads a cell's type reads
         // it.)
-        foreach (int kernel in new[] { _gather, _divergence, _relax, _project, _seed })
+        foreach (int kernel in new[] { _clearFaces, _gather, _divergence, _relax, _project, _seed })
         {
             _shader.SetTexture(kernel, TargetId, _target ?? _noTarget);
         }
@@ -775,9 +805,22 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             _shader.SetBuffer(kernel, CountId, _count);
         }
 
-        foreach (int kernel in new[] { _gather, _collect, _divergence, _relax, _project, _move, _emit, _seed })
+        foreach (int kernel in new[] { _clearFaces, _gather, _collect, _divergence, _relax, _project, _move, _emit, _seed })
         {
             _shader.SetBuffer(kernel, TypeInId, _type);
+        }
+
+        // The cut cells: how much of each cell and face is clear of the ground.
+        _shader.SetBuffer(_clearCells, FracId, _frac);
+        foreach (int kernel in new[] { _divergence, _emit, _seed, _fineWrite })
+        {
+            _shader.SetBuffer(kernel, FracInId, _frac);
+        }
+
+        _shader.SetBuffer(_clearFaces, AreaId, _area);
+        foreach (int kernel in new[] { _gather, _divergence, _relax, _project })
+        {
+            _shader.SetBuffer(kernel, AreaInId, _area);
         }
 
         foreach (int kernel in new[] { _divergence, _move, _emit, _seed })
@@ -946,8 +989,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetInt(CapacityId, Capacity);
         int groups = (_fineCells + Threads - 1) / Threads;
         _shader.SetBuffer(_fineClear, FineCountId, _fine[0]);
+        _shader.SetBuffer(_fineClear, SheetTopId, _sheetTop);
         _shader.Dispatch(_fineClear, groups, 1, 1);
         _shader.SetBuffer(_fineSplat, FineCountId, _fine[0]);
+        _shader.SetBuffer(_fineSplat, SheetTopId, _sheetTop);
+        _shader.SetTexture(_fineSplat, BedId, Bed);
         _shader.SetBuffer(_fineSplat, ParticlesInId, _particles[_current]);
         _shader.SetBuffer(_fineSplat, AliveInId, _alive);
         DispatchParticles(_fineSplat);
@@ -966,7 +1012,24 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetTexture(_fineWrite, FineId, Fine);
         _shader.SetTexture(_fineWrite, CoarseId, Coarse);
         _shader.SetTexture(_fineWrite, FoamId, Foam);
+        _shader.SetBuffer(_fineWrite, SheetTopInId, _sheetTop);
+        _shader.SetTexture(_fineWrite, SheetId, Sheet);
+        _shader.SetTexture(_fineWrite, BedId, Bed);
         _shader.Dispatch(_fineWrite, groups, 1, 1);
+    }
+
+    // A 2D texture the compute shader writes and the drawing samples smoothly.
+    private static RenderTexture Flat(string name, int x, int z)
+    {
+        var texture = new RenderTexture(x, z, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear)
+        {
+            name = "FlowingWater volume " + name,
+            enableRandomWrite = true,
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        texture.Create();
+        return texture;
     }
 
     // A 3D texture the compute shader writes and the drawing samples smoothly (half floats: every card writes those).

@@ -39,6 +39,14 @@ Shader "FlowingWater/VolumeMarch"
             sampler3D _Fine;
             sampler3D _Coarse;
             sampler3D _Foam;
+            // The sheet on the ground: its top in each half-cell column (height over the grid's bottom; 0 none), and
+            // the ground (the card's water's heights, a texel a cell, from an origin in world x, z).
+            sampler2D _Sheet;
+            sampler2D _Bed;
+            int _BedCells;
+            float _BedDx;
+            float2 _BedOrigin;
+            #define STEP_UP 1.0
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
             // The density the surface lies at, the fine step through water (a quarter of a cell), steps at most.
@@ -75,16 +83,54 @@ Shader "FlowingWater/VolumeMarch"
                 return (place - _VolumeOrigin) / _VolumeSize;
             }
 
-            // The water's density at a place: the half-cells' where the water is close packed (a pool's surface is
-            // theirs, sharp), with the cells' water added where both hold little (a fast sheet a particle or two thick,
-            // too sparse for the half-cells, still makes a surface: three times the cells' share of rest; a full cell
-            // adds nothing, so a pool's sides stay the half-cells' own, not the cells' steps).
+            // The ground under a point, as the solver reads it: bilinear between the cells' heights, or the cell's own
+            // where the four about the point differ by more than a step (a wall: no ramp up it).
+            float GroundAt(float2 xz)
+            {
+                float2 at = ((xz - _BedOrigin) / _BedDx) - 0.5;
+                float2 f = frac(at);
+                float2 texel = 1.0 / _BedCells;
+                float2 c = (floor(at) + 0.5) * texel;
+                float b00 = tex2Dlod(_Bed, float4(c, 0.0, 0.0)).r;
+                float b10 = tex2Dlod(_Bed, float4(c + float2(texel.x, 0.0), 0.0, 0.0)).r;
+                float b01 = tex2Dlod(_Bed, float4(c + float2(0.0, texel.y), 0.0, 0.0)).r;
+                float b11 = tex2Dlod(_Bed, float4(c + texel, 0.0, 0.0)).r;
+                float lowest = min(min(b00, b10), min(b01, b11)), highest = max(max(b00, b10), max(b01, b11));
+                if (highest - lowest > STEP_UP)
+                {
+                    return tex2Dlod(_Bed, float4((floor((xz - _BedOrigin) / _BedDx) + 0.5) * texel, 0.0, 0.0)).r;
+                }
+
+                return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+            }
+
+            // The top of the sheet on the ground over a point (world y), or far below where there is none.
+            float SheetTop(float2 xz)
+            {
+                float2 uv = (xz - _VolumeOrigin.xz) / _VolumeSize.xz;
+                float top = tex2Dlod(_Sheet, float4(uv, 0.0, 0.0)).r;
+                return top > 0.0 ? _VolumeOrigin.y + top : -1e9;
+            }
+
+            // The water's density at a place: the half-cells' (a pool's surface is theirs, sharp); and one wherever the
+            // place lies in the sheet on the ground, between the ground and the sheet's top (water a particle or two
+            // thick, too sparse for the half-cells, is one skin from its columns' tops).
             float Density(float3 place)
             {
-                float4 at = float4(Where(place), 0.0);
-                float fine = tex3Dlod(_Fine, at).r;
-                float coarse = tex3Dlod(_Coarse, at).r;
-                return fine + (3.0 * coarse * (1.0 - saturate(coarse)) * (1.0 - saturate(2.0 * fine)));
+                float fine = tex3Dlod(_Fine, float4(Where(place), 0.0)).r;
+                bool sheet = place.y <= SheetTop(place.xz) && place.y >= GroundAt(place.xz) - (0.25 * _VolumeCell);
+                return sheet ? max(fine, 1.0) : fine;
+            }
+
+            // The sheet's normal at a point on its top: the slope of the tops about it.
+            float3 SheetNormal(float2 xz)
+            {
+                float e = 0.5 * _VolumeCell;
+                float dx = SheetTop(xz + float2(e, 0.0)) - SheetTop(xz - float2(e, 0.0));
+                float dz = SheetTop(xz + float2(0.0, e)) - SheetTop(xz - float2(0.0, e));
+                dx = abs(dx) > 1e6 ? 0.0 : dx;
+                dz = abs(dz) > 1e6 ? 0.0 : dz;
+                return normalize(float3(-dx, 2.0 * e, -dz));
             }
 
             // Whether there is any water about a place (the cells' water, sampled smoothly, reaches a cell beyond it).
@@ -214,7 +260,10 @@ Shader "FlowingWater/VolumeMarch"
                     return o;
                 }
 
-                float3 n = under ? float3(0.0, 1.0, 0.0) : Normal(surfacePlace);
+                // The surface's normal: the density's slope where the density made the surface, the sheet's tops'
+                // where the sheet did (a point in the sheet but below the density's half).
+                bool onSheet = !under && tex3Dlod(_Fine, float4(Where(surfacePlace), 0.0)).r < SURFACE;
+                float3 n = under ? float3(0.0, 1.0, 0.0) : onSheet ? SheetNormal(surfacePlace.xz) : Normal(surfacePlace);
                 float3 edge = min(surfacePlace - lo, hi - surfacePlace);
                 float near = saturate(min(edge.x, edge.z) / max(_EdgeFade, 0.01));
                 float foam = tex3Dlod(_Foam, float4(Where(surfacePlace), 0.0)).r;

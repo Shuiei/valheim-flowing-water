@@ -310,10 +310,14 @@ the particles carry the water, each a cube of water half a cell on a side (eight
 cells), and move with it; each step their velocity is put on a staggered grid, gravity is added, and a pressure is
 solved over the cells that hold water so that no cell makes or loses any (with a small correction for cells that hold
 more or fewer particles than rest, which keeps the volume from drifting); the corrected velocity goes back to the
-particles, mostly as the change (FLIP) and a little as the grid's own (PIC), and they move along it. Cells under the
-ground the card's water knows, in a built voxel (the bricks' solids) or in a body (players, creatures, ships' hulls,
-carts) are solid, and the faces thin pieces close between voxels are walls to the grid and to the particles: the
-water goes round them, pools over them, is held in by them and breaks out where one is gone.
+particles, mostly as the change (FLIP) and a little as the grid's own (PIC), and they move along it. The ground the
+card's water knows cuts the grid's cells (Batty, Bertails and Bridson 2007, in its simplest form): each cell knows how
+much of it is clear of the ground and each face how much of its area is, the pressure is solved over those areas and a
+cell's rest is its clear share, so a slope is a slope to the water, not a stair of cells (water let go at the top of a
+ramp runs down it as a sheet), and a cell wholly under the ground, in a built voxel (the bricks' solids) or in a body
+(players, creatures, ships' hulls, carts) is solid; the faces thin pieces close between voxels are walls to the grid
+and to the particles: the water goes round them, pools over them, is held in by them and breaks out where one is
+gone.
 
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
@@ -335,7 +339,10 @@ empties through a gap opened at its foot, as solid voxels and as thin walls (clo
 exactly that; a grid 20 m square with open sides, poured from a pool the server has, keeps the server's water in the
 square (within 3 %, 1 m deep, none left behind) as it is moved east and north 2 m at a time with its new strip seeded,
 and as it is dropped 2 m, as the game moves it after the camera (the arithmetic of that following, and of a source's
-sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover). `FW_PREVIEW_ITERATIONS`,
+sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover); water let go at the top of a 22° ramp
+runs down it as a sheet thinner than 0.6 m, its front no slower than six tenths of frictionless sliding, and gathers
+on the floor below with nothing pushed into the ground; a spring's basin, two seconds after the source stops, has a
+top level within 12 cm from column to column. `FW_PREVIEW_ITERATIONS`,
 `FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` and `FW_PREVIEW_FROTH` try other solver settings, `FW_PREVIEW_SPHERES=1` draws
 the particles.
 
@@ -361,7 +368,10 @@ samples smoothly, with the cells that hold water or stand next to some and the f
 pixel of a half-size picture, `FlowingWaterVolumeMarch.shader` marches a ray from the camera through the density,
 stepping over the cells with no water and in quarter-cells through the rest, to where the density first crosses a
 half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
-through until it leaves the grid or meets the scene. `FlowingWaterVolumeSurface.shader` then draws the water from
+through until it leaves the grid or meets the scene. Water lying on the ground a particle or two thick is too sparse
+for the density, so each half-cell column also keeps the top of the water within half a metre of the ground, smoothed
+over its neighbours, and the ray counts everything between the ground and that top as water: a stream down a slope is
+one skin following the slope, not a cobble of particles or a stair of cells. `FlowingWaterVolumeSurface.shader` then draws the water from
 that with the sea's look: what is behind bent by the surface and tinted by the water seen through (red light goes
 first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
 where the froth gathers, the sea's fog; thin water fades out, and within two metres of the square's side the water

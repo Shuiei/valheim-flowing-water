@@ -2,6 +2,16 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.0 — 2026-10-27
+
+### Fixed
+- The volume water runs down slopes as water does. The solver saw the ground as a stair of whole cells, so a slope
+  was a run of terraces the water sat on and spilled over, in squared pools; now each cell and each face of the
+  grid knows how much of it is clear of the ground, and the pressure follows the real slope. Water let go at the
+  top of a ramp runs down it as a sheet and gathers on the floor below, and nothing is pushed into the ground. Thin
+  water on the ground is also drawn as one smooth skin from the ground to its top, instead of blobs and ridges the
+  size of the grid's cells.
+
 ## v0.41.0 — 2026-10-27
 
 ### Changed

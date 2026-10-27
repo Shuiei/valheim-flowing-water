@@ -11,8 +11,12 @@
 // water's heights), in a built voxel (ParticleSolids) or in a body are solid: the water goes round them, pools over
 // them, is held in by them, and breaks out where one is gone.
 // A step:
-//   ClearCells     each cell air, or solid where the ground, a voxel or a body is; no particles counted, no pressure,
-//   ClearFaces     every face's sums empty,
+//   ClearCells     each cell air, or solid where it is wholly under the ground or a voxel or a body is; how much of
+//                  each cell is clear of the ground (a cell of a slope is part ground, part water: a cut cell); no
+//                  particles counted, no pressure,
+//   ClearFaces     every face's sums empty, and how much of each face is clear of the ground (its area to the flow:
+//                  a face part in the ground passes that much less; the pressure sees the slope, not a stair of
+//                  cells),
 //   Scatter        each particle's velocity onto the faces round it (a trilinear share each, summed in fixed point),
 //                  counted into its cell, which holds water then,
 //   Gather         each face's velocity from its sums; gravity; a solid face still, a source's face at its speed
@@ -146,6 +150,13 @@ int _Parity;
 // Cells.
 RWStructuredBuffer<int> _Type;
 StructuredBuffer<int> _TypeIn;
+// How much of each cell is clear of the ground (0 buried, 1 clear), and of each face (its area to the flow; 0 held).
+RWStructuredBuffer<float> _Frac;
+StructuredBuffer<float> _FracIn;
+RWStructuredBuffer<float> _Area;
+StructuredBuffer<float> _AreaIn;
+// A cell clear of the ground by less than this share holds no water of its own (too thin a sliver to count).
+#define LEAST_CLEAR 0.05
 RWStructuredBuffer<int> _Count;
 StructuredBuffer<int> _CountIn;
 RWStructuredBuffer<float> _Div;
@@ -225,6 +236,14 @@ float3 _PourMax;
 // textures written from them and from the cells' counts.
 RWStructuredBuffer<uint> _FineCount;
 StructuredBuffer<uint> _FineCountIn;
+// The water lying on the ground in each half-cell column: the particles within SHEET_BAND cells of the ground (each a
+// particle's height of water over the column), from which the sheet's top is the ground plus their depth, smoothed over
+// the columns about; water a particle or two thick, too sparse for the density, is drawn from this as a sheet between
+// the ground and its top.
+RWStructuredBuffer<uint> _SheetTop;
+StructuredBuffer<uint> _SheetTopIn;
+RWTexture2D<float> _Sheet;
+#define SHEET_BAND 2.0
 // Which way FineSmooth smooths (0 x, 1 y, 2 z), reading _FineCountIn and writing _FineCount.
 int _Axis;
 RWTexture3D<float> _Fine;
@@ -332,6 +351,42 @@ float GroundAt(float2 xz)
     }
 
     return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+}
+
+// How much of a cell is clear of the ground, 0 to 1: the ground under four points of its footprint against its top.
+float ClearShare(int3 c)
+{
+    float3 centre = CentreOf(c);
+    float top = centre.y + (0.5 * _H);
+    float q = 0.25 * _H;
+    float share = 0.0;
+    share += saturate((top - GroundAt(centre.xz + float2(-q, -q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(q, -q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(-q, q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(q, q))) / _H);
+    return 0.25 * share;
+}
+
+// How much of a face is clear of the ground, 0 to 1: an upright face by the ground under two points along it against
+// its top; a level face (axis 1) by how many of four points of it stand over the ground.
+float FaceClear(int3 f, int axis)
+{
+    float3 corner = _Origin + (float3(f) * _H);
+    float q = 0.25 * _H;
+    if (axis == 1)
+    {
+        float over = 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(q, q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(3.0 * q, q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(q, 3.0 * q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(3.0 * q, 3.0 * q)) ? 1.0 : 0.0;
+        return 0.25 * over;
+    }
+
+    float top = corner.y + _H;
+    float2 a = axis == 0 ? corner.xz + float2(0.0, q) : corner.xz + float2(q, 0.0);
+    float2 b = axis == 0 ? corner.xz + float2(0.0, 3.0 * q) : corner.xz + float2(3.0 * q, 0.0);
+    return 0.5 * (saturate((top - GroundAt(a)) / _H) + saturate((top - GroundAt(b)) / _H));
 }
 
 // The voxel a world point is in, in the built voxels' own coordinates.
@@ -754,7 +809,9 @@ void ClearCells(uint3 id : SV_DispatchThreadID)
 
     int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
     float3 centre = CentreOf(c);
-    _Type[i] = SolidAt(centre) ? SOLID : SourceAt(centre) >= 0 ? EMIT : AIR;
+    float clear = ClearShare(c);
+    _Frac[i] = clear;
+    _Type[i] = clear < LEAST_CLEAR || BuiltAt(centre) || InBody(centre) ? SOLID : SourceAt(centre) >= 0 ? EMIT : AIR;
     _Count[i] = 0;
     _Div[i] = 0.0;
     // The pressure is kept from the last step: a pool at rest starts its relaxation nearly solved.
@@ -769,6 +826,9 @@ void ClearFaces(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
     for (int a = 0; a < 3; a++)
     {
         int at = (a * FaceCount()) + (int)i;
@@ -777,6 +837,17 @@ void ClearFaces(uint3 id : SV_DispatchThreadID)
         _Vel[at] = 0.0;
         _Vel0[at] = 0.0;
         _Mask[at] = 0;
+        // The face's area to the flow: none against a solid cell or across a closed face, else what is clear of the
+        // ground (a source's faces keep theirs: the inflow counts).
+        float area = 0.0;
+        if (within[a])
+        {
+            int3 back = f - offsets[a];
+            bool shut = TypeAt(back) == SOLID || TypeAt(f) == SOLID || ClosedFace(back, f, a);
+            area = shut ? 0.0 : FaceClear(f, a);
+        }
+
+        _Area[at] = area;
     }
 }
 
@@ -879,9 +950,9 @@ void Gather(uint3 id : SV_DispatchThreadID)
         _Vel0[at] = v;
         _Vel[at] = a == 1 && valid ? v - (_Gravity * _Dt) : v;
         _Mask[at] = valid ? 1 : 0;
-        if (within[a] && (Held(TypeAt(f - offsets[a])) || Held(TypeAt(f)) || ClosedFace(f - offsets[a], f, a)))
+        if (within[a] && (Held(TypeAt(f - offsets[a])) || Held(TypeAt(f)) || ClosedFace(f - offsets[a], f, a) || _AreaIn[at] <= 0.0))
         {
-            float held = ClosedFace(f - offsets[a], f, a) ? 0.0 : Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
+            float held = ClosedFace(f - offsets[a], f, a) || _AreaIn[at] <= 0.0 ? 0.0 : Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
             _Vel[at] = held;
             _Vel0[at] = held;
             _Mask[at] = 1;
@@ -919,7 +990,16 @@ void Divergence(uint3 id : SV_DispatchThreadID)
 
     uint i = _Active[n];
     int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
-    float div = (_VelIn[FaceAt(c + int3(1, 0, 0), 0)] - _VelIn[FaceAt(c, 0)] + _VelIn[FaceAt(c + int3(0, 1, 0), 1)] - _VelIn[FaceAt(c, 1)] + _VelIn[FaceAt(c + int3(0, 0, 1), 2)] - _VelIn[FaceAt(c, 2)]) / _H;
+    // The net outflow through the faces' clear areas (a face part in the ground passes that much less).
+    float div = 0.0;
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    for (int a = 0; a < 3; a++)
+    {
+        int lo = FaceAt(c, a), hi = FaceAt(c + offsets[a], a);
+        div += (_AreaIn[hi] * _VelIn[hi]) - (_AreaIn[lo] * _VelIn[lo]);
+    }
+
+    div /= _H;
     // Too many particles in the cell: a little outflow asked for; too few, in a cell inside the water (one at the
     // surface is part empty by nature): a little inflow.
     int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
@@ -929,7 +1009,9 @@ void Divergence(uint3 id : SV_DispatchThreadID)
         inside = inside && TypeAt(c + sides[s]) != AIR;
     }
 
-    float excess = clamp(((float)_CountIn[i] - REST) / REST, inside ? -1.0 : 0.0, 1.0);
+    // Rest for a cell is its clear share of REST (a cell half in the ground holds half the particles at rest).
+    float rest = max(REST * _FracIn[i], 1.0);
+    float excess = clamp(((float)_CountIn[i] - rest) / rest, inside ? -1.0 : 0.0, 1.0);
     _Div[i] = div - (_Drift * excess / _Dt);
 }
 
@@ -961,8 +1043,10 @@ void Relax(uint3 id : SV_DispatchThreadID)
             continue;
         }
 
-        open += 1.0;
-        sum += type == FLUID ? _P[CellIndex(next)] : 0.0;
+        // The face between, weighted by its area to the flow (the face toward a lower neighbour is this cell's own).
+        float area = _AreaIn[FaceAt((s & 1) == 0 ? c : next, s / 2)];
+        open += area;
+        sum += area * (type == FLUID ? _P[CellIndex(next)] : 0.0);
     }
 
     _P[i] = open > 0.0 ? (sum - (_DivIn[i] * _H * _H / _Dt)) / open : 0.0;
@@ -995,9 +1079,9 @@ void Project(uint3 id : SV_DispatchThreadID)
             continue;
         }
 
-        if (ta == FLUID || tb == FLUID)
+        int at = (a * FaceCount()) + (int)i;
+        if ((ta == FLUID || tb == FLUID) && _AreaIn[at] > 0.0)
         {
-            int at = (a * FaceCount()) + (int)i;
             _Vel[at] -= _Dt * (PressureAt(f) - PressureAt(back)) / _H;
             _Mask[at] = 1;
         }
@@ -1179,7 +1263,7 @@ void Emit(uint3 id : SV_DispatchThreadID)
     }
 
     uint state = (i * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
-    int lack = REST - _CountIn[i];
+    int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
     for (int k = 0; k < lack; k++)
     {
         float3 place = centre + ((float3(Random(state), Random(state), Random(state)) - 0.5) * _H);
@@ -1306,7 +1390,7 @@ void Seed(uint3 id : SV_DispatchThreadID)
     }
 
     uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
-    int lack = REST - _CountIn[i];
+    int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
     int n = (int)floor((lack * _SeedShare) + Random(state));
     for (int k = 0; k < n; k++)
     {
@@ -1412,6 +1496,16 @@ int FineIndex(int3 f)
     return ((f.z * n.y) + f.y) * n.x + f.x;
 }
 
+int2 SheetColumns()
+{
+    return int2(_Nx, _Nz) * PER_SIDE;
+}
+
+int SheetIndex(int2 column)
+{
+    return (column.y * SheetColumns().x) + column.x;
+}
+
 [numthreads(THREADS, 1, 1)]
 void FineClear(uint3 id : SV_DispatchThreadID)
 {
@@ -1419,6 +1513,12 @@ void FineClear(uint3 id : SV_DispatchThreadID)
     if (id.x < (uint)(n.x * n.y * n.z))
     {
         _FineCount[id.x] = 0u;
+    }
+
+    int2 columns = SheetColumns();
+    if (id.x < (uint)(columns.x * columns.y))
+    {
+        _SheetTop[id.x] = 0u;
     }
 }
 
@@ -1445,6 +1545,14 @@ void FineSplat(uint3 id : SV_DispatchThreadID)
     if (Gone(p))
     {
         return;
+    }
+
+    // On the ground (within SHEET_BAND cells of it): one more particle's water in the column's sheet.
+    float over = p.place.y - GroundAt(p.place.xz);
+    if (over < SHEET_BAND * _H)
+    {
+        int2 column = clamp((int2)floor((p.place.xz - _Origin.xz) / (_H / PER_SIDE)), 0, SheetColumns() - 1);
+        InterlockedAdd(_SheetTop[SheetIndex(column)], 1u);
     }
 
     int3 n = FineCells();
@@ -1507,7 +1615,39 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
     if (i < (uint)(_Nx * _Ny * _Nz))
     {
         int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
-        _Coarse[c] = (float)_CountIn[i] / REST;
+        _Coarse[c] = (float)_CountIn[i] / max(REST * _FracIn[i], 1.0);
         _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
+    }
+
+    // The sheet's top in each column: the ground there plus the depth of the sheet's water, the depth the weighted
+    // mean of its own and its neighbours' within two columns that have some (the sheet one smooth skin, its depth
+    // the water's, not the highest particle's); a column with none within one column of some takes theirs (the sheet
+    // reaches half a column past its last particle, as a particle's water does).
+    int2 columns = SheetColumns();
+    if (i < (uint)(columns.x * columns.y))
+    {
+        int2 column = int2(i % columns.x, i / columns.x);
+        float spacing = _H / PER_SIDE;
+        float sum = 0.0;
+        float weights = 0.0;
+        float near = 0.0;
+        for (int dz = -2; dz <= 2; dz++)
+        {
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int2 o = column + int2(dx, dz);
+                if (all(o >= 0) && all(o < columns))
+                {
+                    float count = (float)_SheetTopIn[SheetIndex(o)];
+                    float w = count > 0.0 ? (3.0 - abs(dx)) * (3.0 - abs(dz)) : 0.0;
+                    sum += w * count * spacing;
+                    weights += w;
+                    near += count > 0.0 && abs(dx) <= 1 && abs(dz) <= 1 ? 1.0 : 0.0;
+                }
+            }
+        }
+
+        float2 centre = _Origin.xz + ((float2(column) + 0.5) * spacing);
+        _Sheet[column] = near > 0.0 ? max(GroundAt(centre) - _Origin.y, 0.0) + (sum / weights) : 0.0;
     }
 }
