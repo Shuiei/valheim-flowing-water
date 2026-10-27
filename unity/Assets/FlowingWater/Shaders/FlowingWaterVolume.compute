@@ -400,8 +400,10 @@ float3 SourceVelocity(int s, float3 place)
 }
 
 // A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
-// The server's water in the column under a cell (SimGrid.Target's texel: the resting top, whether drawn, the depth),
-// the nearest column of the square's for a cell beyond its sides.
+// The server's water in the column under a cell (SimGrid.Target's texel: the resting top, whether the sheet draws it,
+// the depth), the nearest column of the square's for a cell beyond its sides. Whether the sheet draws a column is the
+// sheet's affair (the handover clears it along the square's edge and while a column settles): the volume takes the
+// server's water wherever it is.
 float4 ServerAt(int3 c)
 {
     float3 centre = CentreOf(c);
@@ -416,7 +418,7 @@ float4 ServerAt(int3 c)
 bool WetBeyond(int3 c)
 {
     float4 server = ServerAt(c);
-    return server.y > 0.5 && server.x > DRY_TOP && server.z > 0.0 && CentreOf(c).y < server.x;
+    return server.x > DRY_TOP && server.z > 0.0 && CentreOf(c).y < server.x;
 }
 
 int TypeAt(int3 c)
@@ -1142,7 +1144,7 @@ void Seed(uint3 id : SV_DispatchThreadID)
     {
         int2 column = (int2)floor((centre.xz - _BedOrigin) / (_BedDx * _PerVoxel));
         float4 target = _Target[column];
-        if (target.y < 0.5 || target.x <= DRY_TOP || target.z <= 0.0)
+        if (target.x <= DRY_TOP || target.z <= 0.0)
         {
             return;
         }
