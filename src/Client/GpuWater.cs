@@ -91,6 +91,9 @@ internal sealed class GpuWater : IDisposable
     // poured once the volume has the moved square's ground and solids, not before).
     private int _volumeReseed;
 
+    // Whether the square was found too wide for the volume (told once).
+    private bool _volumeTooWide;
+
     private readonly List<(Vector3 At, float Rate, bool Drain, float Radius)> _markers = [];
 
     private readonly List<VolumeWater.Spring> _springs = [];
@@ -653,7 +656,18 @@ internal sealed class GpuWater : IDisposable
             }
 
             Settings settings = FlowingWaterPlugin.Settings;
-            int rows = VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize);
+            int rows = VolumeFollow.RowsWithin(VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize), _window.Cells);
+            if (rows < VolumeFollow.LeastRows)
+            {
+                if (!_volumeTooWide)
+                {
+                    _volumeTooWide = true;
+                    FlowingWaterPlugin.Log.LogError(FormattableString.Invariant($"Volume water: a square of {_window.Cells} cells a side is too wide for the card ({VolumeFollow.MostCells} cells at most): the water near you stays a sheet; lower Client.VolumeRange or raise Client.GpuWaterCell"));
+                }
+
+                return false;
+            }
+
             _volume = new VolumeWater(kit.Compute, kit.Particles, kit.Froth, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
             {
                 OpenSides = true,

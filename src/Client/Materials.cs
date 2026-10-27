@@ -374,7 +374,7 @@ internal static class Materials
     /// </summary>
     public static bool Volume(out VolumeKit kit)
     {
-        kit = default;
+        kit = null;
         if (!Particles(out Material particles, out _, out _))
         {
             return false;
@@ -399,7 +399,7 @@ internal static class Materials
     }
 
     /// <summary>What the volume water is moved and drawn with (<see cref="Volume"/>).</summary>
-    public readonly struct VolumeKit
+    public sealed class VolumeKit
     {
         public VolumeKit(Material particles, Material march, Material surface, Material froth, ComputeShader compute)
         {

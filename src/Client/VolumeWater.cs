@@ -244,6 +244,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             throw new ArgumentOutOfRangeException(nameof(cellsX), "the grid must have cells of a size");
         }
 
+        if ((long)cellsX * cellsY * cellsZ > VolumeFollow.MostCells)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cellsY), (long)cellsX * cellsY * cellsZ, $"the grid has more cells than the card runs a kernel over at once ({VolumeFollow.MostCells})");
+        }
+
         _shader = shader;
         Material = material;
         Capacity = capacity;
@@ -614,6 +619,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Fine.Release();
         Coarse.Release();
         Foam.Release();
+        Free(Fine);
+        Free(Coarse);
+        Free(Foam);
         Arguments.Release();
         Froth.Arguments.Release();
         _type.Release();
