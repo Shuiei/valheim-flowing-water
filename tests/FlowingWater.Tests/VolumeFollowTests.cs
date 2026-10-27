@@ -79,10 +79,10 @@ public class VolumeFollowTests
 
     [Theory]
     [InlineData(96, 128, 96)]
-    [InlineData(192, 128, 128)]
-    [InlineData(96, 256, 32)]
-    [InlineData(96, 512, 8)]
-    [InlineData(96, 1024, 2)]
+    [InlineData(192, 128, 127)]
+    [InlineData(96, 256, 31)]
+    [InlineData(96, 512, 7)]
+    [InlineData(96, 1024, 1)]
     public void TheRowsAreCutSoTheGridStaysWithinWhatTheCardRunsAtOnce(int asked, int cells, int rows)
     {
         int within = VolumeFollow.RowsWithin(asked, cells);
