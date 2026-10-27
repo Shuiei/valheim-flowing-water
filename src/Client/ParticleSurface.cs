@@ -100,11 +100,6 @@ internal sealed class ParticleSurface : IDisposable
         }
 
         Sun();
-        if (froth != null && froth.Material != null && froth.LastCount > 0)
-        {
-            Graphics.DrawProceduralIndirect(froth.Material, Everywhere, MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
-        }
-
         Shader.SetGlobalFloat(ParticleSizeId, water.Spacing);
         // The spheres melt into one surface when smoothed over a few of them, and a step kept between two bodies of
         // water is deeper than a sphere's own curve.
@@ -113,6 +108,7 @@ internal sealed class ParticleSurface : IDisposable
         if (Spheres)
         {
             _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
+            Froth(camera, froth);
             return;
         }
 
@@ -135,6 +131,17 @@ internal sealed class ParticleSurface : IDisposable
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         Graphics.DrawProcedural(surface, Everywhere, MeshTopology.Triangles, 3, 1, camera, null, ShadowCastingMode.Off, false, 0);
+        Froth(camera, froth);
+    }
+
+    // The froth over the water: a draw the camera sorts with the scene's transparent things by its material's queue,
+    // one after the surface's (the order of the calls here does not place it; the queue does).
+    private static void Froth(Camera camera, IParticleCloud froth)
+    {
+        if (froth != null && froth.Material != null && froth.LastCount > 0)
+        {
+            Graphics.DrawProceduralIndirect(froth.Material, Everywhere, MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
+        }
     }
 
     /// <summary>Off the camera it was on.</summary>
