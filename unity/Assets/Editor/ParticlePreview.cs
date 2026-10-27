@@ -41,7 +41,7 @@ public static class ParticlePreview
             BuildBundles.Prepare();
             // FW_PREVIEW_SCENES picks some scenes (names apart by commas); else all run. A name of none is refused.
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "ball", "own", "spout", "look", "roof", "walls", "boat", "cost", "surface" };
+            string[] known = { "rest", "dambreak", "ledge", "ball", "own", "spout", "look", "roof", "walls", "boat", "cost", "surface", "pour" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -52,6 +52,11 @@ public static class ParticlePreview
             if (Runs("rest"))
             {
                 Rest();
+            }
+
+            if (Runs("pour"))
+            {
+                Pour();
             }
 
             if (Runs("dambreak"))
@@ -125,6 +130,41 @@ public static class ParticlePreview
     // neighbours found, the kernels summed as the lattice says) and nothing has been thrown; over three seconds it
     // stays 1 m deep (not pressed down by its own weight, within 3 %) and comes to a stop (a pool lies still: its
     // particles drift under 5 cm/s on average by then, still slowing, none faster than a quarter of a metre a second).
+    // Water poured onto a cloud that holds water already (the console pours again, the preview's scenes pour onto
+    // their own): each block's particles go after the ones there, each at its place with its layout, none of the
+    // earlier ones touched (the card takes the floats from the array's start at the particles' own place in the buffer,
+    // twelve a particle).
+    private static void Pour()
+    {
+        float[] bed = Field((x, z) => 0f);
+        using var scene = new Scene("ppour", bed, 8000);
+        var boxes = new List<(Vector3 Min, Vector3 Max, int Count)>();
+        foreach ((Vector3 min, Vector3 max) in new[] { (new Vector3(10f, 0f, 10f), new Vector3(11f, 0.5f, 11f)), (new Vector3(20f, 1f, 20f), new Vector3(22f, 1.5f, 21f)), (new Vector3(30f, 0f, 30f), new Vector3(30.5f, 0.5f, 30.5f)) })
+        {
+            boxes.Add((min, max, scene.Water.Add(min, max)));
+        }
+
+        int poured = boxes.Sum(b => b.Count);
+        float[] data = scene.Water.Read();
+        int misplaced = 0, malformed = 0, p = 0;
+        foreach ((Vector3 min, Vector3 max, int count) in boxes)
+        {
+            for (int k = 0; k < count; k++, p++)
+            {
+                var at = new Vector3(data[p * 12], data[(p * 12) + 1], data[(p * 12) + 2]);
+                float slack = 0.03f * scene.Water.Spacing;
+                bool inside = at.x >= min.x - slack && at.y >= min.y - slack && at.z >= min.z - slack && at.x <= max.x + slack && at.y <= max.y + slack && at.z <= max.z + slack;
+                misplaced += inside ? 0 : 1;
+                var predicted = new Vector3(data[(p * 12) + 4], data[(p * 12) + 5], data[(p * 12) + 6]);
+                bool formed = data[(p * 12) + 3] == 1f && predicted == at && data[(p * 12) + 8] == 0f && data[(p * 12) + 9] == 0f && data[(p * 12) + 10] == 0f && data[(p * 12) + 11] == 1f;
+                malformed += formed ? 0 : 1;
+            }
+        }
+
+        bool ok = scene.Water.Count == poured && data.Length == poured * 12 && misplaced == 0 && malformed == 0;
+        Log.AppendLine(Inv($"Pour: three blocks poured one after another onto the same cloud ({string.Join(", ", boxes.Select(b => b.Count))} particles; {poured} in all, the card holds {scene.Water.Count}): {misplaced} out of their block, {malformed} not laid out as poured: {Check(ok)}"));
+    }
+
     private static void Rest()
     {
         float[] bed = Field((x, z) => x < 19f || x > 21f || z < 19f || z > 21f ? 20f : 0f);

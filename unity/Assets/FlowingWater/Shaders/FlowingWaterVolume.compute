@@ -400,6 +400,25 @@ float3 SourceVelocity(int s, float3 place)
 }
 
 // A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
+// The server's water in the column under a cell (SimGrid.Target's texel: the resting top, whether drawn, the depth),
+// the nearest column of the square's for a cell beyond its sides.
+float4 ServerAt(int3 c)
+{
+    float3 centre = CentreOf(c);
+    int columns = max(1, _BedCells / max(1, _PerVoxel));
+    int2 column = clamp((int2)floor((centre.xz - _BedOrigin) / (_BedDx * _PerVoxel)), 0, columns - 1);
+    return _Target[column];
+}
+
+// Whether the server has water at a cell's height beyond an open side: it holds the square's water in there, as a
+// wall does (a lake the square cuts stays level at its edge; the band along the side takes the server's water as it
+// changes); dry beyond, the side is air and the water goes out.
+bool WetBeyond(int3 c)
+{
+    float4 server = ServerAt(c);
+    return server.y > 0.5 && server.x > DRY_TOP && server.z > 0.0 && CentreOf(c).y < server.x;
+}
+
 int TypeAt(int3 c)
 {
     if (c.y < 0)
@@ -414,7 +433,7 @@ int TypeAt(int3 c)
 
     if (c.x < 0 || c.z < 0 || c.x >= _Nx || c.z >= _Nz)
     {
-        return _OpenSides != 0 ? AIR : SOLID;
+        return _OpenSides == 0 || WetBeyond(c) ? SOLID : AIR;
     }
 
     return _TypeIn[CellIndex(c)];
@@ -940,7 +959,7 @@ void Move(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // Out of the square's sides: the server's water now; out of the top: held.
+    // Out of the square's sides: the server's water now (the band along them is poured again from it); out of the top: held.
     float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);
     float eps = 0.01 * _H;
     if (to.x < lo.x || to.z < lo.z || to.x >= hi.x || to.z >= hi.z)
@@ -1091,7 +1110,10 @@ void Settle(uint3 id : SV_DispatchThreadID)
 void Seed(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] == SOLID || _CountIn[i] >= REST)
+    // A whole pour (the square made or moved, the grid following the camera) fills the cells that hold no water, not
+    // the loosely packed ones of water that is there already (a pool would swell with every pour); the edge band's
+    // pour each step tops up what its cells lack, so the band keeps the server's level.
+    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] == SOLID || _CountIn[i] >= (_SeedShare >= 1.0 ? 1 : REST))
     {
         return;
     }

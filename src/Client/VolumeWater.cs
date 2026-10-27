@@ -34,7 +34,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     // A source's water comes out at about this speed (m/s): its reach grows with its rate instead (a big spring boils up
     // over a wide patch); about half its sphere's faces are open to the water (the rest cut to the grid or against
     // the ground), and Regulate scales the speed the rest of the way to the rate.
-    private const float SourceSpeed = 3f;
 
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
     private static readonly int ParticlesInId = Shader.PropertyToID("_ParticlesIn");
@@ -249,7 +248,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _type = new ComputeBuffer(_cells, sizeof(int));
         _count = new ComputeBuffer(_cells, sizeof(int));
         _div = new ComputeBuffer(_cells, sizeof(float));
+        // Kept from step to step (the relaxation starts from the last step's), so it must start from nothing: a new buffer
+        // holds whatever the card's memory last held, which 80 sweeps would not wash out of a big pool.
         _pressure = new ComputeBuffer(_cells, sizeof(float));
+        _pressure.SetData(new float[_cells]);
         _active = new ComputeBuffer(_cells, sizeof(uint), ComputeBufferType.Append);
         _activeArgs = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
         _mom = new ComputeBuffer(3 * _faces, sizeof(int));
@@ -563,20 +565,18 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         /// </summary>
         public static Spring Source(Vector3 centre, float rate)
         {
-            float reach = Reach(rate);
-            float speed = rate / (4f * Mathf.PI * reach * reach);
-            return new Spring { Ring = new Vector4(centre.x, centre.y, centre.z, reach), Flow = new Vector4(speed, rate, 0f, 0f) };
+            return new Spring { Ring = new Vector4(centre.x, centre.y, centre.z, Reach(rate)), Flow = new Vector4(SpringShape.Outflow(rate), rate, 0f, 0f) };
         }
 
         /// <summary>A source whose marker stands at <paramref name="foot"/>: its sphere sits on the ground there.</summary>
         public static Spring SourceOn(Vector3 foot, float rate) => Source(foot + (Vector3.up * Reach(rate)), rate);
 
-        private static float Reach(float rate) => Mathf.Max(0.4f, Mathf.Sqrt(rate / (2f * Mathf.PI * SourceSpeed)));
+        private static float Reach(float rate) => SpringShape.Reach(rate);
 
         /// <summary>A drain at <paramref name="centre"/> taking <paramref name="rate"/> m³/s (0 or less: all) within <paramref name="radius"/>.</summary>
         public static Spring Drain(Vector3 centre, float radius, float rate) => new()
         {
-            Ring = new Vector4(centre.x, centre.y, centre.z, Mathf.Max(radius, 0.3f)),
+            Ring = new Vector4(centre.x, centre.y, centre.z, SpringShape.DrainReach(radius)),
             Flow = new Vector4(0f, rate <= 0f ? float.MaxValue : rate, 1f, 0f),
         };
 
@@ -662,7 +662,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             _shader.SetBuffer(kernel, BodiesId, _bodies);
         }
 
-        _shader.SetTexture(_seed, TargetId, _target ?? _noTarget);
+        // (The server's water beyond an open side is a wall to the solver: every kernel that reads a cell's type reads
+        // it.)
+        foreach (int kernel in new[] { _gather, _divergence, _relax, _project, _seed })
+        {
+            _shader.SetTexture(kernel, TargetId, _target ?? _noTarget);
+        }
 
         // Each kernel writes what it must and reads the rest (the game's graphics let a kernel write eight buffers).
         foreach (int kernel in new[] { _clearCells, _scatter })

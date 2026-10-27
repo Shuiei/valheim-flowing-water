@@ -622,25 +622,23 @@ internal sealed class GpuWater : IDisposable
             }
 
             Settings settings = FlowingWaterPlugin.Settings;
-            int rows = Math.Max(8, Mathf.RoundToInt(settings.VolumeHeight.Value / _window.CellSize));
+            int rows = VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize);
             _volume = new VolumeWater(compute, material, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
             {
                 OpenSides = true,
                 // Two metres of the square's edge take the server's water each step, whatever the cells' size.
-                EdgeBand = Mathf.CeilToInt(2f / _window.CellSize),
-                Origin = new Vector3(_window.X0 * _window.VoxelSize, Mathf.Floor((_cameraY - (rows * _window.CellSize / 2f)) / _window.CellSize) * _window.CellSize, _window.Z0 * _window.VoxelSize),
+                EdgeBand = VolumeFollow.Band(_window.CellSize),
+                Origin = new Vector3(_window.X0 * _window.VoxelSize, VolumeFollow.BaseY(_cameraY, rows, _window.CellSize), _window.Z0 * _window.VoxelSize),
             };
             _volumeSeeded = false;
             FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: {_window.Cells} x {rows} x {_window.Cells} cells of {_window.CellSize} m, {settings.VolumeCapacity.Value} particles at most"));
         }
 
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
-        float height = _volume.CellsY * _volume.CellSize;
-        float middle = _volume.Origin.y + (height / 2f);
-        if (Mathf.Abs(_cameraY - middle) > height / 4f)
+        if (VolumeFollow.Rebase(_cameraY, _volume.Origin.y, _volume.CellsY, _volume.CellSize))
         {
             // The camera climbed or fell past the grid's middle half: the grid follows (water out of it is the server's).
-            _volume.Origin = new Vector3(origin.x, Mathf.Floor((_cameraY - (height / 2f)) / _volume.CellSize) * _volume.CellSize, origin.y);
+            _volume.Origin = new Vector3(origin.x, VolumeFollow.BaseY(_cameraY, _volume.CellsY, _volume.CellSize), origin.y);
             _volumeSeeded = false;
         }
         else
@@ -961,7 +959,7 @@ internal sealed class GpuWater : IDisposable
             // The square's new strip takes the server's water (the volume's own water stays where it is in the world).
             _volume.Origin = new Vector3(window.X0 * window.VoxelSize, _volume.Origin.y, window.Z0 * window.VoxelSize);
             _volume.SetServer(_grid.Target, window.PerVoxel);
-            _volume.SeedFromServer(1f, Math.Max(Math.Abs(dx), Math.Abs(dz)) * per);
+            _volume.SeedFromServer(1f, VolumeFollow.Reseed(dx, dz, per));
         }
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
