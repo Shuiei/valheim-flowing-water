@@ -2,6 +2,15 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.41.0 — 2026-10-27
+
+### Changed
+- The volume water has a look of its own. It is drawn from its true shape: a surface found through its density,
+  the water seen through each pixel measured, so deep water is dark and thin water clear, a fall's sheet thin, with
+  no halo beyond the water's edge and no whitewash over a fast stream; foam lies where the froth gathers (a fall's
+  foot, a boil, a front); the water fades into the far water at the square's edge instead of ending in a seam; and
+  with your head under it, you see the scene through the water, tinted and dimmed by the water between.
+
 ## v0.40.0 — 2026-10-27
 
 ### Added

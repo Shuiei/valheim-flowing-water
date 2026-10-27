@@ -10,6 +10,10 @@ float _FWSimOn;
 float2 _FWSimOrigin;
 float _FWSimSize;
 sampler2D _FWSimTarget;
+// The volume water: it draws the whole square itself (the texels say nothing of what it holds), but for a band
+// _FWSimEdge metres wide along the square's sides, where it fades out and the bricks draw as the texels say.
+float _FWSimWhole;
+float _FWSimEdge;
 
 // For testing (console "flowingwater gpu colours"): each part of the water drawn in a colour of its own, to see which
 // draws where (the card's water blue, a brick's surface red, the sides and falls yellow).
@@ -34,7 +38,18 @@ bool SimDraws(float2 world)
     }
 
     float2 uv = (world - _FWSimOrigin) / _FWSimSize;
-    return all(uv > 0.0) && all(uv < 1.0) && tex2Dlod(_FWSimTarget, float4(uv, 0.0, 0.0)).y > 0.5;
+    if (any(uv <= 0.0) || any(uv >= 1.0))
+    {
+        return false;
+    }
+
+    float2 edge = min(uv, 1.0 - uv) * _FWSimSize;
+    if (_FWSimWhole > 0.5 && min(edge.x, edge.y) > _FWSimEdge)
+    {
+        return true;
+    }
+
+    return tex2Dlod(_FWSimTarget, float4(uv, 0.0, 0.0)).y > 0.5;
 }
 
 #endif

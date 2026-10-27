@@ -131,6 +131,12 @@ public static class VolumePreview
             {
                 scene.Shot(Inv($"vrest_{k * Frame:0.0}s"), new Vector3(20f, 3.5f, 14f), new Vector3(20f, 0.6f, 20f));
             }
+
+            if (k == 300)
+            {
+                // From under the water, looking along the pool toward its far wall and the air above.
+                scene.Shot("vrest_under", new Vector3(20f, 0.4f, 18.3f), new Vector3(20f, 1.1f, 22f));
+            }
         }
 
         Log.AppendLine($"  Still, 1 m deep, no particle lost or made over 5 s: {Check(ok)}");
@@ -673,9 +679,16 @@ public static class VolumePreview
             var target = new RenderTexture(1280, 720, 24);
             camera.targetTexture = target;
             ParticleSurface.Spheres = Environment.GetEnvironmentVariable("FW_PREVIEW_SPHERES") == "1";
-            using (var surface = new ParticleSurface())
+            if (ParticleSurface.Spheres)
             {
+                using var surface = new ParticleSurface();
                 surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath), Water.Froth);
+                camera.Render();
+            }
+            else
+            {
+                using var surface = new VolumeSurface();
+                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeMarchMaterialPath), AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
                 camera.Render();
             }
 

@@ -63,9 +63,10 @@ internal sealed class ParticleSurface : IDisposable
 
     private Camera _camera;
 
-    private Light _sun;
+    // The scene's sun as last found, for every surface drawn (the one directional light serves them all).
+    private static Light _sun;
 
-    private int _sunLookedFor = -1;
+    private static int _sunLookedFor = -1;
 
     /// <summary>Draws the particles as opaque spheres instead of water (the console's "flowingwater particles spheres").</summary>
     public static bool Spheres { get; set; }
@@ -136,7 +137,7 @@ internal sealed class ParticleSurface : IDisposable
 
     // The froth over the water: a draw the camera sorts with the scene's transparent things by its material's queue,
     // one after the surface's (the order of the calls here does not place it; the queue does).
-    private static void Froth(Camera camera, IParticleCloud froth)
+    internal static void Froth(Camera camera, IParticleCloud froth)
     {
         if (froth != null && froth.Material != null && froth.LastCount > 0)
         {
@@ -182,7 +183,7 @@ internal sealed class ParticleSurface : IDisposable
         _thickness = Make("thickness", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Bilinear);
     }
 
-    private static RenderTexture Make(string name, int width, int height, int depthBits, RenderTextureFormat format, FilterMode filter)
+    internal static RenderTexture Make(string name, int width, int height, int depthBits, RenderTextureFormat format, FilterMode filter)
     {
         var texture = new RenderTexture(width, height, depthBits, format, RenderTextureReadWrite.Linear)
         {
@@ -195,7 +196,7 @@ internal sealed class ParticleSurface : IDisposable
     }
 
     // Gone: in the game as Unity frees things, in the editor's preview (not playing) at once, as it must there.
-    private static void Free(ref RenderTexture texture)
+    internal static void Free(ref RenderTexture texture)
     {
         if (texture == null)
         {
@@ -217,7 +218,7 @@ internal sealed class ParticleSurface : IDisposable
 
     // The scene's sun, for the shaders (a command buffer's draw gets no light of its own): the one the render settings
     // name, else the first directional light, looked for once a second while none is found; none, straight down, white.
-    private void Sun()
+    internal static void Sun()
     {
         Light sun = Shining(_sun) ? _sun : Shining(RenderSettings.sun) ? RenderSettings.sun : null;
         if (sun == null && Time.frameCount - _sunLookedFor >= 60)

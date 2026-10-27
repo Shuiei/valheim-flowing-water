@@ -37,6 +37,8 @@ internal sealed class GpuWater : IDisposable
     private static readonly int OnId = Shader.PropertyToID("_FWSimOn");
     private static readonly int OriginId = Shader.PropertyToID("_FWSimOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
+    private static readonly int WholeId = Shader.PropertyToID("_FWSimWhole");
+    private static readonly int EdgeId = Shader.PropertyToID("_FWSimEdge");
     private static readonly int TargetId = Shader.PropertyToID("_FWSimTarget");
     private static readonly int DepthId = Shader.PropertyToID("_SimH");
     private static readonly int BedId = Shader.PropertyToID("_SimBed");
@@ -100,6 +102,9 @@ internal sealed class GpuWater : IDisposable
     private static readonly List<ParticleWater.Spout> NoSpouts = [];
 
     private ParticleSurface _surface;
+
+    // The volume water's own renderer.
+    private VolumeSurface _volumeSurface;
 
     private readonly BedCast _cast;
 
@@ -467,6 +472,7 @@ internal sealed class GpuWater : IDisposable
     {
         _off = why;
         Shader.SetGlobalFloat(OnId, 0f);
+        Shader.SetGlobalFloat(WholeId, 0f);
         _water?.Dispose();
         _water = null;
     }
@@ -476,6 +482,7 @@ internal sealed class GpuWater : IDisposable
         _cast.Dispose();
         _spray?.Dispose();
         _surface?.Dispose();
+        _volumeSurface?.Dispose();
         _particles?.Dispose();
         _volume?.Dispose();
         _solids.Dispose();
@@ -519,6 +526,8 @@ internal sealed class GpuWater : IDisposable
             // any, makes the surface again as it needs).
             _volume.Dispose();
             _volume = null;
+            _volumeSurface?.Dispose();
+            _volumeSurface = null;
             if (_particles == null)
             {
                 _surface?.Dispose();
@@ -540,6 +549,10 @@ internal sealed class GpuWater : IDisposable
             Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
             Shader.SetGlobalFloat(SizeId, _window.Size);
             Shader.SetGlobalTexture(TargetId, _grid.Target);
+            // The volume draws the whole square itself (its water is its own, whatever the server's columns say), but
+            // for the band along its sides where it fades into the bricks.
+            Shader.SetGlobalFloat(WholeId, _volume != null ? 1f : 0f);
+            Shader.SetGlobalFloat(EdgeId, VolumeFollow.BandMetres);
             _renderer.enabled = false;
             return;
         }
@@ -548,6 +561,7 @@ internal sealed class GpuWater : IDisposable
         _grid.Step(Time.deltaTime);
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);
+        Shader.SetGlobalFloat(WholeId, 0f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
         Shader.SetGlobalTexture(TargetId, _grid.Target);
@@ -633,14 +647,14 @@ internal sealed class GpuWater : IDisposable
     {
         if (_volume == null)
         {
-            if (!Materials.Volume(out Material material, out _, out Material froth, out ComputeShader compute))
+            if (!Materials.Volume(out Materials.VolumeKit kit))
             {
                 return false;
             }
 
             Settings settings = FlowingWaterPlugin.Settings;
             int rows = VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize);
-            _volume = new VolumeWater(compute, material, froth, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
+            _volume = new VolumeWater(kit.Compute, kit.Particles, kit.Froth, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
             {
                 OpenSides = true,
                 // Two metres of the square's edge take the server's water each step, whatever the cells' size.
@@ -686,10 +700,21 @@ internal sealed class GpuWater : IDisposable
         _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
         _volume.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
-        if (camera != null && Materials.Particles(out _, out Material surface, out _))
+        if (camera != null && Materials.Volume(out Materials.VolumeKit look))
         {
-            _surface ??= new ParticleSurface();
-            _surface.Render(camera, _volume, surface, _volume.Froth);
+            if (ParticleSurface.Spheres && Materials.Particles(out _, out Material surface, out _))
+            {
+                // As spheres, for testing (the console's "flowingwater particles spheres"): the particle renderer.
+                _volumeSurface?.Detach();
+                _surface ??= new ParticleSurface();
+                _surface.Render(camera, _volume, surface, _volume.Froth);
+            }
+            else
+            {
+                _surface?.Detach();
+                _volumeSurface ??= new VolumeSurface();
+                _volumeSurface.Render(camera, _volume, look.March, look.Surface, _volume.Froth);
+            }
         }
 
         return true;
