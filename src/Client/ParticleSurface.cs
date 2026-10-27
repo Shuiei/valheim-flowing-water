@@ -80,9 +80,10 @@ internal sealed class ParticleSurface : IDisposable
     /// <summary>
     /// The water as this camera will draw it next: the command buffer filled for this frame's particles (as many as the
     /// card says there are), on the camera (moved from the last one if it changed), and the surface drawn over the scene
-    /// with <paramref name="surface"/> (the mod's particle surface material).
+    /// with <paramref name="surface"/> (the mod's particle surface material); then <paramref name="froth"/> (the volume
+    /// water's spray, foam and bubbles) with its own material, over the surface, when there is any.
     /// </summary>
-    public void Render(Camera camera, IParticleCloud water, Material surface)
+    public void Render(Camera camera, IParticleCloud water, Material surface, IParticleCloud froth = null)
     {
         if (_camera != camera)
         {
@@ -99,6 +100,11 @@ internal sealed class ParticleSurface : IDisposable
         }
 
         Sun();
+        if (froth != null && froth.Material != null && froth.LastCount > 0)
+        {
+            Graphics.DrawProceduralIndirect(froth.Material, Everywhere, MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
+        }
+
         Shader.SetGlobalFloat(ParticleSizeId, water.Spacing);
         // The spheres melt into one surface when smoothed over a few of them, and a step kept between two bodies of
         // water is deeper than a sphere's own curve.

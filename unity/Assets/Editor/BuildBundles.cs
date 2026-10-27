@@ -50,8 +50,13 @@ public static class BuildBundles
 
     public const string ParticleSurfaceMaterialPath = "Assets/FlowingWater/FlowingWaterParticleSurface.mat";
 
-    // The volume water (the water near the camera as one body of fluid), drawn with the particles' materials.
+    // The volume water (the water near the camera as one body of fluid), drawn with the particles' materials, and its
+    // froth (spray, foam and bubbles).
     public const string VolumeComputePath = "Assets/FlowingWater/Shaders/FlowingWaterVolume.compute";
+
+    public const string FrothShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterFroth.shader";
+
+    public const string FrothMaterialPath = "Assets/FlowingWater/FlowingWaterFroth.mat";
 
     public const string BundleName = "flowingwater";
 
@@ -93,7 +98,8 @@ public static class BuildBundles
         MakeMaterial(ParticlesShaderPath, ParticlesMaterialPath, "FlowingWaterParticles");
         MakeMaterial(ParticleSurfaceShaderPath, ParticleSurfaceMaterialPath, "FlowingWaterParticleSurface");
         CheckCompute(ParticlesComputePath, "ClearColumns", "CountColumns", "Fill", "Spout", "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Settle", "Lambda", "Displace", "Apply", "Finish");
-        CheckCompute(VolumeComputePath, "ClearCells", "ClearFaces", "Scatter", "Gather", "Collect", "Arguments", "Divergence", "Relax", "Project", "Extend", "Move", "Emit", "Regulate", "Compact", "Settle", "Seed");
+        CheckCompute(VolumeComputePath, "ClearCells", "ClearFaces", "Scatter", "Gather", "Collect", "Arguments", "Divergence", "Relax", "Project", "Extend", "Move", "Emit", "Regulate", "Compact", "Settle", "Seed", "FrothClear", "FrothMove");
+        MakeMaterial(FrothShaderPath, FrothMaterialPath, "FlowingWaterFroth");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -235,7 +241,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, ParticleSurfaceMaterialPath, ParticleSurfaceShaderPath, VolumeComputePath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, ParticleSurfaceMaterialPath, ParticleSurfaceShaderPath, VolumeComputePath, FrothMaterialPath, FrothShaderPath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

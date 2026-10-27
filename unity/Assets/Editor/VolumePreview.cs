@@ -129,6 +129,8 @@ public static class VolumePreview
         }
 
         Log.AppendLine($"  Still, 1 m deep, no particle lost or made over 5 s: {Check(ok)}");
+        Froth froth = Froth.Of(scene.Water);
+        Log.AppendLine(Inv($"  Froth made by still water: {froth.Count}: {Check(froth.Count == 0)}"));
     }
 
     // The dam break: a column 2.5 m long, 2 m deep let go in a tank 10 m long; the front reaches the far wall at about
@@ -163,7 +165,7 @@ public static class VolumePreview
                 }
 
                 highest = Math.Max(highest, wall);
-                Log.AppendLine(Inv($"  t={k * Frame:0.00}s front {front - 10f:0.00} m from the tank's start, at the far wall up to {wall:0.00} m"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.00}s front {front - 10f:0.00} m from the tank's start, at the far wall up to {wall:0.00} m; froth {Froth.Of(scene.Water)}"));
             }
 
             if (k is 15 or 30 or 60 or 90 or 120 or 180 or 480)
@@ -183,6 +185,8 @@ public static class VolumePreview
         using var scene = new Scene("vledge", bed);
         int added = scene.Water.Add(new Vector3(8f, 3f, 14f), new Vector3(14f, 4f, 26f));
         Log.AppendLine(Inv($"Ledge: {added} particles ({added * scene.Water.Litre:0.0} m3) of water 1 m deep let go 6 m from a shelf's lip, 3 m over a basin's floor."));
+        int most = 0;
+        bool kinds = false;
         for (int k = 1; k <= 480; k++)
         {
             scene.Step();
@@ -207,7 +211,10 @@ public static class VolumePreview
                     }
                 }
 
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s on the shelf {shelf}, in the air {air}, on the floor {floor} ({data.Length / 12} in all)"));
+                Froth froth = Froth.Of(scene.Water);
+                most = Math.Max(most, froth.Count);
+                kinds |= froth.Spray > 0 && froth.Foam > 0 && froth.Bubbles > 0;
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s on the shelf {shelf}, in the air {air}, on the floor {floor} ({data.Length / 12} in all); froth {froth}"));
             }
 
             if (k is 60 or 120 or 180 or 300 or 480)
@@ -218,6 +225,7 @@ public static class VolumePreview
 
         Measure m = Measure.Of(scene.Water, bed);
         Log.AppendLine(Inv($"  Particles kept: {m.Count} of {added}, in the ground {m.Buried}: {Check(m.Count == added && m.Buried == 0)}"));
+        Log.AppendLine(Inv($"  The fall threw froth ({most} at most, within room for {scene.Water.FrothCapacity}), of every kind at once at some second: {Check(most > 0 && most < scene.Water.FrothCapacity && kinds)}"));
     }
 
     // A source of 8 m3/s in a basin for 6 s: its water comes out all round it and spreads; the particles' water grows
@@ -242,7 +250,7 @@ public static class VolumePreview
                 bool near = Mathf.Abs(have - expected) <= 0.15f * expected + 0.5f;
                 ok &= near;
                 (float[] scales, uint[] given) = scene.Water.ReadSources();
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}): {(near ? "OK" : "FAILED")}"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}); froth {Froth.Of(scene.Water)}: {(near ? "OK" : "FAILED")}"));
             }
 
             if (k is 30 or 120 or 360 or 480)
@@ -400,6 +408,44 @@ public static class VolumePreview
         }
     }
 
+    // The froth as read back: how many of each kind.
+    private sealed class Froth
+    {
+        public int Spray { get; private set; }
+
+        public int Foam { get; private set; }
+
+        public int Bubbles { get; private set; }
+
+        public int Count => Spray + Foam + Bubbles;
+
+        public static Froth Of(VolumeWater water)
+        {
+            float[] data = water.ReadFroth();
+            var froth = new Froth();
+            for (int i = 0; i < data.Length / 12; i++)
+            {
+                float kind = data[(i * 12) + 7];
+                if (kind < 0.5f)
+                {
+                    froth.Spray++;
+                }
+                else if (kind < 1.5f)
+                {
+                    froth.Foam++;
+                }
+                else
+                {
+                    froth.Bubbles++;
+                }
+            }
+
+            return froth;
+        }
+
+        public override string ToString() => Inv($"{Count} ({Spray} spray, {Foam} foam, {Bubbles} bubbles)");
+    }
+
     private sealed class Scene : IDisposable
     {
         private readonly Texture2D _bed;
@@ -416,8 +462,15 @@ public static class VolumePreview
             _bed.SetPixelData(bed, 0);
             _bed.Apply(false);
             var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.VolumeComputePath);
-            Water = new VolumeWater(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath), 1 << 20, Cells, Rows, Cells, Dx) { Origin = Vector3.zero, OpenSides = false };
+            var particles = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticlesMaterialPath);
+            var froth = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.FrothMaterialPath);
+            Water = new VolumeWater(compute, particles, froth, 1 << 20, Cells, Rows, Cells, Dx) { Origin = Vector3.zero, OpenSides = false };
             Water.SetGround(_bed, Cells, Dx, Vector2.zero);
+            if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_FROTH"), NumberStyles.Float, CultureInfo.InvariantCulture, out float frothRate))
+            {
+                Water.FrothRate = frothRate;
+            }
+
             if (int.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_ITERATIONS"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int iterations))
             {
                 Water.Iterations = iterations;
@@ -511,7 +564,7 @@ public static class VolumePreview
             ParticleSurface.Spheres = Environment.GetEnvironmentVariable("FW_PREVIEW_SPHERES") == "1";
             using (var surface = new ParticleSurface())
             {
-                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath));
+                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.ParticleSurfaceMaterialPath), Water.Froth);
                 camera.Render();
             }
 

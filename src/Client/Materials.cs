@@ -61,6 +61,8 @@ internal static class Materials
 
     private static ComputeShader _volumeCompute;
 
+    private static Material _froth;
+
     private static bool _volumeTried;
 
     private static ComputeShader _particlesCompute;
@@ -87,7 +89,7 @@ internal static class Materials
         _simTried &= _sim != null && _simCompute != null;
         _sprayTried &= _spray != null && _sprayCompute != null;
         _particlesTried &= _particles != null && _particleSurface != null && _particlesCompute != null;
-        _volumeTried &= _volumeCompute != null;
+        _volumeTried &= _volumeCompute != null && _froth != null;
         _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
@@ -352,11 +354,13 @@ internal static class Materials
 
     /// <summary>
     /// The volume water's: the compute shader that moves it, with the particle water's materials it is drawn with
-    /// (<see cref="Particles"/>); false (logged once a world) where the bundle has none.
+    /// (<see cref="Particles"/>) and its froth's (<paramref name="froth"/>: null, logged once a world, where the bundle
+    /// has none, the water going on without froth); false (logged once a world) where the bundle has no compute shader.
     /// </summary>
-    public static bool Volume(out Material material, out Material surface, out ComputeShader compute)
+    public static bool Volume(out Material material, out Material surface, out Material froth, out ComputeShader compute)
     {
         compute = null;
+        froth = null;
         if (!Particles(out material, out surface, out _))
         {
             return false;
@@ -370,9 +374,16 @@ internal static class Materials
             {
                 FlowingWaterPlugin.Log.LogError("The compute shader of the volume water is missing from the bundle: the water near you stays a sheet");
             }
+
+            _froth = FromBundle("FlowingWaterFroth", "FlowingWater froth", "the volume water makes no spray, foam or bubbles");
+            if (_froth != null)
+            {
+                TakeSeaLook(_froth);
+            }
         }
 
         compute = _volumeCompute;
+        froth = _froth;
         return compute != null;
     }
 
@@ -583,11 +594,12 @@ internal static class Materials
             "falls" => Falls,
             "spray" => _spray,
             "still" => _still,
+            "froth" => _froth,
             _ => null,
         };
         if (material == null)
         {
-            return $"no {kind} material (custom, card, falls, spray or still; water must have been drawn once with it)";
+            return $"no {kind} material (custom, card, falls, spray, still or froth; water must have been drawn once with it)";
         }
 
         if (property == "list")

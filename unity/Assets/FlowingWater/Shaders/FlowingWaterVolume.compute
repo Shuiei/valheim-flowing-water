@@ -33,6 +33,10 @@
 //   Compact        the particles still there, into the other buffer,
 //   Settle         how many, and the drawing's arguments.
 // Once, or for the edge band each frame: Seed, the server's water poured as particles where the cells hold none.
+// The froth (Ihmsen, Akinci, Akinci and Teschner 2012, over the grid): where the water is violent, Move makes froth
+// particles, the water's spray, foam and bubbles, which carry no water and are drawn as what they are (small, white)
+// over the water; they are moved by FrothMove by their kind each step (spray falls and drifts, foam rides the surface,
+// bubbles rise), then compacted and counted as the water's particles are (Compact and Settle, bound to theirs).
 #pragma kernel ClearCells
 #pragma kernel ClearFaces
 #pragma kernel Scatter
@@ -49,6 +53,8 @@
 #pragma kernel Compact
 #pragma kernel Settle
 #pragma kernel Seed
+#pragma kernel FrothClear
+#pragma kernel FrothMove
 
 #define THREADS 256
 #define AIR 0
@@ -70,10 +76,19 @@ struct Particle
     // The place; w: GONE once let go.
     float4 place;
     // xyz: unused (the drawing's layout); w: the share of the particle that is spray (in the air, few about it).
+    // A froth particle: x its life left (s), y the life it was born with, z its own random number (its size), w its
+    // kind (SPRAY, FOAM or BUBBLE, as FrothMove last found it).
     float4 predicted;
     // The velocity; w: the particles in its cell, as a share of rest (the drawing's density).
     float4 velocity;
 };
+
+// A froth particle's kinds: in the air, on the water's surface, under it.
+#define SPRAY 0.0
+#define FOAM 1.0
+#define BUBBLE 2.0
+// Cells with this many particles or more hold water to the froth.
+#define WET 2
 
 // A water source or drain (ParticleWater.Spout's layout kept: ring = centre and reach, flow = speed, rate, drain).
 struct Spring
@@ -197,6 +212,24 @@ float _SeedShare;
 int _PourOn;
 float3 _PourMin;
 float3 _PourMax;
+
+// The froth: its particles (the Particle layout, its meanings above), their counters as the water's ([0] there, [1]
+// the compaction's, [2] the spawn's), their room, and how much froth the water's violence makes (0: none).
+RWStructuredBuffer<Particle> _Froth;
+RWStructuredBuffer<uint> _FrothAlive;
+uint _FrothCapacity;
+float _FrothRate;
+// Froth particles in each cell, as FrothMove last counted them (a step behind for Move): a cell with FROTH_FULL or
+// more takes no more (froth covers water, it does not pile up).
+RWStructuredBuffer<int> _FrothCount;
+StructuredBuffer<int> _FrothCountIn;
+#define FROTH_FULL 6
+// Water slower than this (m/s) makes no froth; its drops' drag (1/s) at the least and the most (a fine mist hangs, a
+// drop falls); a bubble's rise (m/s²).
+#define FROTH_SLOW 1.5
+#define DRAG_LEAST 0.8
+#define DRAG_MOST 6.0
+#define BUOYANCY 4.0
 
 float Random(inout uint state)
 {
@@ -579,6 +612,97 @@ bool Spawn(float3 place, float3 velocity)
     return true;
 }
 
+// A froth particle made at a place with a velocity, to live this long; false when there is no room for it.
+bool SpawnFroth(float3 place, float3 velocity, float life, float own)
+{
+    uint at;
+    InterlockedAdd(_FrothAlive[2], 1u, at);
+    at += _FrothAlive[0];
+    if (at >= _FrothCapacity)
+    {
+        return false;
+    }
+
+    Particle f;
+    f.place = float4(place, 1.0);
+    f.predicted = float4(life, life, own, SPRAY);
+    f.velocity = float4(velocity, 0.0);
+    _Froth[at] = f;
+    return true;
+}
+
+int CountAt(int3 c)
+{
+    return InGrid(c) ? _CountIn[CellIndex(c)] : 0;
+}
+
+// Where a value stands between a least (0) and a most (1): a potential's share.
+float Share(float value, float least, float most)
+{
+    return saturate((value - least) / (most - least));
+}
+
+float3 RandomDirection(inout uint state)
+{
+    float z = (2.0 * Random(state)) - 1.0;
+    float a = 6.2831853 * Random(state);
+    float r = sqrt(max(0.0, 1.0 - (z * z)));
+    return float3(r * cos(a), r * sin(a), z);
+}
+
+// The froth a particle of the water makes this step, by its violence (Ihmsen et al. 2012's potentials, read off the
+// grid): the air it traps (how much the velocity differs across its cell: a jet into a pool, a shear), its crest (fast
+// water at the surface: a fall's lip, a front), its impact (the speed the ground or what is built took from it), each
+// the more the faster it goes. The froth starts in the particle's water, going as the water goes with some spread, or,
+// struck, thrown back off what it struck.
+void MakeFroth(uint i, float3 x, float3 v, float3 pushed, int count, int3 c)
+{
+    float speed = length(v);
+    if (speed < FROTH_SLOW || !InGrid(c) || _FrothCountIn[CellIndex(c)] >= FROTH_FULL || SourceAt(x) >= 0)
+    {
+        // Slow; in a cell full of froth; or in a source's sphere, whose outflow is no violence of the water's.
+        return;
+    }
+
+    float e = 0.5 * _H;
+    float3 dx = Velocity(x + float3(e, 0.0, 0.0)) - Velocity(x - float3(e, 0.0, 0.0));
+    float3 dy = Velocity(x + float3(0.0, e, 0.0)) - Velocity(x - float3(0.0, e, 0.0));
+    float3 dz = Velocity(x + float3(0.0, 0.0, e)) - Velocity(x - float3(0.0, 0.0, e));
+    float trapped = Share(sqrt(dot(dx, dx) + dot(dy, dy) + dot(dz, dz)), 1.0, 6.0);
+    float crest = CountAt(c + int3(0, 1, 0)) < WET ? Share(speed, 2.0, 8.0) : 0.0;
+    float struck = length(pushed) / _Dt;
+    float impact = Share(struck, 1.0, 8.0);
+    float energy = Share(speed * speed, FROTH_SLOW * FROTH_SLOW, 64.0);
+    float rate = _FrothRate * energy * ((8.0 * trapped) + (3.0 * crest) + (16.0 * impact));
+    uint state = (i * 2246822519u) ^ (_Seed * 3266489917u) ^ 0x27d4eb2fu;
+    int n = min(3, (int)floor((rate * _Dt) + Random(state)));
+    for (int k = 0; k < n; k++)
+    {
+        float3 place = x + ((float3(Random(state), Random(state), Random(state)) - 0.5) * (_H / PER_SIDE));
+        float3 velocity;
+        if (impact > trapped && impact > crest)
+        {
+            // Thrown back off what it struck, up to half as fast as it came, spread about the push's direction.
+            float3 away = normalize(pushed + (RandomDirection(state) * 0.6));
+            velocity = away * struck * lerp(0.2, 0.5, Random(state));
+        }
+        else
+        {
+            velocity = v + (RandomDirection(state) * 0.3 * speed);
+            if (trapped > crest && Random(state) < 0.5)
+            {
+                // Half of what trapped air makes is a splash: thrown up out of the plunge, not carried down with it.
+                velocity.y = abs(velocity.y) * lerp(0.3, 0.8, Random(state));
+            }
+        }
+
+        if (!SpawnFroth(place, velocity, lerp(1.0, 3.0, Random(state)), Random(state)))
+        {
+            return;
+        }
+    }
+}
+
 [numthreads(THREADS, 1, 1)]
 void ClearCells(uint3 id : SV_DispatchThreadID)
 {
@@ -918,6 +1042,7 @@ void Move(uint3 id : SV_DispatchThreadID)
     // Moved along the grid's velocity, two half steps; not through a face a thin piece closes (held at the face).
     float3 mid = x + (0.5 * _Dt * grid);
     float3 to = x + (_Dt * Velocity(mid));
+    float3 free = to;
     to = Unsolid(to, x);
     if (_SolidsOn != 0)
     {
@@ -982,12 +1107,16 @@ void Move(uint3 id : SV_DispatchThreadID)
     }
 
     int3 c = CellOf(to);
-    int count = InGrid(c) ? _CountIn[CellIndex(c)] : 0;
+    int count = CountAt(c);
     bool clear = to.y > GroundAt(to.xz) + _H;
     p.place.xyz = to;
     p.velocity = float4(v, (float)count / REST);
     p.predicted.w = clear ? saturate(1.0 - ((float)count / 3.0)) : 0.0;
     _Particles[i] = p;
+    if (_FrothRate > 0.0)
+    {
+        MakeFroth(i, to, v, to - free, count, c);
+    }
 }
 
 // A source's cells (within its reach, not solid) kept at rest's count, the new particles going out of it at its
@@ -1144,4 +1273,87 @@ void Seed(uint3 id : SV_DispatchThreadID)
             return;
         }
     }
+}
+
+// A froth particle moved by its kind (_Particles, _AliveIn and _Capacity bound to the froth's): spray falls, slowed
+// by the air (the finer, the more: a mist hangs), foam rides the water's surface with its velocity, a bubble rises
+// through the water with it; each ages (foam at half the rate), gone when its life is spent, out of the grid, or, as
+// spray, down on dry ground.
+[numthreads(THREADS, 1, 1)]
+void FrothClear(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < (uint)(_Nx * _Ny * _Nz))
+    {
+        _FrothCount[id.x] = 0;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void FrothMove(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= min(_AliveIn[0] + _AliveIn[2], _Capacity))
+    {
+        return;
+    }
+
+    Particle f = _Particles[i];
+    if (Gone(f))
+    {
+        return;
+    }
+
+    float3 x = f.place.xyz;
+    float3 v = f.velocity.xyz;
+    int3 c = CellOf(x);
+    int here = CountAt(c), above = CountAt(c + int3(0, 1, 0));
+    float kind = here < WET ? SPRAY : above < WET ? FOAM : BUBBLE;
+    float3 grid = Velocity(x);
+    float life = f.predicted.x;
+    if (kind == SPRAY)
+    {
+        float drag = lerp(DRAG_LEAST, DRAG_MOST, f.predicted.z * f.predicted.z);
+        v += float3(0.0, -_Gravity, 0.0) * _Dt;
+        v *= 1.0 - saturate(drag * _Dt);
+        life -= _Dt;
+    }
+    else if (kind == FOAM)
+    {
+        // Along the surface, held to it: the top of the water in its cell, by how full the cell is.
+        float top = _Origin.y + ((c.y + saturate((float)here / REST)) * _H);
+        v = float3(grid.x, 0.0, grid.z);
+        x.y += (top - x.y) * saturate(6.0 * _Dt);
+        life -= 0.5 * _Dt;
+    }
+    else
+    {
+        v = lerp(v, grid, saturate(4.0 * _Dt));
+        v.y = min(v.y + (BUOYANCY * _Dt), grid.y + 1.5);
+        life -= 0.5 * _Dt;
+    }
+
+    float3 to = x + (v * _Dt);
+    float3 free = to;
+    to = Unsolid(to, x);
+    if (kind == SPRAY && any(to != free))
+    {
+        // Down: on water it is foam from here; on dry ground, a wet mark gone at once.
+        v = 0.0;
+        life = CountAt(CellOf(to)) < WET ? min(life, 0.1) : life;
+    }
+
+    float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);
+    if (life <= 0.0 || any(to < lo) || any(to >= hi))
+    {
+        f.place.w = asfloat(GONE);
+        _Particles[i] = f;
+        return;
+    }
+
+    f.place.xyz = to;
+    f.predicted.x = life;
+    f.predicted.w = kind;
+    f.velocity.xyz = v;
+    _Particles[i] = f;
+    InterlockedAdd(_FrothCount[CellIndex(CellOf(to))], 1);
 }

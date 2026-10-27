@@ -2,6 +2,16 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.40.0 — 2026-10-27
+
+### Added
+- The volume water throws spray, foam and bubbles where it is violent: at a fall's foot, where a jet meets a pool,
+  where fast water strikes a wall or the ground, along a fast front. They are particles of their own that carry no
+  water, made from the water's violence (the air it traps, its crests, its impacts) and moved by what they are: spray
+  falls and the finest of it hangs as a thin mist that spreads and fades, foam rides the water's surface, bubbles rise
+  through it to foam. Drawn over the water as soft white specks and drops, lit as the sea's foam. The new
+  `Client.VolumeFroth` setting scales how much there is (0 for none).
+
 ## v0.39.0 — 2026-10-26
 
 ### Added
