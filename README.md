@@ -341,8 +341,9 @@ square (within 3 %, 1 m deep, none left behind) as it is moved east and north 2 
 and as it is dropped 2 m, as the game moves it after the camera (the arithmetic of that following, and of a source's
 sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover); water let go at the top of a 22° ramp
 runs down it as a sheet thinner than 0.6 m, its front no slower than six tenths of frictionless sliding, and gathers
-on the floor below with nothing pushed into the ground; a spring's basin, two seconds after the source stops, has a
-top level within 12 cm from column to column. `FW_PREVIEW_ITERATIONS`,
+on the floor below with nothing pushed into the ground, half of it at least on the floor by 5 s; a spring's basin,
+two seconds after the source stops, has a top whose spread about its mean (standard deviation) from column to column
+is under 12 cm. `FW_PREVIEW_ITERATIONS`,
 `FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` and `FW_PREVIEW_FROTH` try other solver settings, `FW_PREVIEW_SPHERES=1` draws
 the particles.
 

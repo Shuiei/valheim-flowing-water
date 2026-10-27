@@ -21,11 +21,6 @@ internal sealed class VolumeSurface : IDisposable
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
-    private static readonly int SheetId = Shader.PropertyToID("_Sheet");
-    private static readonly int BedId = Shader.PropertyToID("_Bed");
-    private static readonly int BedCellsId = Shader.PropertyToID("_BedCells");
-    private static readonly int BedDxId = Shader.PropertyToID("_BedDx");
-    private static readonly int BedOriginId = Shader.PropertyToID("_BedOrigin");
     private static readonly int OriginId = Shader.PropertyToID("_VolumeOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_VolumeSize");
     private static readonly int CellsId = Shader.PropertyToID("_VolumeCells");
@@ -75,11 +70,12 @@ internal sealed class VolumeSurface : IDisposable
         march.SetTexture(FineId, water.Fine);
         march.SetTexture(CoarseId, water.Coarse);
         march.SetTexture(FoamId, water.Foam);
-        march.SetTexture(SheetId, water.Sheet);
-        march.SetTexture(BedId, water.Bed);
-        march.SetInt(BedCellsId, water.BedCells);
-        march.SetFloat(BedDxId, water.BedDx);
-        march.SetVector(BedOriginId, water.BedOrigin);
+        // (The ground's and the sheet's names are the compute shader's own: VolumeWater keeps them.)
+        march.SetTexture(VolumeWater.SheetId, water.Sheet);
+        march.SetTexture(VolumeWater.BedId, water.Bed);
+        march.SetInt(VolumeWater.BedCellsId, water.BedCells);
+        march.SetFloat(VolumeWater.BedDxId, water.BedDx);
+        march.SetVector(VolumeWater.BedOriginId, water.BedOrigin);
         march.SetVector(OriginId, water.Origin);
         march.SetVector(SizeId, water.Size);
         march.SetVector(CellsId, new Vector3(water.CellsX, water.CellsY, water.CellsZ));

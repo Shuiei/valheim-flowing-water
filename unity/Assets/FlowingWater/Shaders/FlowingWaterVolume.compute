@@ -1264,7 +1264,9 @@ void Emit(uint3 id : SV_DispatchThreadID)
 
     uint state = (i * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
     int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
-    for (int k = 0; k < lack; k++)
+    // Places in the ground are passed over: as many tries as it takes (a cell half clear needs about twice the tries).
+    int tries = (int)ceil(lack / max(_FracIn[i], LEAST_CLEAR));
+    for (int k = 0, made = 0; k < tries && made < lack; k++)
     {
         float3 place = centre + ((float3(Random(state), Random(state), Random(state)) - 0.5) * _H);
         if (SolidAt(place))
@@ -1277,6 +1279,7 @@ void Emit(uint3 id : SV_DispatchThreadID)
             return;
         }
 
+        made++;
         InterlockedAdd(_Given[(uint)s], 1u);
     }
 }
@@ -1392,13 +1395,23 @@ void Seed(uint3 id : SV_DispatchThreadID)
     uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
     int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
     int n = (int)floor((lack * _SeedShare) + Random(state));
-    for (int k = 0; k < n; k++)
+    // Places in the ground or over the water's top are passed over: as many tries as it takes to make n (a cell half
+    // clear needs about twice the tries), within reason.
+    int tries = (int)ceil(n / max(_FracIn[i], LEAST_CLEAR)) + 2;
+    for (int k = 0, made = 0; k < tries && made < n; k++)
     {
         float3 place = lerp(lo, hi, float3(Random(state), Random(state), Random(state)));
-        if (place.y < top && !SolidAt(place) && !Spawn(place, 0.0))
+        if (place.y >= top || SolidAt(place))
+        {
+            continue;
+        }
+
+        if (!Spawn(place, 0.0))
         {
             return;
         }
+
+        made++;
     }
 }
 

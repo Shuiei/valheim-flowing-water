@@ -81,10 +81,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int Vel0InId = Shader.PropertyToID("_Vel0In");
     private static readonly int MaskId = Shader.PropertyToID("_Mask");
     private static readonly int Mask2Id = Shader.PropertyToID("_Mask2");
-    private static readonly int BedId = Shader.PropertyToID("_Bed");
-    private static readonly int BedCellsId = Shader.PropertyToID("_BedCells");
-    private static readonly int BedDxId = Shader.PropertyToID("_BedDx");
-    private static readonly int BedOriginId = Shader.PropertyToID("_BedOrigin");
+    internal static readonly int BedId = Shader.PropertyToID("_Bed");
+    internal static readonly int BedCellsId = Shader.PropertyToID("_BedCells");
+    internal static readonly int BedDxId = Shader.PropertyToID("_BedDx");
+    internal static readonly int BedOriginId = Shader.PropertyToID("_BedOrigin");
     private static readonly int SolidsOnId = Shader.PropertyToID("_SolidsOn");
     private static readonly int SolidsId = Shader.PropertyToID("_Solids");
     private static readonly int SolidColumnsId = Shader.PropertyToID("_SolidColumns");
@@ -123,7 +123,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
     private static readonly int SheetTopId = Shader.PropertyToID("_SheetTop");
     private static readonly int SheetTopInId = Shader.PropertyToID("_SheetTopIn");
-    private static readonly int SheetId = Shader.PropertyToID("_Sheet");
+    internal static readonly int SheetId = Shader.PropertyToID("_Sheet");
 
     // No particles: the counters and the drawing's arguments.
     private static readonly uint[] NoAlive = new uint[3];

@@ -118,7 +118,9 @@ Shader "FlowingWater/VolumeMarch"
             float Density(float3 place)
             {
                 float fine = tex3Dlod(_Fine, float4(Where(place), 0.0)).r;
-                bool sheet = place.y <= SheetTop(place.xz) && place.y >= GroundAt(place.xz) - (0.25 * _VolumeCell);
+                // (A hair under the ground counts, so the sheet's bottom meets the ground the scene draws without a
+                // seam of air at the march's step; nothing deeper.)
+                bool sheet = place.y <= SheetTop(place.xz) && place.y >= GroundAt(place.xz) - (0.05 * _VolumeCell);
                 return sheet ? max(fine, 1.0) : fine;
             }
 

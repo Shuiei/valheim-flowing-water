@@ -275,13 +275,15 @@ public static class VolumePreview
             }
         }
 
-        Log.AppendLine($"  The water grew by the rate within 15 %: {Check(ok)}");
         float rough = Roughness(scene.Water, bed, 0.5f);
-        Log.AppendLine(Inv($"  Two seconds after the source stopped, the water's top varies by {rough:0.000} m from column to column (a level surface, not the ground's cells): {Check(rough < 0.12f)}"));
+        bool level = rough < 0.12f;
+        ok &= level;
+        Log.AppendLine(Inv($"  Two seconds after the source stopped, the water's top spreads {rough:0.000} m (standard deviation) about its mean from column to column, a level surface, not the ground's cells: {Check(level)}"));
+        Log.AppendLine($"  The water grew by the rate within 15 %, and lay level after: {Check(ok)}");
     }
 
-    // How uneven the water's top is: the heights of the highest particle over the ground in each column (of a width),
-    // their spread about the mean (m), over the columns that hold water.
+    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
+    // deviation about the mean (m), over the columns that hold water.
     private static float Roughness(VolumeWater water, float[] bed, float column)
     {
         float[] data = water.Read();
@@ -313,6 +315,7 @@ public static class VolumePreview
         int added = scene.Water.Add(new Vector3(9f, 6.6f, 12f), new Vector3(11f, 8.6f, 28f));
         Log.AppendLine(Inv($"Slope: {added} particles ({added * scene.Water.Litre:0.0} m3) let go at the top of a ramp of {Grade} rise over run, 20 m long, onto a flat floor."));
         bool ok = true;
+        float onFloor = 0f;
         float along = 9.81f * Grade / (1f + (Grade * Grade));
         for (int k = 1; k <= 300; k++)
         {
@@ -342,6 +345,7 @@ public static class VolumePreview
                 float ideal = Math.Min(28f, 9f + (0.5f * along * t * t));
                 float thick = over.Count > 0 ? over[(int)(0.9f * (over.Count - 1))] : 0f;
                 float reached = (front - 9f) / Math.Max(ideal - 9f, 0.01f);
+                onFloor = (float)floor / Math.Max(n, 1);
                 bool near = k < 180 || (reached >= 0.6f && thick < 0.6f);
                 ok &= near;
                 Log.AppendLine(Inv($"  t={t:0.0}s the front at x = {front:0.0} m (frictionless {ideal:0.0}: {100f * reached:0} %), the sheet on the ramp {thick:0.00} m thick (nine in ten under), {100f * floor / Math.Max(n, 1):0} % on the floor{(k >= 180 ? ": " + Check(near) : string.Empty)}"));
@@ -354,7 +358,7 @@ public static class VolumePreview
         }
 
         Measure m = Measure.Of(scene.Water, bed);
-        Log.AppendLine(Inv($"  The sheet runs down the ramp as frictionless sliding does, within 60 %, thinner than 0.6 m from 3 s on; particles kept {m.Count} of {added}, in the ground {m.Buried}: {Check(ok && m.Count == added && m.Buried == 0)}"));
+        Log.AppendLine(Inv($"  The sheet runs down the ramp as frictionless sliding does, within 60 %, thinner than 0.6 m from 3 s on, and half the water at least has reached the floor at 5 s ({100f * onFloor:0} %); particles kept {m.Count} of {added}, in the ground {m.Buried}: {Check(ok && onFloor >= 0.5f && m.Count == added && m.Buried == 0)}"));
     }
 
     // A box of walls (what players build) 4 m square, 3 m high, filled 2 m deep; at 2 s its east wall is taken away
