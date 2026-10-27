@@ -366,7 +366,8 @@ that with the sea's look: what is behind bent by the surface and tinted by the w
 first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
 where the froth gathers, the sea's fog; thin water fades out, and within two metres of the square's side the water
 fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
-server's columns say nothing of what the volume holds), only that band and the world beyond. With the camera under the water, the scene is seen through the water up to its
+server's columns say nothing of what the volume holds), only that band, the world beyond, and water above or below
+the grid's height (it follows the camera: a lake far below a cliff you stand on is the bricks' to draw). With the camera under the water, the scene is seen through the water up to its
 surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
 particles as spheres instead, for testing. The density costs the card a half-float a half-cell and two counts besides
 (about 125 MB at the default grid), the march a few milliseconds a frame at half the screen's size.

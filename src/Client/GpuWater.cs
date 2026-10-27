@@ -39,6 +39,8 @@ internal sealed class GpuWater : IDisposable
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
     private static readonly int WholeId = Shader.PropertyToID("_FWSimWhole");
     private static readonly int EdgeId = Shader.PropertyToID("_FWSimEdge");
+    private static readonly int BottomId = Shader.PropertyToID("_FWSimBottom");
+    private static readonly int TopId = Shader.PropertyToID("_FWSimTop");
     private static readonly int TargetId = Shader.PropertyToID("_FWSimTarget");
     private static readonly int DepthId = Shader.PropertyToID("_SimH");
     private static readonly int BedId = Shader.PropertyToID("_SimBed");
@@ -556,6 +558,10 @@ internal sealed class GpuWater : IDisposable
             // for the band along its sides where it fades into the bricks.
             Shader.SetGlobalFloat(WholeId, _volume != null ? 1f : 0f);
             Shader.SetGlobalFloat(EdgeId, VolumeFollow.BandMetres);
+            // Within the grid's height only (it follows the camera): water in the square above or below it is the
+            // bricks' to draw, as the water beyond the square is.
+            Shader.SetGlobalFloat(BottomId, _volume != null ? _volume.Origin.y : 0f);
+            Shader.SetGlobalFloat(TopId, _volume != null ? _volume.Origin.y + _volume.Size.y : 0f);
             _renderer.enabled = false;
             return;
         }
