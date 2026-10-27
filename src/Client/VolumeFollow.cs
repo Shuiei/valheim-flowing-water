@@ -30,19 +30,26 @@ internal static class VolumeFollow
     /// <summary>The grid's rows for a height in metres at a cell size: the nearest count, <see cref="LeastRows"/> at least.</summary>
     public static int Rows(float heightMetres, float cellSize) => Math.Max(LeastRows, (int)Math.Round(heightMetres / cellSize));
 
-    /// <summary>The grid's bottom (world y) that centres it on the camera, on a cell boundary.</summary>
-    public static float BaseY(float cameraY, int rows, float cellSize) => (float)Math.Floor((cameraY - (rows * cellSize / 2f)) / cellSize) * cellSize;
+    /// <summary>
+    /// The share of the grid's height that stands above the camera: more than half, since water comes to a player
+    /// from above more than from below (a fall is looked up at from its foot) and the ground under the feet soon ends
+    /// the water below.
+    /// </summary>
+    public const float Above = 0.7f;
+
+    /// <summary>The grid's bottom (world y) that sets the camera <see cref="Above"/> of the way down from its top, on a cell boundary.</summary>
+    public static float BaseY(float cameraY, int rows, float cellSize) => (float)Math.Floor((cameraY - (rows * cellSize * (1f - Above))) / cellSize) * cellSize;
 
     /// <summary>
     /// Whether a grid whose bottom is <paramref name="originY"/> must move after the camera: it does once the camera
-    /// has left the grid's middle half (a quarter of its height above or below its middle), so a camera bobbing about
-    /// the middle never moves it.
+    /// has left the middle half of the grid's play (a quarter of its height above or below where <see cref="BaseY"/>
+    /// put it), so a camera bobbing about never moves it.
     /// </summary>
     public static bool Rebase(float cameraY, float originY, int rows, float cellSize)
     {
         float height = rows * cellSize;
-        float middle = originY + (height / 2f);
-        return Math.Abs(cameraY - middle) > height / 4f;
+        float rest = originY + (height * (1f - Above));
+        return Math.Abs(cameraY - rest) > height / 4f;
     }
 
     /// <summary>Cells of the edge band for a cell size: <see cref="BandMetres"/> whatever the size, rounded up.</summary>

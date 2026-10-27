@@ -236,16 +236,20 @@ float3 _PourMax;
 // textures written from them and from the cells' counts.
 RWStructuredBuffer<uint> _FineCount;
 StructuredBuffer<uint> _FineCountIn;
-// The water standing on the ground in each column of cells: its depth (m, a texel a column; 0 none), the particles
-// from the ground's cell up, each a particle's height of water, smoothed over the columns about. Water too sparse for
-// the density to make a surface of (a sheet a particle or two thick) is drawn from this, between the ground and the
-// ground plus that depth, and the density's own surface is held to it where the two meet.
-RWTexture2D<float> _Sheet;
+// The water standing on the ground in each column of cells (a texel a column): x its top (height over the grid's
+// bottom), the mean of the wet columns' tops about it (a dry column takes its wet neighbours', so the top blends
+// between texels without a dry one's nothing pulling it down); y its depth (m, 0 dry), smoothed over the columns about
+// so it thins to nothing toward dry ground. Water too sparse for the density to make a surface of (a sheet a particle
+// or two thick) is drawn from this, between the ground and that top, where the top stands over the ground (a rock
+// standing out of the water is dry), and the density's own surface is held to it where the two meet.
+RWTexture2D<float2> _Sheet;
 // Which way FineSmooth smooths (0 x, 1 y, 2 z), reading _FineCountIn and writing _FineCount.
 int _Axis;
 RWTexture3D<float> _Fine;
 RWTexture3D<float> _Coarse;
 RWTexture3D<float> _Foam;
+// Each cell's velocity (m/s, the mean of its faces'), for the drawing's ripples, which run with the water.
+RWTexture3D<float4> _Flow;
 #define FINE_FIX 256.0
 
 // The froth: its particles (the Particle layout, its meanings above), their counters as the water's ([0] there, [1]
@@ -1352,8 +1356,12 @@ void Seed(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    // The band: the square's sides, and its top where the server's water stands above the grid (a fall from above
+    // the grid comes in through its top row; a column whose water the grid holds whole is the grid's own).
     int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
-    if (_SeedBand > 0 && c.x >= _SeedBand && c.z >= _SeedBand && c.x < _Nx - _SeedBand && c.z < _Nz - _SeedBand)
+    bool side = c.x < _SeedBand || c.z < _SeedBand || c.x >= _Nx - _SeedBand || c.z >= _Nz - _SeedBand;
+    bool topRow = c.y >= _Ny - _SeedBand;
+    if (_SeedBand > 0 && !side && !topRow)
     {
         return;
     }
@@ -1382,6 +1390,11 @@ void Seed(uint3 id : SV_DispatchThreadID)
         }
 
         top = target.x;
+        if (_SeedBand > 0 && !side && topRow && top < _Origin.y + (_Ny * _H))
+        {
+            // In the top band for its height alone: only water from above the grid comes in there.
+            return;
+        }
     }
 
     if (lo.y >= top)
@@ -1395,9 +1408,12 @@ void Seed(uint3 id : SV_DispatchThreadID)
     float clear = _FracIn[i];
     float groundAt = centre.y + (0.5 * _H) - (clear * _H);
     float water = saturate((min(hi.y, top) - max(lo.y, groundAt)) / _H) * saturate((hi.x - lo.x) / _H) * saturate((hi.z - lo.z) / _H);
+    // The top band is filled whole each step (the water coming down into the grid is a flow, not a level to keep;
+    // what the band holds goes on down the slope and the band is filled again); the sides take their share.
+    float share = _SeedBand > 0 && !side && topRow ? 1.0 : _SeedShare;
     uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
     int lack = (int)round(REST * water) - _CountIn[i];
-    int n = (int)floor((lack * _SeedShare) + Random(state));
+    int n = (int)floor((lack * share) + Random(state));
     // Places in the ground or over the water's top are passed over: as many tries as it takes to make n (a cell half
     // clear needs about twice the tries), within reason.
     int tries = (int)ceil(n / max(water, LEAST_CLEAR)) + 2;
@@ -1610,18 +1626,28 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
         int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
         _Coarse[c] = (float)_CountIn[i] / max(REST * _FracIn[i], 1.0);
         _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
+        float3 flow = 0.0;
+        if (_CountIn[i] > 0)
+        {
+            flow = 0.5 * float3(_VelIn[FaceAt(c, 0)] + _VelIn[FaceAt(c + int3(1, 0, 0), 0)], _VelIn[FaceAt(c, 1)] + _VelIn[FaceAt(c + int3(0, 1, 0), 1)], _VelIn[FaceAt(c, 2)] + _VelIn[FaceAt(c + int3(0, 0, 1), 2)]);
+        }
+
+        _Flow[c] = float4(flow, 0.0);
     }
 
-    // The depth of the water standing on the ground in each column of cells: the particles from the ground's cell up
-    // to the first cell with none beyond the ground's two (water above a gap is a fall or a splash, not the
-    // column's), each a particle's height of water, averaged over the columns within two of this one, nearer counting
-    // more and a dry column counting as none (a column's own count steps by a particle, 3 cm at the default, which
-    // the light would show as creases; and the water thins to nothing toward dry ground instead of ending in a step).
-    // The drawing adds the ground under each point: a depth blends to nothing across a dry column where a height
-    // would blend to the grid's bottom.
+    // The water standing on the ground in each column of cells: its top, the mean of the tops of the wet columns within
+    // two of it, nearer counting more (its own count steps by a particle, 3 cm at the default, and the ground it stands
+    // on is a crease at each cell, both of which the light would show as lines on the water; a real surface lies smooth
+    // over them); and its depth, the same mean of the depths with a dry column counting as none, so the depth thins to
+    // nothing toward dry ground. The particles counted are those from the ground's cell up to the first cell with none
+    // beyond the ground's two (water above a gap is a fall or a splash, not the column's). Ground too steep for a
+    // sheet (a wall, a trunk in the ground's heights: a rise over run past 2, none past 3; a 46° face keeps its whole
+    // sheet) holds less of one.
     if (i < (uint)(_Nx * _Nz))
     {
         int2 column = int2(i % _Nx, i / _Nx);
+        float tops = 0.0;
+        float wet = 0.0;
         float depth = 0.0;
         float weights = 0.0;
         for (int dz = -2; dz <= 2; dz++)
@@ -1636,16 +1662,9 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
 
                 float2 at = _Origin.xz + ((float2(o) + 0.5) * _H);
                 float under = GroundAt(at);
-                // Ground too steep for a sheet (a wall, a trunk in the ground's heights) holds none: its column counts
-                // as dry, and the sheet thins to nothing toward it.
-                float rise = max(abs(GroundAt(at + float2(_H, 0.0)) - under), abs(GroundAt(at + float2(0.0, _H)) - under));
+                float2 slope = float2(GroundAt(at + float2(_H, 0.0)) - GroundAt(at - float2(_H, 0.0)), GroundAt(at + float2(0.0, _H)) - GroundAt(at - float2(0.0, _H))) / (2.0 * _H);
+                float keep = 1.0 - smoothstep(2.0, 3.0, length(slope));
                 float w = (3.0 - abs(dx)) * (3.0 - abs(dz));
-                if (rise > 1.5 * _H)
-                {
-                    weights += w;
-                    continue;
-                }
-
                 int start = clamp((int)floor((under - _Origin.y) / _H), 0, _Ny - 1);
                 float particles = 0.0;
                 for (int j = start; j < _Ny; j++)
@@ -1659,11 +1678,17 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
                     particles += count;
                 }
 
-                depth += w * particles * _H / REST;
+                float own = keep * particles * _H / REST;
+                depth += w * own;
                 weights += w;
+                if (own > 0.0)
+                {
+                    tops += w * (max(under - _Origin.y, 0.0) + own);
+                    wet += w;
+                }
             }
         }
 
-        _Sheet[column] = weights > 0.0 ? depth / weights : 0.0;
+        _Sheet[column] = float2(wet > 0.0 ? tops / wet : 0.0, weights > 0.0 ? depth / weights : 0.0);
     }
 }

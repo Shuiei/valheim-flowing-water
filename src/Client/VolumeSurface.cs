@@ -17,10 +17,11 @@ internal sealed class VolumeSurface : IDisposable
     private const CameraEvent When = CameraEvent.BeforeForwardAlpha;
 
     private static readonly int WaterId = Shader.PropertyToID("_VolumeWater");
-    private static readonly int NormalId = Shader.PropertyToID("_VolumeNormal");
+    private static readonly int FlowFoundId = Shader.PropertyToID("_VolumeFlow");
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
+    private static readonly int FlowId = Shader.PropertyToID("_Flow");
     private static readonly int OriginId = Shader.PropertyToID("_VolumeOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_VolumeSize");
     private static readonly int CellsId = Shader.PropertyToID("_VolumeCells");
@@ -93,6 +94,7 @@ internal sealed class VolumeSurface : IDisposable
         march.SetTexture(FineId, water.Fine);
         march.SetTexture(CoarseId, water.Coarse);
         march.SetTexture(FoamId, water.Foam);
+        march.SetTexture(FlowId, water.Flow);
         // (The ground's and the sheet's names are the compute shader's own: VolumeWater keeps them.)
         march.SetTexture(VolumeWater.SheetId, water.Sheet);
         march.SetTexture(VolumeWater.BedId, water.Bed);
@@ -124,7 +126,7 @@ internal sealed class VolumeSurface : IDisposable
         }
 
         _commands.SetGlobalTexture(WaterId, _water);
-        _commands.SetGlobalTexture(NormalId, _normal);
+        _commands.SetGlobalTexture(FlowFoundId, _normal);
 
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);

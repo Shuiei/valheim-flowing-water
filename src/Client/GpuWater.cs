@@ -319,8 +319,9 @@ internal sealed class GpuWater : IDisposable
             found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
+        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, the camera at {_water._cameraY:0.0})");
         return FormattableString.Invariant(
-            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}");
+            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}");
     }
 
     /// <summary>
@@ -468,7 +469,9 @@ internal sealed class GpuWater : IDisposable
             return false;
         }
 
-        camera = main.transform.position;
+        // The square and the grid follow the player, at the head (the camera when there is none: the menu's world):
+        // a free camera, or a look from far off, does not drag the water away from where the player is.
+        camera = Player.m_localPlayer is { } player ? player.GetHeadPoint() : main.transform.position;
         return true;
     }
 

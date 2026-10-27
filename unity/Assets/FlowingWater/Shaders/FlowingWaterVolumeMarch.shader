@@ -42,6 +42,7 @@ Shader "FlowingWater/VolumeMarch"
             sampler3D _Fine;
             sampler3D _Coarse;
             sampler3D _Foam;
+            sampler3D _Flow;
             // The sheet on the ground: its top in each half-cell column (height over the grid's bottom; 0 none), and
             // the ground (the card's water's heights, a texel a cell, from an origin in world x, z).
             sampler2D _Sheet;
@@ -50,10 +51,12 @@ Shader "FlowingWater/VolumeMarch"
             float _BedDx;
             float2 _BedOrigin;
             #define STEP_UP 1.0
-            // Ground steeper than this (rise over run) holds no sheet of water: what runs down it is a fall, the
-            // density's to draw (the ground's heights come from the game's colliders: a tree's trunk is a steep ramp
-            // in them, and a skin of water laid along it would be a curtain up the tree).
-            #define SHEET_STEEPEST 1.5
+            // Ground steeper than this (rise over run) holds less and less of a sheet of water, none past the second:
+            // what runs down it is a fall, the density's to draw (the ground's heights come from the game's colliders:
+            // a tree's trunk is a near-vertical ramp in them, and a skin of water laid along it would be a curtain up
+            // the tree). A 46° face (rise 1) keeps its whole sheet.
+            #define SHEET_STEEP_FROM 2.0
+            #define SHEET_STEEP_TO 3.0
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
             // The density the surface lies at, the fine step through water (a quarter of a cell), steps at most.
@@ -72,8 +75,9 @@ Shader "FlowingWater/VolumeMarch"
                 // How far the surface is along the view (m; 0 none), the water seen through (m), the foam at the
                 // surface, 1 when the camera is under the water.
                 float4 water : SV_Target0;
-                // The surface's normal (world) and how near the square's side it is (0 at the side, 1 inside).
-                float4 normal : SV_Target1;
+                // The water's velocity at the surface (m/s, world) and how near the square's side the surface is (0 at
+                // the side, 1 inside).
+                float4 flow : SV_Target1;
             };
 
             v2f vert(uint id : SV_VertexID)
@@ -91,9 +95,9 @@ Shader "FlowingWater/VolumeMarch"
             }
 
             // The ground under a point, as the solver reads it: bilinear between the cells' heights, or the cell's own
-            // where the four about the point differ by more than a step (a wall: no ramp up it); and whether the ground
-            // there is too steep for a sheet of water.
-            float GroundAt(float2 xz, out bool steep)
+            // where the four about the point differ by more than a step (a wall: no ramp up it); and the ground's slope
+            // there (rise over run), from the same four heights.
+            float GroundAt(float2 xz, out float grade)
             {
                 float2 at = ((xz - _BedOrigin) / _BedDx) - 0.5;
                 float2 f = frac(at);
@@ -104,7 +108,8 @@ Shader "FlowingWater/VolumeMarch"
                 float b01 = tex2Dlod(_Bed, float4(c + float2(0.0, texel.y), 0.0, 0.0)).r;
                 float b11 = tex2Dlod(_Bed, float4(c + texel, 0.0, 0.0)).r;
                 float lowest = min(min(b00, b10), min(b01, b11)), highest = max(max(b00, b10), max(b01, b11));
-                steep = highest - lowest > SHEET_STEEPEST * _BedDx;
+                float2 slope = float2(lerp(b10 - b00, b11 - b01, f.y), lerp(b01 - b00, b11 - b10, f.x)) / _BedDx;
+                grade = length(slope);
                 if (highest - lowest > STEP_UP)
                 {
                     return tex2Dlod(_Bed, float4((floor((xz - _BedOrigin) / _BedDx) + 0.5) * texel, 0.0, 0.0)).r;
@@ -115,19 +120,22 @@ Shader "FlowingWater/VolumeMarch"
 
             float GroundAt(float2 xz)
             {
-                bool steep;
-                return GroundAt(xz, steep);
+                float grade;
+                return GroundAt(xz, grade);
             }
 
-            // The top of the water standing on the ground over a point (world y): the ground plus the columns' depth
-            // there (the depth blends between the columns, to nothing across a dry one); far below where there is none.
+            // The top of the water standing on the ground over a point (world y): the columns' top there, where the
+            // columns' depth has not thinned to nothing and the top stands over the ground (a rock or a bank standing
+            // out of the water is dry, the water's top running past it); far below where there is none.
             float SheetTop(float2 xz)
             {
                 float2 uv = (xz - _VolumeOrigin.xz) / _VolumeSize.xz;
-                float depth = tex2Dlod(_Sheet, float4(uv, 0.0, 0.0)).r;
-                bool steep;
-                float ground = GroundAt(xz, steep);
-                return depth > 0.005 && !steep ? ground + depth : -1e9;
+                float2 sheet = tex2Dlod(_Sheet, float4(uv, 0.0, 0.0)).rg;
+                float grade;
+                float ground = GroundAt(xz, grade);
+                float depth = sheet.y * (1.0 - smoothstep(SHEET_STEEP_FROM, SHEET_STEEP_TO, grade));
+                float top = _VolumeOrigin.y + sheet.x;
+                return depth > 0.005 && top > ground + 0.01 ? min(top, ground + max(depth, 0.5 * _VolumeCell)) : -1e9;
             }
 
             // The water's density at a place: one wherever the place lies in the water standing on the ground, between
@@ -162,20 +170,6 @@ Shader "FlowingWater/VolumeMarch"
                 return above > 0.0 && above < 1.5 * _VolumeCell ? saturate((fine - 0.85) / 0.5) : fine;
             }
 
-            // The sheet's normal at a point on its top: the slope of the tops about it, over a metre each way. The
-            // ground under thin water is the game's terrain, faceted every metre; the tops carry its creases, and a
-            // normal taken across them would draw each crease as a line of light across the water. A metre each way
-            // reads the terrain as the game shades it, smooth.
-            float3 SheetNormal(float2 xz)
-            {
-                float e = max(4.0 * _VolumeCell, 1.0);
-                float dx = SheetTop(xz + float2(e, 0.0)) - SheetTop(xz - float2(e, 0.0));
-                float dz = SheetTop(xz + float2(0.0, e)) - SheetTop(xz - float2(0.0, e));
-                dx = abs(dx) > 1e6 ? 0.0 : dx;
-                dz = abs(dz) > 1e6 ? 0.0 : dz;
-                return normalize(float3(-dx, 2.0 * e, -dz));
-            }
-
             // Whether there is any water about a place: the cells' water, sampled smoothly, reaches a cell beyond it;
             // and the water standing on the ground reaches its columns' top, which the smoothing of the tops may put
             // in a cell with no particle of its own (a ray that skipped such a cell as dry found the surface at the
@@ -183,18 +177,6 @@ Shader "FlowingWater/VolumeMarch"
             bool Wet(float3 place)
             {
                 return tex3Dlod(_Coarse, float4(Where(place), 0.0)).r > 0.001 || place.y <= SheetTop(place.xz) + _VolumeCell;
-            }
-
-            // The density's slope at a place, over a cell each way (wider than the density's grain, so the surface's
-            // light is smooth).
-            float3 Normal(float3 place)
-            {
-                float e = _VolumeCell;
-                float3 g = float3(
-                    Density(place + float3(e, 0.0, 0.0)) - Density(place - float3(e, 0.0, 0.0)),
-                    Density(place + float3(0.0, e, 0.0)) - Density(place - float3(0.0, e, 0.0)),
-                    Density(place + float3(0.0, 0.0, e)) - Density(place - float3(0.0, 0.0, e)));
-                return dot(g, g) > 1e-8 ? -normalize(g) : float3(0.0, 1.0, 0.0);
             }
 
             // How far along the ray the cell round a place ends (the next cell boundary along the ray), a little past it.
@@ -212,7 +194,7 @@ Shader "FlowingWater/VolumeMarch"
             {
                 Found o;
                 o.water = 0.0;
-                o.normal = float4(0.0, 1.0, 0.0, 0.0);
+                o.flow = 0.0;
 
                 // The ray through this pixel, world, and how far along it the scene is.
                 float2 ndc = float2(i.ndc.x, i.ndc.y * _ProjectionParams.x);
@@ -306,16 +288,11 @@ Shader "FlowingWater/VolumeMarch"
                     return o;
                 }
 
-                // The surface's normal: the columns' tops' slope at or under the column's top, the density's slope a
-                // cell over it, blended between (no seam where one gives way to the other).
-                float overTop = surfacePlace.y - SheetTop(surfacePlace.xz);
-                float ofSheet = overTop < 1e6 ? saturate(1.0 - (overTop / _VolumeCell)) : 0.0;
-                float3 n = under ? float3(0.0, 1.0, 0.0) : normalize(lerp(Normal(surfacePlace), SheetNormal(surfacePlace.xz), ofSheet));
                 float3 edge = min(surfacePlace - lo, hi - surfacePlace);
                 float near = saturate(min(edge.x, edge.z) / max(_EdgeFade, 0.01));
                 float foam = tex3Dlod(_Foam, float4(Where(surfacePlace), 0.0)).r;
                 o.water = float4(under ? 0.0 : surfaceAt * along, thickness, foam, under ? 1.0 : 0.0);
-                o.normal = float4(n, near);
+                o.flow = float4(tex3Dlod(_Flow, float4(Where(surfacePlace), 0.0)).xyz, near);
                 return o;
             }
             ENDCG

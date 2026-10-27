@@ -113,8 +113,8 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
 | `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
 | `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
-| `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 64; the card's square is this at most then); more costs the card more, by the square |
-| `Client.VolumeHeight` | 24 | Height of the volume water's grid, metres (8 to 48), centred on you: water above or below it is the server's |
+| `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 128; the card's square is this at most then); more costs the card more, by the square, and a wide square of small cells is cut down in height to what the card runs at once (128 m of 0.5 m cells leaves 8 m; 96 m, 28 m; 64 m, 48 m) |
+| `Client.VolumeHeight` | 32 | Height of the volume water's grid, metres (8 to 48), about you with seven tenths of it above you: water above or below it is the server's, and comes into the grid as it falls in (cut to what the card runs at once: 31.75 m for a 32 m square of 0.25 m cells) |
 | `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³) |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
@@ -328,8 +328,11 @@ changes); where the world beyond is dry, the side is open and the water goes out
 out of it at about three metres a second (its reach grows with its rate: a big spring boils up over a wide patch),
 scaled each step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
-card's square, no wider than `Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, centred on you and following
-you up and down.
+card's square (round you, the player, not the camera: a free camera does not drag the water away), no wider than
+`Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, with seven tenths of it above
+you (water comes to you from above more than from below: a fall is looked up at from its foot), following you up and down; water the server has above the
+grid comes in through the grid's top row as the water beyond its sides comes in through the band along them, so a
+fall from a height the grid does not reach still falls through it.
 
 `tools/sim-preview.sh <folder> VolumePreview.Run` runs it without the game and writes `volume.txt` and frames: a box
 of water at rest keeps its depth and every particle over 5 s; the 10 m dam break's front reaches the far wall at
@@ -371,9 +374,10 @@ stepping over the cells with no water and in quarter-cells through the rest, to 
 half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
 through until it leaves the grid or meets the scene. Each column of cells also keeps the depth of the water standing
 on its ground (the particles from the ground's cell up to the first cell with none, a fall or a splash over a gap not
-being the column's, smoothed over the columns about so it thins to nothing toward dry ground, and none on ground
-steeper than about 56°, where water is a fall), and the ray counts everything between the ground and the ground plus
-that depth as water
+being the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
+ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall; the ray counts
+everything between the ground and that top as water, where the top stands over the ground (a rock standing out of
+the water is dry, the water running round it),
 and takes the density's own surface over it only where the density is well over the half: a stream down a slope is
 one skin following the slope, not a cobble of particles or a stair of cells, and a pool's surface is its columns'
 level, not the particles' grain. The surface the march found is then
@@ -384,7 +388,9 @@ particles' grain goes out of it and its light is water's, as surface tension iro
 `FlowingWaterVolumeSurface.shader` then draws the water from
 that with the sea's look: what is behind bent by the surface and tinted by the water seen through (red light goes
 first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
-where the froth gathers, the sea's fog; thin water fades out, and within two metres of the square's side the water
+where the froth gathers, the sea's fog; and where the water runs, ripples finer than the sea's dragged along with it
+at its own speed (each cell's velocity goes to the drawing with its density; two phases blended so the ripples never
+stretch, the finest glinting on fast water), so running water moves and a pool lies still; thin water fades out, and within two metres of the square's side the water
 fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
 server's columns say nothing of what the volume holds), only that band, the world beyond, and water above or below
 the grid's height (it follows the camera: a lake far below a cliff you stand on is the bricks' to draw). With the camera under the water, the scene is seen through the water up to its

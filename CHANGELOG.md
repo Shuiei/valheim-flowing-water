@@ -11,7 +11,13 @@ All notable changes to FlowingWater. Newest first.
   top of a ramp runs down it as a sheet and gathers on the floor below, and nothing is pushed into the ground. Thin
   water on the ground is also drawn as one smooth skin from the ground to its top, instead of blobs and ridges the
   size of the grid's cells, and the whole surface is smoothed across the screen before it is lit, so the particles'
-  grain no longer shows as lumps on a pool or a stream.
+  grain no longer shows as lumps on a pool or a stream. Running water carries ripples that move with it at its own
+  speed, finer the faster it runs; a pool lies still. The volume's grid is 32 m tall now with more of it above you
+  than below, and water falling from above the grid comes into it instead of staying the far water's: a stream down a
+  tall hill is the volume's wherever you stand on it. The square and the grid follow you, not the camera, so a free
+  camera or a far look does not drag the water away; and `Client.VolumeRange` goes up to 128 m now, the grid cut in
+  height to what the card runs at once. Rocks and banks standing out of thin water stay dry, with the water running
+  round them, and a thin film of water on the ground shows the ground, not the sky.
 
 ## v0.41.0 — 2026-10-27
 

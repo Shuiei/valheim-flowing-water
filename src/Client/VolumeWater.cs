@@ -121,6 +121,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
+    private static readonly int FlowId = Shader.PropertyToID("_Flow");
     internal static readonly int SheetId = Shader.PropertyToID("_Sheet");
 
     // No particles: the counters and the drawing's arguments.
@@ -293,10 +294,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _fineCells = _cells * 8;
         _fine[0] = new ComputeBuffer(_fineCells, sizeof(uint));
         _fine[1] = new ComputeBuffer(_fineCells, sizeof(uint));
-        Sheet = Flat("sheet", cellsX, cellsZ);
+        Sheet = Flat("sheet", cellsX, cellsZ, RenderTextureFormat.RGHalf);
         Fine = Volume("density", cellsX * 2, cellsY * 2, cellsZ * 2);
         Coarse = Volume("water", cellsX, cellsY, cellsZ);
         Foam = Volume("foam", cellsX, cellsY, cellsZ);
+        Flow = Volume("flow", cellsX, cellsY, cellsZ, RenderTextureFormat.ARGBHalf);
         Arguments = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
         Froth = new Cloud(froth, new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments), Spacing);
         _counted = new Counter(_alive, capacity);
@@ -355,10 +357,13 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     /// <summary>The froth in each cell as a share of full, a texel a cell: foam on the water's surface.</summary>
     public RenderTexture Foam { get; }
 
+    /// <summary>Each cell's velocity (m/s), a texel a cell: the drawing's ripples run with it.</summary>
+    public RenderTexture Flow { get; }
+
     /// <summary>
-    /// The depth of the water standing on the ground in each column of cells (m; 0 none), for the drawing: water too
-    /// thin for the density is drawn from the ground up to the ground plus this, and the density's surface is held to
-    /// it.
+    /// The water standing on the ground in each column of cells, for the drawing: its top (height over the grid's
+    /// bottom, m) and its depth (m; 0 dry). Water too thin for the density is drawn from the ground up to that top,
+    /// and the density's surface is held to it.
     /// </summary>
     public RenderTexture Sheet { get; }
 
@@ -642,9 +647,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Fine.Release();
         Coarse.Release();
         Foam.Release();
+        Flow.Release();
         Free(Fine);
         Free(Coarse);
         Free(Foam);
+        Free(Flow);
         Arguments.Release();
         Froth.Arguments.Release();
         _type.Release();
@@ -1008,15 +1015,17 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetTexture(_fineWrite, FineId, Fine);
         _shader.SetTexture(_fineWrite, CoarseId, Coarse);
         _shader.SetTexture(_fineWrite, FoamId, Foam);
+        _shader.SetTexture(_fineWrite, FlowId, Flow);
+        _shader.SetBuffer(_fineWrite, VelInId, _vel);
         _shader.SetTexture(_fineWrite, SheetId, Sheet);
         _shader.SetTexture(_fineWrite, BedId, Bed);
         _shader.Dispatch(_fineWrite, groups, 1, 1);
     }
 
     // A 2D texture the compute shader writes and the drawing samples smoothly.
-    private static RenderTexture Flat(string name, int x, int z)
+    private static RenderTexture Flat(string name, int x, int z, RenderTextureFormat format)
     {
-        var texture = new RenderTexture(x, z, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear)
+        var texture = new RenderTexture(x, z, 0, format, RenderTextureReadWrite.Linear)
         {
             name = "FlowingWater volume " + name,
             enableRandomWrite = true,
@@ -1028,9 +1037,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     }
 
     // A 3D texture the compute shader writes and the drawing samples smoothly (half floats: every card writes those).
-    private static RenderTexture Volume(string name, int x, int y, int z)
+    private static RenderTexture Volume(string name, int x, int y, int z, RenderTextureFormat format = RenderTextureFormat.RHalf)
     {
-        var texture = new RenderTexture(x, y, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear)
+        var texture = new RenderTexture(x, y, 0, format, RenderTextureReadWrite.Linear)
         {
             name = "FlowingWater volume " + name,
             dimension = UnityEngine.Rendering.TextureDimension.Tex3D,

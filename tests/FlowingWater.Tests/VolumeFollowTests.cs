@@ -20,26 +20,27 @@ public class VolumeFollowTests
     }
 
     [Fact]
-    public void TheGridSitsCentredOnTheCameraOnACellBoundary()
+    public void TheGridSitsWithMoreOfItsHeightAboveTheCameraOnACellBoundary()
     {
-        // 96 cells of 0.25 m are 24 m: the bottom is 12 m under the camera, on the cell boundary below.
+        // 96 cells of 0.25 m are 24 m: the bottom is 7.2 m under the camera (seven tenths of the grid above it), on
+        // the cell boundary below.
         float bottom = VolumeFollow.BaseY(10.3f, 96, 0.25f);
 
-        Assert.Equal(-1.75f, bottom, 4);
+        Assert.Equal(3f, bottom, 4);
         Assert.Equal(0f, bottom % 0.25f, 4);
-        Assert.InRange(10.3f - (bottom + 12f), 0f, 0.25f);
+        Assert.InRange(10.3f - (bottom + 7.2f), 0f, 0.25f);
     }
 
     [Theory]
-    [InlineData(12f, false)]
-    [InlineData(17.9f, false)]
-    [InlineData(6.1f, false)]
-    [InlineData(18.1f, true)]
-    [InlineData(5.9f, true)]
+    [InlineData(7.2f, false)]
+    [InlineData(13.1f, false)]
+    [InlineData(1.3f, false)]
+    [InlineData(13.3f, true)]
+    [InlineData(1.1f, true)]
     [InlineData(40f, true)]
-    public void TheGridMovesOnceTheCameraLeavesItsMiddleHalf(float cameraY, bool moves)
+    public void TheGridMovesOnceTheCameraLeavesTheMiddleHalfOfItsPlay(float cameraY, bool moves)
     {
-        // A grid from 0 to 24 m: its middle half is 6 to 18 m.
+        // A grid from 0 to 24 m sits its camera at 7.2 m: it moves once the camera is 6 m from there.
         Assert.Equal(moves, VolumeFollow.Rebase(cameraY, 0f, 96, 0.25f));
     }
 
@@ -58,9 +59,10 @@ public class VolumeFollowTests
                 moves++;
             }
 
-            // Never out of the middle half once followed, and the water round the camera is always in the grid.
+            // Never out of its play once followed, and the water round the camera is always in the grid, more of it
+            // above than below.
             Assert.False(VolumeFollow.Rebase(camera, origin, Rows, Cell));
-            Assert.InRange(camera, origin + 6f, origin + 18f);
+            Assert.InRange(camera, origin + 1.2f, origin + 13.2f);
         }
 
         // 200 m climbed with 6 m of slack each way: a move every 6 m or so, not every frame.

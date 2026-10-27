@@ -1076,12 +1076,14 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return new WaitForSeconds(4f);
         Alive(player, target);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
-        if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
+        if (off > 25f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
             throw new InvalidOperationException($"teleport to {target} ended at {player.transform.position}");
         }
 
-        Note($"at {player.transform.position.ToString("F1")}");
+        // Slid or swept a little way (a steep face, a current): noted, and the run goes on (a stand is a vantage, and
+        // the shots name their own cameras).
+        Note(off > 5f ? $"at {player.transform.position.ToString("F1")} ({off:0} m from {target.x:0}, {target.z:0}: slid)" : $"at {player.transform.position.ToString("F1")}");
     }
 
     private IEnumerator Views(Site site, string name)
