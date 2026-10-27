@@ -1042,7 +1042,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         ? player
         : throw new InvalidOperationException($"the player is gone (dead?) on the way to {target}");
 
-    private IEnumerator Go(Vector3 point, float? standAt = null)
+    private IEnumerator Go(Vector3 point, float? standAt = null, bool allowSlide = false)
     {
         Player player = Player.m_localPlayer;
         float ground = WorldGenerator.instance.GetHeight(point.x, point.z);
@@ -1076,13 +1076,13 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return new WaitForSeconds(4f);
         Alive(player, target);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
-        if (off > 25f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
+        if (off > (allowSlide ? 25f : 5f) || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
             throw new InvalidOperationException($"teleport to {target} ended at {player.transform.position}");
         }
 
-        // Slid or swept a little way (a steep face, a current): noted, and the run goes on (a stand is a vantage, and
-        // the shots name their own cameras).
+        // A vantage (a shot, a wait) may be reached a little off (a steep face slides, a current sweeps): noted, and
+        // the run goes on, the shots naming their own cameras. A stand a command is run from must be where it was asked.
         Note(off > 5f ? $"at {player.transform.position.ToString("F1")} ({off:0} m from {target.x:0}, {target.z:0}: slid)" : $"at {player.transform.position.ToString("F1")}");
     }
 
@@ -1187,7 +1187,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 continue;
             }
 
-            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
+            bool vantage = command.StartsWith("!wait ", StringComparison.Ordinal) || command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal);
+            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null, vantage);
             string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {

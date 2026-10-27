@@ -1626,10 +1626,19 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
         int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
         _Coarse[c] = (float)_CountIn[i] / max(REST * _FracIn[i], 1.0);
         _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
+        // The cell's velocity from the faces' sums as Scatter left them (the drawing runs after the step's own faces
+        // were cleared and the particles counted again: their velocity is in the sums, not in the faces).
         float3 flow = 0.0;
         if (_CountIn[i] > 0)
         {
-            flow = 0.5 * float3(_VelIn[FaceAt(c, 0)] + _VelIn[FaceAt(c + int3(1, 0, 0), 0)], _VelIn[FaceAt(c, 1)] + _VelIn[FaceAt(c + int3(0, 1, 0), 1)], _VelIn[FaceAt(c, 2)] + _VelIn[FaceAt(c + int3(0, 0, 1), 2)]);
+            int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+            for (int a = 0; a < 3; a++)
+            {
+                int lo = FaceAt(c, a), hi = FaceAt(c + offsets[a], a);
+                float vlo = _WgtIn[lo] > 0 ? (float)_MomIn[lo] / (float)_WgtIn[lo] : 0.0;
+                float vhi = _WgtIn[hi] > 0 ? (float)_MomIn[hi] / (float)_WgtIn[hi] : 0.0;
+                flow[a] = 0.5 * (vlo + vhi);
+            }
         }
 
         _Flow[c] = float4(flow, 0.0);

@@ -1016,7 +1016,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetTexture(_fineWrite, CoarseId, Coarse);
         _shader.SetTexture(_fineWrite, FoamId, Foam);
         _shader.SetTexture(_fineWrite, FlowId, Flow);
-        _shader.SetBuffer(_fineWrite, VelInId, _vel);
+        _shader.SetBuffer(_fineWrite, MomInId, _mom);
+        _shader.SetBuffer(_fineWrite, WgtInId, _wgt);
         _shader.SetTexture(_fineWrite, SheetId, Sheet);
         _shader.SetTexture(_fineWrite, BedId, Bed);
         _shader.Dispatch(_fineWrite, groups, 1, 1);

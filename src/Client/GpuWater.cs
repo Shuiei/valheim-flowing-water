@@ -834,7 +834,9 @@ internal sealed class GpuWater : IDisposable
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
         bool solids = _particles != null || _volume != null || FlowingWaterPlugin.Settings.ParticleWater.Value || FlowingWaterPlugin.Settings.VolumeWater.Value;
-        int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+        // The solids from the volume's grid's bottom up when there is one (its rows must lie within the texture's), else
+        // round the camera.
+        int baseRow = _volume != null ? (int)Math.Floor(_volume.Origin.y / _window.VoxelSize) : (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
         bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
