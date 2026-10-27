@@ -10,7 +10,8 @@ All notable changes to FlowingWater. Newest first.
   grid knows how much of it is clear of the ground, and the pressure follows the real slope. Water let go at the
   top of a ramp runs down it as a sheet and gathers on the floor below, and nothing is pushed into the ground. Thin
   water on the ground is also drawn as one smooth skin from the ground to its top, instead of blobs and ridges the
-  size of the grid's cells.
+  size of the grid's cells, and the whole surface is smoothed across the screen before it is lit, so the particles'
+  grain no longer shows as lumps on a pool or a stream.
 
 ## v0.41.0 — 2026-10-27
 

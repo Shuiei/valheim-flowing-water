@@ -310,7 +310,24 @@ public static class VolumePreview
     private static void Slope()
     {
         const float Grade = 0.4f;
-        float[] bed = Field((x, z) => z < 8f || z > 32f || x > 38f ? 10f : x < 8f ? 8f : x < 28f ? (28f - x) * Grade : 0f);
+        // FW_PREVIEW_ROUGH=1: the ramp faceted as the game's terrain is, a lattice a metre apart with a few centimetres
+        // of random height at each knot and the ground linear between (the game's heightmap mesh, as the card casts it).
+        bool rough = Environment.GetEnvironmentVariable("FW_PREVIEW_ROUGH") == "1";
+        var knots = new System.Random(7);
+        float[] bumps = new float[64 * 64];
+        for (int k = 0; k < bumps.Length; k++)
+        {
+            bumps[k] = ((float)knots.NextDouble() - 0.5f) * 0.16f;
+        }
+
+        float Bump(float x, float z)
+        {
+            int i = Mathf.Clamp((int)x, 0, 62), j = Mathf.Clamp((int)z, 0, 62);
+            float fx = x - i, fz = z - j;
+            return Mathf.Lerp(Mathf.Lerp(bumps[(j * 64) + i], bumps[(j * 64) + i + 1], fx), Mathf.Lerp(bumps[((j + 1) * 64) + i], bumps[((j + 1) * 64) + i + 1], fx), fz);
+        }
+
+        float[] bed = Field((x, z) => z < 8f || z > 32f || x > 38f ? 10f : x < 8f ? 8f : (x < 28f ? (28f - x) * Grade : 0f) + (rough ? Bump(x, z) : 0f));
         using var scene = new Scene("vslope", bed);
         int added = scene.Water.Add(new Vector3(9f, 6.6f, 12f), new Vector3(11f, 8.6f, 28f));
         Log.AppendLine(Inv($"Slope: {added} particles ({added * scene.Water.Litre:0.0} m3) let go at the top of a ramp of {Grade} rise over run, 20 m long, onto a flat floor."));
@@ -354,6 +371,8 @@ public static class VolumePreview
             if (k is 60 or 120 or 180 or 300)
             {
                 scene.Shot(Inv($"vslope_{k * Frame:0.0}s"), new Vector3(18f, 9f, 2f), new Vector3(20f, 3f, 20f));
+                // Low along the ramp, as a player sees a stream.
+                scene.Shot(Inv($"vslope_low_{k * Frame:0.0}s"), new Vector3(26f, 2.5f, 14f), new Vector3(16f, 4.5f, 20f));
             }
         }
 
@@ -784,6 +803,11 @@ public static class VolumePreview
             var target = new RenderTexture(1280, 720, 24);
             camera.targetTexture = target;
             ParticleSurface.Spheres = Environment.GetEnvironmentVariable("FW_PREVIEW_SPHERES") == "1";
+            if (int.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int smoothing))
+            {
+                VolumeSurface.Smoothing = smoothing;
+            }
+
             if (ParticleSurface.Spheres)
             {
                 using var surface = new ParticleSurface();
@@ -793,8 +817,25 @@ public static class VolumePreview
             else
             {
                 using var surface = new VolumeSurface();
-                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeMarchMaterialPath), AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
+                var march = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeMarchMaterialPath);
+                // The smoothing's radius and falloff tried from the environment (FW_PREVIEW_SMOOTH_RADIUS, FW_PREVIEW_SMOOTH_FALLOFF, m).
+                if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_RADIUS"), NumberStyles.Float, CultureInfo.InvariantCulture, out float radius))
+                {
+                    march.SetFloat("_SmoothRadius", radius);
+                }
+
+                if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_FALLOFF"), NumberStyles.Float, CultureInfo.InvariantCulture, out float falloff))
+                {
+                    march.SetFloat("_SmoothFalloff", falloff);
+                }
+
+                surface.Render(camera, Water, march, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
                 camera.Render();
+                VolumeSurface.OnlyDirection = Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_ONLY");
+                if (Environment.GetEnvironmentVariable("FW_PREVIEW_DUMP") == "1")
+                {
+                    DumpFound(surface.Found, file);
+                }
             }
 
             SimPreview.Save(camera, target, file);
@@ -802,6 +843,46 @@ public static class VolumePreview
             {
                 UnityEngine.Object.DestroyImmediate(thing);
             }
+        }
+
+        // What the march found, as a picture (distance in red over 8 m, thickness in green over 2 m, foam in blue)
+        // and the distances down the middle column, for the diagnostics of the surface's smoothing.
+        private static void DumpFound(RenderTexture found, string file)
+        {
+            RenderTexture was = RenderTexture.active;
+            RenderTexture.active = found;
+            var read = new Texture2D(found.width, found.height, TextureFormat.RGBAHalf, false, true);
+            read.ReadPixels(new Rect(0, 0, found.width, found.height), 0, 0);
+            read.Apply(false);
+            RenderTexture.active = was;
+            Color[] pixels = read.GetPixels();
+            var shown = new Color32[pixels.Length];
+            var column = new StringBuilder();
+            var row = new StringBuilder();
+            int middle = found.width / 2;
+            int midRow = found.height / 2;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color p = pixels[i];
+                shown[i] = new Color32((byte)Mathf.Clamp(p.r / 8f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.g / 2f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.b * 255f, 0f, 255f), 255);
+                if (i % found.width == middle && (i / found.width) % 2 == 0)
+                {
+                    column.Append(Inv($"{p.r:0.000} "));
+                }
+
+                if (i / found.width == midRow && (i % found.width) % 2 == 0)
+                {
+                    row.Append(Inv($"{p.r:0.000} "));
+                }
+            }
+
+            var png = new Texture2D(found.width, found.height, TextureFormat.RGBA32, false);
+            png.SetPixels32(shown);
+            png.Apply(false);
+            File.WriteAllBytes(Path.Combine(_output, file + "_found.png"), png.EncodeToPNG());
+            File.WriteAllText(Path.Combine(_output, file + "_found.txt"), "column: " + column + "\nrow: " + row);
+            UnityEngine.Object.DestroyImmediate(read);
+            UnityEngine.Object.DestroyImmediate(png);
         }
 
         public void Dispose()

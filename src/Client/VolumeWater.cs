@@ -121,8 +121,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
-    private static readonly int SheetTopId = Shader.PropertyToID("_SheetTop");
-    private static readonly int SheetTopInId = Shader.PropertyToID("_SheetTopIn");
     internal static readonly int SheetId = Shader.PropertyToID("_Sheet");
 
     // No particles: the counters and the drawing's arguments.
@@ -164,8 +162,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private readonly ComputeBuffer _frothCount;
 
     private readonly ComputeBuffer[] _fine = new ComputeBuffer[2];
-
-    private readonly ComputeBuffer _sheetTop;
 
     private readonly int _fineCells;
 
@@ -297,8 +293,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _fineCells = _cells * 8;
         _fine[0] = new ComputeBuffer(_fineCells, sizeof(uint));
         _fine[1] = new ComputeBuffer(_fineCells, sizeof(uint));
-        _sheetTop = new ComputeBuffer(cellsX * cellsZ * 4, sizeof(uint));
-        Sheet = Flat("sheet", cellsX * 2, cellsZ * 2);
+        Sheet = Flat("sheet", cellsX, cellsZ);
         Fine = Volume("density", cellsX * 2, cellsY * 2, cellsZ * 2);
         Coarse = Volume("water", cellsX, cellsY, cellsZ);
         Foam = Volume("foam", cellsX, cellsY, cellsZ);
@@ -361,8 +356,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     public RenderTexture Foam { get; }
 
     /// <summary>
-    /// The top of the water lying on the ground in each half-cell column (height over the grid's bottom, m; 0 none),
-    /// for the drawing: water too thin for the density is drawn from the ground up to this.
+    /// The depth of the water standing on the ground in each column of cells (m; 0 none), for the drawing: water too
+    /// thin for the density is drawn from the ground up to the ground plus this, and the density's surface is held to
+    /// it.
     /// </summary>
     public RenderTexture Sheet { get; }
 
@@ -641,7 +637,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _frothCount.Release();
         _fine[0].Release();
         _fine[1].Release();
-        _sheetTop.Release();
         Sheet.Release();
         Free(Sheet);
         Fine.Release();
@@ -989,11 +984,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetInt(CapacityId, Capacity);
         int groups = (_fineCells + Threads - 1) / Threads;
         _shader.SetBuffer(_fineClear, FineCountId, _fine[0]);
-        _shader.SetBuffer(_fineClear, SheetTopId, _sheetTop);
         _shader.Dispatch(_fineClear, groups, 1, 1);
         _shader.SetBuffer(_fineSplat, FineCountId, _fine[0]);
-        _shader.SetBuffer(_fineSplat, SheetTopId, _sheetTop);
-        _shader.SetTexture(_fineSplat, BedId, Bed);
         _shader.SetBuffer(_fineSplat, ParticlesInId, _particles[_current]);
         _shader.SetBuffer(_fineSplat, AliveInId, _alive);
         DispatchParticles(_fineSplat);
@@ -1012,7 +1004,6 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetTexture(_fineWrite, FineId, Fine);
         _shader.SetTexture(_fineWrite, CoarseId, Coarse);
         _shader.SetTexture(_fineWrite, FoamId, Foam);
-        _shader.SetBuffer(_fineWrite, SheetTopInId, _sheetTop);
         _shader.SetTexture(_fineWrite, SheetId, Sheet);
         _shader.SetTexture(_fineWrite, BedId, Bed);
         _shader.Dispatch(_fineWrite, groups, 1, 1);

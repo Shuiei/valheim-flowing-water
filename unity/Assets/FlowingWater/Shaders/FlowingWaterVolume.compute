@@ -236,14 +236,11 @@ float3 _PourMax;
 // textures written from them and from the cells' counts.
 RWStructuredBuffer<uint> _FineCount;
 StructuredBuffer<uint> _FineCountIn;
-// The water lying on the ground in each half-cell column: the particles within SHEET_BAND cells of the ground (each a
-// particle's height of water over the column), from which the sheet's top is the ground plus their depth, smoothed over
-// the columns about; water a particle or two thick, too sparse for the density, is drawn from this as a sheet between
-// the ground and its top.
-RWStructuredBuffer<uint> _SheetTop;
-StructuredBuffer<uint> _SheetTopIn;
+// The water standing on the ground in each column of cells: its depth (m, a texel a column; 0 none), the particles
+// from the ground's cell up, each a particle's height of water, smoothed over the columns about. Water too sparse for
+// the density to make a surface of (a sheet a particle or two thick) is drawn from this, between the ground and the
+// ground plus that depth, and the density's own surface is held to it where the two meet.
 RWTexture2D<float> _Sheet;
-#define SHEET_BAND 2.0
 // Which way FineSmooth smooths (0 x, 1 y, 2 z), reading _FineCountIn and writing _FineCount.
 int _Axis;
 RWTexture3D<float> _Fine;
@@ -1515,16 +1512,6 @@ int FineIndex(int3 f)
     return ((f.z * n.y) + f.y) * n.x + f.x;
 }
 
-int2 SheetColumns()
-{
-    return int2(_Nx, _Nz) * PER_SIDE;
-}
-
-int SheetIndex(int2 column)
-{
-    return (column.y * SheetColumns().x) + column.x;
-}
-
 [numthreads(THREADS, 1, 1)]
 void FineClear(uint3 id : SV_DispatchThreadID)
 {
@@ -1534,11 +1521,6 @@ void FineClear(uint3 id : SV_DispatchThreadID)
         _FineCount[id.x] = 0u;
     }
 
-    int2 columns = SheetColumns();
-    if (id.x < (uint)(columns.x * columns.y))
-    {
-        _SheetTop[id.x] = 0u;
-    }
 }
 
 // A particle's share on a half-cell along one axis, by how far the half-cell's centre is from the particle (in
@@ -1564,14 +1546,6 @@ void FineSplat(uint3 id : SV_DispatchThreadID)
     if (Gone(p))
     {
         return;
-    }
-
-    // On the ground (within SHEET_BAND cells of it): one more particle's water in the column's sheet.
-    float over = p.place.y - GroundAt(p.place.xz);
-    if (over < SHEET_BAND * _H)
-    {
-        int2 column = clamp((int2)floor((p.place.xz - _Origin.xz) / (_H / PER_SIDE)), 0, SheetColumns() - 1);
-        InterlockedAdd(_SheetTop[SheetIndex(column)], 1u);
     }
 
     int3 n = FineCells();
@@ -1638,35 +1612,58 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
         _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
     }
 
-    // The sheet's top in each column: the ground there plus the depth of the sheet's water, the depth the weighted
-    // mean of its own and its neighbours' within two columns that have some (the sheet one smooth skin, its depth
-    // the water's, not the highest particle's); a column with none within one column of some takes theirs (the sheet
-    // reaches half a column past its last particle, as a particle's water does).
-    int2 columns = SheetColumns();
-    if (i < (uint)(columns.x * columns.y))
+    // The depth of the water standing on the ground in each column of cells: the particles from the ground's cell up
+    // to the first cell with none beyond the ground's two (water above a gap is a fall or a splash, not the
+    // column's), each a particle's height of water, averaged over the columns within two of this one, nearer counting
+    // more and a dry column counting as none (a column's own count steps by a particle, 3 cm at the default, which
+    // the light would show as creases; and the water thins to nothing toward dry ground instead of ending in a step).
+    // The drawing adds the ground under each point: a depth blends to nothing across a dry column where a height
+    // would blend to the grid's bottom.
+    if (i < (uint)(_Nx * _Nz))
     {
-        int2 column = int2(i % columns.x, i / columns.x);
-        float spacing = _H / PER_SIDE;
-        float sum = 0.0;
+        int2 column = int2(i % _Nx, i / _Nx);
+        float depth = 0.0;
         float weights = 0.0;
-        float near = 0.0;
         for (int dz = -2; dz <= 2; dz++)
         {
             for (int dx = -2; dx <= 2; dx++)
             {
                 int2 o = column + int2(dx, dz);
-                if (all(o >= 0) && all(o < columns))
+                if (o.x < 0 || o.y < 0 || o.x >= _Nx || o.y >= _Nz)
                 {
-                    float count = (float)_SheetTopIn[SheetIndex(o)];
-                    float w = count > 0.0 ? (3.0 - abs(dx)) * (3.0 - abs(dz)) : 0.0;
-                    sum += w * count * spacing;
-                    weights += w;
-                    near += count > 0.0 && abs(dx) <= 1 && abs(dz) <= 1 ? 1.0 : 0.0;
+                    continue;
                 }
+
+                float2 at = _Origin.xz + ((float2(o) + 0.5) * _H);
+                float under = GroundAt(at);
+                // Ground too steep for a sheet (a wall, a trunk in the ground's heights) holds none: its column counts
+                // as dry, and the sheet thins to nothing toward it.
+                float rise = max(abs(GroundAt(at + float2(_H, 0.0)) - under), abs(GroundAt(at + float2(0.0, _H)) - under));
+                float w = (3.0 - abs(dx)) * (3.0 - abs(dz));
+                if (rise > 1.5 * _H)
+                {
+                    weights += w;
+                    continue;
+                }
+
+                int start = clamp((int)floor((under - _Origin.y) / _H), 0, _Ny - 1);
+                float particles = 0.0;
+                for (int j = start; j < _Ny; j++)
+                {
+                    int count = _CountIn[CellIndex(int3(o.x, j, o.y))];
+                    if (count == 0 && j > start)
+                    {
+                        break;
+                    }
+
+                    particles += count;
+                }
+
+                depth += w * particles * _H / REST;
+                weights += w;
             }
         }
 
-        float2 centre = _Origin.xz + ((float2(column) + 0.5) * spacing);
-        _Sheet[column] = near > 0.0 ? max(GroundAt(centre) - _Origin.y, 0.0) + (sum / weights) : 0.0;
+        _Sheet[column] = weights > 0.0 ? depth / weights : 0.0;
     }
 }

@@ -59,6 +59,7 @@ Shader "FlowingWater/VolumeSurface"
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
 
+            int _VolumeLook;
             sampler2D _FlowingWaterVolumeBehind;
             // What the march found, at half the screen's size (VolumeSurface sets them).
             sampler2D _VolumeWater;
@@ -128,6 +129,53 @@ Shader "FlowingWater/VolumeSurface"
                 return float3(v.x, v.y, v.z);
             }
 
+            // The surface's distance at a point of the march's picture, smoothly between its texels (of the four round
+            // the point, the ones that hold water, by how near they are; 0 where fewer than half do): the picture is
+            // half the screen's size, and a step of a texel read texel by texel would differ from one screen row to
+            // the next, which the normal would show as streaks.
+            float Eye(float2 uv)
+            {
+                float2 texel = _VolumeWater_TexelSize.xy;
+                float2 at = (uv / texel) - 0.5;
+                float2 base = floor(at);
+                float2 f = at - base;
+                float sum = 0.0;
+                float weights = 0.0;
+                for (int j = 0; j < 2; j++)
+                {
+                    for (int i = 0; i < 2; i++)
+                    {
+                        float x = tex2D(_VolumeWater, (base + float2(i, j) + 0.5) * texel).x;
+                        float weight = x > 0.0 ? (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) : 0.0;
+                        sum += x * weight;
+                        weights += weight;
+                    }
+                }
+
+                return weights >= 0.5 ? sum / weights : 0.0;
+            }
+
+            // The surface's slope at a pixel from the smoothed distances round it: each way the neighbour nearer in
+            // distance (not across a step), so the silhouette keeps a clean edge; view space.
+            float3 Slope(float2 uv, float2 ndc, float eye, float3 here)
+            {
+                float2 texel = _VolumeWater_TexelSize.xy;
+                float2 step = texel * 2.0;
+                float right = Eye(uv + float2(texel.x, 0.0)), left = Eye(uv - float2(texel.x, 0.0));
+                float up = Eye(uv + float2(0.0, texel.y)), down = Eye(uv - float2(0.0, texel.y));
+                bool useRight = right > 0.0 && (left <= 0.0 || abs(right - eye) < abs(left - eye));
+                bool useUp = up > 0.0 && (down <= 0.0 || abs(up - eye) < abs(down - eye));
+                float3 dx = useRight ? Place(ndc + float2(step.x, 0.0), right) - here : here - Place(ndc - float2(step.x, 0.0), left);
+                float3 dy = useUp ? Place(ndc + float2(0.0, step.y), up) - here : here - Place(ndc - float2(0.0, step.y), down);
+                float3 n = normalize(cross(dx, dy));
+                return n.z < 0.0 ? -n : n;
+            }
+
+            float3 ViewToWorldDirection(float3 v)
+            {
+                return normalize(mul((float3x3)unity_CameraToWorld, float3(v.x, v.y, -v.z)));
+            }
+
             // What the march found at a pixel, from the half-size pictures: of the four texels round it, the ones that
             // hold water, weighted by how near they are (so the surface's edge stays crisp and takes no air in).
             void Found(float2 uv, out float4 water, out float4 normal)
@@ -177,12 +225,31 @@ Shader "FlowingWater/VolumeSurface"
                     discard;
                 }
 
-                float eye = water.x;
+                // The surface's distance here, read as the normal's neighbours are, so the two agree (the march's own
+                // where that read finds too little water about the pixel: the silhouette's last pixels).
+                float smooth = Eye(uv);
+                float eye = under || smooth <= 0.0 ? water.x : smooth;
                 float thickness = max(water.y, 0.0);
                 float2 ndc = float2(i.ndc.x, i.ndc.y * _ProjectionParams.x);
                 float3 here = Place(ndc, max(eye, 0.3));
                 float3 worldPos = ViewToWorldPlace(here);
-                float3 worldN = normalize(found.xyz);
+                // The surface's normal from its smoothed distances (water's own smoothness), not the density's grain.
+                float3 worldN = under ? float3(0.0, 1.0, 0.0) : ViewToWorldDirection(Slope(uv, ndc, eye, here));
+                if (_VolumeLook == 3)
+                {
+                    return fixed4(saturate(thickness / 2.0).xxx, 1.0);
+                }
+
+                if (_VolumeLook == 4)
+                {
+                    return fixed4(frac(eye).xxx, 1.0);
+                }
+
+                if (_VolumeLook == 5)
+                {
+                    return fixed4((worldN * 0.5) + 0.5, 1.0);
+                }
+
                 float3 toCamera = normalize(_WorldSpaceCameraPos - worldPos);
                 float3 sun = dot(_SunDir.xyz, _SunDir.xyz) > 0.01 ? normalize(_SunDir.xyz) : normalize(_FWSunDir.xyz);
                 float3 sunColour = _FWSunColour.rgb;

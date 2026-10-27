@@ -369,17 +369,28 @@ samples smoothly, with the cells that hold water or stand next to some and the f
 pixel of a half-size picture, `FlowingWaterVolumeMarch.shader` marches a ray from the camera through the density,
 stepping over the cells with no water and in quarter-cells through the rest, to where the density first crosses a
 half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
-through until it leaves the grid or meets the scene. Water lying on the ground a particle or two thick is too sparse
-for the density, so each half-cell column also keeps the top of the water within half a metre of the ground, smoothed
-over its neighbours, and the ray counts everything between the ground and that top as water: a stream down a slope is
-one skin following the slope, not a cobble of particles or a stair of cells. `FlowingWaterVolumeSurface.shader` then draws the water from
+through until it leaves the grid or meets the scene. Each column of cells also keeps the depth of the water standing
+on its ground (the particles from the ground's cell up to the first cell with none, a fall or a splash over a gap not
+being the column's, smoothed over the columns about so it thins to nothing toward dry ground, and none on ground
+steeper than about 56°, where water is a fall), and the ray counts everything between the ground and the ground plus
+that depth as water
+and takes the density's own surface over it only where the density is well over the half: a stream down a slope is
+one skin following the slope, not a cobble of particles or a stair of cells, and a pool's surface is its columns'
+level, not the particles' grain. The surface the march found is then
+smoothed across the screen a few times each way, as wide as 0.6 m at its distance, keeping steps deeper than half a
+metre (the silhouette, one body before another) and never spreading water over pixels that have none (a bilateral
+blur, van der Laan, Green and Sainz 2009), and the surface's normal is taken from the smoothed distances: the
+particles' grain goes out of it and its light is water's, as surface tension irons a real surface.
+`FlowingWaterVolumeSurface.shader` then draws the water from
 that with the sea's look: what is behind bent by the surface and tinted by the water seen through (red light goes
 first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
 where the froth gathers, the sea's fog; thin water fades out, and within two metres of the square's side the water
 fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
 server's columns say nothing of what the volume holds), only that band and the world beyond. With the camera under the water, the scene is seen through the water up to its
 surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
-particles as spheres instead, for testing. The density costs the card a half-float a half-cell and two counts besides
+particles as spheres instead, for testing, and `flowingwater particles look N` takes the drawing apart (1 the density
+alone, 2 the sheet on the ground alone, 3 the water seen through as grey, 4 the surface's distance in bands of a
+metre, 5 its normal as a colour, 6 without the smoothing; 0 as it is). The density costs the card a half-float a half-cell and two counts besides
 (about 125 MB at the default grid), the march a few milliseconds a frame at half the screen's size.
 
 What it is not yet: swum in or floated on (the server's water says what you swim in), spread over the frame's
