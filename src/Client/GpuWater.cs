@@ -361,20 +361,9 @@ internal sealed class GpuWater : IDisposable
 
             yield return line.ToString();
         }
-        if (_water._volume != null && _water._volume.ReadColumn(point, out float sheetTop, out float sheetDepth, out int[] counts))
+        if (VolumeColumn(_water._volume, point) is { } column)
         {
-            // The volume's own column here: what the drawing takes as the water standing on the ground, and its cells.
-            VolumeWater v = _water._volume;
-            var rows = new System.Text.StringBuilder();
-            for (int y = 0; y < counts.Length; y++)
-            {
-                if (counts[y] != 0)
-                {
-                    rows.Append(FormattableString.Invariant($" {v.Origin.y + (y * v.CellSize):0.0}:{counts[y]}"));
-                }
-            }
-
-            yield return FormattableString.Invariant($"volume column at {point.x:0.0},{point.z:0.0}: sheet top {v.Origin.y + sheetTop:0.00} depth {sheetDepth:0.00}; particles by cell bottom (m):{rows}");
+            yield return column;
         }
 
         for (int x = cx - 1; x <= cx + 1; x++)
@@ -1139,6 +1128,27 @@ internal sealed class GpuWater : IDisposable
         var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         float cell = _window.CellSize;
         _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+    }
+
+    // The volume water's own column at a point, for the console: what the drawing takes as the water standing on the
+    // ground there, and each cell's particles; null with no volume, or outside its grid.
+    private static string VolumeColumn(VolumeWater volume, Vector3 point)
+    {
+        if (volume == null || !volume.ReadColumn(point, out float top, out float depth, out int[] counts))
+        {
+            return null;
+        }
+
+        var rows = new System.Text.StringBuilder();
+        for (int y = 0; y < counts.Length; y++)
+        {
+            if (counts[y] != 0)
+            {
+                rows.Append(FormattableString.Invariant($" {volume.Origin.y + (y * volume.CellSize):0.0}:{counts[y]}"));
+            }
+        }
+
+        return FormattableString.Invariant($"volume column at {point.x:0.0},{point.z:0.0}: sheet top {volume.Origin.y + top:0.00} depth {depth:0.00}; particles by cell bottom (m):{rows}");
     }
 
     // A ray's start (NaN: not cast) no lower than just over the terrain as this game sees it at x, z: the server's water
