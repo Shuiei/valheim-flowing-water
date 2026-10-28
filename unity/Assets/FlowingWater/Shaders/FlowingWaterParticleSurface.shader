@@ -223,7 +223,8 @@ Shader "FlowingWater/ParticleSurface"
                 // brighter than the light.
                 float lone = saturate(1.0 - (thickness / max(2.0 * _FWParticleSize, 0.01)));
                 float foam = smoothstep(0.7, 0.95, air) * (1.0 - lone) * _FoamColor.a;
-                float3 foamLit = 0.7 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
+                // (The light held to one: the game's sun and sky add up past it, and foam lit past white blazes.)
+                float3 foamLit = 0.8 * _FoamColor.rgb * min(ambient + (sunColour * saturate(dot(worldN, sun))), 1.0);
                 colour = lerp(colour, foamLit, foam);
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.

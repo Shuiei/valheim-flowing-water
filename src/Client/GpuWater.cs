@@ -963,7 +963,9 @@ internal sealed class GpuWater : IDisposable
     // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,
     // z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by ParticleSolids.Index: a byte a
     // voxel, ParticleSolids.Solid where the voxel is more than half solid, and the bits of the faces a piece closes
-    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is.
+    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is. Only a voxel with water says
+    // either: a dry one is sent as nothing (its open faces 0, not "all closed"), and read as all closed it would put a
+    // lid over the server's water wherever the voxel above it is dry, water pushed up under it piling there.
     private static byte[] Solids(List<BrickView> bricks, int x0, int z0, int columns, int baseRow, out bool any)
     {
         byte[] solids = new byte[columns * ParticleSolids.Rows * columns];
@@ -983,7 +985,7 @@ internal sealed class GpuWater : IDisposable
                     for (int x = Math.Max(0, -bx); x < Brick.Size && bx + x < columns; x++)
                     {
                         int i = Brick.Index(x, y, z);
-                        int closed = ~brick.Open[i] & BrickData.AllOpen;
+                        int closed = brick.Water[i] > 0f ? ~brick.Open[i] & BrickData.AllOpen : 0;
                         byte built = (byte)((brick.Solid[i] > 0.5f ? ParticleSolids.Solid : 0) | closed);
                         if (built != 0)
                         {
