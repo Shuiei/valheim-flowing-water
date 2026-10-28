@@ -39,8 +39,11 @@ Shader "FlowingWater/VolumeSurface"
         _EdgeThickness ("Water thinner than this along the view (m) fades out", Float) = 0.2
         _ThickMost ("Water seen through more than this (m) takes no more of the light", Float) = 4
         _LeastLight ("The least light on the water's body (share of the sky's), so it is never black", Range(0, 1)) = 0.45
-        _FoamFrom ("Froth in a cell from this share of full shows as foam", Range(0, 1)) = 0.1
-        _FoamFull ("Froth at this share of full is whole foam", Range(0, 1)) = 0.6
+        _FoamFrom ("Froth in a cell from this share of full shows as foam", Range(0, 1)) = 0.25
+        _FoamFull ("Froth at this share of full is whole foam", Range(0, 1)) = 1
+        _RushFrom ("Water this fast (m/s) begins to run white", Float) = 5
+        _RushFull ("Water this fast (m/s) runs white", Float) = 11
+        _RushThin ("Fast water thinner than this (m) runs white; thicker, it keeps its colour", Float) = 0.4
         _UnderFog ("Under the water, the scene fades into the water's colour over this far (m)", Float) = 12
     }
 
@@ -71,6 +74,7 @@ Shader "FlowingWater/VolumeSurface"
             float4 _VolumeWater_TexelSize;
             sampler2D _VolumeFlow;
             sampler2D _Normal;
+            sampler2D _FoamTex;
             fixed4 _ColorTop;
             fixed4 _ColorBottom;
             fixed4 _SurfaceColor;
@@ -95,6 +99,9 @@ Shader "FlowingWater/VolumeSurface"
             float _LeastLight;
             float _FoamFrom;
             float _FoamFull;
+            float _RushFrom;
+            float _RushFull;
+            float _RushThin;
             float _UnderFog;
 
             // The sun as the game sets it for every shader (none: the scene's light, as the surface's helper found it).
@@ -261,13 +268,18 @@ Shader "FlowingWater/VolumeSurface"
                 }
 
                 float3 toCamera = normalize(_WorldSpaceCameraPos - worldPos);
+                // The surface as found, before its ripples: what the sky's share in it and the water's depth along the
+                // view are reckoned from (a surface rippled all over would be white with sky from most angles).
+                float3 lieN = worldN;
                 float3 sun = dot(_SunDir.xyz, _SunDir.xyz) > 0.01 ? normalize(_SunDir.xyz) : normalize(_FWSunDir.xyz);
                 float3 sunColour = _FWSunColour.rgb;
                 float3 skyLight = ShadeSH9(float4(0.0, 1.0, 0.0, 1.0));
 
                 // Seen through so much water (no more than _ThickMost): its light taken as it goes (red first), the
                 // water's own colour in its place, lit by the sky at least.
-                float seen = min(thickness, _ThickMost);
+                // (Along the ray, scaled toward the water's depth under the surface: a ray skimming a sheet goes a
+                // long way through a hand of water, and a thin edge seen along it is not a deep green rim.)
+                float seen = min(thickness * saturate(0.2 + abs(dot(lieN, toCamera))), _ThickMost);
                 float3 through = exp(-seen * _BodyTint.rgb / max(_BodyDepth, 0.001));
                 through *= 1.0 - saturate(seen / _DepthFade);
                 // The water's own colour where its light is taken: the surface's green where it is shallow, the deep
@@ -289,9 +301,6 @@ Shader "FlowingWater/VolumeSurface"
                 // The sea's ripples laid on the surface where it faces up, drifting as the sea's do; and where the water
                 // runs, finer ripples dragged along with it at its own speed (two phases blended so they never stretch),
                 // the finest glinting on fast water: running water moves, a pool lies still.
-                // The surface as found, before its ripples: what the sky's share in it is reckoned from (a surface
-                // rippled all over would be white with sky from most angles; a real one shows the sky by its lie).
-                float3 lieN = worldN;
                 float2 current = found.xz;
                 float speed = length(current);
                 float2 ripple = UnpackNormal(tex2D(_Normal, (worldPos.xz * _NormalScale) + float2(0.0, -0.2 * _Time.x * _WaveVel))).xy;
@@ -330,14 +339,39 @@ Shader "FlowingWater/VolumeSurface"
                 float3 reflected = reflect(-toCamera, worldN);
                 float3 sky = DecodeHDR(UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflected, 3.0), unity_SpecCube0_HDR);
                 sky = min(sky, 1.2);
-                colour = lerp(colour, sky, 0.8 * fresnel * _Glossiness * saturate(thickness / 0.3));
+                // (None on a surface seen from below, a fall's underside or a wave's: the probe is the scene about
+                // the camera, and a surface over the camera would mirror the ground in it; and never a whole mirror,
+                // as the sea is not: the probe's scene is blurred and reflected at most two thirds.)
+                float solid = saturate(thickness / 0.3) * step(worldPos.y, _WorldSpaceCameraPos.y) * step(0.0, worldN.y);
+                colour = lerp(colour, sky, 0.65 * fresnel * _Glossiness * solid);
                 float glint = pow(saturate(dot(worldN, normalize(sun + toCamera))), 256.0) * _Glossiness;
-                colour += sunColour * glint;
+                colour += sunColour * glint * solid;
 
-                // Foam where the froth gathers on the surface (a fall's foot, a jet's boil, a front), lit as the sea's
-                // foam is (its colour under the light), not brighter than the light.
-                float foam = smoothstep(_FoamFrom, _FoamFull, water.z) * _FoamColor.a;
-                float3 foamLit = 0.8 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
+                // Foam where the froth gathers on the surface (a fall's foot, a jet's boil, a front): the sea's foam
+                // texture laid over the water and dragged along with the flow (two phases, as the ripples), covering
+                // the more of it the more froth there is (its lighter parts first, so it breaks up into lace at its
+                // edges and closes into a sheet where the churn is), lit as the sea's foam is.
+                // Fast thin water runs white (a fall's sheet, a rapid over a rock: air beaten into it); the froth's
+                // foam gathers where the froth is.
+                float rush = smoothstep(_RushFrom, _RushFull, length(found.xyz)) * (1.0 - smoothstep(0.4 * _RushThin, _RushThin, thickness));
+                float churn = smoothstep(_FoamFrom, _FoamFull, water.z);
+                // The foam's pattern: the texture at two scales (a tile 1.5 m across and one 0.4 m), the fine one
+                // breaking the coarse one's blobs into lace, both dragged with the flow.
+                float foamTiling = _NormalScale * 16.0;
+                float2 fuv = worldPos.xz * foamTiling;
+                float2 frun = current * foamTiling;
+                float cycle = 2.0 * _FlowCycle;
+                float fta = frac(_Time.y / cycle), ftb = frac((_Time.y / cycle) + 0.5);
+                float fwa = 1.0 - abs((2.0 * fta) - 1.0), fwb = 1.0 - abs((2.0 * ftb) - 1.0);
+                float2 pa = fuv - (frun * fta * cycle), pb = fuv - (frun * ftb * cycle) + 0.41;
+                float coarse = (tex2D(_FoamTex, pa).r * fwa) + (tex2D(_FoamTex, pb).r * fwb);
+                float fine = (tex2D(_FoamTex, pa * 4.0).r * fwa) + (tex2D(_FoamTex, (pb * 4.0) + 0.17).r * fwb);
+                float lace = (0.5 * coarse) + (0.5 * fine);
+                float foam = smoothstep(1.0 - churn - 0.2, 1.0 - churn + 0.2, lace) * sqrt(churn) * _FoamColor.a;
+                // White water is whitened all over, the lace streaking it (a fall's sheet is white with streaks of
+                // clear water, not a sheet of lace).
+                foam = max(foam, rush * (0.5 + (0.5 * lace)) * _FoamColor.a);
+                float3 foamLit = 0.85 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
                 colour = lerp(colour, foamLit, foam);
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.

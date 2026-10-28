@@ -361,6 +361,22 @@ internal sealed class GpuWater : IDisposable
 
             yield return line.ToString();
         }
+        if (_water._volume != null && _water._volume.ReadColumn(point, out float sheetTop, out float sheetDepth, out int[] counts))
+        {
+            // The volume's own column here: what the drawing takes as the water standing on the ground, and its cells.
+            VolumeWater v = _water._volume;
+            var rows = new System.Text.StringBuilder();
+            for (int y = 0; y < counts.Length; y++)
+            {
+                if (counts[y] != 0)
+                {
+                    rows.Append(FormattableString.Invariant($" {v.Origin.y + (y * v.CellSize):0.0}:{counts[y]}"));
+                }
+            }
+
+            yield return FormattableString.Invariant($"volume column at {point.x:0.0},{point.z:0.0}: sheet top {v.Origin.y + sheetTop:0.00} depth {sheetDepth:0.00}; particles by cell bottom (m):{rows}");
+        }
+
         for (int x = cx - 1; x <= cx + 1; x++)
         {
             for (int z = cz - 1; z <= cz + 1; z++)
@@ -968,7 +984,9 @@ internal sealed class GpuWater : IDisposable
     // What these bricks hold of pieces (the server's reading of their colliders) over the square from voxel column x0,
     // z0, columns a side, from voxel row baseRow up ParticleSolids.Rows rows, laid out by ParticleSolids.Index: a byte a
     // voxel, ParticleSolids.Solid where the voxel is more than half solid, and the bits of the faces a piece closes
-    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is.
+    // (BrickView.Open's six, inverted: a wall thinner than a voxel); and whether any is. Only a voxel with water says
+    // either: a dry one is sent as nothing (its open faces 0, not "all closed"), and read as all closed it would put a
+    // lid over the server's water wherever the voxel above it is dry, water pushed up under it piling there.
     private static byte[] Solids(List<BrickView> bricks, int x0, int z0, int columns, int baseRow, out bool any)
     {
         byte[] solids = new byte[columns * ParticleSolids.Rows * columns];
@@ -988,7 +1006,7 @@ internal sealed class GpuWater : IDisposable
                     for (int x = Math.Max(0, -bx); x < Brick.Size && bx + x < columns; x++)
                     {
                         int i = Brick.Index(x, y, z);
-                        int closed = ~brick.Open[i] & BrickData.AllOpen;
+                        int closed = brick.Water[i] > 0f ? ~brick.Open[i] & BrickData.AllOpen : 0;
                         byte built = (byte)((brick.Solid[i] > 0.5f ? ParticleSolids.Solid : 0) | closed);
                         if (built != 0)
                         {
@@ -1118,7 +1136,20 @@ internal sealed class GpuWater : IDisposable
             }
         }
 
-        _cast.Start(row, rows, (x, z) => from[((z / perVoxel) * columns) + (x / perVoxel)], new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize), _window.CellSize);
+        var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        float cell = _window.CellSize;
+        _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+    }
+
+    // A ray's start (NaN: not cast) no lower than just over the terrain as this game sees it at x, z: the server's water
+    // gives the height, and where its ground is not the game's (a terrain edit it has not read) that water lies inside
+    // the hill, the ray would start in the ground, meet nothing and make the column a wall, with any water in it held
+    // there. The terrain has no overhang, so a ray from over it still finds every floor and roof under its start.
+    private static float OverTerrain(float from, float x, float z)
+    {
+        return float.IsNaN(from) || ZoneSystem.instance == null || !ZoneSystem.instance.GetGroundHeight(new Vector3(x, from, z), out float terrain)
+            ? from
+            : Math.Max(from, terrain + SimColumns.CastOverWater);
     }
 
     // The grid of a square: a point at each cell's centre, its place in cells as its first uv; bounds as high as any

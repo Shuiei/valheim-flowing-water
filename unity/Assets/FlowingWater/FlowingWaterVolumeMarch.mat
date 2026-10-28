@@ -26,6 +26,8 @@ Material:
     m_Ints: []
     m_Floats:
     - _EdgeFade: 2
+    - _SmoothFalloff: 0.3
+    - _SmoothRadius: 0.6
     m_Colors: []
   m_BuildTextureStacks: []
   m_AllowLocking: 1

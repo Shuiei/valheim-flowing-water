@@ -82,7 +82,7 @@ again within a couple of seconds. The main ones:
 | `Client.ParticleSize` | 0.25 | Side of a particle, metres: 0.25 is water as it looks; 0.5 is coarse and an eighth of the particles, for a slow card |
 | `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on your graphics card, in place of the sheet: it pools and levels, bursts out of a broken box, falls and flows round things, sources pour into it and drains take from it |
 | `Client.VolumeRange` | 32 | Side of the square the volume water fills, metres (16 to 128); more costs the card more, and a wide square of small cells is cut down in height |
-| `Client.VolumeHeight` | 32 | Height of its grid, metres (8 to 48), about you, more of it above |
+| `Client.VolumeHeight` | 32 | Height of its grid, metres (8 to 64), about you, more of it above |
 | `Client.VolumeCapacity` | 1048576 | Its particles at most |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles it throws where it is violent (0 none, up to 4) |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144); more costs the card more |

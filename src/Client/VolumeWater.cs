@@ -592,6 +592,61 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Froth.LastCount = _frothCounted.Last;
     }
 
+    /// <summary>
+    /// For the console's diagnostics: the column of cells over a world point, read back from the card (it waits for
+    /// it): the water standing on its ground as the drawing has it (its top over the grid's bottom and its depth,
+    /// metres) and its cells' particle counts, bottom up; false (and nothing counted) where the point is outside the grid.
+    /// </summary>
+    public bool ReadColumn(Vector3 world, out float top, out float depth, out int[] counts)
+    {
+        top = depth = 0f;
+        counts = new int[CellsY];
+        int x = Mathf.FloorToInt((world.x - Origin.x) / CellSize), z = Mathf.FloorToInt((world.z - Origin.z) / CellSize);
+        if (x < 0 || z < 0 || x >= CellsX || z >= CellsZ)
+        {
+            return false;
+        }
+
+        var sheet = new Texture2D(CellsX, CellsZ, TextureFormat.RGHalf, false, true);
+        RenderTexture was = RenderTexture.active;
+        RenderTexture.active = Sheet;
+        sheet.ReadPixels(new Rect(0, 0, CellsX, CellsZ), 0, 0, false);
+        RenderTexture.active = was;
+        Color texel = sheet.GetPixel(x, z);
+        Free(sheet);
+        top = texel.r;
+        depth = texel.g;
+
+        int[] all = new int[_cells];
+        _count.GetData(all);
+        for (int y = 0; y < CellsY; y++)
+        {
+            counts[y] = all[x + (CellsX * (y + (CellsY * z)))];
+        }
+
+        return true;
+    }
+
+    /// <summary>For previews and tests: the most particles any cell holds, and that cell's centre (world), read back from the card.</summary>
+    public int MostInACell(out Vector3 where)
+    {
+        int[] all = new int[_cells];
+        _count.GetData(all);
+        int most = 0, at = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] > most)
+            {
+                most = all[i];
+                at = i;
+            }
+        }
+
+        int x = at % CellsX, y = at / CellsX % CellsY, z = at / (CellsX * CellsY);
+        where = Origin + (new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * CellSize);
+        return most;
+    }
+
     /// <summary>Every particle's twelve floats, read back from the card: for previews and tests.</summary>
     public float[] Read()
     {
@@ -685,20 +740,21 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         /// <summary>The centre (world) and the reach (m): a source fills the cells within it, a drain empties them.</summary>
         public Vector4 Ring;
 
-        /// <summary>A source's speed out of it (m/s), the rate (m³/s), 1 for a drain, and a drain's particles a step (set each step).</summary>
+        /// <summary>A source's speed out of it (m/s), the rate (m³/s), 1 for a drain; a source's lens half-height (m), a drain's particles a step (set each step).</summary>
         public Vector4 Flow;
 
         /// <summary>
-        /// A source at <paramref name="centre"/> giving <paramref name="rate"/> m³/s: its water comes out of a sphere
-        /// round it at about three metres a second, the sphere as big as the rate needs (0.4 m at least).
+        /// A source at <paramref name="centre"/> giving <paramref name="rate"/> m³/s: its water wells up out of a lens
+        /// round it (an ellipsoid as wide as the rate needs, 0.4 m at least, 1.8 m for 10 m³/s, 5.6 m for 100, and half
+        /// a metre high at most), rising over it at about a metre a second.
         /// </summary>
         public static Spring Source(Vector3 centre, float rate)
         {
-            return new Spring { Ring = new Vector4(centre.x, centre.y, centre.z, Reach(rate)), Flow = new Vector4(SpringShape.Outflow(rate), rate, 0f, 0f) };
+            return new Spring { Ring = new Vector4(centre.x, centre.y, centre.z, Reach(rate)), Flow = new Vector4(SpringShape.Outflow(rate), rate, 0f, SpringShape.Height(rate)) };
         }
 
-        /// <summary>A source whose marker stands at <paramref name="foot"/>: its sphere sits on the ground there.</summary>
-        public static Spring SourceOn(Vector3 foot, float rate) => Source(foot + (Vector3.up * Reach(rate)), rate);
+        /// <summary>A source whose marker stands at <paramref name="foot"/>: its lens is centred on the ground there, its dome over it.</summary>
+        public static Spring SourceOn(Vector3 foot, float rate) => Source(foot, rate);
 
         private static float Reach(float rate) => SpringShape.Reach(rate);
 
@@ -776,7 +832,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         for (int k = 0; k < _springList.Count; k++)
         {
             Spring s = _springList[k];
-            s.Flow.w = s.Flow.z > 0.5f ? Mathf.Min(1e9f, s.Flow.y * dt / Litre) : 0f;
+            s.Flow.w = s.Flow.z > 0.5f ? Mathf.Min(1e9f, s.Flow.y * dt / Litre) : s.Flow.w;
             springs[k] = s;
         }
 
@@ -999,6 +1055,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetBuffer(_fineSplat, FineCountId, _fine[0]);
         _shader.SetBuffer(_fineSplat, ParticlesInId, _particles[_current]);
         _shader.SetBuffer(_fineSplat, AliveInId, _alive);
+        _shader.SetBuffer(_fineSplat, CountInId, _count);
+        _shader.SetBuffer(_fineSplat, FracInId, _frac);
         DispatchParticles(_fineSplat);
         // Smoothed each way in turn, between the two buffers: the result lands back in the first.
         for (int axis = 0; axis < 3; axis++)

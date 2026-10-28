@@ -9,8 +9,8 @@ public class SpringShapeTests
 {
     [Theory]
     [InlineData(0.1f)]
-    [InlineData(1f)]
-    [InlineData(3f)]
+    [InlineData(0.3f)]
+    [InlineData(0.5f)]
     public void ASmallSourceKeepsTheLeastSphere(float rate)
     {
         Assert.Equal(SpringShape.LeastReach, SpringShape.Reach(rate));
@@ -27,33 +27,46 @@ public class SpringShapeTests
 
         Assert.True(reach > SpringShape.LeastReach);
         Assert.Equal(2f, fourTimes / reach, 3);
-        // Its upper half passes the rate at the speed.
-        Assert.Equal(rate, 2.0 * Math.PI * reach * reach * SpringShape.Speed, 2);
+        // The disc over it passes the rate at the speed.
+        Assert.Equal(rate, Math.PI * reach * reach * SpringShape.Speed, 2);
     }
 
-    [Fact]
-    public void AHundredCubicMetresASecondComeOutOfASphereTwoAndAHalfMetresWide()
+    [Theory]
+    [InlineData(2f, 0.798f)]
+    [InlineData(10f, 1.784f)]
+    [InlineData(100f, 5.642f)]
+    public void ASpringsSphereWidensWithItsRate(float rate, float reach)
     {
-        Assert.Equal(2.303f, SpringShape.Reach(100f), 3);
+        Assert.Equal(reach, SpringShape.Reach(rate), 3);
+    }
+
+    [Theory]
+    [InlineData(2f)]
+    [InlineData(10f)]
+    [InlineData(100f)]
+    public void AWideSpringIsALensHalfAMetreHigh(float rate)
+    {
+        Assert.Equal(SpringShape.Rise, SpringShape.Height(rate));
+        Assert.True(SpringShape.Reach(rate) > SpringShape.Height(rate));
     }
 
     [Theory]
     [InlineData(10f)]
     [InlineData(100f)]
-    public void TheWholeSphereGivesTheRateAtHalfTheSpeed(float rate)
+    public void TheLensDomeGivesTheRateUnderTheSpeed(float rate)
     {
         float reach = SpringShape.Reach(rate);
         float outflow = SpringShape.Outflow(rate);
 
-        Assert.Equal(SpringShape.Speed / 2f, outflow, 3);
-        Assert.Equal(rate, 4.0 * Math.PI * reach * reach * outflow, 2);
+        Assert.True(outflow is < SpringShape.Speed and > SpringShape.Speed / 2f);
+        Assert.Equal(rate, Math.PI * reach * (reach + SpringShape.Height(rate)) * outflow, 2);
     }
 
     [Fact]
-    public void ASmallSourcesSphereHeldUpGivesItsRateSlower()
+    public void ASmallSourceIsAHemisphereGivingItsRateOverItsDome()
     {
-        Assert.True(SpringShape.Outflow(1f) < SpringShape.Speed / 2f);
-        Assert.Equal(1f, 4.0 * Math.PI * SpringShape.LeastReach * SpringShape.LeastReach * SpringShape.Outflow(1f), 3);
+        Assert.Equal(SpringShape.LeastReach, SpringShape.Height(0.3f));
+        Assert.Equal(0.3f, 2.0 * Math.PI * SpringShape.LeastReach * SpringShape.LeastReach * SpringShape.Outflow(0.3f), 3);
     }
 
     [Theory]

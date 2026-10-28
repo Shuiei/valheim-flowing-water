@@ -15,9 +15,16 @@ All notable changes to FlowingWater. Newest first.
   speed, finer the faster it runs; a pool lies still. The volume's grid is 32 m tall now with more of it above you
   than below, and water falling from above the grid comes into it instead of staying the far water's: a stream down a
   tall hill is the volume's wherever you stand on it. The square and the grid follow you, not the camera, so a free
-  camera or a far look does not drag the water away; and `Client.VolumeRange` goes up to 128 m now, the grid cut in
+  camera or a far look does not drag the water away; and `Client.VolumeRange` goes up to 128 m now and `Client.VolumeHeight` to 64 m, the grid cut in
   height to what the card runs at once. Rocks and banks standing out of thin water stay dry, with the water running
-  round them, and a thin film of water on the ground shows the ground, not the sky.
+  round them, and a thin film of water on the ground shows the ground, not the sky. A fall is one thin veil of
+  water from its lip to its pool, not a sheet full of holes, and runs white as it speeds up; foam lies on the water
+  as a lace that flows with it and closes where the churn is, instead of specks; spray is small bright droplets
+  and a fine mist that hangs and fades, not balls of fluff; and a smooth sheet running down a slope throws little
+  spray. A big spring wells up over a patch as wide as its rate needs instead of shooting a jet high into the sky;
+  and the water no longer mirrors the ground about you where you see a surface from below. Water no longer hangs
+  frozen in the air as a sheet or a ceiling where the server's idea of the ground differs from the game's (after
+  some terrain edits), and a spray of drops no longer draws as a solid column of water.
 
 ## v0.41.0 — 2026-10-27
 

@@ -21,7 +21,8 @@ public static class VolumePreview
     // The ground's cells (the card's water's), and the grid's: the same size, the grid over the whole square.
     private const int Cells = 160;
 
-    private const float Dx = 0.25f;
+    // The cells' size: 0.25 m, or FW_PREVIEW_DX's (the game's GpuWaterCell, to try a scene at another).
+    private static readonly float Dx = float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_DX"), NumberStyles.Float, CultureInfo.InvariantCulture, out float dx) && dx > 0f ? dx : 0.25f;
 
     private const int Rows = 48;
 
@@ -237,6 +238,13 @@ public static class VolumePreview
             {
                 scene.Shot(Inv($"vledge_{k * Frame:0.0}s"), new Vector3(27f, 6f, 8f), new Vector3(21f, 1.5f, 20f));
             }
+
+            if (k is 300 or 480)
+            {
+                // The fall's foot from close and low, and the pool's edge where it meets the floor.
+                scene.Shot(Inv($"vledge_foot_{k * Frame:0.0}s"), new Vector3(25f, 1.6f, 14f), new Vector3(20.5f, 1.2f, 20f));
+                scene.Shot(Inv($"vledge_edge_{k * Frame:0.0}s"), new Vector3(29f, 1.2f, 24f), new Vector3(24f, 0.3f, 21f));
+            }
         }
 
         Measure m = Measure.Of(scene.Water, bed);
@@ -251,22 +259,31 @@ public static class VolumePreview
         float[] bed = Field((x, z) => Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f)))));
         using var scene = new Scene("vspring", bed);
         const float Rate = 8f;
-        var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0.4f, 20f), Rate) };
-        Log.AppendLine(Inv($"Spring: a source of {Rate} m3/s in a basin's middle for 6 s (its water out of a sphere {springs[0].Ring.w:0.00} m round it at {springs[0].Flow.x:0.0} m/s)."));
+        var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0f, 20f), Rate) };
+        Log.AppendLine(Inv($"Spring: a source of {Rate} m3/s in a basin's middle for 6 s (its water out of a lens {springs[0].Ring.w:0.00} m round and {springs[0].Flow.w:0.00} m high at {springs[0].Flow.x:0.0} m/s)."));
         bool ok = true;
+        // The sphere's own cells are kept full from the first step: that water is there before the rate's.
+        float fill = 0f;
         for (int k = 1; k <= 480; k++)
         {
             scene.Water.SetSprings(k <= 360 ? springs : new List<VolumeWater.Spring>());
             scene.Step();
+            if (k == 1)
+            {
+                fill = Math.Max(0f, (Measure.Of(scene.Water, bed).Count * scene.Water.Litre) - (Rate * Frame));
+            }
+
             if (k % 60 == 0)
             {
-                float expected = Rate * Math.Min(k, 360) * Frame;
+                float expected = fill + (Rate * Math.Min(k, 360) * Frame);
                 Measure m = Measure.Of(scene.Water, bed);
                 float have = m.Count * scene.Water.Litre;
                 bool near = Mathf.Abs(have - expected) <= 0.15f * expected + 0.5f;
                 ok &= near;
                 (float[] scales, uint[] given) = scene.Water.ReadSources();
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}); froth {Froth.Of(scene.Water)}: {(near ? "OK" : "FAILED")}"));
+                int most = scene.Water.MostInACell(out Vector3 crowded);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the most particles in a cell {most} at {crowded.x:0.00},{crowded.y:0.00},{crowded.z:0.00}"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}, the sphere's own {fill:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}); froth {Froth.Of(scene.Water)}: {(near ? "OK" : "FAILED")}"));
             }
 
             if (k is 30 or 120 or 360 or 480)
@@ -834,6 +851,11 @@ public static class VolumePreview
                 }
 
                 VolumeSurface.OnlyDirection = Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_ONLY");
+                if (int.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_LOOK"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int look))
+                {
+                    VolumeSurface.Look = look;
+                }
+
                 surface.Render(camera, Water, march, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
                 camera.Render();
                 if (Environment.GetEnvironmentVariable("FW_PREVIEW_DUMP") == "1")
@@ -871,7 +893,7 @@ public static class VolumePreview
                 shown[i] = new Color32((byte)Mathf.Clamp(p.r / 8f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.g / 2f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.b * 255f, 0f, 255f), 255);
                 if (i % found.width == middle && (i / found.width) % 2 == 0)
                 {
-                    column.Append(Inv($"{p.r:0.000} "));
+                    column.Append(Inv($"{p.r:0.00}/{p.g:0.00} "));
                 }
 
                 if (i / found.width == midRow && (i % found.width) % 2 == 0)

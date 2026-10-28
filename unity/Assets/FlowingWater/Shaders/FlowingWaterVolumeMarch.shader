@@ -62,6 +62,11 @@ Shader "FlowingWater/VolumeMarch"
             // The density the surface lies at, the fine step through water (a quarter of a cell), steps at most.
             #define SURFACE 0.5
             #define FINE_STEPS 4
+            // Water on no ground counts against its cell's fullness from THIN_FROM of full (two or three particles of
+            // eight: a sheet, stretched), wholly from THIN_FULL; under THIN_FROM it counts as it is (a lone drop or two
+            // in a cell is spray: boosted, each would be a streak of water, and a spray of them a solid column).
+            #define THIN_FROM 0.2
+            #define THIN_FULL 0.35
             #define MOST_STEPS 640
 
             struct v2f
@@ -145,29 +150,68 @@ Shader "FlowingWater/VolumeMarch"
             // Above that top, the half-cells' own density, but within a cell of the top only where it is well over the
             // half (a lump of the grain a particle high is not the surface; a wave or a splash is); and the half-cells'
             // own wherever no water stands on the ground (a fall, a splash, water over a gap).
-            float Density(float3 place)
+            // (The density the surface is found in, and, as 'real', the water's own: a fall's sheet counts for more
+            // than it holds so that the surface finds it, but it is as thin as it is.)
+            float Density(float3 place, out float real)
             {
                 float fine = tex3Dlod(_Fine, float4(Where(place), 0.0)).r;
+                real = fine;
+                // (A look taken apart counts its own density as the water seen through, so each part shows whole.)
                 if (_VolumeLook == 1)
                 {
                     return fine;
                 }
 
+                if (_VolumeLook == 7)
+                {
+                    real = tex3Dlod(_Coarse, float4(Where(place), 0.0)).r;
+                    return real;
+                }
+
+                if (_VolumeLook == 8)
+                {
+                    float full = tex3Dlod(_Coarse, float4(Where(place), 0.0)).r;
+                    real = lerp(fine, fine / clamp(full, THIN_FULL, 1.0), smoothstep(THIN_FROM, THIN_FULL, full));
+                    return real;
+                }
+
                 float top = SheetTop(place.xz);
                 if (_VolumeLook == 2)
                 {
-                    return place.y <= top && place.y >= GroundAt(place.xz) - (0.05 * _VolumeCell) ? 1.0 : 0.0;
+                    real = place.y <= top && place.y >= GroundAt(place.xz) - (0.05 * _VolumeCell) ? 1.0 : 0.0;
+                    return real;
                 }
 
                 if (place.y <= top && place.y >= GroundAt(place.xz) - (0.05 * _VolumeCell))
                 {
-                    return max(fine, 1.0);
+                    real = max(fine, 1.0);
+                    return real;
                 }
 
-                // Within a cell and a half over the column's top the density counts only where it is well over the
-                // half (1.1 and more: a wave, a splash; not a lump of the grain a particle high).
+                // Water on no ground (a fall, a splash, water over a gap or down a face too steep for a sheet): a
+                // fall's sheet is a hand thick, stretched thinner as it speeds up, too thin for the half-cells to hold
+                // at the full density, so it counts against its cell's own fullness: the surface is where the density
+                // reaches half of what the cell holds; the lone drops under THIN_FROM are spray.
+                float fullness = tex3Dlod(_Coarse, float4(Where(place), 0.0)).r;
+                float thin = lerp(fine, fine / clamp(fullness, THIN_FULL, 1.0), smoothstep(THIN_FROM, THIN_FULL, fullness));
+                float fast = smoothstep(2.0, 4.0, length(tex3Dlod(_Flow, float4(Where(place), 0.0)).xyz));
+
+                // Within a cell and a half over the column's top, slow water counts only where it is well over the
+                // half (1.4 and more: a wave; not a lump of the grain a particle or two high over the pool's surface),
+                // fast water as water on no ground (a fall coming down into its pool, a splash thrown up).
                 float above = place.y - top;
-                return above > 0.0 && above < 1.5 * _VolumeCell ? saturate((fine - 0.85) / 0.5) : fine;
+                if (above > 0.0 && above < 1.5 * _VolumeCell)
+                {
+                    return lerp(saturate((fine - 1.15) / 0.5), thin, fast);
+                }
+
+                return thin;
+            }
+
+            float Density(float3 place)
+            {
+                float real;
+                return Density(place, real);
             }
 
             // Whether there is any water about a place: the cells' water, sampled smoothly, reaches a cell beyond it;
@@ -225,7 +269,8 @@ Shader "FlowingWater/VolumeMarch"
                 float surfaceAt = inside ? 0.0 : -1.0;
                 float3 surfacePlace = from;
                 float thickness = 0.0;
-                float last = Density(from + (dir * t0));
+                float last;
+                Density(from + (dir * t0), last);
                 float t = t0;
                 for (int k = 0; k < MOST_STEPS && t < t1; k++)
                 {
@@ -245,7 +290,8 @@ Shader "FlowingWater/VolumeMarch"
 
                     float next = min(t + fine, t1);
                     float3 ahead = from + (dir * next);
-                    float d = Density(ahead);
+                    float real;
+                    float d = Density(ahead, real);
                     if (!inside && d >= SURFACE)
                     {
                         // Into the water: the surface between here and there, by halves.
@@ -270,15 +316,15 @@ Shader "FlowingWater/VolumeMarch"
                             surfacePlace = from + (dir * b);
                         }
 
-                        thickness += saturate(d) * (next - b);
+                        thickness += saturate(real) * (next - b);
                     }
                     else if (inside)
                     {
-                        thickness += saturate(0.5 * (d + last)) * (next - t);
+                        thickness += saturate(0.5 * (real + last)) * (next - t);
                         inside = d >= SURFACE;
                     }
 
-                    last = d;
+                    last = real;
                     t = next;
                 }
 
@@ -292,7 +338,9 @@ Shader "FlowingWater/VolumeMarch"
                 float near = saturate(min(edge.x, edge.z) / max(_EdgeFade, 0.01));
                 float foam = tex3Dlod(_Foam, float4(Where(surfacePlace), 0.0)).r;
                 o.water = float4(under ? 0.0 : surfaceAt * along, thickness, foam, under ? 1.0 : 0.0);
-                o.flow = float4(tex3Dlod(_Flow, float4(Where(surfacePlace), 0.0)).xyz, near);
+                // (The flow read half a cell in from the surface: at the surface itself the cells' flow is averaged
+                // with the still air's beside it.)
+                o.flow = float4(tex3Dlod(_Flow, float4(Where(surfacePlace + (dir * 0.5 * _VolumeCell)), 0.0)).xyz, near);
                 return o;
             }
             ENDCG

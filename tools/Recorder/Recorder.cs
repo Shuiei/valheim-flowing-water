@@ -1094,7 +1094,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     }
 
     // The first of a few places around the asked one from which nothing solid stands between the
-    // camera and what it looks at (trees, rocks, buildings), or the asked one.
+    // camera and what it looks at (trees, rocks, buildings), or the asked one. Never one under the ground: the
+    // terrain's heightfield stops no line cast from below it, so a place under a hill would pass for a clear one
+    // (and the picture would show the hill's underside).
     private Vector3 Clear(Vector3 from, Vector3 at)
     {
         Vector3 away = from - at;
@@ -1103,7 +1105,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             foreach (float rise in new[] { 0f, 6f, 12f })
             {
                 Vector3 candidate = at + (Quaternion.Euler(0f, turn, 0f) * away) + new Vector3(0f, rise, 0f);
-                if (!Physics.Linecast(candidate, at + (Vector3.up * 1.5f), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && Physics.OverlapSphere(candidate, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore).Length == 0)
+                if (!Underground(candidate) && !Physics.Linecast(candidate, at + (Vector3.up * 1.5f), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && Physics.OverlapSphere(candidate, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore).Length == 0)
                 {
                     return candidate;
                 }
@@ -1113,6 +1115,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note($"no clear view of {at.ToString("F0")} found near {from.ToString("F0")}");
         return from;
     }
+
+    // Whether a place is under the ground there (or within half a metre over it, where the near plane cuts it).
+    private static bool Underground(Vector3 place) => ZoneSystem.instance.GetGroundHeight(place, out float ground) && place.y < ground + 0.5f;
 
     private IEnumerator Shot(Vector3 from, Vector3 at, string name)
     {

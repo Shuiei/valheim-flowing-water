@@ -47,7 +47,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you |
+| `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you, and with the volume water on, its own column under you (the water it takes as standing on the ground, and each cell's particles) |
 | `flowingwater particles [m³\|clear\|spheres\|full]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water; `full` draws the water's surface at the screen's full size instead of half, again for half |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
@@ -114,7 +114,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
 | `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
 | `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 128; the card's square is this at most then); more costs the card more, by the square, and a wide square of small cells is cut down in height to what the card runs at once (128 m of 0.5 m cells leaves 8 m; 96 m, 28 m; 64 m, 48 m) |
-| `Client.VolumeHeight` | 32 | Height of the volume water's grid, metres (8 to 48), about you with seven tenths of it above you: water above or below it is the server's, and comes into the grid as it falls in (cut to what the card runs at once: 31.75 m for a 32 m square of 0.25 m cells) |
+| `Client.VolumeHeight` | 32 | Height of the volume water's grid, metres (8 to 64), about you with seven tenths of it above you: water above or below it is the server's, and comes into the grid as it falls in (cut to what the card runs at once: 31.75 m for a 32 m square of 0.25 m cells) |
 | `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³) |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
@@ -324,9 +324,11 @@ in once when the square is made (where the server has water, from the ground to 
 two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
 or top is the server's again. Where the server has water beyond a side, that side holds the square's water in, as a
 wall does, so a lake the square cuts stays level at its edge (the band along it takes the server's water as it
-changes); where the world beyond is dry, the side is open and the water goes out. A placed source is an inflow in the grid: its cells are kept full of particles going
-out of it at about three metres a second (its reach grows with its rate: a big spring boils up over a wide patch),
-scaled each step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
+changes); where the world beyond is dry, the side is open and the water goes out. A placed source is an inflow in the grid: a lens centred on the ground, as wide as its
+rate needs (0.8 m round for the default 2 m³/s, 1.8 m for 10, 5.6 m for 100) and half a metre high at most, its
+cells kept full of particles going out of it, its water rising over it at about a metre a second (a big spring boils
+up over a wide patch; it neither shoots a jet into the sky nor stands on the ground as a ball of water), scaled each
+step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
 card's square (round you, the player, not the camera: a free camera does not drag the water away), no wider than
 `Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, with seven tenths of it above
@@ -353,26 +355,37 @@ the particles.
 Where the water is violent it throws froth: spray, foam and bubbles, after Ihmsen, Akinci, Akinci and Teschner's
 unified diffuse particles (2012), read off the grid. Each step every particle of the water faster than 1.5 m/s is
 given three potentials: the air it traps (how much the velocity differs across its cell: a jet into a pool, a shear),
-its crest (fast water with air above it: a fall's lip, a front) and its impact (the speed the ground or what is built
-just took from it), each counting the more the faster it goes, and makes that many froth particles a second (scaled
+its crest (water faster than 3.5 m/s with air above it: a fall's lip, a front; a smooth sheet running down a slope
+throws little) and its impact (the speed the ground or what is built just took from it), each counting the more the
+faster it goes, and makes that many froth particles a second (scaled
 by `Client.VolumeFroth`), in its water and going as it goes with some spread, or, struck, thrown back off what it
 struck. A cell already holding six froth particles takes no more (froth covers water, it does not pile up), and a
 source's own sphere makes none (its outflow is no violence of the water's). Froth carries no water. Each froth
 particle is what the water round it makes it: in a cell with little water
 it is spray, falling and slowed by the air, the finer the more (a drop falls, a mist hangs and spreads); in the top
 cell of the water it is foam, riding the surface with the water's velocity; under more water it is a bubble, rising
-through it with the water to foam. Each lives one to three seconds (foam twice that), and spray down on dry ground
-is gone at once. They are drawn after the water's surface as soft sprites (`FlowingWaterFroth.shader`): spray as
-drops that grow into a thin mist as they fade, foam as white specks, bubbles as faint ones, lit as the sea's foam.
+through it with the water to foam. Each lives one to two and a half seconds (foam twice that), and spray down on dry
+ground is gone at once. A little over half of the spray is droplets, the rest mist, by a number each is born with.
+They are drawn after the water's surface as soft sprites (`FlowingWaterFroth.shader`): droplets small and bright,
+falling; mist as wide faint wisps that hang in the air, spread to three times their size and fade (no disc to be
+seen, only the haze the wisps add up to); bubbles as tiny faint ones; foam is not drawn as sprites at all but by the
+surface, as a pattern over the water (below). All lit as the sea's foam.
 Their room is a quarter of the water's particles; when it is full, no more is made until some is spent.
 
 It is drawn from its true shape (`src/Client/VolumeSurface.cs`). After each frame's steps the particles are shared
 onto a grid of half-cells (a particle's size) as a density, 1 where a particle sits at rest, in a texture the card
-samples smoothly, with the cells that hold water or stand next to some and the froth in each cell beside it. For each
+samples smoothly (a particle in a full cell over the three half-cells nearest it each way; one in a cell holding few,
+a fall's sheet or a splash, wider if it is fast, and stretched along its velocity up to three times, so a fall's
+particles, drawn apart as they speed up, still make one sheet; on no half-cell inside the ground or a wall), with the cells that hold water or stand next to some and the froth in each cell beside it. For each
 pixel of a half-size picture, `FlowingWaterVolumeMarch.shader` marches a ray from the camera through the density,
 stepping over the cells with no water and in quarter-cells through the rest, to where the density first crosses a
 half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
-through until it leaves the grid or meets the scene. Each column of cells also keeps the depth of the water standing
+through until it leaves the grid or meets the scene. Water on no ground (a fall, a splash, water down a face too
+steep for a sheet) is thinner than the half-cells can hold at the full density (a fall's sheet is a hand thick,
+stretched thinner as it speeds up), so there the density is counted against its cell's own fullness: the surface is
+where it reaches half of what the cell holds, from two or three particles a cell (a lone drop or two is spray, left
+as thin as it is: boosted, a spray of drops would draw as a solid column); the water seen
+through stays its true thickness, so a fall's sheet is a thin veil. Each column of cells also keeps the depth of the water standing
 on its ground (the particles from the ground's cell up to the first cell with none, a fall or a splash over a gap not
 being the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
 ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall; the ray counts
@@ -387,8 +400,13 @@ blur, van der Laan, Green and Sainz 2009), and the surface's normal is taken fro
 particles' grain goes out of it and its light is water's, as surface tension irons a real surface.
 `FlowingWaterVolumeSurface.shader` then draws the water from
 that with the sea's look: what is behind bent by the surface and tinted by the water seen through (red light goes
-first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
-where the froth gathers, the sea's fog; and where the water runs, ripples finer than the sea's dragged along with it
+first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface (neither
+on water thinner than a hand, a wet film being the ground's colour, nor on a surface seen from below; the sky's
+share two thirds at most, the water never a whole mirror), the sea's fog; foam where the froth gathers, as
+the sea's foam texture laid over the water at two scales and dragged along with the flow, covering the more of it
+the more froth there is, so it breaks into lace at its edges and closes where the churn is; and fast thin water
+(a fall's sheet, a rapid over a rock, from 5 m/s thinner than 40 cm, wholly at 11 m/s) runs white, streaked by that
+lace; and where the water runs, ripples finer than the sea's dragged along with it
 at its own speed (each cell's velocity goes to the drawing with its density; two phases blended so the ripples never
 stretch, the finest glinting on fast water), so running water moves and a pool lies still; thin water fades out, and within two metres of the square's side the water
 fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
@@ -397,7 +415,8 @@ the grid's height (it follows the camera: a lake far below a cliff you stand on 
 surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
 particles as spheres instead, for testing, and `flowingwater particles look N` takes the drawing apart (1 the density
 alone, 2 the sheet on the ground alone, 3 the water seen through as grey, 4 the surface's distance in bands of a
-metre, 5 its normal as a colour, 6 without the smoothing; 0 as it is). The density costs the card a half-float a half-cell and two counts besides
+metre, 5 its normal as a colour, 6 without the smoothing, 7 the cells' fullness alone, 8 the density of water on no
+ground alone; 0 as it is). The density costs the card a half-float a half-cell and two counts besides
 (about 125 MB at the default grid), the march a few milliseconds a frame at half the screen's size.
 
 What it is not yet: swum in or floated on (the server's water says what you swim in), spread over the frame's

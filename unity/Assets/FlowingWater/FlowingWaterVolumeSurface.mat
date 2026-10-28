@@ -36,15 +36,23 @@ Material:
     - _BodyDepth: 2.5
     - _DeepWater: 6
     - _DepthFade: 15
-    - _EdgeThickness: 0.06
-    - _FoamFrom: 0.1
-    - _FoamFull: 0.6
+    - _EdgeThickness: 0.2
+    - _FlowCycle: 1.5
+    - _FlowFrom: 0.2
+    - _FlowFull: 1.5
+    - _FlowTiling: 4
+    - _FoamFrom: 0.25
+    - _FoamFull: 1
     - _Glossiness: 0.94
     - _LeastLight: 0.45
     - _NormalPower: 0.5
     - _NormalScale: 0.04
+    - _RapidsSpeed: 3
     - _RefractionMax: 0.01
     - _RefractionScale: 0.1
+    - _RushFrom: 5
+    - _RushFull: 11
+    - _RushThin: 0.4
     - _ThickMost: 4
     - _UnderFog: 12
     - _WaveVel: 1

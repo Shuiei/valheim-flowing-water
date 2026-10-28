@@ -25,10 +25,15 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _BubbleAlpha: 0.35
-    - _BubbleRadius: 0.035
+    - _BubbleAlpha: 0.3
+    - _BubbleRadius: 0.015
+    - _DropAlpha: 0.7
+    - _DropRadius: 0.018
     - _FoamAlpha: 0.85
     - _FoamRadius: 0.06
+    - _MistAlpha: 0.03
+    - _MistGrowth: 3
+    - _MistRadius: 0.2
     - _SprayAlpha: 0.45
     - _SprayGrowth: 3
     - _SprayRadius: 0.04
