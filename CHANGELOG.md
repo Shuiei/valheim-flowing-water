@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.38.1 — 2026-10-27
+
+### Fixed
+- Water near you no longer stands frozen as a wall or a sheet in the air where the server's idea of the ground differs
+  from your game's (after some terrain edits): the ground under it is found from over the terrain you see.
+
 ## v0.38.0 — 2026-10-26
 
 ### Added
