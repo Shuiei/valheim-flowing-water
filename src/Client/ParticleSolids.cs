@@ -14,8 +14,11 @@ namespace FlowingWater.Client;
 /// </summary>
 internal sealed class ParticleSolids : IDisposable
 {
-    /// <summary>Rows of voxels the texture holds: so many metres of height (at the voxel's size), round the camera.</summary>
-    public const int Rows = 64;
+    /// <summary>
+    /// Rows of voxels the texture holds: so many metres of height at the voxel's size (128 m at the server's default 1 m
+    /// voxels, 64 m at 0.5 m), round the camera or the volume water's grid (which is cut to what it covers).
+    /// </summary>
+    public const int Rows = 128;
 
     /// <summary>The byte's bit for a solid voxel; the six below it close its east, west, up, down, north and south faces.</summary>
     public const byte Solid = 128;

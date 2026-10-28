@@ -182,9 +182,21 @@ Shader "FlowingWater/VolumeSurface"
                 float up = Eye(uv + float2(0.0, texel.y)), down = Eye(uv - float2(0.0, texel.y));
                 bool useRight = right > 0.0 && (left <= 0.0 || abs(right - eye) < abs(left - eye));
                 bool useUp = up > 0.0 && (down <= 0.0 || abs(up - eye) < abs(down - eye));
+                // A lone texel of water (a far drop, the tip of a rivulet) has no neighbour either way: it faces the eye.
+                if ((!useRight && left <= 0.0) || (!useUp && down <= 0.0))
+                {
+                    return float3(0.0, 0.0, 1.0);
+                }
+
                 float3 dx = useRight ? Place(ndc + float2(step.x, 0.0), right) - here : here - Place(ndc - float2(step.x, 0.0), left);
                 float3 dy = useUp ? Place(ndc + float2(0.0, step.y), up) - here : here - Place(ndc - float2(0.0, step.y), down);
-                float3 n = normalize(cross(dx, dy));
+                float3 c = cross(dx, dy);
+                if (dot(c, c) < 1e-12)
+                {
+                    return float3(0.0, 0.0, 1.0);
+                }
+
+                float3 n = normalize(c);
                 return n.z < 0.0 ? -n : n;
             }
 

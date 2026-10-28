@@ -26,6 +26,8 @@ All notable changes to FlowingWater. Newest first.
   frozen in the air as a sheet or a ceiling where the server's idea of the ground differs from the game's (after
   some terrain edits), and a spray of drops no longer draws as a solid column of water. Where a stream runs past
   the top or bottom of the volume's grid it blends into the far water instead of ending in a line across it.
+  What players built stays solid to the volume water over its grid's whole height, the grid cut to what that
+  covers, and a lone far drop no longer shows as a black or white speck.
 
 ## v0.41.0 — 2026-10-27
 

@@ -671,6 +671,8 @@ internal sealed class GpuWater : IDisposable
 
             Settings settings = FlowingWaterPlugin.Settings;
             int rows = VolumeFollow.RowsWithin(VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize), _window.Cells);
+            // And within what the solids' texture covers, with room for the grid to move before it is built again.
+            rows = VolumeFollow.RowsWithinSolids(rows, _window.CellSize, _window.VoxelSize, ParticleSolids.Rows);
             if (rows < VolumeFollow.LeastRows)
             {
                 if (!_volumeTooWide)
@@ -839,10 +841,23 @@ internal sealed class GpuWater : IDisposable
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
         bool solids = _particles != null || _volume != null || FlowingWaterPlugin.Settings.ParticleWater.Value || FlowingWaterPlugin.Settings.VolumeWater.Value;
-        // The solids from the volume's grid's bottom up when there is one (its rows must lie within the texture's), else
-        // round the camera.
-        int baseRow = _volume != null ? (int)Math.Floor(_volume.Origin.y / _window.VoxelSize) : (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
-        bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
+        // The solids round the volume's grid when there is one (built again once the grid leaves what they cover:
+        // what is built past the texture's rows is ignored), else round the camera.
+        int baseRow;
+        bool rebased;
+        if (_volume != null)
+        {
+            int bottom = (int)Math.Floor(_volume.Origin.y / _window.VoxelSize);
+            int top = (int)Math.Ceiling((_volume.Origin.y + (_volume.CellsY * _volume.CellSize)) / _window.VoxelSize);
+            baseRow = VolumeFollow.SolidsBase(bottom, top, ParticleSolids.Rows);
+            rebased = solids && (_builtBase == int.MinValue || !VolumeFollow.SolidsCover(_builtBase, bottom, top, ParticleSolids.Rows));
+        }
+        else
+        {
+            baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+            rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
+        }
+
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
@@ -1127,7 +1142,9 @@ internal sealed class GpuWater : IDisposable
 
         var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         float cell = _window.CellSize;
-        _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+        float[] found = _ground;
+        int cells = _window.Cells;
+        _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], found[(z * cells) + x], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
     }
 
     // The volume water's own column at a point, for the console: what the drawing takes as the water standing on the
@@ -1154,12 +1171,19 @@ internal sealed class GpuWater : IDisposable
     // A ray's start (NaN: not cast) no lower than just over the terrain as this game sees it at x, z: the server's water
     // gives the height, and where its ground is not the game's (a terrain edit it has not read) that water lies inside
     // the hill, the ray would start in the ground, meet nothing and make the column a wall, with any water in it held
-    // there. The terrain has no overhang, so a ray from over it still finds every floor and roof under its start.
-    private static float OverTerrain(float from, float x, float z)
+    // there. The terrain has no overhang, so a ray from over it still finds every floor and roof under its start. The
+    // terrain is asked for (a raycast of its own, on this thread) only where it can matter: a cell whose ground is not
+    // found yet (none cast, or its last ray met nothing), or a start under the ground its last ray found (which was
+    // over the terrain, or on it).
+    private static float OverTerrain(float from, float lastFound, float x, float z)
     {
-        return float.IsNaN(from) || ZoneSystem.instance == null || !ZoneSystem.instance.GetGroundHeight(new Vector3(x, from, z), out float terrain)
-            ? from
-            : Math.Max(from, terrain + SimColumns.CastOverWater);
+        bool known = !float.IsNaN(lastFound) && lastFound < BedCast.Wall;
+        if (float.IsNaN(from) || (known && from >= lastFound) || ZoneSystem.instance == null || !ZoneSystem.instance.GetGroundHeight(new Vector3(x, from, z), out float terrain))
+        {
+            return from;
+        }
+
+        return Math.Max(from, terrain + SimColumns.CastOverWater);
     }
 
     // The grid of a square: a point at each cell's centre, its place in cells as its first uv; bounds as high as any

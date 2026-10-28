@@ -52,6 +52,24 @@ internal static class VolumeFollow
         return Math.Abs(cameraY - rest) > height / 4f;
     }
 
+    /// <summary>
+    /// The rows of <paramref name="cellSize"/> the grid may have so that, with the solids' texture of
+    /// <paramref name="solidRows"/> voxel rows of <paramref name="voxelSize"/>, the texture covers it with room to move
+    /// a quarter of its height either way before it must be built again (what was built would be ignored past its top).
+    /// </summary>
+    public static int RowsWithinSolids(int rows, float cellSize, float voxelSize, int solidRows) =>
+        Math.Min(rows, (int)Math.Floor(solidRows * voxelSize / (1.5f * cellSize)));
+
+    /// <summary>
+    /// The voxel row the solids' texture of <paramref name="solidRows"/> rows starts at for a grid from voxel row
+    /// <paramref name="bottom"/> to <paramref name="top"/> (excluded): the grid in its middle, its spare rows shared
+    /// above and below.
+    /// </summary>
+    public static int SolidsBase(int bottom, int top, int solidRows) => bottom - Math.Max(0, (solidRows - (top - bottom)) / 2);
+
+    /// <summary>Whether a solids' texture built from voxel row <paramref name="built"/> up <paramref name="solidRows"/> rows covers a grid from <paramref name="bottom"/> to <paramref name="top"/> (excluded).</summary>
+    public static bool SolidsCover(int built, int bottom, int top, int solidRows) => bottom >= built && top <= built + solidRows;
+
     /// <summary>Cells of the edge band for a cell size: <see cref="BandMetres"/> whatever the size, rounded up.</summary>
     public static int Band(float cellSize) => (int)Math.Ceiling(BandMetres / cellSize);
 

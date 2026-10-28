@@ -102,6 +102,35 @@ public class VolumeFollowTests
     }
 
     [Theory]
+    [InlineData(128, 0.25f, 1f, 64, 128)]
+    [InlineData(128, 0.25f, 0.5f, 64, 85)]
+    [InlineData(256, 0.25f, 1f, 64, 170)]
+    [InlineData(96, 0.5f, 0.5f, 64, 42)]
+    public void TheGridIsCutSoTheSolidsCoverItWithRoomToMove(int asked, float cell, float voxel, int solidRows, int rows)
+    {
+        Assert.Equal(rows, VolumeFollow.RowsWithinSolids(asked, cell, voxel, solidRows));
+        // What is left is half again under the texture's height: a quarter of the grid's to spare above and below.
+        Assert.True(rows * cell * 1.5f <= (solidRows * voxel) + 1e-4f);
+    }
+
+    [Fact]
+    public void TheSolidsAreBuiltWithTheGridInTheirMiddleAndAgainOnlyOnceItLeavesThem()
+    {
+        // A grid 40 voxel rows tall from row 100: the 64-row texture from row 88, twelve rows spare each way.
+        int built = VolumeFollow.SolidsBase(100, 140, 64);
+        Assert.Equal(88, built);
+        Assert.True(VolumeFollow.SolidsCover(built, 100, 140, 64));
+
+        // Moved up twelve rows it is still covered; one more and it is not, nor moved down past the bottom.
+        Assert.True(VolumeFollow.SolidsCover(built, 112, 152, 64));
+        Assert.False(VolumeFollow.SolidsCover(built, 113, 153, 64));
+        Assert.False(VolumeFollow.SolidsCover(built, 87, 127, 64));
+
+        // A grid as tall as the texture has none to spare: built from its own bottom.
+        Assert.Equal(100, VolumeFollow.SolidsBase(100, 164, 64));
+    }
+
+    [Theory]
     [InlineData(0.25f, 8)]
     [InlineData(0.5f, 4)]
     [InlineData(0.3f, 7)]
