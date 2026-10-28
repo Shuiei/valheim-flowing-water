@@ -28,6 +28,24 @@ public class ZoneHeightsTests
     }
 
     [Fact]
+    public void TheChangesGoOverTheGroundTheZonesModifiersShapedAndAreHeldNearIt()
+    {
+        var ground = new Ground();
+        ground.Shapes[1] = 5f;
+        ground.Raise(1, 0, 2f, revision: 1);
+        var heights = new ZoneHeights<int, (int, int)>(ground, Vertices);
+
+        // Generated 10 m, raised 5 m by a location's yard, then 2 m by a player's edit; elsewhere the yard alone.
+        Assert.Equal(17f, heights.Heights(1)[0], 4);
+        Assert.Equal(15f, heights.Heights(1)[1], 4);
+
+        // An edit is held within 8 m of the shaped ground, not of the generated one.
+        ground.Raise(1, 0, 20f, revision: 2);
+        heights.Refresh(_ => { });
+        Assert.Equal(23f, heights.Heights(1)[0], 4);
+    }
+
+    [Fact]
     public void ChangesMovedOnAreAppliedAgainOverTheGeneratedHeightsAndTheirZoneToldOf()
     {
         var ground = new Ground();
@@ -213,5 +231,19 @@ public class ZoneHeightsTests
             Changes.TryGetValue(zone, out ((int, int) Stamp, byte[] Data) changes) ? changes : (default, null);
 
         public void Warn(int zone, string problem) => Warnings.Add($"{zone}: {problem}");
+
+        // How much the zone's terrain modifiers raise all its ground (a location's yard), by zone.
+        public Dictionary<int, float> Shapes { get; } = [];
+
+        public void Shape(int zone, float[] heights)
+        {
+            if (Shapes.TryGetValue(zone, out float raised))
+            {
+                for (int i = 0; i < heights.Length; i++)
+                {
+                    heights[i] += raised;
+                }
+            }
+        }
     }
 }
