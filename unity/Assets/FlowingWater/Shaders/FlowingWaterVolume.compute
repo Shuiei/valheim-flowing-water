@@ -786,7 +786,9 @@ void MakeFroth(uint i, float3 x, float3 v, float3 pushed, int count, int3 c)
     int n = min(3, (int)floor((rate * _Dt) + Random(state)));
     for (int k = 0; k < n; k++)
     {
-        float3 place = x + ((float3(Random(state), Random(state), Random(state)) - 0.5) * (_H / PER_SIDE));
+        // Spread about the particle, but never into what it stands on (a splash's froth born inside the ground would
+        // count as landed at once, and die where it was made).
+        float3 place = Unsolid(x + ((float3(Random(state), Random(state), Random(state)) - 0.5) * (_H / PER_SIDE)), x);
         float3 velocity;
         if (impact > trapped && impact > crest)
         {
