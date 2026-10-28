@@ -386,7 +386,7 @@ stretched thinner as it speeds up), so there the density is counted against its 
 where it reaches half of what the cell holds, from two or three particles a cell (a lone drop or two is spray, left
 as thin as it is: boosted, a spray of drops would draw as a solid column); the water seen
 through stays its true thickness, so a fall's sheet is a thin veil. Each column of cells also keeps the depth of the water standing
-on its ground (the particles from the ground's cell up to the first cell with none, a fall or a splash over a gap not
+on its ground (the particles from the ground's cell up to the first two cells with none, a fall or a splash over a gap not
 being the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
 ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall; the ray counts
 everything between the ground and that top as water, where the top stands over the ground (a rock standing out of
@@ -408,9 +408,10 @@ the more froth there is, so it breaks into lace at its edges and closes where th
 (a fall's sheet, a rapid over a rock, from 5 m/s thinner than 40 cm, wholly at 11 m/s) runs white, streaked by that
 lace; and where the water runs, ripples finer than the sea's dragged along with it
 at its own speed (each cell's velocity goes to the drawing with its density; two phases blended so the ripples never
-stretch, the finest glinting on fast water), so running water moves and a pool lies still; thin water fades out, and within two metres of the square's side the water
-fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
-server's columns say nothing of what the volume holds), only that band, the world beyond, and water above or below
+stretch, the finest glinting on fast water), so running water moves and a pool lies still; thin water fades out, and within two metres of the square's side, and of the
+grid's top and bottom, the water fades into the bricks beyond (a stream down a hill taller than the grid blends from
+one into the other, not a seam across it). The bricks draw nothing else inside the square while the volume is on (the
+server's columns say nothing of what the volume holds), only those bands, the world beyond, and water above or below
 the grid's height (it follows the camera: a lake far below a cliff you stand on is the bricks' to draw). With the camera under the water, the scene is seen through the water up to its
 surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
 particles as spheres instead, for testing, and `flowingwater particles look N` takes the drawing apart (1 the density

@@ -1744,8 +1744,8 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
     // two of it, nearer counting more (its own count steps by a particle, 3 cm at the default, and the ground it stands
     // on is a crease at each cell, both of which the light would show as lines on the water; a real surface lies smooth
     // over them); and its depth, the same mean of the depths with a dry column counting as none, so the depth thins to
-    // nothing toward dry ground. The particles counted are those from the ground's cell up to the first cell with none
-    // beyond the ground's two (water above a gap is a fall or a splash, not the column's). Ground too steep for a
+    // nothing toward dry ground. The particles counted are those from the ground's cell up to the first two cells with
+    // none (water above such a gap is a fall or a splash, not the column's; one empty cell is a pocket in the water). Ground too steep for a
     // sheet (a wall, a trunk in the ground's heights: a rise over run past 2, none past 3; a 46° face keeps its whole
     // sheet) holds less of one.
     if (i < (uint)(_Nx * _Nz))
@@ -1775,7 +1775,11 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
                 for (int j = start; j < _Ny; j++)
                 {
                     int count = _CountIn[CellIndex(int3(o.x, j, o.y))];
-                    if (count == 0 && j > start)
+                    // A gap of two empty cells ends the column (water over it is a fall or a splash); one alone is a
+                    // pocket in a sloshing pool, whose water goes on over it (cut there, the column's top dropped a
+                    // cell or two under the surface, seen as dark dashes on the pool).
+                    bool next = j + 1 < _Ny && _CountIn[CellIndex(int3(o.x, j + 1, o.y))] > 0;
+                    if (count == 0 && j > start && !next)
                     {
                         break;
                     }

@@ -24,7 +24,8 @@ All notable changes to FlowingWater. Newest first.
   spray. A big spring wells up over a patch as wide as its rate needs instead of shooting a jet high into the sky;
   and the water no longer mirrors the ground about you where you see a surface from below. Water no longer hangs
   frozen in the air as a sheet or a ceiling where the server's idea of the ground differs from the game's (after
-  some terrain edits), and a spray of drops no longer draws as a solid column of water.
+  some terrain edits), and a spray of drops no longer draws as a solid column of water. Where a stream runs past
+  the top or bottom of the volume's grid it blends into the far water instead of ending in a line across it.
 
 ## v0.41.0 — 2026-10-27
 

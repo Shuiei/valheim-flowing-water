@@ -11,7 +11,7 @@ Shader "FlowingWater/VolumeMarch"
 {
     Properties
     {
-        _EdgeFade ("The water fades out over this far from the square's side (m)", Float) = 2
+        _EdgeFade ("The water fades out over this far from the square's side and the grid's top and bottom (m)", Float) = 2
         _SmoothRadius ("The surface is smoothed over this far across it (m), each pass", Float) = 0.6
         _SmoothFalloff ("A step in distance this deep (m) off the surface's own slope is kept, not smoothed over (one body of water before another)", Float) = 0.3
     }
@@ -194,11 +194,14 @@ Shader "FlowingWater/VolumeMarch"
                 // reaches half of what the cell holds; the lone drops under THIN_FROM are spray.
                 float fullness = tex3Dlod(_Coarse, float4(Where(place), 0.0)).r;
                 float thin = lerp(fine, fine / clamp(fullness, THIN_FULL, 1.0), smoothstep(THIN_FROM, THIN_FULL, fullness));
-                float fast = smoothstep(2.0, 4.0, length(tex3Dlod(_Flow, float4(Where(place), 0.0)).xyz));
+                // (Falling fast: a fall coming down into its pool moves down; a current across a pool's surface, or a
+                // swimmer's wake, is no fall, and taken for one it drew dashes over the pool where its surface and the
+                // particles' met.)
+                float fast = smoothstep(2.0, 4.0, -tex3Dlod(_Flow, float4(Where(place), 0.0)).y);
 
-                // Within a cell and a half over the column's top, slow water counts only where it is well over the
-                // half (1.4 and more: a wave; not a lump of the grain a particle or two high over the pool's surface),
-                // fast water as water on no ground (a fall coming down into its pool, a splash thrown up).
+                // Within a cell and a half over the column's top, water counts only where it is well over the half (1.4
+                // and more: a wave; not a lump of the grain a particle or two high over the pool's surface), but water
+                // falling fast as water on no ground (a fall coming down into its pool).
                 float above = place.y - top;
                 if (above > 0.0 && above < 1.5 * _VolumeCell)
                 {
@@ -334,8 +337,9 @@ Shader "FlowingWater/VolumeMarch"
                     return o;
                 }
 
+                // Faded out toward the square's sides and the grid's top and bottom, where the bricks draw beyond.
                 float3 edge = min(surfacePlace - lo, hi - surfacePlace);
-                float near = saturate(min(edge.x, edge.z) / max(_EdgeFade, 0.01));
+                float near = saturate(min(min(edge.x, edge.z), edge.y) / max(_EdgeFade, 0.01));
                 float foam = tex3Dlod(_Foam, float4(Where(surfacePlace), 0.0)).r;
                 o.water = float4(under ? 0.0 : surfaceAt * along, thickness, foam, under ? 1.0 : 0.0);
                 // (The flow read half a cell in from the surface: at the surface itself the cells' flow is averaged

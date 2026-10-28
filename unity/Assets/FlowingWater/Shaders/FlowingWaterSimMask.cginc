@@ -50,7 +50,10 @@ bool SimDraws(float3 world)
     float2 edge = min(uv, 1.0 - uv) * _FWSimSize;
     if (_FWSimWhole > 0.5 && min(edge.x, edge.y) > _FWSimEdge)
     {
-        return world.y >= _FWSimBottom && world.y <= _FWSimTop;
+        // The volume draws within its grid's height but for a band as wide along its top and bottom, where it fades
+        // out as at the square's sides and the bricks draw the water beyond (a stream down a hill taller than the
+        // grid blends from one into the other, not a seam across it).
+        return world.y >= _FWSimBottom + _FWSimEdge && world.y <= _FWSimTop - _FWSimEdge;
     }
 
     return tex2Dlod(_FWSimTarget, float4(uv, 0.0, 0.0)).y > 0.5;

@@ -268,6 +268,10 @@ Shader "FlowingWater/VolumeSurface"
                 }
 
                 float3 toCamera = normalize(_WorldSpaceCameraPos - worldPos);
+                // A surface one sees faces the eye: at a silhouette the distances' slope can turn the normal away from
+                // it (a step to the water behind read as a slope), which lit the pixel as the water's dark underside, a
+                // speck along the far shore. Turned back until it faces the eye a little.
+                worldN = under ? worldN : normalize(worldN - (toCamera * min(dot(worldN, toCamera) - 0.1, 0.0)));
                 // The surface as found, before its ripples: what the sky's share in it and the water's depth along the
                 // view are reckoned from (a surface rippled all over would be white with sky from most angles).
                 float3 lieN = worldN;
