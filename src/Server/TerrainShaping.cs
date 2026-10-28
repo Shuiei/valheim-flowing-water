@@ -147,7 +147,7 @@ internal static class TerrainShaping
 
                 // Toward the modifier's height, wholly at it, not at all at the reach's edge.
                 float share = apart / radius;
-                share = modifier.SmoothPower == 3f ? share * share * share : (float)Math.Pow(share, modifier.SmoothPower);
+                share = (float)Math.Pow(share, modifier.SmoothPower);
                 int i = (z * Side) + x;
                 float height = heights[i] + ((y - heights[i]) * (1f - share));
                 if (modifier.PlayerMade)
