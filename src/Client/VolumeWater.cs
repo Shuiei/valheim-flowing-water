@@ -861,8 +861,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             _shader.SetBuffer(kernel, BodiesId, _bodies);
         }
 
-        // (The server's water beyond an open side is a wall to the solver: every kernel that reads a cell's type reads
-        // it.)
+        // (The server's water beyond an open side is water at its own pressure to the solver: every kernel that reads a
+        // cell's type or a pressure reads it.)
         foreach (int kernel in new[] { _clearFaces, _gather, _divergence, _relax, _project, _seed })
         {
             _shader.SetTexture(kernel, TargetId, _target ?? _noTarget);

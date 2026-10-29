@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.1 — 2026-10-29
+
+### Fixed
+- The water near you no longer fills up round a big source: it runs on out into the water beyond, instead of
+  standing half a metre over it.
+
 ## v0.44.0 — 2026-10-29
 
 ### Changed

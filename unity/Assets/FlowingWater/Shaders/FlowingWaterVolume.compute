@@ -74,6 +74,11 @@
 #define SOLID 2
 // A source's cell: water comes out of it at the source's speed (an inflow, as a moving wall is to the pressure).
 #define EMIT 3
+// Beyond an open side, under the server's water there: water whose pressure is its depth's under the server's top
+// (BeyondPressure). The square's water runs out into it where it stands higher, in from it where lower.
+#define BEYOND 4
+// How far over the server's top, in cells, the water beyond is held at no pressure (BeyondPressure).
+#define BEYOND_SURFACE 0.5
 #define GONE 0xFFFFFFFFu
 // Fixed point for the faces' sums: a thousandth of a millimetre a second over sixty-four particles' shares.
 #define FIX 65536.0
@@ -552,9 +557,11 @@ float4 ServerAt(int3 c)
     return _Target[column];
 }
 
-// Whether the server has water at a cell's height beyond an open side: it holds the square's water in there, as a
-// wall does (a lake the square cuts stays level at its edge; the band along the side takes the server's water as it
-// changes); dry beyond, the side is air and the water goes out.
+// Whether the server has water at a cell's height beyond an open side: water there, at the server's level (a lake the
+// square cuts stays level at its edge, its pressure the same on both sides; the band along the side takes the
+// server's water as it changes, and the square's water standing higher runs out under the server's level too, not
+// only over it, as it did when that water was a wall: a big source filled the square, a dome over it); dry beyond,
+// the side is air and the water goes out.
 bool WetBeyond(int3 c)
 {
     float4 server = ServerAt(c);
@@ -575,15 +582,30 @@ int TypeAt(int3 c)
 
     if (c.x < 0 || c.z < 0 || c.x >= _Nx || c.z >= _Nz)
     {
-        return _OpenSides == 0 || WetBeyond(c) ? SOLID : AIR;
+        return _OpenSides == 0 ? SOLID : WetBeyond(c) ? BEYOND : AIR;
     }
 
     return _TypeIn[CellIndex(c)];
 }
 
+// The pressure of the server's water beyond an open side, at a cell there: as the square's own water would have it
+// standing to the server's top (the pressure is kinematic, square metres a second squared, still water's growing by
+// gravity times depth), held at nothing from the middle of the first cell over the one that top is in, where the
+// solver's own surface is (a cell with any water in it is water to it). From the top itself, the square's water
+// stood that much higher to the pressure than the server's, and a lake the square cuts ran out at its sides.
+float BeyondPressure(int3 c)
+{
+    return _Gravity * max(0.0, ServerAt(c).x + (BEYOND_SURFACE * _H) - CentreOf(c).y);
+}
+
 float PressureAt(int3 c)
 {
-    return InGrid(c) && _TypeIn[CellIndex(c)] == FLUID ? _PIn[CellIndex(c)] : 0.0;
+    if (!InGrid(c))
+    {
+        return TypeAt(c) == BEYOND ? BeyondPressure(c) : 0.0;
+    }
+
+    return _TypeIn[CellIndex(c)] == FLUID ? _PIn[CellIndex(c)] : 0.0;
 }
 
 // A face's velocity, trilinear at a point of the grid's coordinates (the face's own: the point less the face's offset).
@@ -1084,7 +1106,7 @@ void Relax(uint3 id : SV_DispatchThreadID)
         // The face between, weighted by its area to the flow (the face toward a lower neighbour is this cell's own).
         float area = _AreaIn[FaceAt((s & 1) == 0 ? c : next, s / 2)];
         open += area;
-        sum += area * (type == FLUID ? _P[CellIndex(next)] : 0.0);
+        sum += area * (type == FLUID ? _P[CellIndex(next)] : type == BEYOND ? BeyondPressure(next) : 0.0);
     }
 
     _P[i] = open > 0.0 ? (sum - (_DivIn[i] * _H * _H / _Dt)) / open : 0.0;

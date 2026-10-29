@@ -327,9 +327,13 @@ voxels it has water in, so without this a wall or a roof its water had not reach
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
 two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
-or top is the server's again. Where the server has water beyond a side, that side holds the square's water in, as a
-wall does, so a lake the square cuts stays level at its edge (the band along it takes the server's water as it
-changes); where the world beyond is dry, the side is open and the water goes out. Deep water would fill the particles'
+or top is the server's again. Where the server has water beyond a side, the solver takes it for water at the
+server's level, its pressure its depth's under the server's top (held at nothing half a cell over that top, where
+the solver's own surface is: a cell with any water in it is water to it), so a lake the square cuts stays level at
+its edge (the band along it takes the server's water as it changes), and the square's water standing higher runs out
+under the server's level as well as over it. That water was a wall up to the server's level until 0.44.1: a big
+source's water could leave only over it, and a 100 m³/s source filled the square half a metre over the server's
+water. Where the world beyond is dry, the side is open and the water goes out. Deep water would fill the particles'
 room (a lake filling the square at 3 m is 3,000 m³, a million particles hold 2,000), and a full volume takes nothing
 more from a source or a fall: where the server's water in the grid would take more than three quarters of the room,
 the volume moves only the top of deep water, as deep as fits and at least a metre (`VolumeFollow.DeepKeep`, from the

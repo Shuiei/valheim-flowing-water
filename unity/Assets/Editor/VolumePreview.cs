@@ -41,7 +41,7 @@ public static class VolumePreview
             SimPreview.Output = _output;
             BuildBundles.Prepare();
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow", "slope" };
+            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow", "slope", "bigspring" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -92,6 +92,11 @@ public static class VolumePreview
             if (Runs("slope"))
             {
                 Slope();
+            }
+
+            if (Runs("bigspring"))
+            {
+                BigSpring();
             }
 
             File.WriteAllText(Path.Combine(_output, "volume.txt"), Log.ToString());
@@ -297,6 +302,57 @@ public static class VolumePreview
         ok &= level;
         Log.AppendLine(Inv($"  Two seconds after the source stopped, the water's top spreads {rough:0.000} m (standard deviation) about its mean from column to column, a level surface, not the ground's cells: {Check(level)}"));
         Log.AppendLine($"  The water grew by the rate within 15 %, and lay level after: {Check(ok)}");
+    }
+
+    // A big source (FW_PREVIEW_RATE m3/s, 100 by default) in the middle of a square 32 m across with its sides open, over
+    // flat ground under the server's water 0.9 m deep, as in the game: the water runs out to the sides, where the
+    // server's level holds; how high it stands round the source, ring by ring, against the 0.9 m it runs off at.
+    private static void BigSpring()
+    {
+        float rate = float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_RATE"), NumberStyles.Float, CultureInfo.InvariantCulture, out float r) ? r : 100f;
+        float[] bed = Field((x, z) => 0f);
+        using var scene = new Scene("vbigspring", bed, 128);
+        scene.Water.Origin = new Vector3(4f, -3f, 4f);
+        scene.Water.OpenSides = true;
+        scene.Water.EdgeBand = VolumeFollow.Band(Dx);
+        scene.Server((x, z) => 0.9f);
+        scene.Water.SeedFromServer();
+        var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0f, 20f), rate) };
+        scene.Water.SetSprings(springs);
+        Log.AppendLine(Inv($"Big spring: {rate} m3/s in the middle of a square 32 m across, sides open over the server's water 0.9 m deep, {scene.Water.Iterations} pressure sweeps a step; the water's top (m over the ground) at rings 0 to 14 m from the source, each second."));
+        for (int k = 1; k <= 600; k++)
+        {
+            scene.Step();
+            if (k % 60 == 0)
+            {
+                float[] data = scene.Water.Read();
+                float[] rings = new float[8];
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
+                    int ring = (int)Math.Round(Mathf.Sqrt(((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f))) / 2f);
+                    if (ring < rings.Length)
+                    {
+                        rings[ring] = Math.Max(rings[ring], y);
+                    }
+                }
+
+                (float[] scales, uint[] given) = scene.Water.ReadSources();
+                Measure m = Measure.Of(scene.Water, bed);
+                Log.AppendLine(Inv($"  t={k * Frame:0}s {scene.Water.Count * scene.Water.Litre:0} m3, source speed scaled {scales[0]:0.00} ({springs[0].Flow.x * scales[0]:0.0} m/s), gave {given[0]} a step (wants {rate * Frame / scene.Water.Litre:0}), fastest {m.Fastest:0.0} m/s: ") + string.Join(" ", rings.Select((h, i) => Inv($"{i * 2}m:{h:0.00}"))));
+            }
+
+            if (k is 300 or 600)
+            {
+                scene.Shot(Inv($"vbigspring_{k * Frame:0}s"), new Vector3(8f, 6f, 8f), new Vector3(20f, 0.5f, 20f));
+            }
+        }
+
+        // The square's water levels off near the server's (0.9 m over 32 m square), the source's boil over it: it runs
+        // out at the sides, under the server's level too, not only over it.
+        float held = scene.Water.Count * scene.Water.Litre, server = 0.9f * 32f * 32f;
+        bool ok = held <= 1.25f * server;
+        Log.AppendLine(Inv($"  After 10 s the square holds {held:0} m3, the server's water there {server:0} m3: within 25 % over it: {Check(ok)}"));
     }
 
     // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
