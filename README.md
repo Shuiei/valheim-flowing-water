@@ -47,7 +47,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
-| `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you, and with the volume water on, its own column under you (the water it takes as standing on the ground, and each cell's particles) |
+| `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you, and with the volume water on, its own column under you (the water it takes as standing on the ground, and each cell's particles) and what the card takes as built in it (solid voxels, closed faces) |
 | `flowingwater particles [m³\|clear\|spheres\|full]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water; `full` draws the water's surface at the screen's full size instead of half, again for half |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
@@ -314,10 +314,14 @@ particles, mostly as the change (FLIP) and a little as the grid's own (PIC), and
 card's water knows cuts the grid's cells (Batty, Bertails and Bridson 2007, in its simplest form): each cell knows how
 much of it is clear of the ground and each face how much of its area is, the pressure is solved over those areas and a
 cell's rest is its clear share, so a slope is a slope to the water, not a stair of cells (water let go at the top of a
-ramp runs down it as a sheet), and a cell wholly under the ground, in a built voxel (the bricks' solids) or in a body
-(players, creatures, ships' hulls, carts) is solid; the faces thin pieces close between voxels are walls to the grid
-and to the particles: the water goes round them, pools over them, is held in by them and breaks out where one is
-gone.
+ramp runs down it as a sheet), and a cell wholly under the ground, in a built voxel or in a body (players,
+creatures, ships' hulls, carts) is solid; the faces thin pieces close between voxels are walls to the grid and to the
+particles: the water goes round them, pools over them, is held in by them and breaks out where one is gone. What is
+built is the player's game's own reading of the solid objects round the square (`src/Client/BuiltSolids.cs`): the
+same shapes the server reads (`SolidShapes`), rastered a block at a time on another thread as the server rasters its
+own (`BuiltVoxels`), looked over once a second and rastered again only where an object was built, broken, moved,
+opened or mined; with what the server's blocks say where it has water. The server says what is built only in the
+voxels it has water in, so without this a wall or a roof its water had not reached yet let the volume water through.
 
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band

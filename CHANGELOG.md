@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.1 — 2026-10-29
+
+### Fixed
+- Thin walls, floors and roofs hold the volume water wherever they stand. Before, they only counted where the
+  server's water had already reached, so water the volume threw ahead of it went straight through a wall or a roof.
+
 ## v0.42.0 — 2026-10-27
 
 ### Fixed

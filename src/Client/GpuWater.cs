@@ -67,6 +67,9 @@ internal sealed class GpuWater : IDisposable
 
     private static GpuWater _water;
 
+    // What is built round the square, as this game reads it (kept from one square to the next, until a world opens).
+    private static BuiltSolids _built;
+
     // The bricks in the square this frame (kept, not made again each frame).
     private static readonly List<BrickView> NearBricks = [];
 
@@ -147,6 +150,9 @@ internal sealed class GpuWater : IDisposable
     // last build started from; built again once the camera is 8 m from it), as the build gathers them.
     private readonly ParticleSolids _solids = new();
 
+    // The solids last taken onto the card, as laid out for it (for the console).
+    private byte[] _solidsTaken;
+
     private readonly List<ParticleWater.Body> _bodies = new(ParticleWater.MostBodies);
 
     private Ship[] _ships = [];
@@ -156,6 +162,11 @@ internal sealed class GpuWater : IDisposable
     private int _shipsLookedFor = -60;
 
     private int _buildingBase;
+
+    // The version of what this game read as built (BuiltSolids) the build under way, and the last one, were made with.
+    private int _buildingBuilt;
+
+    private int _builtBuilt = -1;
 
     private int _builtBase = int.MinValue;
 
@@ -243,7 +254,11 @@ internal sealed class GpuWater : IDisposable
     public static void Tick() => Gate.Run(TickOn);
 
     /// <summary>A world opens: off after a fault in the last one, it has a fresh try.</summary>
-    public static void WorldOpened() => Gate.Reset();
+    public static void WorldOpened()
+    {
+        Gate.Reset();
+        _built = null;
+    }
 
     /// <summary>
     /// Draws each part of the water in a colour of its own, for testing (console "flowingwater gpu colours"): the card's
@@ -320,8 +335,9 @@ internal sealed class GpuWater : IDisposable
         }
 
         string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, the camera at {_water._cameraY:0.0})");
+        string built = _built == null ? string.Empty : FormattableString.Invariant($"; what is built round it: {_built.Objects} solid objects, {_built.Bricks.Count} blocks of voxels holding some, looked over in {_built.LookMilliseconds:0.0} ms");
         return FormattableString.Invariant(
-            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}");
+            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}{built}");
     }
 
     /// <summary>
@@ -364,6 +380,11 @@ internal sealed class GpuWater : IDisposable
         if (VolumeColumn(_water._volume, point) is { } column)
         {
             yield return column;
+        }
+
+        if (_water.SolidsColumn(point) is { } built)
+        {
+            yield return built;
         }
 
         for (int x = cx - 1; x <= cx + 1; x++)
@@ -825,7 +846,9 @@ internal sealed class GpuWater : IDisposable
         if (build.Result.Solids != null)
         {
             _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
+            _solidsTaken = build.Result.Solids;
             _builtBase = _buildingBase;
+            _builtBuilt = _buildingBuilt;
             _solidsWindow = _buildingWindow;
         }
         if (!_seeded)
@@ -858,7 +881,18 @@ internal sealed class GpuWater : IDisposable
             rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
         }
 
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
+        // What is built round the square, as this game reads it: the server says it only where it has water.
+        IReadOnlyDictionary<(int X, int Y, int Z), byte[]> built = null;
+        int builtVersion = _builtBuilt;
+        if (solids)
+        {
+            _built ??= new BuiltSolids();
+            _built.Update(_window.X0, _window.Z0, _window.Columns, rebased ? baseRow : _builtBase, _window.VoxelSize);
+            built = _built.Bricks;
+            builtVersion = _built.Version;
+        }
+
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && builtVersion == _builtBuilt && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
         }
@@ -871,14 +905,21 @@ internal sealed class GpuWater : IDisposable
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
         _buildingBase = rebased ? baseRow : _builtBase;
+        _buildingBuilt = builtVersion;
         int solidsBase = _buildingBase;
         _builtAt = Time.time;
         _build = Task.Run(() =>
         {
             float[] texels = SimColumns.Build(bricks, w.X0, w.Z0, w.Columns, w.VoxelSize, ground, w.PerVoxel, out float[] cast, out float[] layers, falls);
             bool any = false;
-            byte[] built = solids ? Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any) : null;
-            return (texels, layers, cast, built, any);
+            byte[] voxels = null;
+            if (solids)
+            {
+                voxels = Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any);
+                any |= BuiltVoxels.Write(built, voxels, w.X0, w.Z0, w.Columns, solidsBase);
+            }
+
+            return (texels, layers, cast, voxels, any);
         });
     }
 
@@ -1145,6 +1186,41 @@ internal sealed class GpuWater : IDisposable
         float[] found = _ground;
         int cells = _window.Cells;
         _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], found[(z * cells) + x], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+    }
+
+    // What the card takes as built in the voxel column at a point, for the console: each row holding any, with its
+    // letters (S solid; faces closed: E east, W west, U up, D down, N north, s south); null with none taken there.
+    private string SolidsColumn(Vector3 point)
+    {
+        if (_solidsTaken == null || !_solidsWindow.Equals(_window))
+        {
+            return null;
+        }
+
+        SimWindow w = _window;
+        int x = (int)Math.Floor(point.x / w.VoxelSize) - w.X0, z = (int)Math.Floor(point.z / w.VoxelSize) - w.Z0;
+        if (x < 0 || z < 0 || x >= w.Columns || z >= w.Columns)
+        {
+            return null;
+        }
+
+        var rows = new System.Text.StringBuilder();
+        for (int y = 0; y < SolidsLayout.Rows; y++)
+        {
+            byte b = _solidsTaken[SolidsLayout.Index(w.Columns, x, y, z)];
+            if (b == 0)
+            {
+                continue;
+            }
+
+            rows.Append(FormattableString.Invariant($" {(_builtBase + y) * w.VoxelSize:0.0}:"));
+            rows.Append((b & SolidsLayout.Solid) != 0 ? "S" : string.Empty).Append((b & SolidsLayout.ClosedEast) != 0 ? "E" : string.Empty)
+                .Append((b & SolidsLayout.ClosedWest) != 0 ? "W" : string.Empty).Append((b & SolidsLayout.ClosedUp) != 0 ? "U" : string.Empty)
+                .Append((b & SolidsLayout.ClosedDown) != 0 ? "D" : string.Empty).Append((b & SolidsLayout.ClosedNorth) != 0 ? "N" : string.Empty)
+                .Append((b & SolidsLayout.ClosedSouth) != 0 ? "s" : string.Empty);
+        }
+
+        return FormattableString.Invariant($"the card's solids in the voxel column at {point.x:0.0},{point.z:0.0}, by row bottom (m):{(rows.Length == 0 ? " none" : rows.ToString())}");
     }
 
     // The volume water's own column at a point, for the console: what the drawing takes as the water standing on the

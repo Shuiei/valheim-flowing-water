@@ -14,17 +14,15 @@ namespace FlowingWater.Client;
 /// </summary>
 internal sealed class ParticleSolids : IDisposable
 {
-    /// <summary>
-    /// Rows of voxels the texture holds: so many metres of height at the voxel's size (128 m at the server's default 1 m
-    /// voxels, 64 m at 0.5 m), round the camera or the volume water's grid (which is cut to what it covers).
-    /// </summary>
-    public const int Rows = 128;
+    /// <inheritdoc cref="SolidsLayout.Rows"/>
+    public const int Rows = SolidsLayout.Rows;
 
-    /// <summary>The byte's bit for a solid voxel; the six below it close its east, west, up, down, north and south faces.</summary>
-    public const byte Solid = 128;
+    /// <inheritdoc cref="SolidsLayout.Solid"/>
+    public const byte Solid = SolidsLayout.Solid;
 
-    /// <inheritdoc cref="Solid"/>
-    public const byte ClosedEast = 1, ClosedWest = 2, ClosedUp = 4, ClosedDown = 8, ClosedNorth = 16, ClosedSouth = 32;
+    /// <inheritdoc cref="SolidsLayout.Solid"/>
+    public const byte ClosedEast = SolidsLayout.ClosedEast, ClosedWest = SolidsLayout.ClosedWest, ClosedUp = SolidsLayout.ClosedUp,
+        ClosedDown = SolidsLayout.ClosedDown, ClosedNorth = SolidsLayout.ClosedNorth, ClosedSouth = SolidsLayout.ClosedSouth;
 
     private Texture3D _texture;
 
@@ -43,11 +41,8 @@ internal sealed class ParticleSolids : IDisposable
     /// <summary>Whether anything taken is solid at all (nothing: the particles need not look).</summary>
     public bool Any { get; private set; }
 
-    /// <summary>
-    /// The index of a voxel in the bytes, as a 3D texture of columns wide, <see cref="Rows"/> high and columns deep lays
-    /// them out: x fastest, then the row, then z.
-    /// </summary>
-    public static int Index(int columns, int x, int y, int z) => (((z * Rows) + y) * columns) + x;
+    /// <inheritdoc cref="SolidsLayout.Index"/>
+    public static int Index(int columns, int x, int y, int z) => SolidsLayout.Index(columns, x, y, z);
 
     /// <summary>Solid voxels as <see cref="Index"/> lays them out, onto the card (the texture made, or made again at a new size).</summary>
     public void Take(byte[] solids, int columns, float voxelSize, int baseRow, bool any)
