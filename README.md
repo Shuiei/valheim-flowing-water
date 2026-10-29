@@ -577,7 +577,9 @@ there to the new grid (same volume), at once when the file is saved.
   where its water stands open to the air (from its floor, or the water beside it, up to its level, the surface's at
   most; not toward the column beside when its water's top is at this row or lower, up to three voxels under this
   one's top, however deep either is: the surface runs from one column's top to the other's, so a side between them
-  would stand under it or through it; unless that column holds water higher up, which the surface joins instead, or
+  would stand under it or through it; unless that column holds water standing higher up, which the surface joins
+  instead (water falling through the air over it, a fall's or its spray over a pool, is no such water: open under it,
+  no floor, nothing under it full or holding ground), or
   the server says the dry voxel beside on that side holds some ground, as it sends for each side: the side shows over
   it), and water falling through the air as a column through each
   voxel it falls through, as wide as its water, capped where the fall starts and ends, so a fall is one cascade of

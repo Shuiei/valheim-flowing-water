@@ -125,20 +125,59 @@ internal sealed class VoxelField
     public float Floor(int x, int y, int z) => (y + (Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f)) * VoxelSize;
 
     /// <summary>
-    /// The height of the top of the water voxel (x, y, z) is in, metres, its water laid flat on the ground under it: a
-    /// film the server keeps in the voxel over one that is not full and holds ground (water on its way down a slope)
-    /// is that little water over the ground, not water up to the voxel it is in. Only a top's voxel straight over one
-    /// holding ground (<see cref="BrickData.HoldsGround"/>), as <see cref="VoxelShell"/> takes it for a step down a
-    /// slope; water over a voxel with none (a fall's, through the air) stands where it is: its top's level.
+    /// Whether the water in voxel (x, y, z) falls through the air: open under it, holding no floor, nothing under it
+    /// holding ground (as the server says, <see cref="BrickData.GroundUnder"/>, or as the voxel under holds some), and
+    /// the voxel under not full: a fall's water, or the spray a fall leaves over a pool, not water standing
+    /// (<see cref="VoxelShell"/> draws it as a fall, and keeps no side under it).
     /// </summary>
-    public float Settled(int x, int y, int z)
+    public bool FallsThrough(int x, int y, int z)
+    {
+        if (!Voxel(x, y, z, out BrickView view, out int i) || !IsWet(view, i))
+        {
+            return false;
+        }
+
+        int open = view.Open[i];
+        if ((open & (1 << 3)) == 0 || (open & BrickData.GroundUnder) != 0 || view.Solid[i] >= BrickData.HoldsGround)
+        {
+            return false;
+        }
+
+        if (!Voxel(x, y - 1, z, out BrickView under, out int j))
+        {
+            return true;
+        }
+
+        return under.Solid[j] < BrickData.HoldsGround && under.Water[j] + under.Solid[j] < Full;
+    }
+
+    /// <summary>
+    /// The top of the standing water voxel (x, y, z) is in: the highest voxel its water goes on up into, short of water
+    /// falling through the air over it (<see cref="FallsThrough"/>: a fall landing on a pool, the spray over it), at
+    /// most <see cref="VoxelSurface.DeepestColumn"/> over it.
+    /// </summary>
+    public int StandingTop(int x, int y, int z)
     {
         int top = y;
-        while (top - y < VoxelSurface.DeepestColumn && GoesUp(x, top, z))
+        while (top - y < VoxelSurface.DeepestColumn && GoesUp(x, top, z) && !FallsThrough(x, top + 1, z))
         {
             top++;
         }
 
+        return top;
+    }
+
+    /// <summary>
+    /// The height of the top of the standing water voxel (x, y, z) is in (<see cref="StandingTop"/>), metres, its water
+    /// laid flat on the ground under it: a film the server keeps in the voxel over one that is not full and holds
+    /// ground (water on its way down a slope) is that little water over the ground, not water up to the voxel it is in.
+    /// Only a top's voxel straight over one holding ground (<see cref="BrickData.HoldsGround"/>), as
+    /// <see cref="VoxelShell"/> takes it for a step down a slope; water over a voxel with none (a fall's, through the
+    /// air) stands where it is: its top's level.
+    /// </summary>
+    public float Settled(int x, int y, int z)
+    {
+        int top = StandingTop(x, y, z);
         float level = Level(x, top, z);
         if (!Voxel(x, top - 1, z, out BrickView under, out int i) || !IsWet(under, i) || !GoesUp(x, top - 1, z) || under.Solid[i] < BrickData.HoldsGround)
         {

@@ -189,12 +189,7 @@ internal sealed class VoxelShell
             return false;
         }
 
-        int top = y;
-        while (top - y < VoxelSurface.DeepestColumn && field.GoesUp(x, top, z))
-        {
-            top++;
-        }
-
+        int top = field.StandingTop(x, y, z);
         for (int row = y; row >= top - VoxelSurface.MaxStep; row--)
         {
             if (field.IsWet(bx, row, bz) && !field.GoesUp(bx, row, bz))
@@ -206,14 +201,16 @@ internal sealed class VoxelShell
         return false;
     }
 
-    // No water over row y of column (x, z), up to the top of the brick row y is in (one row at least): the surface takes
-    // a column's highest top in a brick's rows, so with water higher up there it joins that, not the water at or under y.
+    // No water standing over row y of column (x, z), up to the top of the brick row y is in (one row at least): the
+    // surface takes a column's highest standing top in a brick's rows, so with water standing higher up there it joins
+    // that, not the water at or under y. Water falling through the air over it (a fall's, its spray over a pool) is the
+    // fall's, as air is to the surface.
     private static bool NoneOver(VoxelField field, int x, int y, int z)
     {
         int ceiling = Math.Max(y + 1, (Brick.Of(y) * Brick.Size) + Brick.Size - 1);
         for (int up = y + 1; up <= ceiling; up++)
         {
-            if (field.IsWet(x, up, z))
+            if (field.IsWet(x, up, z) && !field.FallsThrough(x, up, z))
             {
                 return false;
             }
