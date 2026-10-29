@@ -340,7 +340,7 @@ float3 CentreOf(int3 c)
 // round it step by more than STEP_UP (a wall, a cliff: then the cell's own, so the wall's height is not lent as a
 // ramp to the floor beside it).
 #define STEP_UP 1.0
-float GroundAt(float2 xz)
+float BedAt(float2 xz)
 {
     float2 at = ((xz - _BedOrigin) / _BedDx) - 0.5;
     int2 c = (int2)floor(at);
@@ -354,6 +354,26 @@ float GroundAt(float2 xz)
     }
 
     return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+}
+
+// Metres of the server's deep water the volume moves (VolumeWater.DeepKeep; 0: all of it): where the server's water is
+// deeper, its water under so many metres from its top is the volume's floor, the server's to hold (a lake filling the
+// square would take every particle the card has, and a source or a fall there would pour none).
+float _DeepKeep;
+
+// The ground the volume's water stands on at a world point: the bed, or under deep water the server's water below the
+// depth the volume moves.
+float GroundAt(float2 xz)
+{
+    float ground = BedAt(xz);
+    if (_DeepKeep > 0.0)
+    {
+        int columns = max(1, _BedCells / max(1, _PerVoxel));
+        float4 server = _Target[clamp((int2)floor((xz - _BedOrigin) / (_BedDx * _PerVoxel)), 0, columns - 1)];
+        ground = server.x > DRY_TOP && server.z > _DeepKeep ? max(ground, server.x - _DeepKeep) : ground;
+    }
+
+    return ground;
 }
 
 // How much of a cell is clear of the ground, 0 to 1: the ground under four points of its footprint against its top.

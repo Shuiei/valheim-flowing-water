@@ -1,3 +1,4 @@
+using System;
 using FlowingWater.Client;
 using Xunit;
 
@@ -5,7 +6,8 @@ namespace FlowingWater.Tests;
 
 /// <summary>
 /// The volume water's grid following the camera: its height in rows, where it sits, when it moves up or down after the
-/// camera, the edge band that takes the server's water, and what a move of the square reseeds.
+/// camera, the edge band that takes the server's water, what a move of the square reseeds, and how much of deep water
+/// it moves when all of it would not fit.
 /// </summary>
 public class VolumeFollowTests
 {
@@ -150,5 +152,91 @@ public class VolumeFollowTests
     public void AMoveOfTheSquareReseedsTheStripItUncovered(int dx, int dz, int per, int cells)
     {
         Assert.Equal(cells, VolumeFollow.Reseed(dx, dz, per));
+    }
+    [Fact]
+    public void WaterThatFitsNeedsNoFloorUnderIt()
+    {
+        // 100 columns of 1 m², 2 m deep: 200 m³ in a budget of 300.
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 2f);
+
+        Assert.Equal(0f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 0f));
+    }
+
+    [Fact]
+    public void DeepWaterKeepsTheDeepestTopThatFits()
+    {
+        // 100 columns 5 m deep: 500 m³; a budget of 300 holds their top 3 m.
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 5f);
+
+        Assert.Equal(3f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 0f), 3);
+    }
+
+    [Fact]
+    public void AtTheLeastAMetreIsKept()
+    {
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 5f);
+
+        Assert.Equal(VolumeFollow.LeastKeep, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 50f, 0f));
+    }
+
+    [Fact]
+    public void OnlyTheWaterInTheGridCounts()
+    {
+        // 5 m deep, but the grid starts 2 m under the top: 200 m³ in it, which fits.
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 5f);
+
+        Assert.Equal(0f, VolumeFollow.DeepKeep(tops, depths, 1f, 48f, 70f, 250f, 0f));
+    }
+
+    [Fact]
+    public void DryColumnsHoldNothing()
+    {
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 5f);
+        for (int i = 0; i < 50; i++)
+        {
+            depths[i] = 0f;
+        }
+
+        // Half the columns wet, 5 m deep: 250 m³ in a budget of 300.
+        Assert.Equal(0f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 0f));
+    }
+
+    [Fact]
+    public void AKeptDepthIsLetBeWhileWhatItHoldsStaysNearTheBudget()
+    {
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 5f);
+
+        // 3 m fits 300 m³: 2.6 m (260) and 3.4 m (340) kept stay, 2 m (200) and 4 m (400) go to 3.
+        Assert.Equal(2.6f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 2.6f));
+        Assert.Equal(3.4f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 3.4f));
+        Assert.Equal(3f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 2f), 3);
+        Assert.Equal(3f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 4f), 3);
+    }
+
+    [Fact]
+    public void TheFloorGoesOnlyOnceAllTheWaterFitsWithRoomToSpare()
+    {
+        // 260 m³ fits a budget of 300, but not with a fifth to spare: the floor at 2.6 m stays; at 230 m³ it goes.
+        (float[] tops, float[] depths) = Pool(100, top: 50f, depth: 2.6f);
+        Assert.Equal(2.6f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 2.6f));
+
+        (tops, depths) = Pool(100, top: 50f, depth: 2.3f);
+        Assert.Equal(0f, VolumeFollow.DeepKeep(tops, depths, 1f, 30f, 70f, 300f, 2.6f));
+    }
+
+    [Fact]
+    public void TopsAndDepthsMustPair() =>
+        Assert.Throws<ArgumentException>(() => VolumeFollow.DeepKeep(new float[2], new float[3], 1f, 0f, 10f, 1f, 0f));
+
+    private static (float[] Tops, float[] Depths) Pool(int columns, float top, float depth)
+    {
+        float[] tops = new float[columns], depths = new float[columns];
+        for (int i = 0; i < columns; i++)
+        {
+            tops[i] = top;
+            depths[i] = depth;
+        }
+
+        return (tops, depths);
     }
 }

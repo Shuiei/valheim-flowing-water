@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.3 — 2026-10-29
+
+### Fixed
+- The volume water no longer runs out of room over deep water. A deep pool or a lake round you could fill every
+  particle it has, and then a source or a fall there poured nothing and the water's surface showed holes. Now, when
+  the water near you would not fit, the volume moves only the top few metres of deep water and the rest stays still
+  beneath, so falls and sources keep pouring.
+
 ## v0.42.2 — 2026-10-29
 
 ### Fixed

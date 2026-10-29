@@ -198,6 +198,14 @@ internal sealed class GpuWater : IDisposable
     // The last build's texels (for the console).
     private float[] _texels;
 
+    // The server's columns' tops and depths, for how much of deep water the volume moves.
+    private float[] _deepTops;
+
+    private float[] _deepDepths;
+
+    // The depth of deep water last told of in the log (0: all of it moved).
+    private float _deepTold;
+
     // The last build's ledges and falls (moved with the square).
     private float[] _layers;
 
@@ -753,6 +761,7 @@ internal sealed class GpuWater : IDisposable
         _volumeReseed = 0;
 
         _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
+        _volume.DeepKeep = DeepKeep();
         _volume.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
         if (camera != null && Materials.Volume(out Materials.VolumeKit look))
@@ -773,6 +782,43 @@ internal sealed class GpuWater : IDisposable
         }
 
         return true;
+    }
+
+    // How much of the server's deep water the volume moves (VolumeFollow.DeepKeep), from the server's columns as last
+    // built: all of it where the square's water in the grid fits the share of the particles' room it may take.
+    private float DeepKeep()
+    {
+        if (_texels == null)
+        {
+            return _volume.DeepKeep;
+        }
+
+        int columns = _window.Columns * _window.Columns;
+        if (_deepTops == null || _deepTops.Length != columns)
+        {
+            _deepTops = new float[columns];
+            _deepDepths = new float[columns];
+        }
+
+        for (int k = 0; k < columns; k++)
+        {
+            _deepTops[k] = _texels[k * SimColumns.Texel];
+            _deepDepths[k] = _texels[(k * SimColumns.Texel) + 2];
+        }
+
+        float bottom = _volume.Origin.y, top = bottom + (_volume.CellsY * _volume.CellSize);
+        float budget = VolumeFollow.DeepShare * _volume.Capacity * _volume.Litre;
+        float keep = VolumeFollow.DeepKeep(_deepTops, _deepDepths, _window.VoxelSize * _window.VoxelSize, bottom, top, budget, _volume.DeepKeep);
+        // Told when the floor comes or goes, or moves half a metre since last told.
+        if ((keep > 0f) != (_deepTold > 0f) || Math.Abs(keep - _deepTold) >= 0.5f)
+        {
+            _deepTold = keep;
+            FlowingWaterPlugin.Log.LogInfo(keep > 0f
+                ? FormattableString.Invariant($"Volume water: the square's water does not fit {_volume.Capacity} particles; it moves the top {keep:0.0} m of deep water, the server's water holding the rest")
+                : "Volume water: the square's water fits its particles again; it moves all of it");
+        }
+
+        return keep;
     }
 
     // The placed sources and drains in the square, for the volume water (the server's fixed ones have no marker to
