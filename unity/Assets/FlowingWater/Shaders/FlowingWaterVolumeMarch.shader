@@ -262,6 +262,7 @@ Shader "FlowingWater/VolumeMarch"
                     max(LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(-px.x, px.y))), LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(px.x, px.y)))));
                 float along = dot(dir, forward);
                 float scene = eye / max(along, 1e-4);
+                float sceneHere = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv)) / max(along, 1e-4);
 
                 // Where the ray is inside the grid.
                 float3 lo = _VolumeOrigin, hi = _VolumeOrigin + _VolumeSize;
@@ -277,6 +278,10 @@ Shader "FlowingWater/VolumeMarch"
 
                 float fine = _VolumeCell / FINE_STEPS;
                 bool inside = t0 <= 0.0 && Density(from) >= SURFACE;
+                // With the camera under the water the march is the view through it, with no surface to leave out
+                // what stands in front: it ends at this pixel's own scene (the farthest of the four would give what
+                // stands nearer the water behind it as well, too much of the water's tint and fog).
+                t1 = inside ? min(t1, sceneHere) : t1;
                 float surfaceAt = inside ? 0.0 : -1.0;
                 float3 surfacePlace = from;
                 float thickness = 0.0;
