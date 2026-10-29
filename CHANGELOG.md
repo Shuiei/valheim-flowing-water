@@ -2,13 +2,26 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.39.0 — 2026-10-26
+
+### Added
+- The water near you as one body of fluid on your graphics card, a prototype behind the new `Client.VolumeWater`
+  setting (off unless you turn it on; it replaces the sheet and `Client.ParticleWater` near you): a 3D fluid on a grid
+  round you, its mass its own. It is poured in from the server's water once and at the square's edge, and from then
+  on it moves as water moves: it pools and levels, a box of walls holds it and it bursts out where a wall is broken,
+  it falls off a ledge and pools below, flows round rocks and what you build, and placed sources pour into it and
+  drains take from it at their rate, nothing made or lost in between; a lake the square cuts stays level at its edge,
+  held by the water beyond. `Client.VolumeRange`, `Client.VolumeHeight` and
+  `Client.VolumeCapacity` size it. Drawn as the particle water is for now; its own look, and spray and foam where it
+  is thrown, come next.
+
 ## v0.38.2 — 2026-10-28
 
 ### Fixed
 - The server knows the ground as your game shows it near the world's locations: their levelled and smoothed yards are
   now part of the ground the water runs on, and terrain edits made there (with the hoe or a world editor) land where
   you see them. The water no longer lies inside a hill or hangs over a hollow there, and you swim where it shows.
-  
+
 ## v0.38.1 — 2026-10-27
 
 ### Fixed
@@ -21,6 +34,17 @@ All notable changes to FlowingWater. Newest first.
 - `flowingwater wipe` takes all the mod's water out of the world and removes every placed source and drain in one go
   (the server config's fixed ones stay), for the host and the server's admins only. On a server the request goes to
   the server, which answers on your console with how much water went.
+- A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
+  a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
+  on), the water near you is particles of water instead of the sheet: made from the server's water and held to it
+  (a pool rises from below as the server fills it and sinks as it drains), moving as water moves (it falls, breaks
+  up, splashes and pools), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
+  a pool, a wall holds it in), pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
+  they move through it, and coming out of a placed source all round it, as fast as its rate pushes it. The sheet and
+  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.25 m, or 0.5 for a slow
+  graphics card, at an eighth of the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
+  the setting, drawn as water with the sea's look (foam where it splashes); `clear` takes it away, `spheres` shows
+  the particles themselves.
 
 ## v0.37.0 — 2026-10-26
 
