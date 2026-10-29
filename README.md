@@ -107,7 +107,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes (see [Water on the graphics card](#water-on-the-graphics-card)); off = drawn as the server sends it |
 | `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres (32 to 256) |
 | `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1; never larger than the server's voxels) |
-| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things (1 = at the water's own speed; a light thing catches up within a second; a boat with someone aboard is pulled over several, and drifts slower than the water against its own drag) |
+| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers, waders and floating things (1 = at the water's own speed; a wader takes a share by the depth, all of it from the waist or once the water would take them off their feet; a light thing catches up within a second; a boat with someone aboard is pulled over several, and drifts slower than the water against its own drag) |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
@@ -599,8 +599,12 @@ there to the new grid (same volume), at once when the file is saved.
   s, at most ten times a second. A trigger box on the game's water layer tells characters and floating things the
   surface over them: the top of the stack of water they are in or just over (the server's water, not eased), so a pool
   on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level checks and the
-  level any water volume reports include the flowing water, and let a swimmer drift with the current of the voxel they
-  are in. The current is the water's own speed: the server sends what flows through a voxel's faces over a face's
+  level any water volume reports include the flowing water, and add the current of the voxel a character is in to
+  their own speed: a swimmer's all of it, a wader's across the ground as much of it as the water is deep over a metre
+  (half at the knees), and all of it once the water would take a person off their feet (its depth times its speed
+  past 0.6 m²/s, flood guidance's line, swept wholly from twice that), so running down a stream is faster than on dry
+  ground, walking up it slower, and fast water by a big source sweeps you along. (The game makes a character's speed
+  each step from the last step's: the current added at a step is taken off before the next, else it builds on itself.) The current is the water's own speed: the server sends what flows through a voxel's faces over a face's
   area, the speed times how full the voxel is, so a sheet a tenth of a voxel thick runs ten times as fast as that.
   It carries a floating thing along the current toward the water's speed (times `CurrentStrength`): what the thing
   lacks of it, over how long a thing of its mass takes to catch up, 0.5 s for 1 kg, growing as the cube root of the

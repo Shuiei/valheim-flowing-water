@@ -14,6 +14,16 @@ namespace FlowingWater.Client;
 /// </summary>
 internal static class CurrentCarry
 {
+    /// <summary>
+    /// The water's depth times its speed, square metres a second, at which it starts to take a person wading off their
+    /// feet (flood guidance puts the danger to people from about 0.5 to 1): from twice it, the current carries them as it
+    /// does a swimmer.
+    /// </summary>
+    public const float FootingLimit = 0.6f;
+
+    /// <summary>The water's depth, metres, from which a wader takes the current's whole speed however slow it is.</summary>
+    public const float WaistDepth = 1f;
+
     /// <summary>How long a thing of 1 kg takes to catch up with the water, seconds (by 63 %).</summary>
     public const float KiloSeconds = 0.5f;
 
@@ -24,6 +34,30 @@ internal static class CurrentCarry
     /// <param name="mass">Kilograms.</param>
     public static float Seconds(float mass) =>
         Math.Min(SlowestSeconds, Math.Max(QuickestSeconds, KiloSeconds * (float)Math.Pow(Math.Max(0f, mass), 1.0 / 3.0)));
+
+    /// <summary>
+    /// The share of the current's speed added to a wader's own: as much of it as the water is deep over a metre (all of
+    /// it from the waist up, half at the knees), and all of it once the water would take them off their feet
+    /// (<see cref="WadeShare"/>).
+    /// </summary>
+    /// <param name="depth">The water over the character's feet, metres.</param>
+    /// <param name="speed">The water's speed, metres a second.</param>
+    public static float WaderShare(float depth, float speed) =>
+        Math.Max(Math.Min(1f, Math.Max(0f, depth) / WaistDepth), WadeShare(depth, speed));
+
+    /// <summary>
+    /// The share of the current's speed a character wading is swept at: none while the water's depth times its speed is under
+    /// <see cref="FootingLimit"/> (a stream to the knees at a walk, a deep still pool), all of it from twice that (water
+    /// running fast by a big source), smoothly between.
+    /// </summary>
+    /// <param name="depth">The water over the character's feet, metres.</param>
+    /// <param name="speed">The water's speed, metres a second.</param>
+    public static float WadeShare(float depth, float speed)
+    {
+        float push = Math.Max(0f, depth) * Math.Max(0f, speed);
+        float t = Math.Min(1f, Math.Max(0f, (push - FootingLimit) / FootingLimit));
+        return t * t * (3f - (2f * t));
+    }
 
     /// <summary>
     /// The game's own drag on a floating thing as a rate, per second, from the share of its speed it takes each physics
