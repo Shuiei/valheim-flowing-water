@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.5 — 2026-10-29
+
+### Fixed
+- A stream down a hill farther off than the water near you is drawn as one smooth sheet. It used to show a grid of
+  small dark squares and stripes, from walls and columns of water drawn under its surface.
+
 ## v0.42.4 — 2026-10-29
 
 ### Fixed

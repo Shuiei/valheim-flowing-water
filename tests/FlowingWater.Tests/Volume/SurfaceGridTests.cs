@@ -35,6 +35,53 @@ public class SurfaceGridTests
     }
 
     [Fact]
+    public void AFilmOverAVoxelNotFullIsLaidFlatOnTheColumnsFloor()
+    {
+        // Ground half way up row 3, 0.2 of water on it, and a film of 0.05 in row 4 over it (water on its way down a
+        // slope): the column stands at 3.75, its water 0.25 deep, not at the film's 4.05.
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 3, 5)] = 0.5f;
+        view.Water[Brick.Index(5, 3, 5)] = 0.2f;
+        view.Water[Brick.Index(5, 4, 5)] = 0.05f;
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+        int k = SurfaceGrid.Index(5, 5);
+
+        Assert.Equal(3.75f, grid.Height[k], 4);
+        Assert.Equal(0.25f, grid.Depth[k], 4);
+    }
+
+    [Fact]
+    public void AFallsColumnOverTheAirKeepsItsTop()
+    {
+        // A tenth of a voxel of water in rows 4 to 6, falling through the air: its top stays at 6.1, not laid flat.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int y in new[] { 4, 5, 6 })
+        {
+            view.Water[Brick.Index(5, y, 5)] = 0.1f;
+        }
+
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(6.1f, grid.Height[SurfaceGrid.Index(5, 5)], 4);
+    }
+
+    [Fact]
+    public void AShortFallOntoWetGroundKeepsItsTop()
+    {
+        // A tenth of a voxel in rows 1 and 2 through the air, over water on ground in row 0: the shell draws a fall
+        // there, and the surface stays at its top, 2.1.
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 0, 5)] = 0.5f;
+        view.Water[Brick.Index(5, 0, 5)] = 0.3f;
+        view.Water[Brick.Index(5, 1, 5)] = 0.1f;
+        view.Water[Brick.Index(5, 2, 5)] = 0.1f;
+
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(2.1f, grid.Height[SurfaceGrid.Index(5, 5)], 4);
+    }
+
+    [Fact]
     public void ThinWaterFadesInAndAFilmIsNotShown()
     {
         var view = new BrickView(0, 0, 0, 1f);
