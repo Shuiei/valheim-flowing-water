@@ -72,11 +72,14 @@ internal static class ShipCurrent
                 continue;
             }
 
+            // The surface under the ship's place, looked for a voxel at a time down to Reach (SurfaceAt finds the water a
+            // point is in or just over, within a voxel).
             Vector3 at = body.position;
             float surface = VoxelWater.SurfaceAt(at);
-            if (surface == VoxelWater.NoWater)
+            float step = VoxelWater.Field.VoxelSize;
+            for (float down = step; surface == VoxelWater.NoWater && down < Reach + step; down += step)
             {
-                surface = VoxelWater.SurfaceAt(at + (Vector3.down * Reach));
+                surface = VoxelWater.SurfaceAt(at + (Vector3.down * Mathf.Min(down, Reach)));
             }
 
             if (surface == VoxelWater.NoWater || surface < at.y - Reach || !VoxelWater.CurrentAt(new Vector3(at.x, surface - Under, at.z), out Vector3 current))
