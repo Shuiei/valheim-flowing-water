@@ -45,6 +45,7 @@ Console (F5) command `flowingwater`:
 | `flowingwater remove` | Removes the nearest source or drain within 5 m |
 | `flowingwater wipe` | Takes all the mod's water out of the world and removes every placed source and drain (the config's fixed ones stay); the host's and the server's admins' only, whatever `CommandsForEveryone` says. On a server, the server answers on the console when it is done |
 | `flowingwater info` | What is under you: ground, depth, current, the zone's water |
+| `flowingwater sound` | What running water is heard round you: the places found, and each sound's place and loudness |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you, and with the volume water on, its own column under you (the water it takes as standing on the ground, and each cell's particles) and what the card takes as built in it (solid voxels, closed faces) |
@@ -118,7 +119,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³); where the water round you would take more than three quarters of them, only the top metres of deep water move (at least 1 m), the rest staying the server's |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
-| `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
+| `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
 
 ### Water on the graphics card
 
@@ -543,8 +544,16 @@ there to the new grid (same volume), at once when the file is saved.
   write). Removing the mod takes the change away with it. At the default `ErosionSpeed`, a strong spring (4
   m³/s) down a steep meadow cuts its bed up to about 4 m deep in 20 hours of play, and lays the ground down
   where it slows. The server's debug map reports what each zone cut and laid down.
-- **White water.** The running water's sound was made for the column water and went with its drawing; the 3D water
-  is silent until it comes back on it in a later version (`WaterVolume` waits for it). Its falls, splashes and spray
+- **White water.** Running water is heard where it runs fast or falls: twice a second, the game looks over the water
+  the server sent within 35 m of the camera for water 3 cm deep or more running 1.2 m/s or faster. The server sends
+  what flows through a voxel's faces over a face's area, so the water's speed is that over how full the voxel is (a
+  fall through the air a tenth of a voxel thick runs ten times as fast as its flow says). It plays the strongest
+  eight places, never two within 6 m: by the water passing, more where it runs steep. Each is a loop made in code
+  (the game has no such sound): a stream's babble of bubbles turning into the roar of rapids and falls as the water
+  falls faster than it runs across, louder the more water passes (`WaterVolume`), through the game's sound-effects
+  mixer. A sound fades from one loudness to the next and goes to a place far from its last only once it is silent,
+  so none jumps. A block's places are found once its water changes, a few blocks a frame. `flowingwater sound`
+  says what is heard. Its falls, splashes and spray
   are the graphics card's (see [Falls, splashes and spray](#falls-splashes-and-spray)). `FlowVisualMinSpeed` and `FlowTextureSpeed` were the column water's stream
   material's, and do nothing on the 3D water.
 - **Client.** Near the camera the graphics card moves the water (see [Water on the graphics card](#water-on-the-graphics-card)) and draws it where it is one layer on the ground; the blocks draw the rest. Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics

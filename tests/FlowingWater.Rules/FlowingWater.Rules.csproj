@@ -45,6 +45,8 @@
     <Compile Include="../../src/Client/SpringShape.cs" Link="Mod/SpringShape.cs" />
     <Compile Include="../../src/Client/SolidsLayout.cs" Link="Mod/SolidsLayout.cs" />
     <Compile Include="../../src/Client/BuiltVoxels.cs" Link="Mod/BuiltVoxels.cs" />
+    <Compile Include="../../src/Client/WaterSounds.cs" Link="Mod/WaterSounds.cs" />
+    <Compile Include="../../src/Client/SoundMix.cs" Link="Mod/SoundMix.cs" />
     <Compile Include="../../src/FaultGate.cs" Link="Mod/FaultGate.cs" />
     <Compile Include="../../src/PatchTargets.cs" Link="Mod/PatchTargets.cs" />
     <Compile Include="../../src/Volume/*.cs" LinkBase="Mod/Volume" />
