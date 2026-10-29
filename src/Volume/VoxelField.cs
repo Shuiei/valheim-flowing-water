@@ -12,6 +12,9 @@ internal sealed class VoxelField
     /// <summary>Less water than this share of a voxel is drawn as none (half a step of the brick data's byte).</summary>
     public const float Wet = 0.5f / BrickData.Full;
 
+    /// <summary>A voxel this full of water and solid holds the water over it up (no film on its way down over it).</summary>
+    public const float Full = 0.95f;
+
     // A voxel coordinate's bits in a voxel key: ±1,048,575 voxels along each axis.
     private const int KeyBits = 21;
 
@@ -117,6 +120,45 @@ internal sealed class VoxelField
 
     /// <summary>The height of the floor of the water in voxel (x, y, z): the top of its solid share, metres.</summary>
     public float Floor(int x, int y, int z) => (y + (Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f)) * VoxelSize;
+
+    /// <summary>
+    /// The height of the top of the water voxel (x, y, z) is in, metres, its water laid flat on the ground under it: a
+    /// film the server keeps in the voxel over one that is not full (water on its way down a slope) is that little
+    /// water over the ground, not water up to the voxel it is in. Only the water of the top's voxel and those under it
+    /// down to the first holding ground (<see cref="BrickData.HoldsGround"/>), at most <see cref="VoxelSurface.MaxStep"/>
+    /// under it; water over a full voxel, or over the air (a fall), stands where it is: its top's level.
+    /// </summary>
+    public float Settled(int x, int y, int z)
+    {
+        int top = y;
+        while (top - y < VoxelSurface.DeepestColumn && GoesUp(x, top, z))
+        {
+            top++;
+        }
+
+        float level = Level(x, top, z);
+        float water = 0f;
+        for (int v = top; top - v <= VoxelSurface.MaxStep; v--)
+        {
+            if (!Voxel(x, v, z, out BrickView view, out int i) || (v < top && !(IsWet(view, i) && GoesUp(x, v, z))))
+            {
+                return level;
+            }
+
+            water += view.Water[i];
+            if (view.Solid[i] >= BrickData.HoldsGround)
+            {
+                return Math.Min(level, (v + view.Solid[i] + water) * VoxelSize);
+            }
+
+            if (v < top && view.Water[i] >= Full)
+            {
+                return level;
+            }
+        }
+
+        return level;
+    }
 
     /// <summary>
     /// The surface of the water a point is in or just over (within a voxel), metres: the top of its stack of wet

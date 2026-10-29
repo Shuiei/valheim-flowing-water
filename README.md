@@ -549,7 +549,11 @@ there to the new grid (same volume), at once when the file is saved.
   material's, and do nothing on the 3D water.
 - **Client.** Near the camera the graphics card moves the water (see [Water on the graphics card](#water-on-the-graphics-card)) and draws it where it is one layer on the ground; the blocks draw the rest. Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
   card shapes the surface: the block's columns' tops (its highest top in its own rows, else the nearest within three
-  rows over or under them, so a sheet running into the block over or under joins it), how much of each is shown
+  rows over or under them, so a sheet running into the block over or under joins it; each at its water laid flat on
+  the ground under it, from its top down to the first voxel holding ground, at most three voxels: a film the server
+  keeps in the voxel over one not full, water on its way down a slope, would raise a column a voxel over its water,
+  and a stream down a hill stood up and down by that from one column to the next; water over a full voxel or over
+  the air, a fall, stays at its top), how much of each is shown
   (fading in from 1 cm to 3 cm of water) and its current go into two small textures, one column more east and north
   from the blocks beside it, and one fixed grid of points two to a voxel is raised to them, between columns as they
   are between their tops: a pool lies flat, a stream down a slope is one smooth sheet, the edge fades out. Each square
@@ -558,12 +562,11 @@ there to the new grid (same volume), at once when the file is saved.
   sends, so the water moves on smoothly instead of jumping; nothing is built in the game's frame but the textures.
   Beside the surface, the water is drawn as the voxels it fills where it meets the air: the server sends with each
   wet voxel which of its faces water could leave by (no piece closing it, no solid beyond), and the block draws a side
-  where its water stands open to the air (from its floor, or the water beside it, up to its level; not toward water
-  beside it at most 0.35 of a voxel lower, or a voxel lower, which the surface joins it to, unless that column holds
-  water higher up, which the surface joins instead, or the server says the dry voxel beside holds some ground: the
-  side shows over it; nor toward the column beside when its water's top is within three voxels of this one's and as
-  deep, to 0.35 of a voxel: a sheet down a slope, which crosses each row at another height in each column, its levels
-  in a row apart by the ground's step, not the water's), and water falling through the air as a column through each
+  where its water stands open to the air (from its floor, or the water beside it, up to its level, the surface's at
+  most; not toward the column beside when its water's top is at this row or lower, up to three voxels under this
+  one's top, however deep either is: the surface runs from one column's top to the other's, so a side between them
+  would stand under it or through it; unless that column holds water higher up, which the surface joins instead, or
+  the server says the dry voxel beside holds some ground: the side shows over it), and water falling through the air as a column through each
   voxel it falls through, as wide as its water, capped where the fall starts and ends, so a fall is one cascade of
   white water (only over open air: water stepping down a slope steeper than the voxels, from one to the next with
   ground under it, or over water lying on ground in the voxel under it, is the surface's, one sheet down the slope:

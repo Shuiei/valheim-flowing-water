@@ -66,7 +66,10 @@ internal sealed class SurfaceGrid
     /// <summary>Metres along a voxel's side.</summary>
     public float VoxelSize { get; }
 
-    /// <summary>Each column's top, metres over the brick's floor; where there is none, the mean of those beside it.</summary>
+    /// <summary>
+    /// Each column's top, metres over the brick's floor, its water laid flat on the ground under it
+    /// (<see cref="VoxelField.Settled"/>); where there is none, the mean of those beside it.
+    /// </summary>
     public float[] Height { get; } = new float[Side * Side];
 
     /// <summary>Each column's water depth under its top, metres.</summary>
@@ -113,8 +116,11 @@ internal sealed class SurfaceGrid
                     continue;
                 }
 
+                // The top's water laid flat on the ground under it (VoxelField.Settled): a film over a voxel not full
+                // raised the column's top to the voxel over, and a sheet down a slope stood up and down by that from
+                // one column to the next.
                 found[k] = true;
-                float level = column.Level(top);
+                float level = field.Settled(vx, top, vz);
                 float depth = level - column.Floor(Bottom(column, top));
                 grid.Height[k] = level - (floor * field.VoxelSize);
                 grid.Depth[k] = depth;
