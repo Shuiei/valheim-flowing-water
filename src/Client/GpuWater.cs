@@ -459,6 +459,10 @@ internal sealed class GpuWater : IDisposable
         _water.Frame(NearBricks);
     }
 
+    // What is built round the square, as this game reads it: the one reader, made when first asked for (let go when a
+    // world opens). Main thread only, as every GpuWater call.
+    private static BuiltSolids Built() => _built ??= new BuiltSolids();
+
     // The water near the camera made: the only one, kept in _water (none is made elsewhere).
     private static GpuWater Made(SimWindow window, Material material, ComputeShader compute) => new(window, material, compute);
 
@@ -886,10 +890,10 @@ internal sealed class GpuWater : IDisposable
         int builtVersion = _builtBuilt;
         if (solids)
         {
-            _built ??= new BuiltSolids();
-            _built.Update(_window.X0, _window.Z0, _window.Columns, rebased ? baseRow : _builtBase, _window.VoxelSize);
-            built = _built.Bricks;
-            builtVersion = _built.Version;
+            BuiltSolids reader = Built();
+            reader.Update(_window.X0, _window.Z0, _window.Columns, rebased ? baseRow : _builtBase, _window.VoxelSize);
+            built = reader.Bricks;
+            builtVersion = reader.Version;
         }
 
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && builtVersion == _builtBuilt && _builtBricks != null && near.SequenceEqual(_builtBricks)))

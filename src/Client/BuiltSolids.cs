@@ -84,7 +84,8 @@ internal sealed class BuiltSolids
             return;
         }
 
-        if (voxelSize != _lookedFor.VoxelSize)
+        // (The voxel's size is one of a few the server's setting allows, 1, 0.5 or 0.25 m: any change is a real one.)
+        if (Math.Abs(voxelSize - _lookedFor.VoxelSize) > 1e-4f)
         {
             _bricks.Clear();
             Publish();

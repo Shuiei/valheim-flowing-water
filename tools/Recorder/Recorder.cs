@@ -1257,6 +1257,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
             yield return new WaitForSeconds(here ? 0f : 2f);
         }
+
+        // What the last step changed (a piece, a source) reaches the server before the game quits.
+        yield return new WaitForSeconds(2f);
     }
 
     // A name that makes a file in the output folder: not empty, no folder, no "..", nothing a film's ffmpeg list would
@@ -1368,7 +1371,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         }
 
         var point = new Vector3(v[0], v[1], v[2]);
-        Instantiate(prefab, point, Quaternion.Euler(0f, v[3], 0f));
+        // The local player's, as a piece the player builds (a private chest opens for them).
+        GameObject placed = Instantiate(prefab, point, Quaternion.Euler(0f, v[3], 0f));
+        placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
         Note(FormattableString.Invariant($"{words[0]} placed at {point}, turned {v[3]}°"));
     }
 
