@@ -15,6 +15,18 @@ internal static class VolumeFollow
     /// <summary>Rows at the least, whatever the height asked for.</summary>
     public const int LeastRows = 8;
 
+    /// <summary>
+    /// Cells the grid may have at most: the card runs a kernel over 65,535 groups of 256 threads at once, and the
+    /// drawing's density has eight half-cells a cell.
+    /// </summary>
+    public const int MostCells = 65535 * 256 / 8;
+
+    /// <summary>
+    /// The rows a square of <paramref name="cells"/> a side may have of the <paramref name="rows"/> asked, within
+    /// <see cref="MostCells"/>: fewer than <see cref="LeastRows"/> means the square alone is too wide for the card.
+    /// </summary>
+    public static int RowsWithin(int rows, int cells) => Math.Min(rows, MostCells / Math.Max(1, cells * cells));
+
     /// <summary>The grid's rows for a height in metres at a cell size: the nearest count, <see cref="LeastRows"/> at least.</summary>
     public static int Rows(float heightMetres, float cellSize) => Math.Max(LeastRows, (int)Math.Round(heightMetres / cellSize));
 

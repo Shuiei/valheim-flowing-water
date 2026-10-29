@@ -78,6 +78,28 @@ public class VolumeFollowTests
     }
 
     [Theory]
+    [InlineData(96, 128, 96)]
+    [InlineData(192, 128, 127)]
+    [InlineData(96, 256, 31)]
+    [InlineData(96, 512, 7)]
+    [InlineData(96, 1024, 1)]
+    public void TheRowsAreCutSoTheGridStaysWithinWhatTheCardRunsAtOnce(int asked, int cells, int rows)
+    {
+        int within = VolumeFollow.RowsWithin(asked, cells);
+
+        Assert.Equal(rows, within);
+        Assert.True((long)cells * cells * within <= VolumeFollow.MostCells);
+    }
+
+    [Fact]
+    public void TheDefaultGridFitsWithRoomToSpare()
+    {
+        // 32 m of 0.25 m cells, 24 m tall: the game's defaults.
+        Assert.Equal(96, VolumeFollow.RowsWithin(VolumeFollow.Rows(24f, 0.25f), 128));
+        Assert.True(128 * 128 * 96 * 8 <= 65535 * 256);
+    }
+
+    [Theory]
     [InlineData(0.25f, 8)]
     [InlineData(0.5f, 4)]
     [InlineData(0.3f, 7)]

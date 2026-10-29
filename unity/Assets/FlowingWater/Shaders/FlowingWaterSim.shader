@@ -223,7 +223,7 @@ Shader "FlowingWater/SimWater"
         void surf(Input i, inout SurfaceOutputStandard o)
         {
             // Only where it has water to show and draws the server's water (else a brick does).
-            if (i.water.z <= 0.0 || !SimDraws(i.worldPos.xz))
+            if (i.water.z <= 0.0 || !SimDraws(i.worldPos))
             {
                 discard;
             }

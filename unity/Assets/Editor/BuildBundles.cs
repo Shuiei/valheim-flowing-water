@@ -58,6 +58,14 @@ public static class BuildBundles
 
     public const string FrothMaterialPath = "Assets/FlowingWater/FlowingWaterFroth.mat";
 
+    public const string VolumeMarchShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterVolumeMarch.shader";
+
+    public const string VolumeMarchMaterialPath = "Assets/FlowingWater/FlowingWaterVolumeMarch.mat";
+
+    public const string VolumeSurfaceShaderPath = "Assets/FlowingWater/Shaders/FlowingWaterVolumeSurface.shader";
+
+    public const string VolumeSurfaceMaterialPath = "Assets/FlowingWater/FlowingWaterVolumeSurface.mat";
+
     public const string BundleName = "flowingwater";
 
     public static void Build()
@@ -98,8 +106,10 @@ public static class BuildBundles
         MakeMaterial(ParticlesShaderPath, ParticlesMaterialPath, "FlowingWaterParticles");
         MakeMaterial(ParticleSurfaceShaderPath, ParticleSurfaceMaterialPath, "FlowingWaterParticleSurface");
         CheckCompute(ParticlesComputePath, "ClearColumns", "CountColumns", "Fill", "Spout", "ClearCounts", "Predict", "ScanBlocks", "ScanSums", "AddSums", "Scatter", "Settle", "Lambda", "Displace", "Apply", "Finish");
-        CheckCompute(VolumeComputePath, "ClearCells", "ClearFaces", "Scatter", "Gather", "Collect", "Arguments", "Divergence", "Relax", "Project", "Extend", "Move", "Emit", "Regulate", "Compact", "Settle", "Seed", "FrothClear", "FrothMove");
+        CheckCompute(VolumeComputePath, "ClearCells", "ClearFaces", "Scatter", "Gather", "Collect", "Arguments", "Divergence", "Relax", "Project", "Extend", "Move", "Emit", "Regulate", "Compact", "Settle", "Seed", "FrothClear", "FrothMove", "FineClear", "FineSplat", "FineSmooth", "FineWrite");
         MakeMaterial(FrothShaderPath, FrothMaterialPath, "FlowingWaterFroth");
+        MakeMaterial(VolumeMarchShaderPath, VolumeMarchMaterialPath, "FlowingWaterVolumeMarch");
+        MakeMaterial(VolumeSurfaceShaderPath, VolumeSurfaceMaterialPath, "FlowingWaterVolumeSurface");
 
         var settings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
         settings.FindProperty("m_FogStripping").intValue = 1;
@@ -241,7 +251,7 @@ public static class BuildBundles
         var build = new AssetBundleBuild
         {
             assetBundleName = BundleName,
-            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, ParticleSurfaceMaterialPath, ParticleSurfaceShaderPath, VolumeComputePath, FrothMaterialPath, FrothShaderPath, NormalPath, FoamPath },
+            assetNames = new[] { MaterialPath, ShaderPath, ShellMaterialPath, ShellShaderPath, SimMaterialPath, SimShaderPath, SimComputePath, SprayMaterialPath, SprayShaderPath, SprayComputePath, FallMaterialPath, FallShaderPath, ParticlesMaterialPath, ParticlesShaderPath, ParticlesComputePath, ParticleSurfaceMaterialPath, ParticleSurfaceShaderPath, VolumeComputePath, FrothMaterialPath, FrothShaderPath, VolumeMarchMaterialPath, VolumeMarchShaderPath, VolumeSurfaceMaterialPath, VolumeSurfaceShaderPath, NormalPath, FoamPath },
         };
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(folder, new[] { build }, BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
         if (manifest == null)

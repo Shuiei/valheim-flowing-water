@@ -63,6 +63,10 @@ internal static class Materials
 
     private static Material _froth;
 
+    private static Material _march;
+
+    private static Material _volumeSurface;
+
     private static bool _volumeTried;
 
     private static ComputeShader _particlesCompute;
@@ -89,7 +93,7 @@ internal static class Materials
         _simTried &= _sim != null && _simCompute != null;
         _sprayTried &= _spray != null && _sprayCompute != null;
         _particlesTried &= _particles != null && _particleSurface != null && _particlesCompute != null;
-        _volumeTried &= _volumeCompute != null && _froth != null;
+        _volumeTried &= _volumeCompute != null && _froth != null && _march != null && _volumeSurface != null;
         _lookRetryFrame = 0;
         _stillMissing = false;
         _lookTaken = false;
@@ -259,6 +263,11 @@ internal static class Materials
         {
             TakeSeaLook(_froth);
         }
+
+        if (_volumeSurface != null)
+        {
+            TakeSeaLook(_volumeSurface);
+        }
     }
 
     /// <summary>
@@ -358,15 +367,15 @@ internal static class Materials
     }
 
     /// <summary>
-    /// The volume water's: the compute shader that moves it, with the particle water's materials it is drawn with
-    /// (<see cref="Particles"/>) and its froth's (<paramref name="froth"/>: null, logged once a world, where the bundle
-    /// has none, the water going on without froth); false (logged once a world) where the bundle has no compute shader.
+    /// The volume water's: the compute shader that moves it, the materials that find and draw its surface
+    /// (<see cref="VolumeSurface"/>), its froth's (<see cref="VolumeKit.Froth"/>: null, logged once a world, where the
+    /// bundle has none, the water going on without froth), and the particle water's material it is drawn with as
+    /// spheres for testing (<see cref="Particles"/>); false (logged once a world) where the bundle lacks any of the rest.
     /// </summary>
-    public static bool Volume(out Material material, out Material surface, out Material froth, out ComputeShader compute)
+    public static bool Volume(out VolumeKit kit)
     {
-        compute = null;
-        froth = null;
-        if (!Particles(out material, out surface, out _))
+        kit = null;
+        if (!Particles(out Material particles, out _, out _))
         {
             return false;
         }
@@ -381,11 +390,40 @@ internal static class Materials
             }
 
             _froth = FromBundle("FlowingWaterFroth", "FlowingWater froth", "the volume water makes no spray, foam or bubbles");
+            _march = FromBundle("FlowingWaterVolumeMarch", "FlowingWater volume march", "the water near you stays a sheet");
+            _volumeSurface = _march == null ? null : FromBundle("FlowingWaterVolumeSurface", "FlowingWater volume surface", "the water near you stays a sheet");
         }
 
-        compute = _volumeCompute;
-        froth = _froth;
-        return compute != null;
+        kit = new VolumeKit(particles, _march, _volumeSurface, _froth, _volumeCompute);
+        return _volumeCompute != null && _march != null && _volumeSurface != null;
+    }
+
+    /// <summary>What the volume water is moved and drawn with (<see cref="Volume"/>).</summary>
+    public sealed class VolumeKit
+    {
+        public VolumeKit(Material particles, Material march, Material surface, Material froth, ComputeShader compute)
+        {
+            Particles = particles;
+            March = march;
+            Surface = surface;
+            Froth = froth;
+            Compute = compute;
+        }
+
+        /// <summary>The particle water's material: the volume drawn as spheres, for testing.</summary>
+        public Material Particles { get; }
+
+        /// <summary>Finds the water's surface and thickness for each pixel.</summary>
+        public Material March { get; }
+
+        /// <summary>Draws the water over the scene from what the march found.</summary>
+        public Material Surface { get; }
+
+        /// <summary>The froth's sprites; null where the bundle has none.</summary>
+        public Material Froth { get; }
+
+        /// <summary>Moves the water.</summary>
+        public ComputeShader Compute { get; }
     }
 
     private static void LoadSim()
@@ -596,11 +634,13 @@ internal static class Materials
             "spray" => _spray,
             "still" => _still,
             "froth" => _froth,
+            "volume" => _volumeSurface,
+            "march" => _march,
             _ => null,
         };
         if (material == null)
         {
-            return $"no {kind} material (custom, card, falls, spray, still or froth; water must have been drawn once with it)";
+            return $"no {kind} material (custom, card, falls, spray, still, froth, volume or march; water must have been drawn once with it)";
         }
 
         if (property == "list")

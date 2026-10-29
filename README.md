@@ -305,7 +305,7 @@ The console's block stays where the card's square leaves it.
 
 With `Client.VolumeWater`, the water near you is one body of fluid on the graphics card (`src/Client/VolumeWater.cs`,
 `unity/Assets/FlowingWater/Shaders/FlowingWaterVolume.compute`), in place of the sheet and of the particle prototype
-above, and drawn as that prototype is for now. It is a hybrid of particles and a grid (FLIP, Zhu and Bridson 2005):
+above, with a renderer of its own (below). It is a hybrid of particles and a grid (FLIP, Zhu and Bridson 2005):
 the particles carry the water, each a cube of water half a cell on a side (eight to a cell of the card's 0.25 m
 cells), and move with it; each step their velocity is put on a staggered grid, gravity is added, and a pressure is
 solved over the cells that hold water so that no cell makes or loses any (with a small correction for cells that hold
@@ -355,8 +355,24 @@ is gone at once. They are drawn after the water's surface as soft sprites (`Flow
 drops that grow into a thin mist as they fade, foam as white specks, bubbles as faint ones, lit as the sea's foam.
 Their room is a quarter of the water's particles; when it is full, no more is made until some is spent.
 
-What it is not yet: its own look (it is drawn as the particle prototype's spheres melted into a surface, which is
-dark in deep water), swum in or floated on (the server's water says what you swim in), spread over the frame's
+It is drawn from its true shape (`src/Client/VolumeSurface.cs`). After each frame's steps the particles are shared
+onto a grid of half-cells (a particle's size) as a density, 1 where a particle sits at rest, in a texture the card
+samples smoothly, with the cells that hold water or stand next to some and the froth in each cell beside it. For each
+pixel of a half-size picture, `FlowingWaterVolumeMarch.shader` marches a ray from the camera through the density,
+stepping over the cells with no water and in quarter-cells through the rest, to where the density first crosses a
+half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
+through until it leaves the grid or meets the scene. `FlowingWaterVolumeSurface.shader` then draws the water from
+that with the sea's look: what is behind bent by the surface and tinted by the water seen through (red light goes
+first, as the sheet's), the water's own colour where it is deep, the sky and the sun's glint on the surface, foam
+where the froth gathers, the sea's fog; thin water fades out, and within two metres of the square's side the water
+fades into the sheet's bricks beyond. The bricks draw nothing else inside the square while the volume is on (the
+server's columns say nothing of what the volume holds), only that band, the world beyond, and water above or below
+the grid's height (it follows the camera: a lake far below a cliff you stand on is the bricks' to draw). With the camera under the water, the scene is seen through the water up to its
+surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
+particles as spheres instead, for testing. The density costs the card a half-float a half-cell and two counts besides
+(about 125 MB at the default grid), the march a few milliseconds a frame at half the screen's size.
+
+What it is not yet: swum in or floated on (the server's water says what you swim in), spread over the frame's
 budget, and the server does not learn what it does.
 
 ### Grid size

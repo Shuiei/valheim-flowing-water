@@ -111,6 +111,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FrothRateId = Shader.PropertyToID("_FrothRate");
     private static readonly int FrothCountId = Shader.PropertyToID("_FrothCount");
     private static readonly int FrothCountInId = Shader.PropertyToID("_FrothCountIn");
+    private static readonly int FineCountId = Shader.PropertyToID("_FineCount");
+    private static readonly int FineCountInId = Shader.PropertyToID("_FineCountIn");
+    private static readonly int AxisId = Shader.PropertyToID("_Axis");
+    private static readonly int FineId = Shader.PropertyToID("_Fine");
+    private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
+    private static readonly int FoamId = Shader.PropertyToID("_Foam");
 
     // No particles: the counters and the drawing's arguments.
     private static readonly uint[] NoAlive = new uint[3];
@@ -137,6 +143,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private readonly int _seed;
     private readonly int _frothClear;
     private readonly int _frothMove;
+    private readonly int _fineClear;
+    private readonly int _fineSplat;
+    private readonly int _fineSmooth;
+    private readonly int _fineWrite;
 
     private readonly ComputeBuffer[] _particles = new ComputeBuffer[2];
 
@@ -145,6 +155,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private readonly ComputeBuffer _frothAlive;
 
     private readonly ComputeBuffer _frothCount;
+
+    private readonly ComputeBuffer[] _fine = new ComputeBuffer[2];
+
+    private readonly int _fineCells;
 
     private readonly ComputeBuffer _alive;
     private readonly ComputeBuffer _type;
@@ -230,6 +244,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             throw new ArgumentOutOfRangeException(nameof(cellsX), "the grid must have cells of a size");
         }
 
+        if ((long)cellsX * cellsY * cellsZ > VolumeFollow.MostCells)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cellsY), (long)cellsX * cellsY * cellsZ, $"the grid has more cells than the card runs a kernel over at once ({VolumeFollow.MostCells})");
+        }
+
         _shader = shader;
         Material = material;
         Capacity = capacity;
@@ -256,6 +275,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _settle = shader.FindKernel("Settle");
         _seed = shader.FindKernel("Seed");
         _frothClear = shader.FindKernel("FrothClear");
+        _fineClear = shader.FindKernel("FineClear");
+        _fineSplat = shader.FindKernel("FineSplat");
+        _fineSmooth = shader.FindKernel("FineSmooth");
+        _fineWrite = shader.FindKernel("FineWrite");
         _frothMove = shader.FindKernel("FrothMove");
         FrothCapacity = froth != null ? Math.Max(1024, capacity / 4) : 1;
         for (int k = 0; k < 2; k++)
@@ -268,6 +291,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _frothAlive = new ComputeBuffer(3, sizeof(uint));
         _frothCount = new ComputeBuffer(_cells, sizeof(int));
         _frothCount.SetData(new int[_cells]);
+        _fineCells = _cells * 8;
+        _fine[0] = new ComputeBuffer(_fineCells, sizeof(uint));
+        _fine[1] = new ComputeBuffer(_fineCells, sizeof(uint));
+        Fine = Volume("density", cellsX * 2, cellsY * 2, cellsZ * 2);
+        Coarse = Volume("water", cellsX, cellsY, cellsZ);
+        Foam = Volume("foam", cellsX, cellsY, cellsZ);
         Arguments = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
         Froth = new Cloud(froth, new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments), Spacing);
         _counted = new Counter(_alive, capacity);
@@ -308,6 +337,21 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     /// <summary>A cell's side (m).</summary>
     public float CellSize { get; }
+
+    /// <summary>The grid's size (m), each way.</summary>
+    public Vector3 Size => new(CellsX * CellSize, CellsY * CellSize, CellsZ * CellSize);
+
+    /// <summary>
+    /// The water's density after the last step, for the drawing: a texel a half-cell (a particle's size) over the grid,
+    /// 1 where a particle sits at rest, sampled smoothly; the water's surface is where it crosses a half.
+    /// </summary>
+    public RenderTexture Fine { get; }
+
+    /// <summary>The cells that hold water or stand next to some (1), a texel a cell: the drawing's march steps over the rest.</summary>
+    public RenderTexture Coarse { get; }
+
+    /// <summary>The froth in each cell as a share of full, a texel a cell: foam on the water's surface.</summary>
+    public RenderTexture Foam { get; }
 
     /// <summary>Cells east, up and north.</summary>
     public int CellsX { get; }
@@ -514,6 +558,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             }
         }
 
+        Shape();
+
         Substeps = steps;
         _counted.Poll();
         _frothCounted.Poll();
@@ -568,6 +614,14 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _alive.Release();
         _frothAlive.Release();
         _frothCount.Release();
+        _fine[0].Release();
+        _fine[1].Release();
+        Fine.Release();
+        Coarse.Release();
+        Foam.Release();
+        Free(Fine);
+        Free(Coarse);
+        Free(Foam);
         Arguments.Release();
         Froth.Arguments.Release();
         _type.Release();
@@ -884,6 +938,55 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.Dispatch(_settle, 1, 1, 1);
         _frothCurrent = 1 - _frothCurrent;
         Froth.Properties.SetBuffer(ParticlesId, _froth[_frothCurrent]);
+    }
+
+    // The density, water and foam textures for the drawing, from the particles as the last step left them.
+    private void Shape()
+    {
+        // The cells typed and the particles counted where the step left them (Prepare's count is from before the
+        // step: water a source emitted this step, or that moved a cell, would be missing from the drawing's cells).
+        _shader.SetInt(CapacityId, Capacity);
+        _shader.SetBuffer(_scatter, ParticlesInId, _particles[_current]);
+        Prepare();
+        int groups = (_fineCells + Threads - 1) / Threads;
+        _shader.SetBuffer(_fineClear, FineCountId, _fine[0]);
+        _shader.Dispatch(_fineClear, groups, 1, 1);
+        _shader.SetBuffer(_fineSplat, FineCountId, _fine[0]);
+        _shader.SetBuffer(_fineSplat, ParticlesInId, _particles[_current]);
+        _shader.SetBuffer(_fineSplat, AliveInId, _alive);
+        DispatchParticles(_fineSplat);
+        // Smoothed each way in turn, between the two buffers: the result lands back in the first.
+        for (int axis = 0; axis < 3; axis++)
+        {
+            _shader.SetInt(AxisId, axis);
+            _shader.SetBuffer(_fineSmooth, FineCountInId, _fine[axis % 2]);
+            _shader.SetBuffer(_fineSmooth, FineCountId, _fine[1 - (axis % 2)]);
+            _shader.Dispatch(_fineSmooth, groups, 1, 1);
+        }
+
+        _shader.SetBuffer(_fineWrite, FineCountInId, _fine[1]);
+        _shader.SetBuffer(_fineWrite, CountInId, _count);
+        _shader.SetBuffer(_fineWrite, FrothCountInId, _frothCount);
+        _shader.SetTexture(_fineWrite, FineId, Fine);
+        _shader.SetTexture(_fineWrite, CoarseId, Coarse);
+        _shader.SetTexture(_fineWrite, FoamId, Foam);
+        _shader.Dispatch(_fineWrite, groups, 1, 1);
+    }
+
+    // A 3D texture the compute shader writes and the drawing samples smoothly (half floats: every card writes those).
+    private static RenderTexture Volume(string name, int x, int y, int z)
+    {
+        var texture = new RenderTexture(x, y, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Linear)
+        {
+            name = "FlowingWater volume " + name,
+            dimension = UnityEngine.Rendering.TextureDimension.Tex3D,
+            volumeDepth = z,
+            enableRandomWrite = true,
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        texture.Create();
+        return texture;
     }
 
     private void DispatchCells(int kernel) => _shader.Dispatch(kernel, (_cells + Threads - 1) / Threads, 1, 1);

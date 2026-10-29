@@ -33,6 +33,10 @@
 //   Compact        the particles still there, into the other buffer,
 //   Settle         how many, and the drawing's arguments.
 // Once, or for the edge band each frame: Seed, the server's water poured as particles where the cells hold none.
+// For the drawing (FlowingWaterVolumeMarch.shader), after each frame's steps: FineClear, FineSplat and FineWrite put
+// the water's density on a grid of half-cells (a particle's size), each particle shared over the eight nearest, as a
+// texture the drawing samples smoothly and marches through for the water's surface and thickness; with it the cells
+// that hold water or stand next to some (the march skips the rest) and the froth in each cell (foam on the surface).
 // The froth (Ihmsen, Akinci, Akinci and Teschner 2012, over the grid): where the water is violent, Move makes froth
 // particles, the water's spray, foam and bubbles, which carry no water and are drawn as what they are (small, white)
 // over the water; they are moved by FrothMove by their kind each step (spray falls and drifts, foam rides the surface,
@@ -55,6 +59,10 @@
 #pragma kernel Seed
 #pragma kernel FrothClear
 #pragma kernel FrothMove
+#pragma kernel FineClear
+#pragma kernel FineSplat
+#pragma kernel FineSmooth
+#pragma kernel FineWrite
 
 #define THREADS 256
 #define AIR 0
@@ -212,6 +220,17 @@ float _SeedShare;
 int _PourOn;
 float3 _PourMin;
 float3 _PourMax;
+
+// The drawing's density: the particles' shares on the half-cells (fixed point, FINE_FIX a whole particle), and the
+// textures written from them and from the cells' counts.
+RWStructuredBuffer<uint> _FineCount;
+StructuredBuffer<uint> _FineCountIn;
+// Which way FineSmooth smooths (0 x, 1 y, 2 z), reading _FineCountIn and writing _FineCount.
+int _Axis;
+RWTexture3D<float> _Fine;
+RWTexture3D<float> _Coarse;
+RWTexture3D<float> _Foam;
+#define FINE_FIX 256.0
 
 // The froth: its particles (the Particle layout, its meanings above), their counters as the water's ([0] there, [1]
 // the compaction's, [2] the spawn's), their room, and how much froth the water's violence makes (0: none).
@@ -1382,4 +1401,115 @@ void FrothMove(uint3 id : SV_DispatchThreadID)
     f.velocity.xyz = v;
     _Particles[i] = f;
     InterlockedAdd(_FrothCount[CellIndex(CellOf(to))], 1);
+}
+
+int3 FineCells()
+{
+    return int3(_Nx, _Ny, _Nz) * PER_SIDE;
+}
+
+int FineIndex(int3 f)
+{
+    int3 n = FineCells();
+    return ((f.z * n.y) + f.y) * n.x + f.x;
+}
+
+[numthreads(THREADS, 1, 1)]
+void FineClear(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    if (id.x < (uint)(n.x * n.y * n.z))
+    {
+        _FineCount[id.x] = 0u;
+    }
+}
+
+// A particle's share on a half-cell along one axis, by how far the half-cell's centre is from the particle (in
+// half-cells): a quadratic spline over the three nearest, whose shares add up to one (a particle at rest is one
+// density spread over its neighbours, so the surface is smooth, not a cobble a particle).
+float Spline(float away)
+{
+    away = abs(away);
+    return away < 0.5 ? 0.75 - (away * away) : away < 1.5 ? 0.5 * (1.5 - away) * (1.5 - away) : 0.0;
+}
+
+// Each particle's density shared on the twenty-seven half-cells about it.
+[numthreads(THREADS, 1, 1)]
+void FineSplat(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= AliveIn())
+    {
+        return;
+    }
+
+    Particle p = _ParticlesIn[i];
+    if (Gone(p))
+    {
+        return;
+    }
+
+    int3 n = FineCells();
+    float3 g = ((p.place.xyz - _Origin) / (_H / PER_SIDE)) - 0.5;
+    int3 b = (int3)round(g);
+    for (int k = -1; k <= 1; k++)
+    {
+        for (int j = -1; j <= 1; j++)
+        {
+            for (int l = -1; l <= 1; l++)
+            {
+                int3 at = b + int3(l, j, k);
+                if (any(at < 0) || any(at >= n))
+                {
+                    continue;
+                }
+
+                float w = Spline(g.x - at.x) * Spline(g.y - at.y) * Spline(g.z - at.z);
+                if (w > 1e-3)
+                {
+                    InterlockedAdd(_FineCount[FineIndex(at)], (uint)round(w * FINE_FIX));
+                }
+            }
+        }
+    }
+}
+
+// The density smoothed along one axis (a quarter, a half, a quarter of the three half-cells): run once each way, the
+// particles' grain goes out of the surface, which the drawing lights as one.
+[numthreads(THREADS, 1, 1)]
+void FineSmooth(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    uint i = id.x;
+    if (i >= (uint)(n.x * n.y * n.z))
+    {
+        return;
+    }
+
+    int3 f = int3(i % n.x, (i / n.x) % n.y, i / (n.x * n.y));
+    int3 step = int3(_Axis == 0 ? 1 : 0, _Axis == 1 ? 1 : 0, _Axis == 2 ? 1 : 0);
+    int3 before = max(f - step, 0), after = min(f + step, n - 1);
+    _FineCount[i] = (_FineCountIn[FineIndex(before)] + (2u * _FineCountIn[i]) + _FineCountIn[FineIndex(after)]) / 4u;
+}
+
+// The textures the drawing reads: each half-cell's density; each cell's water as a share of rest (the march steps over
+// cells with none about them, and a thin fast sheet, too sparse for the half-cells, still makes a surface of it); each
+// cell's froth as a share of full.
+[numthreads(THREADS, 1, 1)]
+void FineWrite(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    uint i = id.x;
+    if (i < (uint)(n.x * n.y * n.z))
+    {
+        int3 f = int3(i % n.x, (i / n.x) % n.y, i / (n.x * n.y));
+        _Fine[f] = _FineCountIn[i] / FINE_FIX;
+    }
+
+    if (i < (uint)(_Nx * _Ny * _Nz))
+    {
+        int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+        _Coarse[c] = (float)_CountIn[i] / REST;
+        _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
+    }
 }
