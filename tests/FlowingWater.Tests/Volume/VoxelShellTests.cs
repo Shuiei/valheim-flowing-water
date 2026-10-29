@@ -66,7 +66,25 @@ public class VoxelShellTests
         Assert.Contains((1, 1, 0), VoxelShell.Readers);
         Assert.Contains((0, 1, -1), VoxelShell.Readers);
         Assert.Contains((0, -1, 0), VoxelShell.Readers);
-        Assert.DoesNotContain((1, -1, 0), VoxelShell.Readers);
+    }
+
+    [Fact]
+    public void WaterOverTheColumnBesideInTheBrickUpThereChangesASideInABricksTopRow()
+    {
+        // Water in the top row of brick 0, open east toward lower water in brick (1, 0, 0): the surface joins them. With
+        // water on a floor a row up that column, in brick (1, 1, 0), the surface joins that instead and the side shows,
+        // so brick (1, 1, 0)'s readers hold brick 0.
+        var here = new BrickView(0, 0, 0, 1f);
+        var beside = new BrickView(1, 0, 0, 1f);
+        var over = new BrickView(1, 1, 0, 1f);
+        Wet(here, 15, 15, 5, 0.6f, East | Up);
+        Wet(beside, 0, 15, 5, 0.2f, West | Up);
+        Assert.Equal(0, VoxelShell.Build(Field(here, beside, over), 0, 0, 0).Faces);
+
+        over.Solid[Brick.Index(0, 0, 5)] = 0.3f;
+        Wet(over, 0, 0, 5, 0.3f, Up);
+        Assert.Equal(1, VoxelShell.Build(Field(here, beside, over), 0, 0, 0).Faces);
+        Assert.Contains((-1, -1, 0), VoxelShell.Readers);
     }
 
     [Fact]

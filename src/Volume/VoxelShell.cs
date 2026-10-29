@@ -42,10 +42,12 @@ internal sealed class VoxelShell
     private static readonly (int A, int B)[] DownCorners = [(-1, -1), (1, -1), (1, 1), (-1, 1)];
 
     /// <summary>
-    /// The bricks whose shell reads a brick's water, from it: the six beside it (their faces look across), and the four
-    /// beside the one over it (a side looks down the column beside it, a few rows under its own).
+    /// The bricks whose shell reads a brick's water, from it: the six beside it (their faces look across), the four
+    /// beside the one over it (a side looks down the column beside it, a few rows under its own) and the four beside
+    /// the one under it (a side in a brick's top row looks for water over the voxel beside, a row up).
     /// </summary>
-    public static IReadOnlyList<(int X, int Y, int Z)> Readers { get; } = [.. Sides, (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1)];
+    public static IReadOnlyList<(int X, int Y, int Z)> Readers { get; } =
+        [.. Sides, (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (1, -1, 0), (-1, -1, 0), (0, -1, 1), (0, -1, -1)];
 
     /// <summary>Its corners, metres from the brick's middle (x, y, z each).</summary>
     public List<float> Positions { get; } = [];
