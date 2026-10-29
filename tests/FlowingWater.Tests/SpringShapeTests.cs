@@ -51,22 +51,22 @@ public class SpringShapeTests
     }
 
     [Theory]
+    [InlineData(1f)]
     [InlineData(10f)]
     [InlineData(100f)]
-    public void TheLensDomeGivesTheRateUnderTheSpeed(float rate)
+    public void TheLensRimGivesTheRateOutwardAcrossTheGround(float rate)
     {
-        float reach = SpringShape.Reach(rate);
         float outflow = SpringShape.Outflow(rate);
 
-        Assert.True(outflow is < SpringShape.Speed and > SpringShape.Speed / 2f);
-        Assert.Equal(rate, Math.PI * reach * (reach + SpringShape.Height(rate)) * outflow, 2);
+        Assert.Equal(rate, 2.0 * Math.PI * SpringShape.Reach(rate) * SpringShape.Height(rate) * outflow, 2);
     }
 
     [Fact]
-    public void ASmallSourceIsAHemisphereGivingItsRateOverItsDome()
+    public void ABigSourceGushesAndASmallOneSeeps()
     {
-        Assert.Equal(SpringShape.LeastReach, SpringShape.Height(0.3f));
-        Assert.Equal(0.3f, 2.0 * Math.PI * SpringShape.LeastReach * SpringShape.LeastReach * SpringShape.Outflow(0.3f), 3);
+        // 100 m3/s out of a rim 5.6 m round and half a metre high; 0.3 m3/s out of the least lens's.
+        Assert.Equal(5.64f, SpringShape.Outflow(100f), 2);
+        Assert.True(SpringShape.Outflow(0.3f) < 0.31f);
     }
 
     [Theory]

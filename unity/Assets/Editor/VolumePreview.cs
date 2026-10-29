@@ -319,6 +319,13 @@ public static class VolumePreview
         scene.Water.SeedFromServer();
         var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0f, 20f), rate) };
         scene.Water.SetSprings(springs);
+
+        // A swimmer 6 m from the source, a box as the game hands the water a character (FW_PREVIEW_BODY=0: none).
+        if (Environment.GetEnvironmentVariable("FW_PREVIEW_BODY") != "0")
+        {
+            scene.Water.SetBodies(new List<ParticleWater.Body> { ParticleWater.Body.Box(new Vector3(14f, 0.9f, 20f), new Vector3(0.3f, 0.9f, 0.3f), Quaternion.identity) });
+        }
+
         Log.AppendLine(Inv($"Big spring: {rate} m3/s in the middle of a square 32 m across, sides open over the server's water 0.9 m deep, {scene.Water.Iterations} pressure sweeps a step; the water's top (m over the ground) at rings 0 to 14 m from the source, each second."));
         for (int k = 1; k <= 600; k++)
         {
@@ -337,9 +344,18 @@ public static class VolumePreview
                     }
                 }
 
+                float overSwimmer = 0f;
+                for (int p = 0; p < data.Length / 12; p++)
+                {
+                    if (Math.Abs(data[p * 12] - 14f) < 0.6f && Math.Abs(data[(p * 12) + 2] - 20f) < 0.6f)
+                    {
+                        overSwimmer = Math.Max(overSwimmer, data[(p * 12) + 1]);
+                    }
+                }
+
                 (float[] scales, uint[] given) = scene.Water.ReadSources();
                 Measure m = Measure.Of(scene.Water, bed);
-                Log.AppendLine(Inv($"  t={k * Frame:0}s {scene.Water.Count * scene.Water.Litre:0} m3, source speed scaled {scales[0]:0.00} ({springs[0].Flow.x * scales[0]:0.0} m/s), gave {given[0]} a step (wants {rate * Frame / scene.Water.Litre:0}), fastest {m.Fastest:0.0} m/s: ") + string.Join(" ", rings.Select((h, i) => Inv($"{i * 2}m:{h:0.00}"))));
+                Log.AppendLine(Inv($"  t={k * Frame:0}s {scene.Water.Count * scene.Water.Litre:0} m3, source speed scaled {scales[0]:0.00} ({springs[0].Flow.x * scales[0]:0.0} m/s), gave {given[0]} a step (wants {rate * Frame / scene.Water.Litre:0}), fastest {m.Fastest:0.0} m/s, froth {Froth.Of(scene.Water)}, highest water at the swimmer {overSwimmer:0.00} m: ") + string.Join(" ", rings.Select((h, i) => Inv($"{i * 2}m:{h:0.00}"))));
             }
 
             if (k is 300 or 600)

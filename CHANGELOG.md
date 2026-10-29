@@ -7,6 +7,8 @@ All notable changes to FlowingWater. Newest first.
 ### Fixed
 - The water near you no longer fills up round a big source: it runs on out into the water beyond, instead of
   standing half a metre over it.
+- A source's water gushes out sideways instead of welling up, so a 100 m³/s source no longer stands as a tall green
+  dome: it swells the water round it a little and boils it, and a source of 5 m³/s or more foams to show its power.
 
 ## v0.44.0 — 2026-10-29
 

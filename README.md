@@ -341,9 +341,12 @@ server's columns, held unless what fits moves a quarter metre), and under that d
 (the ground the solver and the particles see, `GroundAt` in the compute shader). A player does not dive, so the camera
 never sees under it. A placed source is an inflow in the grid: a lens centred on the ground, as wide as its
 rate needs (0.8 m round for the default 2 m³/s, 1.8 m for 10, 5.6 m for 100) and half a metre high at most, its
-cells kept full of particles going out of it, its water rising over it at about a metre a second (a big spring boils
-up over a wide patch; it neither shoots a jet into the sky nor stands on the ground as a ball of water), scaled each
-step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
+cells kept full of particles going out of it. Its water gushes out of the lens's rim, outward and a little up (about
+30 degrees), as fast as the rim passes its rate (0.6 m/s for 1 m³/s, 5.6 m/s for 100), scaled each step toward giving
+it: welling up over the lens, as it did until 0.44.1, a 100 m³/s source's water stood a metre over the water round it
+to get away, a green dome; out flat along the ground, it ran out under the water, which lay calm over it. A source
+of 5 m³/s or more foams too, to show its power: its lens's top lets bubbles go, all it will from 50 m³/s (6 a second
+from each top cell, at `VolumeFroth` 1), which rise to foam over it and are carried off with its water; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
 card's square (round you, the player, not the camera: a free camera does not drag the water away), no wider than
 `Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, with seven tenths of it above
