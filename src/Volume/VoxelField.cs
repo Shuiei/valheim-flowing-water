@@ -12,7 +12,7 @@ internal sealed class VoxelField
     /// <summary>Less water than this share of a voxel is drawn as none (half a step of the brick data's byte).</summary>
     public const float Wet = 0.5f / BrickData.Full;
 
-    /// <summary>A voxel this full of water and solid holds the water over it up (no film on its way down over it).</summary>
+    /// <summary>A voxel this full, with its solid share, holds the water over it up.</summary>
     public const float Full = 0.95f;
 
     // A voxel coordinate's bits in a voxel key: ±1,048,575 voxels along each axis.
@@ -123,10 +123,10 @@ internal sealed class VoxelField
 
     /// <summary>
     /// The height of the top of the water voxel (x, y, z) is in, metres, its water laid flat on the ground under it: a
-    /// film the server keeps in the voxel over one that is not full (water on its way down a slope) is that little
-    /// water over the ground, not water up to the voxel it is in. Only the water of the top's voxel and those under it
-    /// down to the first holding ground (<see cref="BrickData.HoldsGround"/>), at most <see cref="VoxelSurface.MaxStep"/>
-    /// under it; water over a full voxel, or over the air (a fall), stands where it is: its top's level.
+    /// film the server keeps in the voxel over one that is not full and holds ground (water on its way down a slope)
+    /// is that little water over the ground, not water up to the voxel it is in. Only a top's voxel straight over one
+    /// holding ground (<see cref="BrickData.HoldsGround"/>), as <see cref="VoxelShell"/> takes it for a step down a
+    /// slope; water over a voxel with none (a fall's, through the air) stands where it is: its top's level.
     /// </summary>
     public float Settled(int x, int y, int z)
     {
@@ -137,27 +137,12 @@ internal sealed class VoxelField
         }
 
         float level = Level(x, top, z);
-        float water = 0f;
-        for (int v = top; top - v <= VoxelSurface.MaxStep; v--)
+        if (!Voxel(x, top - 1, z, out BrickView under, out int i) || !IsWet(under, i) || !GoesUp(x, top - 1, z) || under.Solid[i] < BrickData.HoldsGround)
         {
-            if (!Voxel(x, v, z, out BrickView view, out int i) || (v < top && !(IsWet(view, i) && GoesUp(x, v, z))))
-            {
-                return level;
-            }
-
-            water += view.Water[i];
-            if (view.Solid[i] >= BrickData.HoldsGround)
-            {
-                return Math.Min(level, (v + view.Solid[i] + water) * VoxelSize);
-            }
-
-            if (v < top && view.Water[i] >= Full)
-            {
-                return level;
-            }
+            return level;
         }
 
-        return level;
+        return Math.Min(level, (top - 1 + under.Solid[i] + under.Water[i] + WaterAt(x, top, z)) * VoxelSize);
     }
 
     /// <summary>

@@ -549,11 +549,10 @@ there to the new grid (same volume), at once when the file is saved.
   material's, and do nothing on the 3D water.
 - **Client.** Near the camera the graphics card moves the water (see [Water on the graphics card](#water-on-the-graphics-card)) and draws it where it is one layer on the ground; the blocks draw the rest. Each block of water the server sends is drawn by its own object. With the mod's own shader, the graphics
   card shapes the surface: the block's columns' tops (its highest top in its own rows, else the nearest within three
-  rows over or under them, so a sheet running into the block over or under joins it; each at its water laid flat on
-  the ground under it, from its top down to the first voxel holding ground, at most three voxels: a film the server
-  keeps in the voxel over one not full, water on its way down a slope, would raise a column a voxel over its water,
-  and a stream down a hill stood up and down by that from one column to the next; water over a full voxel or over
-  the air, a fall, stays at its top), how much of each is shown
+  rows over or under them, so a sheet running into the block over or under joins it; a top straight over a voxel
+  holding ground at its water laid flat on that ground: a film the server keeps in the voxel over one not full, water
+  on its way down a slope, would raise a column a voxel over its water, and a stream down a hill stood up and down by
+  that from one column to the next; water over the air, a fall, stays at its top), how much of each is shown
   (fading in from 1 cm to 3 cm of water) and its current go into two small textures, one column more east and north
   from the blocks beside it, and one fixed grid of points two to a voxel is raised to them, between columns as they
   are between their tops: a pool lies flat, a stream down a slope is one smooth sheet, the edge fades out. Each square

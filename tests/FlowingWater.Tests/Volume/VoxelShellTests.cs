@@ -60,6 +60,16 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void AShellIsReadAgainWhenTheBrickUnderTheColumnBesideChanges()
+    {
+        // A side looks down the column beside, into the brick under it there: that brick's readers hold this one.
+        Assert.Contains((1, 1, 0), VoxelShell.Readers);
+        Assert.Contains((0, 1, -1), VoxelShell.Readers);
+        Assert.Contains((0, -1, 0), VoxelShell.Readers);
+        Assert.DoesNotContain((1, -1, 0), VoxelShell.Readers);
+    }
+
+    [Fact]
     public void WaterBesideWaterUnderOtherWaterShowsItsSideOnlyOverTheWaterBeside()
     {
         // Two voxels on a floor, open toward each other, the shallower one under water on a floor up its column (the

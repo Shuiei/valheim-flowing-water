@@ -66,6 +66,22 @@ public class SurfaceGridTests
     }
 
     [Fact]
+    public void AShortFallOntoWetGroundKeepsItsTop()
+    {
+        // A tenth of a voxel in rows 1 and 2 through the air, over water on ground in row 0: the shell draws a fall
+        // there, and the surface stays at its top, 2.1.
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 0, 5)] = 0.5f;
+        view.Water[Brick.Index(5, 0, 5)] = 0.3f;
+        view.Water[Brick.Index(5, 1, 5)] = 0.1f;
+        view.Water[Brick.Index(5, 2, 5)] = 0.1f;
+
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(2.1f, grid.Height[SurfaceGrid.Index(5, 5)], 4);
+    }
+
+    [Fact]
     public void ThinWaterFadesInAndAFilmIsNotShown()
     {
         var view = new BrickView(0, 0, 0, 1f);
