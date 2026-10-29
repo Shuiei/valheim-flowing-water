@@ -1171,10 +1171,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     }
 
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
-    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A command
+    // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A place of
+    // "~" runs the command where the player is, at once (a film right after a pour: a move takes some 14 s). A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
-    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!wait s",
-    // "!shot from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
+    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!piece name
+    // x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees round the vertical), "!wait s", "!shot
+    // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
         string[] steps = (Environment.GetEnvironmentVariable("FW_REC_AT") ?? string.Empty).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
@@ -1186,7 +1188,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         foreach (string step in steps)
         {
             string[] parts = step.Split(new[] { '|' }, 2);
-            if (!Numbers(parts[0], out float[] where) || where.Length < 2)
+            bool here = parts[0].Trim() == "~";
+            float[] where = null;
+            if (!here && (!Numbers(parts[0], out where) || where.Length < 2))
             {
                 Note("recorder step with a bad place: " + step);
                 continue;
@@ -1194,7 +1198,11 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
             string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
             bool vantage = command.StartsWith("!wait ", StringComparison.Ordinal) || command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal);
-            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null, vantage);
+            if (!here)
+            {
+                yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null, vantage);
+            }
+
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {
                 if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
@@ -1247,8 +1255,11 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 Command(command);
             }
 
-            yield return new WaitForSeconds(2f);
+            yield return new WaitForSeconds(here ? 0f : 2f);
         }
+
+        // What the last step changed (a piece, a source) reaches the server before the game quits.
+        yield return new WaitForSeconds(2f);
     }
 
     // A name that makes a file in the output folder: not empty, no folder, no "..", nothing a film's ffmpeg list would
@@ -1284,6 +1295,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     private void Own(string command)
     {
         string[] words = command.Split(new[] { ' ' }, 2);
+        if (words[0] == "!piece")
+        {
+            Piece(words.Length > 1 ? words[1] : string.Empty);
+            return;
+        }
+
         if (words[0] is not ("!source" or "!remove" or "!break"))
         {
             Note("unknown recorder command " + command);
@@ -1333,6 +1350,31 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             default:
                 break;
         }
+    }
+
+    // "!piece name x,y,z,yaw": a piece of that prefab placed at the point, turned round the vertical, as the game's own
+    // spawning places one (an object the server keeps).
+    private void Piece(string text)
+    {
+        string[] words = text.Split(new[] { ' ' }, 2);
+        GameObject prefab = words[0].Length > 0 ? ZNetScene.instance.GetPrefab(words[0]) : null;
+        if (prefab == null || prefab.GetComponent<Piece>() == null)
+        {
+            Note("recorder !piece with no piece of that name: " + text);
+            return;
+        }
+
+        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length != 4)
+        {
+            Note("recorder !piece needs a name and x,y,z,yaw: " + text);
+            return;
+        }
+
+        var point = new Vector3(v[0], v[1], v[2]);
+        // The local player's, as a piece the player builds (a private chest opens for them).
+        GameObject placed = Instantiate(prefab, point, Quaternion.Euler(0f, v[3], 0f));
+        placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
+        Note(FormattableString.Invariant($"{words[0]} placed at {point}, turned {v[3]}°"));
     }
 
     // Readies a test world for the editor: at each place of FW_REC_DIG ("x,z;x,z"), the game generates the zones
