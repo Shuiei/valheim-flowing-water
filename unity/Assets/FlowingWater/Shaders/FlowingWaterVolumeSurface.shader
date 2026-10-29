@@ -69,6 +69,7 @@ Shader "FlowingWater/VolumeSurface"
 
             int _VolumeLook;
             sampler2D _FlowingWaterVolumeBehind;
+            UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
             // What the march found, at half the screen's size (VolumeSurface sets them).
             sampler2D _VolumeWater;
             float4 _VolumeWater_TexelSize;
@@ -258,6 +259,13 @@ Shader "FlowingWater/VolumeSurface"
                 // where that read finds too little water about the pixel: the silhouette's last pixels).
                 float smooth = Eye(uv);
                 float eye = under || smooth <= 0.0 ? water.x : smooth;
+
+                // What stands out of the water in front of its surface at this pixel (a blade of grass, a post): seen,
+                // not drawn over (the march went on past it to the farthest of the pixels it stands for).
+                if (!under && LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv)) < eye - 0.02)
+                {
+                    discard;
+                }
                 float thickness = max(water.y, 0.0);
                 float2 ndc = float2(i.ndc.x, i.ndc.y * _ProjectionParams.x);
                 float3 here = Place(ndc, max(eye, 0.3));

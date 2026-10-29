@@ -384,7 +384,10 @@ particles, drawn apart as they speed up, still make one sheet; on no half-cell i
 pixel of a half-size picture, `FlowingWaterVolumeMarch.shader` marches a ray from the camera through the density,
 stepping over the cells with no water and in quarter-cells through the rest, to where the density first crosses a
 half: the water's surface, its normal the density's slope; and on through the water, adding up how much the ray goes
-through until it leaves the grid or meets the scene. Water on no ground (a fall, a splash, water down a face too
+through until it leaves the grid or meets the scene (the farthest of the scene's four pixels the half-size one stands
+for: a blade of grass standing out of the water in one of them would end the march for all four, a gap round the
+blade; the surface's pass then leaves out the water wherever the scene is nearer than its surface, pixel by pixel, so
+the blade shows in front of the water and the water runs on round it). Water on no ground (a fall, a splash, water down a face too
 steep for a sheet) is thinner than the half-cells can hold at the full density (a fall's sheet is a hand thick,
 stretched thinner as it speeds up), so there the density is counted against its cell's own fullness: the surface is
 where it reaches half of what the cell holds, from two or three particles a cell (a lone drop or two is spray, left

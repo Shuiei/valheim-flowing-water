@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.2 — 2026-10-29
+
+### Fixed
+- Shallow volume water among grass no longer shows dark dashes round the blades. A blade standing out of the water
+  used to cut a gap in the water around it; now the blade shows in front of the water and the water runs on round it.
+
 ## v0.42.1 — 2026-10-29
 
 ### Fixed
