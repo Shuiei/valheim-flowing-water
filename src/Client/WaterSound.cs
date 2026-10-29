@@ -65,6 +65,9 @@ internal static class WaterSound
 
     private static AudioMixerGroup _mixer;
 
+    // Whether the mixer group was looked for with the game's scene there to ask (found or not).
+    private static bool _mixerLooked;
+
     private static float _lookedAt = float.NegativeInfinity;
 
     /// <summary>Once a frame, after the water's: the sounds faded toward their places, which are looked for twice a second.</summary>
@@ -75,6 +78,9 @@ internal static class WaterSound
     {
         Silence();
         Gate.Reset();
+
+        // Not found in the last world: looked for again in this one.
+        _mixerLooked = _mixer != null;
     }
 
     /// <summary>What is heard, for the console ("flowingwater sound").</summary>
@@ -122,6 +128,8 @@ internal static class WaterSound
             Make();
         }
 
+        Mix();
+
         Vector3 ear = camera.transform.position;
         Find(ear);
         if (Time.time - _lookedAt >= LookSeconds)
@@ -144,18 +152,32 @@ internal static class WaterSound
         _root = new GameObject("FlowingWater running water");
         _stream ??= Clip("FlowingWater stream", WaterSounds.Stream());
         _rapids ??= Clip("FlowingWater rapids", WaterSounds.Rapids());
-        if (_mixer == null && ZNetScene.instance != null)
-        {
-            _mixer = ZNetScene.instance.GetPrefab(MixerPrefab)?.GetComponentInChildren<AudioSource>(true)?.outputAudioMixerGroup;
-            if (_mixer == null)
-            {
-                FlowingWaterPlugin.Log.LogWarning($"No {MixerPrefab} mixer group in the game: running water ignores the sound-effects volume");
-            }
-        }
-
         for (int i = 0; i < SoundSpots.Max; i++)
         {
             Emitters.Add(new Emitter(_root.transform, i, _stream, _rapids, _mixer));
+        }
+    }
+
+    // The game's sound-effects mixer group, looked for each frame until the game's scene is there to ask (then once: a
+    // game without it plays running water unmixed, and says so once a world), and given to the emitters made before.
+    private static void Mix()
+    {
+        if (_mixerLooked || ZNetScene.instance == null)
+        {
+            return;
+        }
+
+        _mixerLooked = true;
+        _mixer = ZNetScene.instance.GetPrefab(MixerPrefab)?.GetComponentInChildren<AudioSource>(true)?.outputAudioMixerGroup;
+        if (_mixer == null)
+        {
+            FlowingWaterPlugin.Log.LogWarning($"No {MixerPrefab} mixer group in the game: running water ignores the sound-effects volume");
+            return;
+        }
+
+        foreach (Emitter emitter in Emitters)
+        {
+            emitter.Mix(_mixer);
         }
     }
 
@@ -294,6 +316,13 @@ internal static class WaterSound
         }
 
         public void Hush() => _loud = 0f;
+
+        // Played through the game's mixer group from now on.
+        public void Mix(AudioMixerGroup mixer)
+        {
+            _stream.outputAudioMixerGroup = mixer;
+            _rapids.outputAudioMixerGroup = mixer;
+        }
 
         // Its loudness faded toward its place's, and it moved there: following a place near it, going to one far off
         // only once silent.
