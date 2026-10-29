@@ -268,6 +268,13 @@ float _FrothRate;
 RWStructuredBuffer<int> _FrothCount;
 StructuredBuffer<int> _FrothCountIn;
 #define FROTH_FULL 6
+// A powerful source foams: from BOIL_FROM m3/s its lens's top lets bubbles go, all it will from BOIL_FULL, BOIL_FOAM a
+// second from each of its top cells at the most (at FrothRate 1).
+#define BOIL_FROM 5.0
+#define BOIL_FULL 50.0
+#define BOIL_FOAM 6.0
+// How far up a source's water goes for each metre out of it.
+#define BOIL_TILT 0.6
 // Water slower than this (m/s) makes no froth; its drops' drag (1/s) at the least and the most (a fine mist hangs, a
 // drop falls); a bubble's rise (m/s²).
 #define FROTH_SLOW 1.5
@@ -534,14 +541,17 @@ int SourceAt(float3 place)
     return -1;
 }
 
-// The velocity a source gives at a point: out of its lens's surface at its speed (up over its top, outward at its
-// rim), scaled as Regulate found it.
+// The velocity a source gives at a point: outward from its middle and a little up (BOIL_TILT up for one out: about 30
+// degrees), at its speed (straight up at the very middle), scaled as Regulate found it. Its water gushes out of the
+// lens's rim and breaks the surface round it: welling up over the lens, a big source's water stood a metre over the
+// water round it to get away, a dome; flat along the ground, it ran out under the water, which lay calm over it.
 float3 SourceVelocity(int s, float3 place)
 {
     Spring spring = _Springs[s];
     float3 away = FromSource(spring, place);
-    float d = length(away);
-    return (d > 1e-4 ? away / d : float3(0.0, 1.0, 0.0)) * spring.flow.x * _ScaleIn[s];
+    float flat = length(away.xz);
+    float3 way = flat > 1e-4 ? normalize(float3(away.x / flat, BOIL_TILT, away.z / flat)) : float3(0.0, 1.0, 0.0);
+    return way * spring.flow.x * _ScaleIn[s];
 }
 
 // A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
@@ -1341,6 +1351,25 @@ void Emit(uint3 id : SV_DispatchThreadID)
 
         made++;
         InterlockedAdd(_Given[(uint)s], 1u);
+    }
+
+    // A powerful source foams, to show its power: bubbles let go from its lens's top rise to foam over it and are carried
+    // off with its water, the more the stronger it is (none under BOIL_FROM m3/s); never into a cell full of froth.
+    float power = Share(_Springs[s].flow.y, BOIL_FROM, BOIL_FULL);
+    if (_FrothRate <= 0.0 || power <= 0.0 || TypeAt(c + int3(0, 1, 0)) == EMIT || _FrothCountIn[i] >= FROTH_FULL)
+    {
+        return;
+    }
+
+    int bubbles = (int)floor((_FrothRate * power * BOIL_FOAM * _Dt) + Random(state));
+    for (int b = 0; b < bubbles; b++)
+    {
+        float3 place = centre + (float3(Random(state) - 0.5, Random(state) * 0.5, Random(state) - 0.5) * _H);
+        float3 velocity = (0.3 * SourceVelocity(s, place)) + float3(0.0, 1.0, 0.0);
+        if (SolidAt(place) || !SpawnFroth(place, velocity, lerp(2.0, 4.0, Random(state)), Random(state) * MIST_FROM))
+        {
+            return;
+        }
     }
 }
 
