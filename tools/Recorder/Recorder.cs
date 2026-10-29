@@ -1175,7 +1175,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // "~" runs the command where the player is, at once (a film right after a pour: a move takes some 14 s). A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
     // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!piece name
-    // x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees round the vertical), "!wait s", "!shot
+    // x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees round the vertical), "!drop name x,y,z"
+    // (any prefab let go there), "!wait s", "!shot
     // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
@@ -1301,6 +1302,12 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
+        if (words[0] == "!drop")
+        {
+            Drop(words.Length > 1 ? words[1] : string.Empty);
+            return;
+        }
+
         if (words[0] is not ("!source" or "!remove" or "!break"))
         {
             Note("unknown recorder command " + command);
@@ -1375,6 +1382,28 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         GameObject placed = Instantiate(prefab, point, Quaternion.Euler(0f, v[3], 0f));
         placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
         Note(FormattableString.Invariant($"{words[0]} placed at {point}, turned {v[3]}°"));
+    }
+
+    // "!drop name x,y,z": that prefab (an item, a log, a boat) let go at the point as it is, for the current to carry.
+    private void Drop(string text)
+    {
+        string[] words = text.Split(new[] { ' ' }, 2);
+        GameObject prefab = words[0].Length > 0 ? ZNetScene.instance.GetPrefab(words[0]) : null;
+        if (prefab == null)
+        {
+            Note("recorder !drop with no prefab of that name: " + text);
+            return;
+        }
+
+        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length != 3)
+        {
+            Note("recorder !drop needs a name and x,y,z: " + text);
+            return;
+        }
+
+        var point = new Vector3(v[0], v[1], v[2]);
+        Instantiate(prefab, point, Quaternion.identity);
+        Note(FormattableString.Invariant($"{words[0]} dropped at {point}"));
     }
 
     // Readies a test world for the editor: at each place of FW_REC_DIG ("x,z;x,z"), the game generates the zones

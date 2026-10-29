@@ -15,6 +15,9 @@ internal sealed class VoxelField
     /// <summary>A voxel this full, with its solid share, holds the water over it up.</summary>
     public const float Full = 0.95f;
 
+    /// <summary>The least share of a voxel its water's speed is worked out over (<see cref="WaterVelocity"/>).</summary>
+    public const float LeastShare = 0.05f;
+
     // A voxel coordinate's bits in a voxel key: ±1,048,575 voxels along each axis.
     private const int KeyBits = 21;
 
@@ -215,8 +218,8 @@ internal sealed class VoxelField
     }
 
     /// <summary>
-    /// The water's velocity at a point in it, metres a second (x east, y up, z north); false where dry, and over the
-    /// water's surface.
+    /// The water's velocity at a point in it, metres a second (x east, y up, z north): the voxel's water's own
+    /// (<see cref="WaterVelocity"/>); false where dry, and over the water's surface.
     /// </summary>
     public bool VelocityAt(float x, float y, float z, out float vx, out float vy, out float vz)
     {
@@ -227,10 +230,20 @@ internal sealed class VoxelField
         }
 
         Voxel(ix, iy, iz, out BrickView view, out int i);
-        vx = view.VelocityX[i];
-        vy = view.VelocityY[i];
-        vz = view.VelocityZ[i];
+        (vx, vy, vz) = WaterVelocity(view, i);
         return true;
+    }
+
+    /// <summary>
+    /// How fast a voxel's water runs, metres a second (x east, y up, z north). The server sends what flows through the
+    /// voxel's faces over a face's area: the water's speed times how full the voxel is, so a sheet or a fall a tenth of
+    /// a voxel thick runs ten times as fast as that (worked out over <see cref="LeastShare"/> of a voxel at least, or a
+    /// film's flow would make it endless).
+    /// </summary>
+    public static (float X, float Y, float Z) WaterVelocity(BrickView view, int i)
+    {
+        float share = Math.Max(view.Water[i], LeastShare);
+        return (view.VelocityX[i] / share, view.VelocityY[i] / share, view.VelocityZ[i] / share);
     }
 
     // The wet voxel a point is in, or the one under it when the point is just over the water; none for a point in a

@@ -28,9 +28,6 @@ internal static class SoundSpots
     // Across slower than this, water falling is as steep as it falls over this (a fall straight down is not endless).
     private const float SlowestAcross = 0.3f;
 
-    // The least share of a voxel its water's speed is worked out over (a film's flow would make it endless).
-    private const float LeastShare = 0.05f;
-
     /// <summary>Whether water this deep running this fast is heard.</summary>
     /// <param name="depth">Metres.</param>
     /// <param name="speed">Metres a second, all three ways.</param>
@@ -49,9 +46,8 @@ internal static class SoundSpots
     /// <summary>
     /// A brick's places: of its voxels with water deep enough to draw, those running fast enough (<see cref="Qualifies"/>,
     /// the voxel's water its depth), at the top of their water there, the strongest <see cref="PerBrick"/> spaced
-    /// apart. The server sends what flows through a voxel's faces over a face's area, the water's speed times how full
-    /// the voxel is: water falling through the air a tenth of a voxel thick runs ten times as fast as that, and the
-    /// water passing is that flow times the voxel's height.
+    /// apart; the water's speed is its own (<see cref="VoxelField.WaterVelocity"/>: a fall through the air a tenth of a
+    /// voxel thick runs ten times as fast as the flow the server sends says).
     /// </summary>
     public static List<Spot> Of(BrickView view)
     {
@@ -65,8 +61,7 @@ internal static class SoundSpots
                 continue;
             }
 
-            float share = Math.Max(view.Water[i], LeastShare);
-            float vx = view.VelocityX[i] / share, vy = view.VelocityY[i] / share, vz = view.VelocityZ[i] / share;
+            (float vx, float vy, float vz) = VoxelField.WaterVelocity(view, i);
             float across = (float)Math.Sqrt((vx * vx) + (vz * vz));
             float speed = (float)Math.Sqrt((across * across) + (vy * vy));
             if (!Qualifies(depth, speed))

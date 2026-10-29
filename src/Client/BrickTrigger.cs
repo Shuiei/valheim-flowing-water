@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using HarmonyLib;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -7,7 +8,8 @@ namespace FlowingWater.Client;
 /// <summary>
 /// The brick's trigger box on the game's water layer: tells characters, items and ships inside it
 /// the water level over them, as the game's own water volumes do, and lets the current carry
-/// floating things (swimmers are carried by the character patch). The level told is the higher of the
+/// floating things toward its speed, light ones quickly and boats slowly (<see cref="CurrentCarry"/>; swimmers are
+/// carried by the character patch). The level told is the higher of the
 /// flowing water and the game's own (the sea at a river's mouth): what is told last is what an object has, so
 /// telling the flowing water's alone would take the sea from a swimmer or a fish between the sea's own tellings.
 /// Its name must be no class of the game's: Unity finds a component added in code again by its class name alone when
@@ -21,8 +23,23 @@ internal sealed class BrickTrigger : MonoBehaviour
 
     private static float _carriedAt = -1f;
 
+    // The share of a floating thing's speed the game's own drag takes each physics step in water (Floating.m_damping),
+    // looked up once; without it (a game update), things are carried without it given back, and so are slower.
+    private static readonly AccessTools.FieldRef<Floating, float> DampingField = Damping();
+
     // What is in the box, each with the body it came in on (looked up once, not each physics step).
     private readonly List<(IWaterInteractable Interactable, Rigidbody Body)> _inside = [];
+
+    private static AccessTools.FieldRef<Floating, float> Damping()
+    {
+        if (AccessTools.Field(typeof(Floating), "m_damping") is { } field && field.FieldType == typeof(float))
+        {
+            return AccessTools.FieldRefAccess<Floating, float>(field);
+        }
+
+        FlowingWaterPlugin.Log.LogError("The game's Floating.m_damping was not found (a game update?): the current carries floating things slower than the water");
+        return null;
+    }
 
     private static IWaterInteractable Interactable(Collider collider, out Rigidbody body)
     {
@@ -47,6 +64,14 @@ internal sealed class BrickTrigger : MonoBehaviour
             return;
         }
 
+        // Only the game simulating the thing carries it: the others see where it goes (Unity's own null check, so
+        // ?. would not do).
+        ZNetView view = body.GetComponentInParent<ZNetView>();
+        if (view != null && view.IsValid() && !view.IsOwner())
+        {
+            return;
+        }
+
         if (Time.fixedTime != _carriedAt)
         {
             _carriedAt = Time.fixedTime;
@@ -58,7 +83,11 @@ internal sealed class BrickTrigger : MonoBehaviour
             return;
         }
 
-        body.AddForce(current * (body.mass * FlowingWaterPlugin.Settings.CurrentStrength.Value), ForceMode.Force);
+        Vector3 velocity = body.linearVelocity;
+        float drag = interactable is Floating floating && DampingField != null ? CurrentCarry.DragRate(DampingField(floating), Time.fixedDeltaTime) : 0f;
+        float braking = CurrentCarry.Braking(current.x, current.z, velocity.x, velocity.z, 1f, 0f, drag, drag);
+        (float x, float z) = CurrentCarry.Pull(current.x, current.z, velocity.x, velocity.z, body.mass, FlowingWaterPlugin.Settings.CurrentStrength.Value, braking);
+        body.AddForce(new Vector3(x, 0f, z), ForceMode.Acceleration);
     }
 
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]

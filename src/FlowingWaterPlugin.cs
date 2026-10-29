@@ -101,6 +101,11 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
         _server.Update(Time.deltaTime);
     }
 
+    // Each physics step: the ships in the flowing water carried by its current.
+    [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
+    [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls it on the plugin's object.")]
+    private void FixedUpdate() => Client.ShipCurrent.Tick();
+
     // After every brick's frame: the water near the camera moved and drawn on the graphics card, and heard.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls it on the plugin's object.")]
