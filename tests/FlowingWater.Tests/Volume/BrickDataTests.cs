@@ -238,8 +238,52 @@ public class BrickDataTests
 
         BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
 
-        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
-        Assert.Equal(0, view.Open[bare] & BrickData.GroundBeside);
+        Assert.Equal(1 << 0, view.GroundBeside[high]);
+        Assert.Equal(0, view.GroundBeside[bare]);
+        Assert.Equal(0, view.Open[high] & BrickData.GroundBeside);
+    }
+
+    [Fact]
+    public void GroundBesideIsSentForTheSideItIsOnOnly()
+    {
+        // Water open east toward a dry voxel holding some ground over water, and north toward a bare dry voxel over
+        // water: ground beside east only.
+        var brick = new Brick(0, 0, 0);
+        int high = Brick.Index(5, 5, 5);
+        brick.Water[high] = 0.9f;
+        brick.Solid[Brick.Index(6, 5, 5)] = 0.4f;
+        brick.Water[Brick.Index(6, 4, 5)] = 0.9f;
+        brick.Water[Brick.Index(5, 4, 6)] = 0.9f;
+
+        BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
+
+        Assert.Equal(1 << 0, view.GroundBeside[high]);
+    }
+
+    [Fact]
+    public void ABrickSavedWithGroundBesideAnySideIsReadWithItOnEachOpenSide()
+    {
+        // Version 3 (a world saved then): one bit for any side, taken for each open side across; not kept as a face.
+        byte open = (1 << 0) | (1 << 2) | (1 << 4) | BrickData.GroundUnder | BrickData.GroundBeside;
+        byte[] stored = Packed.Write(writer =>
+        {
+            writer.Write((byte)3);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(1f);
+            byte[] water = new byte[Brick.Count];
+            water[7] = 100;
+            writer.Write(water);
+            // Its solid share, speeds and open faces.
+            byte[] wet = [0, 0, 0, 0, open];
+            writer.Write(wet);
+        });
+
+        BrickView view = BrickData.Decode(stored);
+
+        Assert.Equal((1 << 0) | (1 << 2) | (1 << 4) | BrickData.GroundUnder, view.Open[7]);
+        Assert.Equal((1 << 0) | (1 << 4), view.GroundBeside[7]);
     }
 
     [Fact]
@@ -255,7 +299,7 @@ public class BrickDataTests
 
         BrickView view = BrickData.Decode(BrickData.Encode(brick, 1f));
 
-        Assert.NotEqual(0, view.Open[high] & BrickData.GroundBeside);
+        Assert.Equal(1 << 0, view.GroundBeside[high]);
     }
 
     [Fact]

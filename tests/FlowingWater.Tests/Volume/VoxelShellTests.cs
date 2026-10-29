@@ -12,7 +12,7 @@ namespace FlowingWater.Tests.Volume;
 /// </summary>
 public class VoxelShellTests
 {
-    private const int East = 1, West = 2, Up = 4, Down = 8;
+    private const int East = 1, West = 2, Up = 4, Down = 8, North = 16;
 
     [Fact]
     public void APoolClosedAllRoundShowsNoSide()
@@ -193,11 +193,30 @@ public class VoxelShellTests
     {
         // As above, but the dry voxel beside holds some ground (the server says so): the side shows over it.
         var view = new BrickView(0, 0, 0, 1f);
-        Wet(view, 5, 1, 5, 0.9f, East | Up | BrickData.GroundBeside);
+        Wet(view, 5, 1, 5, 0.9f, East | Up);
+        view.GroundBeside[Brick.Index(5, 1, 5)] = East;
         view.Solid[Brick.Index(5, 0, 5)] = 1f;
         Wet(view, 6, 0, 5, 0.9f, Up);
 
         Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void GroundBesideOneSideKeepsThatSideOnly()
+    {
+        // Open east and north toward water a voxel lower both ways, ground beside north only: the north side shows over
+        // it, the surface joins the water east.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 1, 5, 0.9f, East | North | Up);
+        view.GroundBeside[Brick.Index(5, 1, 5)] = North;
+        view.Solid[Brick.Index(5, 0, 5)] = 1f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+        Wet(view, 5, 0, 6, 0.9f, Up);
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(1, shell.Faces);
+        Assert.All(Corners(shell), c => Assert.Equal((0f, 0f, 1f), c.Normal));
     }
 
     [Fact]

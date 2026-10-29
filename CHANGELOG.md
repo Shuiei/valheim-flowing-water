@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.6 — 2026-10-29
+
+### Fixed
+- Water farther off than the water near you no longer shows a small wall on one side because ground stands beside it
+  on another. The server now says which side the ground is on. Game and server must both run this version; a world
+  saved before it is read as it was.
+
 ## v0.42.5 — 2026-10-29
 
 ### Fixed

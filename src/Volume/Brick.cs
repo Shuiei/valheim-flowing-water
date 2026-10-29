@@ -32,6 +32,9 @@ internal sealed class Brick
 
     private static readonly int[] NoPart = new int[Count];
 
+    // The four sides across, as Beside's: east, west, north, south.
+    private static readonly int[] HorizontalSides = [0, 1, 4, 5];
+
     // The arrays bricks let go of as they fall asleep, kept for those that wake: a brick waking every second or so
     // beside moving water would otherwise have 96 KB made for it each time. Only so many bricks' worth are kept (the
     // churn of waking and sleeping, not every brick of a pool gone still: that memory is what falling asleep gives
@@ -375,8 +378,7 @@ internal sealed class Brick
     /// The faces of a voxel water could leave it by, a bit per side as <see cref="Beside"/> (east, west, up, down,
     /// north, south): those no piece closes, not onto a solid voxel, and not shut against a brick forgotten there. A
     /// face onto a brick there is none of is open. Besides, <see cref="BrickData.GroundUnder"/> where the voxel under it
-    /// holds ground, and <see cref="BrickData.GroundBeside"/> where a side open toward water a voxel lower has ground in
-    /// the dry voxel beside it.
+    /// holds ground.
     /// </summary>
     public byte OpenFaces(int i)
     {
@@ -402,10 +404,6 @@ internal sealed class Brick
             if (!closed)
             {
                 open |= 1 << side;
-                if (side is not (2 or 3) && GroundBesideLowerWater(i, side))
-                {
-                    open |= BrickData.GroundBeside;
-                }
             }
         }
 
@@ -415,6 +413,26 @@ internal sealed class Brick
         }
 
         return (byte)open;
+    }
+
+    /// <summary>
+    /// The sides of a voxel, of its open faces <paramref name="open"/> (<see cref="OpenFaces"/>), toward water a voxel
+    /// lower with ground in the dry voxel beside it, as the same bits (east, west, north, south): its side shows over
+    /// that ground, though the water beside is one sheet with it under the ground. The players' games know the ground
+    /// only under water.
+    /// </summary>
+    public byte GroundBeside(int i, byte open)
+    {
+        int sides = 0;
+        foreach (int side in HorizontalSides)
+        {
+            if ((open & (1 << side)) != 0 && GroundBesideLowerWater(i, side))
+            {
+                sides |= 1 << side;
+            }
+        }
+
+        return (byte)sides;
     }
 
     // Whether the voxel beside voxel i on this side is dry as the players' games see it, holds some ground, and has water
