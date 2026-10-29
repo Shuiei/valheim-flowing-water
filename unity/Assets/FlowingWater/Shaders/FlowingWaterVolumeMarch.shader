@@ -58,6 +58,7 @@ Shader "FlowingWater/VolumeMarch"
             #define SHEET_STEEP_FROM 2.0
             #define SHEET_STEEP_TO 3.0
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+            float4 _CameraDepthTexture_TexelSize;
 
             // The density the surface lies at, the fine step through water (a quarter of a cell), steps at most.
             #define SURFACE 0.5
@@ -251,7 +252,14 @@ Shader "FlowingWater/VolumeMarch"
                 float3 forward = normalize(mul((float3x3)unity_CameraToWorld, float3(0.0, 0.0, 1.0)));
                 float2 uv = (i.ndc * 0.5) + 0.5;
                 uv.y = _ProjectionParams.x < 0.0 ? 1.0 - uv.y : uv.y;
-                float eye = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv));
+                // The farthest the scene is of the screen's four pixels this one stands for (the picture is half the
+                // screen's size): a blade of grass standing out of the water in one of them would end the march for all
+                // four, a gap in the water round the blade, under it the ground with no water over it. The surface's
+                // pass hides the water where the scene is nearer than its surface, pixel by pixel.
+                float2 px = _CameraDepthTexture_TexelSize.xy * 0.5;
+                float eye = max(
+                    max(LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(-px.x, -px.y))), LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(px.x, -px.y)))),
+                    max(LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(-px.x, px.y))), LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv + float2(px.x, px.y)))));
                 float along = dot(dir, forward);
                 float scene = eye / max(along, 1e-4);
 
