@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.2 — 2026-10-29
+
+### Fixed
+- A fall farther off than the water near you no longer shows small dark squares through it. They were walls drawn
+  between columns of the pool at its foot, under the spray falling into it.
+
 ## v0.44.1 — 2026-10-29
 
 ### Fixed

@@ -88,6 +88,27 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void AFallsSprayOverTheColumnBesideKeepsNoSideBetweenTwoPoolColumns()
+    {
+        // Two columns of one pool, 0.5 into row 1, open toward each other; a fall's spray over the second, rows 3 and 4,
+        // falling through the air: it is no water standing higher up that column, so the surface joins them.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int x in new[] { 5, 6 })
+        {
+            Wet(view, x, 0, 5, 1f, BrickData.AllOpen & ~Down);
+            Wet(view, x, 1, 5, 0.5f, BrickData.AllOpen);
+        }
+
+        Wet(view, 6, 3, 5, 0.02f, BrickData.AllOpen);
+        Wet(view, 6, 4, 5, 0.02f, BrickData.AllOpen);
+        view.Water[Brick.Index(6, 1, 5)] = 0.45f;
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.DoesNotContain(Corners(shell), c => System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Normal == (1f, 0f, 0f));
+    }
+
+    [Fact]
     public void WaterBesideWaterUnderOtherWaterShowsItsSideOnlyOverTheWaterBeside()
     {
         // Two voxels on a floor, open toward each other, the shallower one under water on a floor up its column (the
