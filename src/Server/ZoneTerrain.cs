@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using FlowingWater.Volume;
-using HarmonyLib;
 using UnityEngine;
 
 namespace FlowingWater.Server;
@@ -12,10 +11,11 @@ namespace FlowingWater.Server;
 /// locations in and round the zone (a village's levelled yard: the game's own terrain makes these on each player's
 /// game, never in what the server keeps, and a terrain edit is made over them), plus the players' terrain changes read
 /// from the zone's terrain-changes object (the same deltas and limits the game applies). The generated heights are made
-/// once a zone, the shaping and changes applied again on them when the changes move on or a zone round it is generated
-/// (its locations placed) (<see cref="ZoneHeights{TZone, TStamp}"/>).
+/// once a zone, the shaping and changes applied again on them when the changes move on or what shapes the zone or one
+/// round it does (a zone generated, its locations placed; a shaping piece added, moved or taken away)
+/// (<see cref="ZoneHeights{TZone, TStamp}"/>).
 /// </summary>
-internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>
+internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>
 {
     // The game's heightmap: a vertex every metre, one more than the metres along a side.
     private const int Pitch = TileData.ZoneMetres + 1;
@@ -26,11 +26,7 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
 
     private static readonly int LocationProxyHash = "LocationProxy".GetStableHashCode();
 
-    // The game's set of generated zones (its locations placed), read from its own field; null when a game update
-    // took it away (every zone is then taken as generated: its locations' shaping comes in once the changes move on).
-    private static readonly AccessTools.FieldRef<ZoneSystem, HashSet<Vector2s>> GeneratedZones = FindGeneratedZones();
-
-    private readonly ZoneHeights<Vector2s, (ZDOID Id, uint Revision, int Generated)> _heights;
+    private readonly ZoneHeights<Vector2s, (ZDOID Id, uint Revision, int Shapers)> _heights;
 
     private readonly List<ZDO> _found = [];
 
@@ -47,6 +43,12 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
     // Each object prefab's own terrain modifier (by its hash), null for one without.
     private readonly Dictionary<int, TerrainModifier> _shapingPieces = [];
 
+    // What shapes each sector (by its key: its location proxies and shaping pieces, by id and place), as found in the
+    // frame it was asked in: a zone's stamp asks it of the nine sectors round it, and its neighbours ask again.
+    private readonly Dictionary<long, int> _shapers = [];
+
+    private int _shapersFrame = -1;
+
     // The modifiers touching the zone being shaped.
     private readonly List<TerrainShaping.Modifier> _modifiers = [];
 
@@ -54,7 +56,7 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
     public ZoneTerrain(FrameParts parts)
     {
         _parts = parts;
-        _heights = new ZoneHeights<Vector2s, (ZDOID Id, uint Revision, int Generated)>(this, Pitch * Pitch);
+        _heights = new ZoneHeights<Vector2s, (ZDOID Id, uint Revision, int Shapers)>(this, Pitch * Pitch);
     }
 
     /// <summary>A zone's vertex heights, 65 by 65 (index z * 65 + x).</summary>
@@ -106,11 +108,11 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
     /// <param name="changed">A zone's heights changed: what was read of them before is out of date.</param>
     public void Refresh(Action<Vector2s> changed) => _heights.Refresh(changed);
 
-    long IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.Key(Vector2s zone) => TileData.Key(zone);
+    long IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.Key(Vector2s zone) => TileData.Key(zone);
 
     // The heightmap builder waits for its thread, which looks for work every 10 ms: asked once a zone, and once ready
     // (CanGenerate) where it can wait.
-    float[] IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.Generated(Vector2s zone)
+    float[] IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.Generated(Vector2s zone)
     {
         WaterPart was = _parts.Into(WaterPart.Heightmap);
         Vector3 center = ZoneSystem.GetZonePos(zone);
@@ -120,29 +122,66 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         return heights;
     }
 
-    bool IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.CanGenerate(Vector2s zone) =>
+    bool IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.CanGenerate(Vector2s zone) =>
         HeightmapBuilder.instance.IsTerrainReady(ZoneSystem.GetZonePos(zone), TileData.ZoneMetres, 1f, false, WorldGenerator.instance);
 
-    // The stamp holds which of the zone and the eight round it are generated: a location's modifiers reach over its
-    // zone's edge, and come with it once it is (a zone is generated, its locations placed, when a player first nears).
-    ((ZDOID Id, uint Revision, int Generated) Stamp, byte[] Data) IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.Changes(Vector2s zone)
+    // The stamp holds what shapes the zone and the eight round it (a location's modifiers reach over its zone's edge):
+    // their location proxies, placed when a zone is generated (when a player first nears), and their shaping pieces,
+    // added, moved or taken away.
+    ((ZDOID Id, uint Revision, int Shapers) Stamp, byte[] Data) IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.Changes(Vector2s zone)
     {
-        int generated = 0, bit = 0;
+        if (_shapersFrame != Time.frameCount)
+        {
+            _shapersFrame = Time.frameCount;
+            _shapers.Clear();
+        }
+
+        int shapers = 0;
         for (int dz = -1; dz <= 1; dz++)
         {
-            for (int dx = -1; dx <= 1; dx++, bit++)
+            for (int dx = -1; dx <= 1; dx++)
             {
-                generated |= GeneratedZones == null || GeneratedZones(ZoneSystem.instance).Contains(new Vector2s(zone.x + dx, zone.y + dz)) ? 1 << bit : 0;
+                shapers = unchecked((shapers * 31) + Shapers(new Vector2s(zone.x + dx, zone.y + dz)));
             }
         }
 
         ZDO changes = FindChanges(zone);
-        return changes == null ? ((ZDOID.None, 0u, generated), null) : ((changes.m_uid, changes.DataRevision, generated), changes.GetByteArray(ChangesHash));
+        return changes == null ? ((ZDOID.None, 0u, shapers), null) : ((changes.m_uid, changes.DataRevision, shapers), changes.GetByteArray(ChangesHash));
+    }
+
+    // What shapes a sector: each of its location proxies and shaping pieces by id and place, in whatever order the
+    // game lists them.
+    private int Shapers(Vector2s sector)
+    {
+        long key = TileData.Key(sector);
+        if (_shapers.TryGetValue(key, out int known))
+        {
+            return known;
+        }
+
+        int sum = 0, count = 0;
+        _found.Clear();
+        ZDOMan.instance.FindSectorObjects(sector, new SimulationDistance(0, 0), _found);
+        foreach (ZDO zdo in _found)
+        {
+            int prefab = zdo.GetPrefab();
+            if (prefab == LocationProxyHash || ShapingPiece(prefab) != null)
+            {
+                Vector3 at = zdo.GetPosition();
+                int one = unchecked((((((zdo.m_uid.GetHashCode() * 31) + at.x.GetHashCode()) * 31) + at.y.GetHashCode()) * 31) + at.z.GetHashCode());
+                sum = unchecked(sum + one);
+                count++;
+            }
+        }
+
+        int shapers = unchecked((sum * 31) + count);
+        _shapers[key] = shapers;
+        return shapers;
     }
 
     // The terrain modifiers of the locations in the zone and round it, and of any object that shapes the ground (an old
     // world's shaping pieces), over its generated heights.
-    void IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.Shape(Vector2s zone, float[] heights)
+    void IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.Shape(Vector2s zone, float[] heights)
     {
         _modifiers.Clear();
         for (int dz = -1; dz <= 1; dz++)
@@ -160,19 +199,8 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         }
     }
 
-    void IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Generated)>.Warn(Vector2s zone, string problem) =>
+    void IZoneGround<Vector2s, (ZDOID Id, uint Revision, int Shapers)>.Warn(Vector2s zone, string problem) =>
         FlowingWaterPlugin.Log.LogWarning($"Zone {zone}: {problem}");
-
-    private static AccessTools.FieldRef<ZoneSystem, HashSet<Vector2s>> FindGeneratedZones()
-    {
-        if (AccessTools.Field(typeof(ZoneSystem), "m_generatedZones") is not { } field || field.FieldType != typeof(HashSet<Vector2s>))
-        {
-            FlowingWaterPlugin.Log.LogError("The game's ZoneSystem.m_generatedZones was not found (a game update?): a zone's locations shape the water's ground only once its terrain changes move on");
-            return null;
-        }
-
-        return AccessTools.FieldRefAccess<ZoneSystem, HashSet<Vector2s>>(field);
-    }
 
     // The terrain modifiers of a zone's locations (where each proxy stands, turned as it is) and shaping objects.
     private void Gather(Vector2s zone)

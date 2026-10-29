@@ -58,6 +58,19 @@ public class TerrainShapingTests
     }
 
     [Fact]
+    public void SmoothingWithNoReachSetsOnlyTheVertexUnderIt()
+    {
+        float[] heights = Flat(10f);
+        var smooth = new TerrainShaping.Modifier { Y = 20f, Smooth = true, SmoothRadius = 0f, SmoothPower = 3f, Radius = 0f };
+
+        TerrainShaping.Shape(heights, Centre, Centre, [smooth]);
+
+        Assert.Equal(20f, At(heights, 32, 32));
+        Assert.Equal(10f, At(heights, 33, 32));
+        Assert.All(heights, h => Assert.True(float.IsFinite(h)));
+    }
+
+    [Fact]
     public void ModifiersGoInTheGamesOrderTheLaterOverTheEarlier()
     {
         float[] heights = Flat(10f);

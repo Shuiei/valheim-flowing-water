@@ -145,8 +145,9 @@ internal static class TerrainShaping
                     continue;
                 }
 
-                // Toward the modifier's height, wholly at it, not at all at the reach's edge.
-                float share = apart / radius;
+                // Toward the modifier's height, wholly at it, not at all at the reach's edge (a reach of none smooths
+                // only the vertex under it, wholly).
+                float share = radius > 0f ? apart / radius : 0f;
                 share = (float)Math.Pow(share, modifier.SmoothPower);
                 int i = (z * Side) + x;
                 float height = heights[i] + ((y - heights[i]) * (1f - share));
