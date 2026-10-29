@@ -412,21 +412,12 @@ public static class VolumePreview
     // hold water.
     private static float MeanTop(VolumeWater water, float column)
     {
-        float[] data = water.Read();
-        var tops = new Dictionary<(int, int), float>();
-        for (int p = 0; p < data.Length / 12; p++)
-        {
-            float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
-            var key = ((int)(x / column), (int)(z / column));
-            tops[key] = Math.Max(tops.TryGetValue(key, out float top) ? top : float.MinValue, y);
-        }
-
+        Dictionary<(int, int), float> tops = ColumnTops(water, column);
         return tops.Count > 0 ? tops.Values.Average() : 0f;
     }
 
-    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
-    // deviation about the mean (m), over the columns that hold water.
-    private static float Roughness(VolumeWater water, float[] bed, float column)
+    // The height of the highest particle in each column (of a width) that holds water, by the column.
+    private static Dictionary<(int, int), float> ColumnTops(VolumeWater water, float column)
     {
         float[] data = water.Read();
         var tops = new Dictionary<(int, int), float>();
@@ -437,6 +428,14 @@ public static class VolumePreview
             tops[key] = Math.Max(tops.TryGetValue(key, out float top) ? top : float.MinValue, y);
         }
 
+        return tops;
+    }
+
+    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
+    // deviation about the mean (m), over the columns that hold water.
+    private static float Roughness(VolumeWater water, float[] bed, float column)
+    {
+        Dictionary<(int, int), float> tops = ColumnTops(water, column);
         if (tops.Count < 2)
         {
             return 0f;
