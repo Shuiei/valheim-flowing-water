@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.38.2 — 2026-10-28
+
+### Fixed
+- The server knows the ground as your game shows it near the world's locations: their levelled and smoothed yards are
+  now part of the ground the water runs on, and terrain edits made there (with the hoe or a world editor) land where
+  you see them. The water no longer lies inside a hill or hangs over a hollow there, and you swim where it shows.
+  
 ## v0.38.1 — 2026-10-27
 
 ### Fixed
