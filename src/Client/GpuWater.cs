@@ -455,8 +455,11 @@ internal sealed class GpuWater : IDisposable
             }
         }
 
-        // No water in the square: nothing to move or draw (water far off does not keep the card busy).
-        if (Near(window, NearBricks).Count == 0)
+        // No water in the square: nothing to move or draw (water far off does not keep the card busy). The bricks are
+        // the square's the water is in, kept while the camera stays near its middle: the square round the camera as it is
+        // now may be a brick row off it, and built from that one's, the kept square's far edge had none of the server's
+        // water (the volume water there took the side for dry, its water ran out, and the pool stood a metre low).
+        if (Near(_water?._window ?? window, NearBricks).Count == 0)
         {
             Stop("no water near you");
             return;

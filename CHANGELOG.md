@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.5 — 2026-10-29
+
+### Fixed
+- The water near you takes in the server's water over the whole of its square: while you stayed near its middle,
+  the brick row at its far edge could be left out. The volume water then took that edge for dry ground, its water
+  ran out there, and a pool stood a metre under the server's, a dark step showing where the far water began.
+
 ## v0.44.4 — 2026-10-29
 
 ### Fixed
