@@ -327,9 +327,13 @@ voxels it has water in, so without this a wall or a roof its water had not reach
 Its mass is its own: nothing inside the square is corrected toward the server's water. The server's water is poured
 in once when the square is made (where the server has water, from the ground to its top) and each frame in a band
 two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
-or top is the server's again. Where the server has water beyond a side, that side holds the square's water in, as a
-wall does, so a lake the square cuts stays level at its edge (the band along it takes the server's water as it
-changes); where the world beyond is dry, the side is open and the water goes out. Deep water would fill the particles'
+or top is the server's again. Where the server has water beyond a side, the solver takes it for water at the
+server's level, its pressure its depth's under the server's top (held at nothing half a cell over that top, where
+the solver's own surface is: a cell with any water in it is water to it), so a lake the square cuts stays level at
+its edge (the band along it takes the server's water as it changes), and the square's water standing higher runs out
+under the server's level as well as over it. That water was a wall up to the server's level until 0.44.1: a big
+source's water could leave only over it, and a 100 m³/s source filled the square half a metre over the server's
+water. Where the world beyond is dry, the side is open and the water goes out. Deep water would fill the particles'
 room (a lake filling the square at 3 m is 3,000 m³, a million particles hold 2,000), and a full volume takes nothing
 more from a source or a fall: where the server's water in the grid would take more than three quarters of the room,
 the volume moves only the top of deep water, as deep as fits and at least a metre (`VolumeFollow.DeepKeep`, from the
@@ -337,9 +341,12 @@ server's columns, held unless what fits moves a quarter metre), and under that d
 (the ground the solver and the particles see, `GroundAt` in the compute shader). A player does not dive, so the camera
 never sees under it. A placed source is an inflow in the grid: a lens centred on the ground, as wide as its
 rate needs (0.8 m round for the default 2 m³/s, 1.8 m for 10, 5.6 m for 100) and half a metre high at most, its
-cells kept full of particles going out of it, its water rising over it at about a metre a second (a big spring boils
-up over a wide patch; it neither shoots a jet into the sky nor stands on the ground as a ball of water), scaled each
-step toward giving its rate; a drain takes its rate of particles within its reach. The server's config's fixed sources and
+cells kept full of particles going out of it. Its water gushes out of the lens's rim, outward and a little up (about
+30 degrees), as fast as the rim passes its rate (0.6 m/s for 1 m³/s, 5.6 m/s for 100), scaled each step toward giving
+it: welling up over the lens, as it did until 0.44.1, a 100 m³/s source's water stood a metre over the water round it
+to get away, a green dome; out flat along the ground, it ran out under the water, which lay calm over it. A source
+of 5 m³/s or more foams too, to show its power: its lens's top lets bubbles go, all it will from 50 m³/s (6 a second
+from each top cell, at `VolumeFroth` 1), which rise to foam over it and are carried off with its water; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
 card's square (round you, the player, not the camera: a free camera does not drag the water away), no wider than
 `Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, with seven tenths of it above

@@ -31,9 +31,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     private const int Threads = 256;
 
-    // A source's water comes out at about this speed (m/s): its reach grows with its rate instead (a big spring boils up
-    // over a wide patch); about half its sphere's faces are open to the water (the rest cut to the grid or against
-    // the ground), and Regulate scales the speed the rest of the way to the rate.
+    // A source's water gushes out of its lens's rim, outward and a little up, as fast as the rim passes its rate
+    // (SpringShape.Outflow); part of the lens is cut to the grid or against the ground, and Regulate scales the speed
+    // the rest of the way to the rate.
 
     private static readonly int ParticlesId = Shader.PropertyToID("_Particles");
     private static readonly int ParticlesInId = Shader.PropertyToID("_ParticlesIn");
@@ -861,8 +861,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             _shader.SetBuffer(kernel, BodiesId, _bodies);
         }
 
-        // (The server's water beyond an open side is a wall to the solver: every kernel that reads a cell's type reads
-        // it.)
+        // (The server's water beyond an open side is water at its own pressure to the solver: every kernel that reads a
+        // cell's type or a pressure reads it.)
         foreach (int kernel in new[] { _clearFaces, _gather, _divergence, _relax, _project, _seed })
         {
             _shader.SetTexture(kernel, TargetId, _target ?? _noTarget);
@@ -971,9 +971,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetBuffer(_emit, GivenId, _given);
         _shader.SetBuffer(_regulate, GivenInId, _given);
         _shader.SetBuffer(_move, TakenId, _taken);
-        _shader.SetBuffer(_move, FrothId, _froth[_frothCurrent]);
-        _shader.SetBuffer(_move, FrothAliveId, _frothAlive);
-        _shader.SetBuffer(_move, FrothCountInId, _frothCount);
+        foreach (int kernel in new[] { _move, _emit })
+        {
+            _shader.SetBuffer(kernel, FrothId, _froth[_frothCurrent]);
+            _shader.SetBuffer(kernel, FrothAliveId, _frothAlive);
+            _shader.SetBuffer(kernel, FrothCountInId, _frothCount);
+        }
         _shader.SetBuffer(_compact, SortedId, _particles[1 - _current]);
     }
 
