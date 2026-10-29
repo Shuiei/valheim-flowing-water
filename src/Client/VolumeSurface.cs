@@ -17,14 +17,22 @@ internal sealed class VolumeSurface : IDisposable
     private const CameraEvent When = CameraEvent.BeforeForwardAlpha;
 
     private static readonly int WaterId = Shader.PropertyToID("_VolumeWater");
-    private static readonly int NormalId = Shader.PropertyToID("_VolumeNormal");
+    private static readonly int FlowFoundId = Shader.PropertyToID("_VolumeFlow");
     private static readonly int FineId = Shader.PropertyToID("_Fine");
     private static readonly int CoarseId = Shader.PropertyToID("_Coarse");
     private static readonly int FoamId = Shader.PropertyToID("_Foam");
+    private static readonly int FlowId = Shader.PropertyToID("_Flow");
     private static readonly int OriginId = Shader.PropertyToID("_VolumeOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_VolumeSize");
     private static readonly int CellsId = Shader.PropertyToID("_VolumeCells");
     private static readonly int CellId = Shader.PropertyToID("_VolumeCell");
+    private static readonly int BlurDirectionId = Shader.PropertyToID("_BlurDirection");
+    private static readonly int FoundId = Shader.PropertyToID("_Found");
+    private static readonly int FoundTexelId = Shader.PropertyToID("_FoundTexel");
+    private static readonly int PixelsPerMetreId = Shader.PropertyToID("_PixelsPerMetre");
+    private static readonly int LookId = Shader.PropertyToID("_VolumeLook");
+
+    private const int SmoothPass = 1;
 
     private static readonly Bounds Everywhere = new(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
 
@@ -32,8 +40,11 @@ internal sealed class VolumeSurface : IDisposable
 
     private readonly RenderTargetIdentifier[] _targets = new RenderTargetIdentifier[2];
 
-    // The pictures the march writes, the camera's size over Scale (made again when it changes).
+    // The pictures the march writes, the camera's size over Scale (made again when it changes), and the one the
+    // smoothing ping-pongs with.
     private RenderTexture _water;
+
+    private RenderTexture _smoothed;
 
     private RenderTexture _normal;
 
@@ -44,6 +55,18 @@ internal sealed class VolumeSurface : IDisposable
     /// the full size's march, and the surface's edge steps by two pixels; 1 is the screen's own.
     /// </summary>
     public static float Scale { get; set; } = 0.5f;
+
+    /// <summary>What the march found this frame, smoothed (for the preview's diagnostics): x the surface's distance along the view, y the water seen through, z the foam, w 1 under the water.</summary>
+    internal RenderTexture Found => _water;
+
+    /// <summary>For the preview's diagnostics: "h" or "v" smooths that way only, both halves of each pass.</summary>
+    internal static string OnlyDirection { get; set; }
+
+    /// <summary>The drawing taken apart, for testing (the console's "flowingwater particles look N"): 0 as it is.</summary>
+    public static int Look { get; set; }
+
+    /// <summary>Passes of the surface's smoothing, each way: enough to take the particles' grain out of a pool's surface (0: none, for testing).</summary>
+    public static int Smoothing { get; set; } = 4;
 
     /// <summary>
     /// The water as this camera will draw it next: the march run for this frame's water on the camera (moved from the
@@ -67,9 +90,17 @@ internal sealed class VolumeSurface : IDisposable
         }
 
         ParticleSurface.Sun();
+        Shader.SetGlobalInt(LookId, Look);
         march.SetTexture(FineId, water.Fine);
         march.SetTexture(CoarseId, water.Coarse);
         march.SetTexture(FoamId, water.Foam);
+        march.SetTexture(FlowId, water.Flow);
+        // (The ground's and the sheet's names are the compute shader's own: VolumeWater keeps them.)
+        march.SetTexture(VolumeWater.SheetId, water.Sheet);
+        march.SetTexture(VolumeWater.BedId, water.Bed);
+        march.SetInt(VolumeWater.BedCellsId, water.BedCells);
+        march.SetFloat(VolumeWater.BedDxId, water.BedDx);
+        march.SetVector(VolumeWater.BedOriginId, water.BedOrigin);
         march.SetVector(OriginId, water.Origin);
         march.SetVector(SizeId, water.Size);
         march.SetVector(CellsId, new Vector3(water.CellsX, water.CellsY, water.CellsZ));
@@ -81,13 +112,34 @@ internal sealed class VolumeSurface : IDisposable
         _commands.SetRenderTarget(_targets, _water);
         _commands.ClearRenderTarget(false, true, Color.clear);
         _commands.DrawProcedural(Matrix4x4.identity, march, 0, MeshTopology.Triangles, 3, 1);
+        // The surface smoothed, each pass once across and once up, between the two pictures (a draw of a triangle
+        // over the picture, as the march's: the source bound by name, the picture's texel and the camera's pixels per
+        // metre given, which a draw into a picture of its own does not know).
+        _commands.SetGlobalVector(FoundTexelId, new Vector4(1f / _water.width, 1f / _water.height, _water.width, SystemInfo.graphicsUVStartsAtTop ? -_water.height : _water.height));
+        _commands.SetGlobalFloat(PixelsPerMetreId, camera.projectionMatrix.m11 * _water.height * 0.5f);
+        for (int pass = 0; pass < (Look == 6 ? 0 : Smoothing); pass++)
+        {
+            Vector4 across = OnlyDirection == "v" ? new Vector4(0f, 1f, 0f, 0f) : new Vector4(1f, 0f, 0f, 0f);
+            Vector4 up = OnlyDirection == "h" ? new Vector4(1f, 0f, 0f, 0f) : new Vector4(0f, 1f, 0f, 0f);
+            Smooth(_water, _smoothed, march, across);
+            Smooth(_smoothed, _water, march, up);
+        }
+
         _commands.SetGlobalTexture(WaterId, _water);
-        _commands.SetGlobalTexture(NormalId, _normal);
+        _commands.SetGlobalTexture(FlowFoundId, _normal);
 
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         Graphics.DrawProcedural(surface, Everywhere, MeshTopology.Triangles, 3, 1, camera, null, ShadowCastingMode.Off, false, 0);
         ParticleSurface.Froth(camera, froth);
+    }
+
+    private void Smooth(RenderTexture from, RenderTexture into, Material march, Vector4 direction)
+    {
+        _commands.SetGlobalTexture(FoundId, from);
+        _commands.SetGlobalVector(BlurDirectionId, direction);
+        _commands.SetRenderTarget(into);
+        _commands.DrawProcedural(Matrix4x4.identity, march, SmoothPass, MeshTopology.Triangles, 3, 1);
     }
 
     /// <summary>Off the camera it was on.</summary>
@@ -108,6 +160,7 @@ internal sealed class VolumeSurface : IDisposable
         Detach();
         _commands.Release();
         ParticleSurface.Free(ref _water);
+        ParticleSurface.Free(ref _smoothed);
         ParticleSurface.Free(ref _normal);
     }
 
@@ -120,8 +173,10 @@ internal sealed class VolumeSurface : IDisposable
         }
 
         ParticleSurface.Free(ref _water);
+        ParticleSurface.Free(ref _smoothed);
         ParticleSurface.Free(ref _normal);
         _water = ParticleSurface.Make("found", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
+        _smoothed = ParticleSurface.Make("found smoothed", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
         _normal = ParticleSurface.Make("normal", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
     }
 }

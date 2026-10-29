@@ -11,13 +11,13 @@ Shader "FlowingWater/Froth"
         _FoamColor ("Foam colour", Color) = (0.838, 0.838, 0.838, 1)
 
         // The froth's own.
-        _SprayRadius ("A drop's radius when born (m)", Float) = 0.04
-        _SprayGrowth ("How many times its radius a drop spreads to by the end of its life (mist)", Float) = 3
-        _SprayAlpha ("A drop's opacity when born", Range(0, 1)) = 0.45
-        _FoamRadius ("A speck of foam's radius (m)", Float) = 0.06
-        _FoamAlpha ("Foam's opacity", Range(0, 1)) = 0.85
-        _BubbleRadius ("A bubble's radius (m)", Float) = 0.035
-        _BubbleAlpha ("A bubble's opacity", Range(0, 1)) = 0.35
+        _DropRadius ("A droplet's radius (m)", Float) = 0.018
+        _DropAlpha ("A droplet's opacity", Range(0, 1)) = 0.7
+        _MistRadius ("A wisp of mist's radius when born (m)", Float) = 0.2
+        _MistGrowth ("How many times its radius a wisp spreads to by the end of its life", Float) = 3
+        _MistAlpha ("A wisp's opacity when born", Range(0, 1)) = 0.03
+        _BubbleRadius ("A bubble's radius (m)", Float) = 0.015
+        _BubbleAlpha ("A bubble's opacity", Range(0, 1)) = 0.3
     }
 
     SubShader
@@ -51,13 +51,14 @@ Shader "FlowingWater/Froth"
             StructuredBuffer<Particle> _Particles;
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
             fixed4 _FoamColor;
-            float _SprayRadius;
-            float _SprayGrowth;
-            float _SprayAlpha;
-            float _FoamRadius;
-            float _FoamAlpha;
+            float _DropRadius;
+            float _DropAlpha;
+            float _MistRadius;
+            float _MistGrowth;
+            float _MistAlpha;
             float _BubbleRadius;
             float _BubbleAlpha;
+            #define MIST_FROM 0.55
 
             // The sun as the game sets it for every shader (none: the scene's light, as ParticleSurface found it).
             float4 _SunDir;
@@ -86,17 +87,26 @@ Shader "FlowingWater/Froth"
                 float age = saturate(1.0 - (life / born));
                 float own = p.predicted.z;
                 float kind = p.predicted.w;
+                // Spray in the air: a droplet (small, bright, falling) or a wisp of mist (large, faint, spreading as it
+                // fades) by its own number. Foam on the surface is the surface's own to draw (a pattern of foam over the
+                // water, from the froth in each cell): no sprite. A bubble under the water: a tiny faint one.
                 float radius;
                 float alpha;
-                if (kind < 0.5)
+                if (kind < 0.5 && own < MIST_FROM)
                 {
-                    radius = _SprayRadius * lerp(0.6, 1.4, own) * lerp(1.0, _SprayGrowth, age);
-                    alpha = _SprayAlpha * (1.0 - age);
+                    radius = _DropRadius * lerp(0.7, 1.3, own / MIST_FROM);
+                    alpha = _DropAlpha * (1.0 - (age * age));
+                }
+                else if (kind < 0.5)
+                {
+                    float wisp = (own - MIST_FROM) / (1.0 - MIST_FROM);
+                    radius = _MistRadius * lerp(0.7, 1.3, wisp) * lerp(1.0, _MistGrowth, age);
+                    alpha = _MistAlpha * (1.0 - age) * (1.0 - age);
                 }
                 else if (kind < 1.5)
                 {
-                    radius = _FoamRadius * lerp(0.7, 1.3, own);
-                    alpha = _FoamAlpha * saturate(life / 0.5);
+                    radius = 0.0;
+                    alpha = 0.0;
                 }
                 else
                 {
@@ -129,8 +139,10 @@ Shader "FlowingWater/Froth"
                     discard;
                 }
 
-                // Soft and round; softer still against what is just behind it (no hard line where it meets the ground).
+                // Soft and round (a wisp of mist softer still: no disc to be seen, only the haze the wisps add up to);
+                // softer again against what is just behind it (no hard line where it meets the ground).
                 float soft = (1.0 - r2) * (1.0 - r2);
+                soft = i.look.x > 0.1 ? soft * (1.0 - r2) : soft;
                 float2 screen = i.screen.xy / max(i.screen.w, 0.0001);
                 float behind = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, screen));
                 float near = saturate((behind - i.look.z) / max(i.look.x, 0.01));

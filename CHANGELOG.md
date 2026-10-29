@@ -2,6 +2,33 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.0 — 2026-10-27
+
+### Fixed
+- The volume water runs down slopes as water does. The solver saw the ground as a stair of whole cells, so a slope
+  was a run of terraces the water sat on and spilled over, in squared pools; now each cell and each face of the
+  grid knows how much of it is clear of the ground, and the pressure follows the real slope. Water let go at the
+  top of a ramp runs down it as a sheet and gathers on the floor below, and nothing is pushed into the ground. Thin
+  water on the ground is also drawn as one smooth skin from the ground to its top, instead of blobs and ridges the
+  size of the grid's cells, and the whole surface is smoothed across the screen before it is lit, so the particles'
+  grain no longer shows as lumps on a pool or a stream. Running water carries ripples that move with it at its own
+  speed, finer the faster it runs; a pool lies still. The volume's grid is 32 m tall now with more of it above you
+  than below, and water falling from above the grid comes into it instead of staying the far water's: a stream down a
+  tall hill is the volume's wherever you stand on it. The square and the grid follow you, not the camera, so a free
+  camera or a far look does not drag the water away; and `Client.VolumeRange` goes up to 128 m now and `Client.VolumeHeight` to 64 m, the grid cut in
+  height to what the card runs at once. Rocks and banks standing out of thin water stay dry, with the water running
+  round them, and a thin film of water on the ground shows the ground, not the sky. A fall is one thin veil of
+  water from its lip to its pool, not a sheet full of holes, and runs white as it speeds up; foam lies on the water
+  as a lace that flows with it and closes where the churn is, instead of specks; spray is small bright droplets
+  and a fine mist that hangs and fades, not balls of fluff; and a smooth sheet running down a slope throws little
+  spray. A big spring wells up over a patch as wide as its rate needs instead of shooting a jet high into the sky;
+  and the water no longer mirrors the ground about you where you see a surface from below. Water no longer hangs
+  frozen in the air as a sheet or a ceiling where the server's idea of the ground differs from the game's (after
+  some terrain edits), and a spray of drops no longer draws as a solid column of water. Where a stream runs past
+  the top or bottom of the volume's grid it blends into the far water instead of ending in a line across it.
+  What players built stays solid to the volume water over its grid's whole height, the grid cut to what that
+  covers, and a lone far drop no longer shows as a black or white speck.
+
 ## v0.41.0 — 2026-10-27
 
 ### Changed

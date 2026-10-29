@@ -20,26 +20,27 @@ public class VolumeFollowTests
     }
 
     [Fact]
-    public void TheGridSitsCentredOnTheCameraOnACellBoundary()
+    public void TheGridSitsWithMoreOfItsHeightAboveTheCameraOnACellBoundary()
     {
-        // 96 cells of 0.25 m are 24 m: the bottom is 12 m under the camera, on the cell boundary below.
+        // 96 cells of 0.25 m are 24 m: the bottom is 7.2 m under the camera (seven tenths of the grid above it), on
+        // the cell boundary below.
         float bottom = VolumeFollow.BaseY(10.3f, 96, 0.25f);
 
-        Assert.Equal(-1.75f, bottom, 4);
+        Assert.Equal(3f, bottom, 4);
         Assert.Equal(0f, bottom % 0.25f, 4);
-        Assert.InRange(10.3f - (bottom + 12f), 0f, 0.25f);
+        Assert.InRange(10.3f - (bottom + 7.2f), 0f, 0.25f);
     }
 
     [Theory]
-    [InlineData(12f, false)]
-    [InlineData(17.9f, false)]
-    [InlineData(6.1f, false)]
-    [InlineData(18.1f, true)]
-    [InlineData(5.9f, true)]
+    [InlineData(7.2f, false)]
+    [InlineData(13.1f, false)]
+    [InlineData(1.3f, false)]
+    [InlineData(13.3f, true)]
+    [InlineData(1.1f, true)]
     [InlineData(40f, true)]
-    public void TheGridMovesOnceTheCameraLeavesItsMiddleHalf(float cameraY, bool moves)
+    public void TheGridMovesOnceTheCameraLeavesTheMiddleHalfOfItsPlay(float cameraY, bool moves)
     {
-        // A grid from 0 to 24 m: its middle half is 6 to 18 m.
+        // A grid from 0 to 24 m sits its camera at 7.2 m: it moves once the camera is 6 m from there.
         Assert.Equal(moves, VolumeFollow.Rebase(cameraY, 0f, 96, 0.25f));
     }
 
@@ -58,9 +59,10 @@ public class VolumeFollowTests
                 moves++;
             }
 
-            // Never out of the middle half once followed, and the water round the camera is always in the grid.
+            // Never out of its play once followed, and the water round the camera is always in the grid, more of it
+            // above than below.
             Assert.False(VolumeFollow.Rebase(camera, origin, Rows, Cell));
-            Assert.InRange(camera, origin + 6f, origin + 18f);
+            Assert.InRange(camera, origin + 1.2f, origin + 13.2f);
         }
 
         // 200 m climbed with 6 m of slack each way: a move every 6 m or so, not every frame.
@@ -97,6 +99,35 @@ public class VolumeFollowTests
         // 32 m of 0.25 m cells, 24 m tall: the game's defaults.
         Assert.Equal(96, VolumeFollow.RowsWithin(VolumeFollow.Rows(24f, 0.25f), 128));
         Assert.True(128 * 128 * 96 * 8 <= 65535 * 256);
+    }
+
+    [Theory]
+    [InlineData(128, 0.25f, 1f, 64, 128)]
+    [InlineData(128, 0.25f, 0.5f, 64, 85)]
+    [InlineData(256, 0.25f, 1f, 64, 170)]
+    [InlineData(96, 0.5f, 0.5f, 64, 42)]
+    public void TheGridIsCutSoTheSolidsCoverItWithRoomToMove(int asked, float cell, float voxel, int solidRows, int rows)
+    {
+        Assert.Equal(rows, VolumeFollow.RowsWithinSolids(asked, cell, voxel, solidRows));
+        // What is left is half again under the texture's height: a quarter of the grid's to spare above and below.
+        Assert.True(rows * cell * 1.5f <= (solidRows * voxel) + 1e-4f);
+    }
+
+    [Fact]
+    public void TheSolidsAreBuiltWithTheGridInTheirMiddleAndAgainOnlyOnceItLeavesThem()
+    {
+        // A grid 40 voxel rows tall from row 100: the 64-row texture from row 88, twelve rows spare each way.
+        int built = VolumeFollow.SolidsBase(100, 140, 64);
+        Assert.Equal(88, built);
+        Assert.True(VolumeFollow.SolidsCover(built, 100, 140, 64));
+
+        // Moved up twelve rows it is still covered; one more and it is not, nor moved down past the bottom.
+        Assert.True(VolumeFollow.SolidsCover(built, 112, 152, 64));
+        Assert.False(VolumeFollow.SolidsCover(built, 113, 153, 64));
+        Assert.False(VolumeFollow.SolidsCover(built, 87, 127, 64));
+
+        // A grid as tall as the texture has none to spare: built from its own bottom.
+        Assert.Equal(100, VolumeFollow.SolidsBase(100, 164, 64));
     }
 
     [Theory]

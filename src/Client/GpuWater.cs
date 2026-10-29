@@ -319,8 +319,9 @@ internal sealed class GpuWater : IDisposable
             found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
+        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, the camera at {_water._cameraY:0.0})");
         return FormattableString.Invariant(
-            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}");
+            $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}");
     }
 
     /// <summary>
@@ -360,6 +361,11 @@ internal sealed class GpuWater : IDisposable
 
             yield return line.ToString();
         }
+        if (VolumeColumn(_water._volume, point) is { } column)
+        {
+            yield return column;
+        }
+
         for (int x = cx - 1; x <= cx + 1; x++)
         {
             for (int z = cz - 1; z <= cz + 1; z++)
@@ -468,7 +474,9 @@ internal sealed class GpuWater : IDisposable
             return false;
         }
 
-        camera = main.transform.position;
+        // The square and the grid follow the player, at the head (the camera when there is none: the menu's world):
+        // a free camera, or a look from far off, does not drag the water away from where the player is.
+        camera = Player.m_localPlayer is { } player ? player.GetHeadPoint() : main.transform.position;
         return true;
     }
 
@@ -663,6 +671,8 @@ internal sealed class GpuWater : IDisposable
 
             Settings settings = FlowingWaterPlugin.Settings;
             int rows = VolumeFollow.RowsWithin(VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize), _window.Cells);
+            // And within what the solids' texture covers, with room for the grid to move before it is built again.
+            rows = VolumeFollow.RowsWithinSolids(rows, _window.CellSize, _window.VoxelSize, ParticleSolids.Rows);
             if (rows < VolumeFollow.LeastRows)
             {
                 if (!_volumeTooWide)
@@ -831,8 +841,23 @@ internal sealed class GpuWater : IDisposable
     {
         bool falls = FlowingWaterPlugin.Settings.Spray.Value && Materials.Spray(out _, out _);
         bool solids = _particles != null || _volume != null || FlowingWaterPlugin.Settings.ParticleWater.Value || FlowingWaterPlugin.Settings.VolumeWater.Value;
-        int baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
-        bool rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
+        // The solids round the volume's grid when there is one (built again once the grid leaves what they cover:
+        // what is built past the texture's rows is ignored), else round the camera.
+        int baseRow;
+        bool rebased;
+        if (_volume != null)
+        {
+            int bottom = (int)Math.Floor(_volume.Origin.y / _window.VoxelSize);
+            int top = (int)Math.Ceiling((_volume.Origin.y + (_volume.CellsY * _volume.CellSize)) / _window.VoxelSize);
+            baseRow = VolumeFollow.SolidsBase(bottom, top, ParticleSolids.Rows);
+            rebased = solids && (_builtBase == int.MinValue || !VolumeFollow.SolidsCover(_builtBase, bottom, top, ParticleSolids.Rows));
+        }
+        else
+        {
+            baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+            rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
+        }
+
         if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
@@ -1120,6 +1145,27 @@ internal sealed class GpuWater : IDisposable
         float[] found = _ground;
         int cells = _window.Cells;
         _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], found[(z * cells) + x], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+    }
+
+    // The volume water's own column at a point, for the console: what the drawing takes as the water standing on the
+    // ground there, and each cell's particles; null with no volume, or outside its grid.
+    private static string VolumeColumn(VolumeWater volume, Vector3 point)
+    {
+        if (volume == null || !volume.ReadColumn(point, out float top, out float depth, out int[] counts))
+        {
+            return null;
+        }
+
+        var rows = new System.Text.StringBuilder();
+        for (int y = 0; y < counts.Length; y++)
+        {
+            if (counts[y] != 0)
+            {
+                rows.Append(FormattableString.Invariant($" {volume.Origin.y + (y * volume.CellSize):0.0}:{counts[y]}"));
+            }
+        }
+
+        return FormattableString.Invariant($"volume column at {point.x:0.0},{point.z:0.0}: sheet top {volume.Origin.y + top:0.00} depth {depth:0.00}; particles by cell bottom (m):{rows}");
     }
 
     // A ray's start (NaN: not cast) no lower than just over the terrain as this game sees it at x, z: the server's water

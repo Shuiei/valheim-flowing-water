@@ -21,6 +21,11 @@ Shader "FlowingWater/VolumeSurface"
         _NormalPower ("Ripple strength", Range(0, 5)) = 0.5
         _NormalScale ("Ripple tiling (per metre)", Float) = 0.04
         _WaveVel ("Ripple drift", Float) = 1
+        _FlowTiling ("Running ripples: how many times finer than the sea's", Float) = 4
+        _FlowCycle ("Running ripples: seconds each phase runs before it fades", Float) = 1.5
+        _FlowFrom ("Water this fast (m/s) begins to show running ripples", Float) = 0.2
+        _FlowFull ("Water this fast (m/s) shows them whole", Float) = 1.5
+        _RapidsSpeed ("Water this fast (m/s) glints with the finest ripples", Float) = 3
         _DepthFade ("Metres of water that hide what is behind", Float) = 15
         _RefractionScale ("Refraction", Float) = 0.1
         _RefractionMax ("Refraction at most (share of the screen)", Float) = 0.01
@@ -31,11 +36,14 @@ Shader "FlowingWater/VolumeSurface"
         _BodyTint ("How much faster each colour's light goes than at BodyDepth (red first)", Vector) = (1.6, 1.1, 0.9, 0)
 
         // The volume water's own.
-        _EdgeThickness ("Water thinner than this along the view (m) fades out", Float) = 0.06
+        _EdgeThickness ("Water thinner than this along the view (m) fades out", Float) = 0.2
         _ThickMost ("Water seen through more than this (m) takes no more of the light", Float) = 4
         _LeastLight ("The least light on the water's body (share of the sky's), so it is never black", Range(0, 1)) = 0.45
-        _FoamFrom ("Froth in a cell from this share of full shows as foam", Range(0, 1)) = 0.1
-        _FoamFull ("Froth at this share of full is whole foam", Range(0, 1)) = 0.6
+        _FoamFrom ("Froth in a cell from this share of full shows as foam", Range(0, 1)) = 0.25
+        _FoamFull ("Froth at this share of full is whole foam", Range(0, 1)) = 1
+        _RushFrom ("Water this fast (m/s) begins to run white", Float) = 5
+        _RushFull ("Water this fast (m/s) runs white", Float) = 11
+        _RushThin ("Fast water thinner than this (m) runs white; thicker, it keeps its colour", Float) = 0.4
         _UnderFog ("Under the water, the scene fades into the water's colour over this far (m)", Float) = 12
     }
 
@@ -59,12 +67,14 @@ Shader "FlowingWater/VolumeSurface"
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
 
+            int _VolumeLook;
             sampler2D _FlowingWaterVolumeBehind;
             // What the march found, at half the screen's size (VolumeSurface sets them).
             sampler2D _VolumeWater;
             float4 _VolumeWater_TexelSize;
-            sampler2D _VolumeNormal;
+            sampler2D _VolumeFlow;
             sampler2D _Normal;
+            sampler2D _FoamTex;
             fixed4 _ColorTop;
             fixed4 _ColorBottom;
             fixed4 _SurfaceColor;
@@ -73,6 +83,11 @@ Shader "FlowingWater/VolumeSurface"
             float _NormalPower;
             float _NormalScale;
             float _WaveVel;
+            float _FlowTiling;
+            float _FlowCycle;
+            float _FlowFrom;
+            float _FlowFull;
+            float _RapidsSpeed;
             float _DepthFade;
             float _RefractionScale;
             float _RefractionMax;
@@ -84,6 +99,9 @@ Shader "FlowingWater/VolumeSurface"
             float _LeastLight;
             float _FoamFrom;
             float _FoamFull;
+            float _RushFrom;
+            float _RushFull;
+            float _RushThin;
             float _UnderFog;
 
             // The sun as the game sets it for every shader (none: the scene's light, as the surface's helper found it).
@@ -128,16 +146,75 @@ Shader "FlowingWater/VolumeSurface"
                 return float3(v.x, v.y, v.z);
             }
 
+            // The surface's distance at a point of the march's picture, smoothly between its texels (of the four round
+            // the point, the ones that hold water, by how near they are; 0 where fewer than half do): the picture is
+            // half the screen's size, and a step of a texel read texel by texel would differ from one screen row to
+            // the next, which the normal would show as streaks.
+            float Eye(float2 uv)
+            {
+                float2 texel = _VolumeWater_TexelSize.xy;
+                float2 at = (uv / texel) - 0.5;
+                float2 base = floor(at);
+                float2 f = at - base;
+                float sum = 0.0;
+                float weights = 0.0;
+                for (int j = 0; j < 2; j++)
+                {
+                    for (int i = 0; i < 2; i++)
+                    {
+                        float x = tex2D(_VolumeWater, (base + float2(i, j) + 0.5) * texel).x;
+                        float weight = x > 0.0 ? (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) : 0.0;
+                        sum += x * weight;
+                        weights += weight;
+                    }
+                }
+
+                return weights >= 0.5 ? sum / weights : 0.0;
+            }
+
+            // The surface's slope at a pixel from the smoothed distances round it: each way the neighbour nearer in
+            // distance (not across a step), so the silhouette keeps a clean edge; view space.
+            float3 Slope(float2 uv, float2 ndc, float eye, float3 here)
+            {
+                float2 texel = _VolumeWater_TexelSize.xy;
+                float2 step = texel * 2.0;
+                float right = Eye(uv + float2(texel.x, 0.0)), left = Eye(uv - float2(texel.x, 0.0));
+                float up = Eye(uv + float2(0.0, texel.y)), down = Eye(uv - float2(0.0, texel.y));
+                bool useRight = right > 0.0 && (left <= 0.0 || abs(right - eye) < abs(left - eye));
+                bool useUp = up > 0.0 && (down <= 0.0 || abs(up - eye) < abs(down - eye));
+                // A lone texel of water (a far drop, the tip of a rivulet) has no neighbour either way: it faces the eye.
+                if ((!useRight && left <= 0.0) || (!useUp && down <= 0.0))
+                {
+                    return float3(0.0, 0.0, 1.0);
+                }
+
+                float3 dx = useRight ? Place(ndc + float2(step.x, 0.0), right) - here : here - Place(ndc - float2(step.x, 0.0), left);
+                float3 dy = useUp ? Place(ndc + float2(0.0, step.y), up) - here : here - Place(ndc - float2(0.0, step.y), down);
+                float3 c = cross(dx, dy);
+                if (dot(c, c) < 1e-12)
+                {
+                    return float3(0.0, 0.0, 1.0);
+                }
+
+                float3 n = normalize(c);
+                return n.z < 0.0 ? -n : n;
+            }
+
+            float3 ViewToWorldDirection(float3 v)
+            {
+                return normalize(mul((float3x3)unity_CameraToWorld, float3(v.x, v.y, -v.z)));
+            }
+
             // What the march found at a pixel, from the half-size pictures: of the four texels round it, the ones that
             // hold water, weighted by how near they are (so the surface's edge stays crisp and takes no air in).
-            void Found(float2 uv, out float4 water, out float4 normal)
+            void Found(float2 uv, out float4 water, out float4 flow)
             {
                 float2 texel = _VolumeWater_TexelSize.xy;
                 float2 at = (uv / texel) - 0.5;
                 float2 base = floor(at);
                 float2 f = at - base;
                 water = 0.0;
-                normal = 0.0;
+                flow = 0.0;
                 float weights = 0.0;
                 for (int j = 0; j < 2; j++)
                 {
@@ -149,7 +226,7 @@ Shader "FlowingWater/VolumeSurface"
                         {
                             float weight = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
                             water += w * weight;
-                            normal += tex2D(_VolumeNormal, p) * weight;
+                            flow += tex2D(_VolumeFlow, p) * weight;
                             weights += weight;
                         }
                     }
@@ -158,7 +235,7 @@ Shader "FlowingWater/VolumeSurface"
                 if (weights > 0.0)
                 {
                     water /= weights;
-                    normal /= weights;
+                    flow /= weights;
                 }
 
                 // Over an edge, the water takes the half the pixel lies in: less than half the texels, none.
@@ -177,20 +254,48 @@ Shader "FlowingWater/VolumeSurface"
                     discard;
                 }
 
-                float eye = water.x;
+                // The surface's distance here, read as the normal's neighbours are, so the two agree (the march's own
+                // where that read finds too little water about the pixel: the silhouette's last pixels).
+                float smooth = Eye(uv);
+                float eye = under || smooth <= 0.0 ? water.x : smooth;
                 float thickness = max(water.y, 0.0);
                 float2 ndc = float2(i.ndc.x, i.ndc.y * _ProjectionParams.x);
                 float3 here = Place(ndc, max(eye, 0.3));
                 float3 worldPos = ViewToWorldPlace(here);
-                float3 worldN = normalize(found.xyz);
+                // The surface's normal from its smoothed distances (water's own smoothness), not the density's grain.
+                float3 worldN = under ? float3(0.0, 1.0, 0.0) : ViewToWorldDirection(Slope(uv, ndc, eye, here));
+                if (_VolumeLook == 3)
+                {
+                    return fixed4(saturate(thickness / 2.0).xxx, 1.0);
+                }
+
+                if (_VolumeLook == 4)
+                {
+                    return fixed4(frac(eye).xxx, 1.0);
+                }
+
+                if (_VolumeLook == 5)
+                {
+                    return fixed4((worldN * 0.5) + 0.5, 1.0);
+                }
+
                 float3 toCamera = normalize(_WorldSpaceCameraPos - worldPos);
+                // A surface one sees faces the eye: at a silhouette the distances' slope can turn the normal away from
+                // it (a step to the water behind read as a slope), which lit the pixel as the water's dark underside, a
+                // speck along the far shore. Turned back until it faces the eye a little.
+                worldN = under ? worldN : normalize(worldN - (toCamera * min(dot(worldN, toCamera) - 0.1, 0.0)));
+                // The surface as found, before its ripples: what the sky's share in it and the water's depth along the
+                // view are reckoned from (a surface rippled all over would be white with sky from most angles).
+                float3 lieN = worldN;
                 float3 sun = dot(_SunDir.xyz, _SunDir.xyz) > 0.01 ? normalize(_SunDir.xyz) : normalize(_FWSunDir.xyz);
                 float3 sunColour = _FWSunColour.rgb;
                 float3 skyLight = ShadeSH9(float4(0.0, 1.0, 0.0, 1.0));
 
                 // Seen through so much water (no more than _ThickMost): its light taken as it goes (red first), the
                 // water's own colour in its place, lit by the sky at least.
-                float seen = min(thickness, _ThickMost);
+                // (Along the ray, scaled toward the water's depth under the surface: a ray skimming a sheet goes a
+                // long way through a hand of water, and a thin edge seen along it is not a deep green rim.)
+                float seen = min(thickness * saturate(0.2 + abs(dot(lieN, toCamera))), _ThickMost);
                 float3 through = exp(-seen * _BodyTint.rgb / max(_BodyDepth, 0.001));
                 through *= 1.0 - saturate(seen / _DepthFade);
                 // The water's own colour where its light is taken: the surface's green where it is shallow, the deep
@@ -209,9 +314,28 @@ Shader "FlowingWater/VolumeSurface"
                     return fixed4(colourUnder, 1.0);
                 }
 
-                // The sea's ripples laid on the surface where it faces up, drifting as the sea's do.
+                // The sea's ripples laid on the surface where it faces up, drifting as the sea's do; and where the water
+                // runs, finer ripples dragged along with it at its own speed (two phases blended so they never stretch),
+                // the finest glinting on fast water: running water moves, a pool lies still.
+                float2 current = found.xz;
+                float speed = length(current);
                 float2 ripple = UnpackNormal(tex2D(_Normal, (worldPos.xz * _NormalScale) + float2(0.0, -0.2 * _Time.x * _WaveVel))).xy;
-                worldN = normalize(worldN + (float3(ripple.x, 0.0, ripple.y) * 0.3 * _NormalPower * saturate(worldN.y)));
+                float running = smoothstep(_FlowFrom, _FlowFull, speed);
+                if (running > 0.0)
+                {
+                    float scale = _NormalScale * _FlowTiling;
+                    float2 uv0 = worldPos.xz * scale;
+                    float2 run = current * scale;
+                    float ta = frac(_Time.y / _FlowCycle), tb = frac((_Time.y / _FlowCycle) + 0.5);
+                    float wa = 1.0 - abs((2.0 * ta) - 1.0), wb = 1.0 - abs((2.0 * tb) - 1.0);
+                    float2 a = uv0 - (run * ta * _FlowCycle);
+                    float2 b = uv0 - (run * tb * _FlowCycle) + float2(0.37, 0.61);
+                    float2 fine = (UnpackNormal(tex2D(_Normal, a)).xy * wa) + (UnpackNormal(tex2D(_Normal, b)).xy * wb);
+                    float2 glints = (UnpackNormal(tex2D(_Normal, (a * 3.1) + 0.3)).xy * wa) + (UnpackNormal(tex2D(_Normal, (b * 3.1) + 0.7)).xy * wb);
+                    ripple = lerp(ripple, fine + (0.25 * saturate(speed / _RapidsSpeed) * glints), running);
+                }
+
+                worldN = normalize(worldN + (float3(ripple.x, 0.0, ripple.y) * 0.3 * _NormalPower * (1.0 + (0.5 * running)) * saturate(worldN.y)));
 
                 // What is behind, bent by the surface.
                 float3 viewN = WorldToViewDirection(worldN);
@@ -225,18 +349,45 @@ Shader "FlowingWater/VolumeSurface"
 
                 // The sky in the surface, more the flatter one looks along it (a soft mip of the probe, its brightness
                 // held: the sun's disk in it would otherwise blaze over metres of water); the sun's glint on its own.
-                float fresnel = 0.02 + (0.98 * pow(1.0 - saturate(dot(worldN, toCamera)), 5.0));
+                // (Thin water on the ground shows little sky: a wet film is the ground's colour, not a mirror; the sky
+                // comes in with the thickness.)
+                float fresnel = 0.02 + (0.98 * pow(1.0 - saturate(dot(lieN, toCamera)), 5.0));
                 float3 reflected = reflect(-toCamera, worldN);
                 float3 sky = DecodeHDR(UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflected, 3.0), unity_SpecCube0_HDR);
                 sky = min(sky, 1.2);
-                colour = lerp(colour, sky, 0.8 * fresnel * _Glossiness);
+                // (None on a surface seen from below, a fall's underside or a wave's: the probe is the scene about
+                // the camera, and a surface over the camera would mirror the ground in it; and never a whole mirror,
+                // as the sea is not: the probe's scene is blurred and reflected at most two thirds.)
+                float solid = saturate(thickness / 0.3) * step(worldPos.y, _WorldSpaceCameraPos.y) * step(0.0, worldN.y);
+                colour = lerp(colour, sky, 0.65 * fresnel * _Glossiness * solid);
                 float glint = pow(saturate(dot(worldN, normalize(sun + toCamera))), 256.0) * _Glossiness;
-                colour += sunColour * glint;
+                colour += sunColour * glint * solid;
 
-                // Foam where the froth gathers on the surface (a fall's foot, a jet's boil, a front), lit as the sea's
-                // foam is (its colour under the light), not brighter than the light.
-                float foam = smoothstep(_FoamFrom, _FoamFull, water.z) * _FoamColor.a;
-                float3 foamLit = 0.8 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
+                // Foam where the froth gathers on the surface (a fall's foot, a jet's boil, a front): the sea's foam
+                // texture laid over the water and dragged along with the flow (two phases, as the ripples), covering
+                // the more of it the more froth there is (its lighter parts first, so it breaks up into lace at its
+                // edges and closes into a sheet where the churn is), lit as the sea's foam is.
+                // Fast thin water runs white (a fall's sheet, a rapid over a rock: air beaten into it); the froth's
+                // foam gathers where the froth is.
+                float rush = smoothstep(_RushFrom, _RushFull, length(found.xyz)) * (1.0 - smoothstep(0.4 * _RushThin, _RushThin, thickness));
+                float churn = smoothstep(_FoamFrom, _FoamFull, water.z);
+                // The foam's pattern: the texture at two scales (a tile 1.5 m across and one 0.4 m), the fine one
+                // breaking the coarse one's blobs into lace, both dragged with the flow.
+                float foamTiling = _NormalScale * 16.0;
+                float2 fuv = worldPos.xz * foamTiling;
+                float2 frun = current * foamTiling;
+                float cycle = 2.0 * _FlowCycle;
+                float fta = frac(_Time.y / cycle), ftb = frac((_Time.y / cycle) + 0.5);
+                float fwa = 1.0 - abs((2.0 * fta) - 1.0), fwb = 1.0 - abs((2.0 * ftb) - 1.0);
+                float2 pa = fuv - (frun * fta * cycle), pb = fuv - (frun * ftb * cycle) + 0.41;
+                float coarse = (tex2D(_FoamTex, pa).r * fwa) + (tex2D(_FoamTex, pb).r * fwb);
+                float fine = (tex2D(_FoamTex, pa * 4.0).r * fwa) + (tex2D(_FoamTex, (pb * 4.0) + 0.17).r * fwb);
+                float lace = (0.5 * coarse) + (0.5 * fine);
+                float foam = smoothstep(1.0 - churn - 0.2, 1.0 - churn + 0.2, lace) * sqrt(churn) * _FoamColor.a;
+                // White water is whitened all over, the lace streaking it (a fall's sheet is white with streaks of
+                // clear water, not a sheet of lace).
+                foam = max(foam, rush * (0.5 + (0.5 * lace)) * _FoamColor.a);
+                float3 foamLit = 0.85 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
                 colour = lerp(colour, foamLit, foam);
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun.

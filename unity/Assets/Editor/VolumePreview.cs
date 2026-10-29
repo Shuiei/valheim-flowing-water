@@ -21,7 +21,8 @@ public static class VolumePreview
     // The ground's cells (the card's water's), and the grid's: the same size, the grid over the whole square.
     private const int Cells = 160;
 
-    private const float Dx = 0.25f;
+    // The cells' size: 0.25 m, or FW_PREVIEW_DX's (the game's GpuWaterCell, to try a scene at another).
+    private static readonly float Dx = float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_DX"), NumberStyles.Float, CultureInfo.InvariantCulture, out float dx) && dx > 0f ? dx : 0.25f;
 
     private const int Rows = 48;
 
@@ -40,7 +41,7 @@ public static class VolumePreview
             SimPreview.Output = _output;
             BuildBundles.Prepare();
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow" };
+            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow", "slope" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -86,6 +87,11 @@ public static class VolumePreview
             if (Runs("follow"))
             {
                 Follow();
+            }
+
+            if (Runs("slope"))
+            {
+                Slope();
             }
 
             File.WriteAllText(Path.Combine(_output, "volume.txt"), Log.ToString());
@@ -232,6 +238,13 @@ public static class VolumePreview
             {
                 scene.Shot(Inv($"vledge_{k * Frame:0.0}s"), new Vector3(27f, 6f, 8f), new Vector3(21f, 1.5f, 20f));
             }
+
+            if (k is 300 or 480)
+            {
+                // The fall's foot from close and low, and the pool's edge where it meets the floor.
+                scene.Shot(Inv($"vledge_foot_{k * Frame:0.0}s"), new Vector3(25f, 1.6f, 14f), new Vector3(20.5f, 1.2f, 20f));
+                scene.Shot(Inv($"vledge_edge_{k * Frame:0.0}s"), new Vector3(29f, 1.2f, 24f), new Vector3(24f, 0.3f, 21f));
+            }
         }
 
         Measure m = Measure.Of(scene.Water, bed);
@@ -246,22 +259,31 @@ public static class VolumePreview
         float[] bed = Field((x, z) => Math.Min(4f, 0.02f * (((x - 20f) * (x - 20f)) + ((z - 20f) * (z - 20f)))));
         using var scene = new Scene("vspring", bed);
         const float Rate = 8f;
-        var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0.4f, 20f), Rate) };
-        Log.AppendLine(Inv($"Spring: a source of {Rate} m3/s in a basin's middle for 6 s (its water out of a sphere {springs[0].Ring.w:0.00} m round it at {springs[0].Flow.x:0.0} m/s)."));
+        var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(20f, 0f, 20f), Rate) };
+        Log.AppendLine(Inv($"Spring: a source of {Rate} m3/s in a basin's middle for 6 s (its water out of a lens {springs[0].Ring.w:0.00} m round and {springs[0].Flow.w:0.00} m high at {springs[0].Flow.x:0.0} m/s)."));
         bool ok = true;
+        // The sphere's own cells are kept full from the first step: that water is there before the rate's.
+        float fill = 0f;
         for (int k = 1; k <= 480; k++)
         {
             scene.Water.SetSprings(k <= 360 ? springs : new List<VolumeWater.Spring>());
             scene.Step();
+            if (k == 1)
+            {
+                fill = Math.Max(0f, (Measure.Of(scene.Water, bed).Count * scene.Water.Litre) - (Rate * Frame));
+            }
+
             if (k % 60 == 0)
             {
-                float expected = Rate * Math.Min(k, 360) * Frame;
+                float expected = fill + (Rate * Math.Min(k, 360) * Frame);
                 Measure m = Measure.Of(scene.Water, bed);
                 float have = m.Count * scene.Water.Litre;
                 bool near = Mathf.Abs(have - expected) <= 0.15f * expected + 0.5f;
                 ok &= near;
                 (float[] scales, uint[] given) = scene.Water.ReadSources();
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}); froth {Froth.Of(scene.Water)}: {(near ? "OK" : "FAILED")}"));
+                int most = scene.Water.MostInACell(out Vector3 crowded);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the most particles in a cell {most} at {crowded.x:0.00},{crowded.y:0.00},{crowded.z:0.00}"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the water {have:0.0} m3 (expected {expected:0.0}, the sphere's own {fill:0.0}), fastest {m.Fastest:0.0} m/s, top {m.Top:0.00} m; the source's speed scaled {scales[0]:0.00}, gave {given[0]} particles last step (wants {Rate * Frame / scene.Water.Litre:0.0}); froth {Froth.Of(scene.Water)}: {(near ? "OK" : "FAILED")}"));
             }
 
             if (k is 30 or 120 or 360 or 480)
@@ -270,7 +292,113 @@ public static class VolumePreview
             }
         }
 
-        Log.AppendLine($"  The water grew by the rate within 15 %: {Check(ok)}");
+        float rough = Roughness(scene.Water, bed, 0.5f);
+        bool level = rough < 0.12f;
+        ok &= level;
+        Log.AppendLine(Inv($"  Two seconds after the source stopped, the water's top spreads {rough:0.000} m (standard deviation) about its mean from column to column, a level surface, not the ground's cells: {Check(level)}"));
+        Log.AppendLine($"  The water grew by the rate within 15 %, and lay level after: {Check(ok)}");
+    }
+
+    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
+    // deviation about the mean (m), over the columns that hold water.
+    private static float Roughness(VolumeWater water, float[] bed, float column)
+    {
+        float[] data = water.Read();
+        var tops = new Dictionary<(int, int), float>();
+        for (int p = 0; p < data.Length / 12; p++)
+        {
+            float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
+            var key = ((int)(x / column), (int)(z / column));
+            tops[key] = Math.Max(tops.TryGetValue(key, out float top) ? top : float.MinValue, y);
+        }
+
+        if (tops.Count < 2)
+        {
+            return 0f;
+        }
+
+        float mean = tops.Values.Average();
+        return Mathf.Sqrt(tops.Values.Sum(t => (t - mean) * (t - mean)) / tops.Count);
+    }
+
+    // Water let go at the top of a ramp (22 degrees, 20 m long) onto a flat floor: it runs down as a sheet, not down
+    // terraces of the grid's cells. Its front against frictionless sliding (a = g sin cos: 3.4 m/s2 along the ground),
+    // how thick the sheet on the ramp is, and how much has reached the floor.
+    private static void Slope()
+    {
+        const float Grade = 0.4f;
+        // FW_PREVIEW_ROUGH=1: the ramp faceted as the game's terrain is, a lattice a metre apart with a few centimetres
+        // of random height at each knot and the ground linear between (the game's heightmap mesh, as the card casts it).
+        bool rough = Environment.GetEnvironmentVariable("FW_PREVIEW_ROUGH") == "1";
+        // Each knot's height from a hash of its place (the same ramp every run, no random numbers).
+        float[] bumps = new float[64 * 64];
+        for (int k = 0; k < bumps.Length; k++)
+        {
+            uint hash = ((uint)k * 2654435761u) ^ 0x9E3779B9u;
+            hash ^= hash >> 15;
+            hash *= 2246822519u;
+            hash ^= hash >> 13;
+            bumps[k] = (((hash & 0xFFFFu) / 65535f) - 0.5f) * 0.16f;
+        }
+
+        float Bump(float x, float z)
+        {
+            int i = Mathf.Clamp((int)x, 0, 62), j = Mathf.Clamp((int)z, 0, 62);
+            float fx = x - i, fz = z - j;
+            return Mathf.Lerp(Mathf.Lerp(bumps[(j * 64) + i], bumps[(j * 64) + i + 1], fx), Mathf.Lerp(bumps[((j + 1) * 64) + i], bumps[((j + 1) * 64) + i + 1], fx), fz);
+        }
+
+        float[] bed = Field((x, z) => z < 8f || z > 32f || x > 38f ? 10f : x < 8f ? 8f : (x < 28f ? (28f - x) * Grade : 0f) + (rough ? Bump(x, z) : 0f));
+        using var scene = new Scene("vslope", bed);
+        int added = scene.Water.Add(new Vector3(9f, 6.6f, 12f), new Vector3(11f, 8.6f, 28f));
+        Log.AppendLine(Inv($"Slope: {added} particles ({added * scene.Water.Litre:0.0} m3) let go at the top of a ramp of {Grade} rise over run, 20 m long, onto a flat floor."));
+        bool ok = true;
+        float onFloor = 0f;
+        float along = 9.81f * Grade / (1f + (Grade * Grade));
+        for (int k = 1; k <= 300; k++)
+        {
+            scene.Step();
+            if (k % 60 == 0)
+            {
+                float t = k * Frame;
+                float[] data = scene.Water.Read();
+                int n = data.Length / 12;
+                var xs = new List<float>(n);
+                var over = new List<float>();
+                int floor = 0;
+                for (int p = 0; p < n; p++)
+                {
+                    float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
+                    xs.Add(x);
+                    floor += x >= 28f ? 1 : 0;
+                    if (x > 12f && x < 26f)
+                    {
+                        over.Add(y - Ground(bed, x, z));
+                    }
+                }
+
+                xs.Sort();
+                over.Sort();
+                float front = xs[(int)(0.95f * (xs.Count - 1))];
+                float ideal = Math.Min(28f, 9f + (0.5f * along * t * t));
+                float thick = over.Count > 0 ? over[(int)(0.9f * (over.Count - 1))] : 0f;
+                float reached = (front - 9f) / Math.Max(ideal - 9f, 0.01f);
+                onFloor = (float)floor / Math.Max(n, 1);
+                bool near = k < 180 || (reached >= 0.6f && thick < 0.6f);
+                ok &= near;
+                Log.AppendLine(Inv($"  t={t:0.0}s the front at x = {front:0.0} m (frictionless {ideal:0.0}: {100f * reached:0} %), the sheet on the ramp {thick:0.00} m thick (nine in ten under), {100f * floor / Math.Max(n, 1):0} % on the floor{(k >= 180 ? ": " + Check(near) : string.Empty)}"));
+            }
+
+            if (k is 60 or 120 or 180 or 300)
+            {
+                scene.Shot(Inv($"vslope_{k * Frame:0.0}s"), new Vector3(18f, 9f, 2f), new Vector3(20f, 3f, 20f));
+                // Low along the ramp, as a player sees a stream.
+                scene.Shot(Inv($"vslope_low_{k * Frame:0.0}s"), new Vector3(26f, 2.5f, 14f), new Vector3(16f, 4.5f, 20f));
+            }
+        }
+
+        Measure m = Measure.Of(scene.Water, bed);
+        Log.AppendLine(Inv($"  The sheet runs down the ramp as frictionless sliding does, within 60 %, thinner than 0.6 m from 3 s on, and half the water at least has reached the floor at 5 s ({100f * onFloor:0} %); particles kept {m.Count} of {added}, in the ground {m.Buried}: {Check(ok && onFloor >= 0.5f && m.Count == added && m.Buried == 0)}"));
     }
 
     // A box of walls (what players build) 4 m square, 3 m high, filled 2 m deep; at 2 s its east wall is taken away
@@ -451,6 +579,24 @@ public static class VolumePreview
 
     private static string Check(bool ok) => ok ? "OK" : "FAILED";
 
+    // The ground under a point as the solver reads it: bilinear between the cells' heights (their centres), or the
+    // cell's own where the four about it differ by more than a step (a wall), as the compute shader's GroundAt.
+    private static float Ground(float[] bed, float x, float z)
+    {
+        float ax = (x / Dx) - 0.5f, az = (z / Dx) - 0.5f;
+        int i0 = Mathf.Clamp(Mathf.FloorToInt(ax), 0, Cells - 1), j0 = Mathf.Clamp(Mathf.FloorToInt(az), 0, Cells - 1);
+        int i1 = Mathf.Clamp(Mathf.FloorToInt(ax) + 1, 0, Cells - 1), j1 = Mathf.Clamp(Mathf.FloorToInt(az) + 1, 0, Cells - 1);
+        float fx = ax - Mathf.Floor(ax), fz = az - Mathf.Floor(az);
+        float b00 = bed[(j0 * Cells) + i0], b10 = bed[(j0 * Cells) + i1], b01 = bed[(j1 * Cells) + i0], b11 = bed[(j1 * Cells) + i1];
+        float lowest = Mathf.Min(Mathf.Min(b00, b10), Mathf.Min(b01, b11)), highest = Mathf.Max(Mathf.Max(b00, b10), Mathf.Max(b01, b11));
+        if (highest - lowest > 1f)
+        {
+            return bed[(Mathf.Clamp((int)(z / Dx), 0, Cells - 1) * Cells) + Mathf.Clamp((int)(x / Dx), 0, Cells - 1)];
+        }
+
+        return Mathf.Lerp(Mathf.Lerp(b00, b10, fx), Mathf.Lerp(b01, b11, fx), fz);
+    }
+
     private static float[] Field(Func<float, float, float> at) => SimPreview.Field(Cells, Dx, at);
 
     private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
@@ -481,8 +627,7 @@ public static class VolumePreview
             for (int p = 0; p < n; p++)
             {
                 float x = data[p * 12], y = data[(p * 12) + 1], z = data[(p * 12) + 2];
-                int i = Mathf.Clamp((int)(x / Dx), 0, Cells - 1), j = Mathf.Clamp((int)(z / Dx), 0, Cells - 1);
-                float ground = bed[(j * Cells) + i];
+                float ground = Ground(bed, x, z);
                 heights.Add(y - ground);
                 buried += y < ground - 0.01f ? 1 : 0;
                 top = Math.Max(top, y);
@@ -679,6 +824,11 @@ public static class VolumePreview
             var target = new RenderTexture(1280, 720, 24);
             camera.targetTexture = target;
             ParticleSurface.Spheres = Environment.GetEnvironmentVariable("FW_PREVIEW_SPHERES") == "1";
+            if (int.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int smoothing))
+            {
+                VolumeSurface.Smoothing = smoothing;
+            }
+
             if (ParticleSurface.Spheres)
             {
                 using var surface = new ParticleSurface();
@@ -688,8 +838,30 @@ public static class VolumePreview
             else
             {
                 using var surface = new VolumeSurface();
-                surface.Render(camera, Water, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeMarchMaterialPath), AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
+                var march = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeMarchMaterialPath);
+                // The smoothing's radius and falloff tried from the environment (FW_PREVIEW_SMOOTH_RADIUS, FW_PREVIEW_SMOOTH_FALLOFF, m).
+                if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_RADIUS"), NumberStyles.Float, CultureInfo.InvariantCulture, out float radius))
+                {
+                    march.SetFloat("_SmoothRadius", radius);
+                }
+
+                if (float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_FALLOFF"), NumberStyles.Float, CultureInfo.InvariantCulture, out float falloff))
+                {
+                    march.SetFloat("_SmoothFalloff", falloff);
+                }
+
+                VolumeSurface.OnlyDirection = Environment.GetEnvironmentVariable("FW_PREVIEW_SMOOTH_ONLY");
+                if (int.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_LOOK"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int look))
+                {
+                    VolumeSurface.Look = look;
+                }
+
+                surface.Render(camera, Water, march, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.VolumeSurfaceMaterialPath), Water.Froth);
                 camera.Render();
+                if (Environment.GetEnvironmentVariable("FW_PREVIEW_DUMP") == "1")
+                {
+                    DumpFound(surface.Found, file);
+                }
             }
 
             SimPreview.Save(camera, target, file);
@@ -697,6 +869,46 @@ public static class VolumePreview
             {
                 UnityEngine.Object.DestroyImmediate(thing);
             }
+        }
+
+        // What the march found, as a picture (distance in red over 8 m, thickness in green over 2 m, foam in blue)
+        // and the distances down the middle column, for the diagnostics of the surface's smoothing.
+        private static void DumpFound(RenderTexture found, string file)
+        {
+            RenderTexture was = RenderTexture.active;
+            RenderTexture.active = found;
+            var read = new Texture2D(found.width, found.height, TextureFormat.RGBAHalf, false, true);
+            read.ReadPixels(new Rect(0, 0, found.width, found.height), 0, 0);
+            read.Apply(false);
+            RenderTexture.active = was;
+            Color[] pixels = read.GetPixels();
+            var shown = new Color32[pixels.Length];
+            var column = new StringBuilder();
+            var row = new StringBuilder();
+            int middle = found.width / 2;
+            int midRow = found.height / 2;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color p = pixels[i];
+                shown[i] = new Color32((byte)Mathf.Clamp(p.r / 8f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.g / 2f * 255f, 0f, 255f), (byte)Mathf.Clamp(p.b * 255f, 0f, 255f), 255);
+                if (i % found.width == middle && (i / found.width) % 2 == 0)
+                {
+                    column.Append(Inv($"{p.r:0.00}/{p.g:0.00} "));
+                }
+
+                if (i / found.width == midRow && (i % found.width) % 2 == 0)
+                {
+                    row.Append(Inv($"{p.r:0.000} "));
+                }
+            }
+
+            var png = new Texture2D(found.width, found.height, TextureFormat.RGBA32, false);
+            png.SetPixels32(shown);
+            png.Apply(false);
+            File.WriteAllBytes(Path.Combine(_output, file + "_found.png"), png.EncodeToPNG());
+            File.WriteAllText(Path.Combine(_output, file + "_found.txt"), "column: " + column + "\nrow: " + row);
+            UnityEngine.Object.DestroyImmediate(read);
+            UnityEngine.Object.DestroyImmediate(png);
         }
 
         public void Dispose()

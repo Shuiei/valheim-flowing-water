@@ -1042,7 +1042,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         ? player
         : throw new InvalidOperationException($"the player is gone (dead?) on the way to {target}");
 
-    private IEnumerator Go(Vector3 point, float? standAt = null)
+    private IEnumerator Go(Vector3 point, float? standAt = null, bool allowSlide = false)
     {
         Player player = Player.m_localPlayer;
         float ground = WorldGenerator.instance.GetHeight(point.x, point.z);
@@ -1076,12 +1076,14 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         yield return new WaitForSeconds(4f);
         Alive(player, target);
         float off = Vector2.Distance(new Vector2(player.transform.position.x, player.transform.position.z), new Vector2(target.x, target.z));
-        if (off > 5f || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
+        if (off > (allowSlide ? 25f : 5f) || (standAt is { } wanted && Mathf.Abs(player.transform.position.y - wanted) > 0.5f))
         {
             throw new InvalidOperationException($"teleport to {target} ended at {player.transform.position}");
         }
 
-        Note($"at {player.transform.position.ToString("F1")}");
+        // A vantage (a shot, a wait) may be reached a little off (a steep face slides, a current sweeps): noted, and
+        // the run goes on, the shots naming their own cameras. A stand a command is run from must be where it was asked.
+        Note(off > 5f ? $"at {player.transform.position.ToString("F1")} ({off:0} m from {target.x:0}, {target.z:0}: slid)" : $"at {player.transform.position.ToString("F1")}");
     }
 
     private IEnumerator Views(Site site, string name)
@@ -1092,7 +1094,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     }
 
     // The first of a few places around the asked one from which nothing solid stands between the
-    // camera and what it looks at (trees, rocks, buildings), or the asked one.
+    // camera and what it looks at (trees, rocks, buildings), or the asked one. Never one under the ground: the
+    // terrain's heightfield stops no line cast from below it, so a place under a hill would pass for a clear one
+    // (and the picture would show the hill's underside).
     private Vector3 Clear(Vector3 from, Vector3 at)
     {
         Vector3 away = from - at;
@@ -1101,7 +1105,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             foreach (float rise in new[] { 0f, 6f, 12f })
             {
                 Vector3 candidate = at + (Quaternion.Euler(0f, turn, 0f) * away) + new Vector3(0f, rise, 0f);
-                if (!Physics.Linecast(candidate, at + (Vector3.up * 1.5f), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && Physics.OverlapSphere(candidate, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore).Length == 0)
+                if (!Underground(candidate) && !Physics.Linecast(candidate, at + (Vector3.up * 1.5f), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && Physics.OverlapSphere(candidate, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore).Length == 0)
                 {
                     return candidate;
                 }
@@ -1111,6 +1115,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note($"no clear view of {at.ToString("F0")} found near {from.ToString("F0")}");
         return from;
     }
+
+    // Whether a place is under the ground there (or within half a metre over it, where the near plane cuts it).
+    private static bool Underground(Vector3 place) => ZoneSystem.instance.GetGroundHeight(place, out float ground) && place.y < ground + 0.5f;
 
     private IEnumerator Shot(Vector3 from, Vector3 at, string name)
     {
@@ -1185,8 +1192,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 continue;
             }
 
-            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null);
             string command = parts.Length > 1 ? parts[1].Trim() : string.Empty;
+            bool vantage = command.StartsWith("!wait ", StringComparison.Ordinal) || command.StartsWith("!shot ", StringComparison.Ordinal) || command.StartsWith("!film ", StringComparison.Ordinal);
+            yield return Go(new Vector3(where[0], 0f, where[1]), where.Length > 2 ? where[2] : null, vantage);
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {
                 if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
