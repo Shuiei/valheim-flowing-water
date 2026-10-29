@@ -11,7 +11,8 @@ namespace FlowingWater.Volume;
 /// water byte of 255 means more than the byte holds (water pressed in hard, or poured into smaller voxels): its exact
 /// share follows the velocity, as a float, so none is lost. From version 3, a byte of the faces it could leave by
 /// follows (<see cref="Brick.OpenFaces"/>: where its water meets the air, which the players' games cannot know either,
-/// as they cannot know the pieces). What a voxel's byte rounds off is carried on to the next voxel with water, so the
+/// as they cannot know the pieces). From version 4, a byte of the sides it has ground beside follows that
+/// (<see cref="Brick.GroundBeside"/>). What a voxel's byte rounds off is carried on to the next voxel with water, so the
 /// brick keeps its volume to within a byte's step, however thin its water.
 /// </summary>
 internal static class BrickData
@@ -19,7 +20,11 @@ internal static class BrickData
     /// <summary>The fastest speed kept, metres a second; faster is kept as this.</summary>
     public const float MaxSpeed = 16f;
 
-    private const byte FormatVersion = 3;
+    private const byte FormatVersion = 4;
+
+    // The version before the ground beside each side, read still (a world saved then): its open faces' GroundBeside
+    // bit, set for any side, is taken for each open side.
+    private const byte OpenVersion = 3;
 
     // The first version, read still: no exact share follows a water byte of 255 (it is 1.275 of a voxel).
     private const byte FirstVersion = 1;
@@ -37,16 +42,18 @@ internal static class BrickData
     /// </summary>
     public const byte GroundUnder = 64;
 
-    /// <summary>The solid share from which a voxel holds ground (<see cref="GroundUnder"/>, <see cref="GroundBeside"/>).</summary>
+    /// <summary>The solid share from which a voxel holds ground (<see cref="GroundUnder"/>, <see cref="Brick.GroundBeside"/>).</summary>
     public const float HoldsGround = 0.02f;
 
     /// <summary>
-    /// With a voxel's open faces, the bit set where, on a side open toward water a voxel lower, the dry voxel beside it
-    /// holds some ground (<see cref="Brick.OpenFaces"/>, from <see cref="HoldsGround"/>): its side shows over that ground, though the water beside is one
-    /// sheet with it under the ground. The players' games know the ground only under water. Never set by a server before
-    /// it (nor read as a face by a game before it).
+    /// In a brick of version 3 (a world saved then), the bit set with a voxel's open faces where, on any side open toward
+    /// water a voxel lower, the dry voxel beside it holds some ground; read as every open side having it
+    /// (<see cref="BrickView.GroundBeside"/>). Not set since: the sides are sent each (<see cref="Brick.GroundBeside"/>).
     /// </summary>
     public const byte GroundBeside = 128;
+
+    /// <summary>The four sides across of a voxel's open faces: east, west, north, south.</summary>
+    public const byte SidesAcross = 1 | 2 | 16 | 32;
 
     /// <summary>Water steps a full voxel is kept as (a byte holds a little more, for water pressed in).</summary>
     public const float Full = 200f;
@@ -89,21 +96,22 @@ internal static class BrickData
         float[] exact = more ? Exact(brick) : null;
         for (int k = 0; k < look.Length; k += LookBytes)
         {
-            writer.Write(look, k + SolidByte, LookBytes - SolidByte - 1);
+            writer.Write(look, k + SolidByte, OpenByte - SolidByte);
             if (look[k + WaterByte] == More)
             {
                 writer.Write(exact[Voxel(look, k)]);
             }
 
             writer.Write(look[k + OpenByte]);
+            writer.Write(look[k + BesideByte]);
         }
     });
 
     /// <summary>
     /// Bytes a voxel takes in a brick's <see cref="Look"/>: its index (two bytes), its water, its solid share, its
-    /// current on each axis and its open faces.
+    /// current on each axis, its open faces and the sides it has ground beside.
     /// </summary>
-    public const int LookBytes = 8;
+    public const int LookBytes = 9;
 
     /// <summary>Where a voxel's water byte is in its <see cref="LookBytes"/>, after its index.</summary>
     public const int WaterByte = 2;
@@ -116,6 +124,9 @@ internal static class BrickData
 
     /// <summary>Where a voxel's open faces byte is in its <see cref="LookBytes"/>.</summary>
     public const int OpenByte = 7;
+
+    /// <summary>Where the byte of the sides a voxel has ground beside is in its <see cref="LookBytes"/>.</summary>
+    public const int BesideByte = 8;
 
     // Scratch for the water bytes, the shares they were rounded from and the bytes an Encode gathers: one of each a
     // thread (bricks are packed on the main thread, but nothing here need know that), made once.
@@ -165,7 +176,9 @@ internal static class BrickData
             look[k + SpeedByte0] = (byte)SpeedByte(x);
             look[k + SpeedByte0 + 1] = (byte)SpeedByte(y);
             look[k + SpeedByte0 + 2] = (byte)SpeedByte(z);
-            look[k + OpenByte] = brick.OpenFaces(i);
+            byte open = brick.OpenFaces(i);
+            look[k + OpenByte] = open;
+            look[k + BesideByte] = brick.GroundBeside(i, open);
             k += LookBytes;
         }
 
@@ -213,7 +226,8 @@ internal static class BrickData
             return false;
         }
 
-        if (Math.Abs(a - b) > waterSteps || At(was, ka, SolidByte) != At(now, kb, SolidByte) || At(was, ka, OpenByte) != At(now, kb, OpenByte))
+        if (Math.Abs(a - b) > waterSteps || At(was, ka, SolidByte) != At(now, kb, SolidByte) || At(was, ka, OpenByte) != At(now, kb, OpenByte)
+            || At(was, ka, BesideByte) != At(now, kb, BesideByte))
         {
             return true;
         }
@@ -239,7 +253,7 @@ internal static class BrickData
     public static BrickView Decode(byte[] data) => Packed.Read(data, "brick data", reader =>
     {
         byte version = reader.ReadByte();
-        if (version is not (FormatVersion or ExactVersion or FirstVersion))
+        if (version is not (FormatVersion or OpenVersion or ExactVersion or FirstVersion))
         {
             throw new InvalidDataException($"brick data version {version}, expected {FirstVersion} to {FormatVersion}");
         }
@@ -276,7 +290,17 @@ internal static class BrickData
                     view.Water[i] = share;
                 }
 
-                view.Open[i] = version >= FormatVersion ? reader.ReadByte() : AllOpen;
+                byte open = version >= OpenVersion ? reader.ReadByte() : AllOpen;
+                if (version >= FormatVersion)
+                {
+                    view.Open[i] = open;
+                    view.GroundBeside[i] = reader.ReadByte();
+                }
+                else
+                {
+                    view.Open[i] = (byte)(open & ~GroundBeside);
+                    view.GroundBeside[i] = (open & GroundBeside) != 0 ? (byte)(open & SidesAcross) : (byte)0;
+                }
             }
         }
 
@@ -390,4 +414,10 @@ internal sealed class BrickView
 
     /// <summary>Each voxel with water's faces it could leave by (<see cref="Brick.OpenFaces"/>); 0 where it has none.</summary>
     public byte[] Open { get; } = new byte[Brick.Count];
+
+    /// <summary>
+    /// Each voxel with water's sides toward water a voxel lower with ground in the dry voxel beside, as its open faces'
+    /// bits (<see cref="Brick.GroundBeside"/>); 0 where it has none.
+    /// </summary>
+    public byte[] GroundBeside { get; } = new byte[Brick.Count];
 }

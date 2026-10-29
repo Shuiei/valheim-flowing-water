@@ -114,7 +114,7 @@ internal sealed class VoxelShell
             }
             else
             {
-                shell.Stand(field, at, open, x, y, z);
+                shell.Stand(field, at, open, view.GroundBeside[i], x, y, z);
             }
         }
 
@@ -133,7 +133,7 @@ internal sealed class VoxelShell
         field.Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f;
 
     // Water standing: its open sides above the water beside them.
-    private void Stand(VoxelField field, Voxel at, int open, int x, int y, int z)
+    private void Stand(VoxelField field, Voxel at, int open, int groundBeside, int x, int y, int z)
     {
         float s = at.Size;
         float floor = field.Floor(x, y, z);
@@ -150,9 +150,9 @@ internal sealed class VoxelShell
 
             (int dx, _, int dz) = Sides[side];
 
-            // Ground in the dry voxel beside, as the server says, stands between the water and the water beside: its
-            // side shows over it however the surface joins them.
-            bool groundBetween = (open & BrickData.GroundBeside) != 0 && !field.IsWet(x + dx, y, z + dz);
+            // Ground in the dry voxel beside on this side, as the server says, stands between the water and the water
+            // beside: its side shows over it however the surface joins them.
+            bool groundBetween = (groundBeside & (1 << side)) != 0 && !field.IsWet(x + dx, y, z + dz);
             if (!groundBetween && OneSheet(field, x, y, z, dx, dz))
             {
                 continue;

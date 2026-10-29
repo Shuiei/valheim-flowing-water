@@ -37,6 +37,7 @@ internal static class WaterEase
             blend.Water[i] = Between(from.Water[i], to.Water[i], share);
             blend.Solid[i] = floor.Solid[i];
             blend.Open[i] = floor.Open[i];
+            blend.GroundBeside[i] = floor.GroundBeside[i];
             blend.VelocityX[i] = Between(from.VelocityX[i], to.VelocityX[i], share);
             blend.VelocityY[i] = Between(from.VelocityY[i], to.VelocityY[i], share);
             blend.VelocityZ[i] = Between(from.VelocityZ[i], to.VelocityZ[i], share);
@@ -83,6 +84,7 @@ internal static class WaterEase
         into.Water[i] = from.Water[i];
         into.Solid[i] = from.Solid[i];
         into.Open[i] = from.Open[i];
+        into.GroundBeside[i] = from.GroundBeside[i];
         into.VelocityX[i] = from.VelocityX[i];
         into.VelocityY[i] = from.VelocityY[i];
         into.VelocityZ[i] = from.VelocityZ[i];
