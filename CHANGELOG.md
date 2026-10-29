@@ -34,6 +34,19 @@ All notable changes to FlowingWater. Newest first.
   `Client.VolumeCapacity` size it. Drawn as the particle water is for now; its own look, and spray and foam where it
   is thrown, come next.
 
+## v0.38.2 — 2026-10-28
+
+### Fixed
+- The server knows the ground as your game shows it near the world's locations: their levelled and smoothed yards are
+  now part of the ground the water runs on, and terrain edits made there (with the hoe or a world editor) land where
+  you see them. The water no longer lies inside a hill or hangs over a hollow there, and you swim where it shows.
+
+## v0.38.1 — 2026-10-27
+
+### Fixed
+- Water near you no longer stands frozen as a wall or a sheet in the air where the server's idea of the ground differs
+  from your game's (after some terrain edits): the ground under it is found from over the terrain you see.
+
 ## v0.38.0 — 2026-10-26
 
 ### Added

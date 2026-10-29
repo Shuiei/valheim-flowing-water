@@ -4,7 +4,8 @@ using System.Collections.Generic;
 namespace FlowingWater.Server;
 
 /// <summary>
-/// What the game gives of a zone's ground: its generated heights, and its terrain-changes object as it is now.
+/// What the game gives of a zone's ground: its generated heights, what its terrain modifiers make of them (a
+/// location's levelled yard), and its terrain-changes object as it is now.
 /// </summary>
 /// <typeparam name="TZone">A zone.</typeparam>
 /// <typeparam name="TStamp">What tells one state of a zone's changes from another (its object and revision).</typeparam>
@@ -19,6 +20,12 @@ internal interface IZoneGround<TZone, TStamp>
     /// <summary>Whether <see cref="Generated"/> would give the zone's heights at once; if not, they are asked for.</summary>
     bool CanGenerate(TZone zone);
 
+    /// <summary>
+    /// Shapes the zone's generated heights, in place, as the game's terrain modifiers do (the locations' and any
+    /// shaping piece's), before the players' changes go over them: those changes are made over the shaped ground.
+    /// </summary>
+    void Shape(TZone zone, float[] heights);
+
     /// <summary>The zone's changes now: their stamp, and their bytes (null when the zone has none).</summary>
     (TStamp Stamp, byte[] Data) Changes(TZone zone);
 
@@ -28,8 +35,8 @@ internal interface IZoneGround<TZone, TStamp>
 
 /// <summary>
 /// Ground heights per zone: the generated heights, made once a zone (asking the game for them waits on its thread),
-/// with the players' terrain changes applied over them, again whenever the changes move on. Zones no water is near
-/// are let go (<see cref="Keep"/>).
+/// shaped by the zone's terrain modifiers, with the players' terrain changes applied over that, again whenever the
+/// changes (or what shapes the zone) move on. Zones no water is near are let go (<see cref="Keep"/>).
 /// </summary>
 /// <typeparam name="TZone">A zone.</typeparam>
 /// <typeparam name="TStamp">What tells one state of a zone's changes from another.</typeparam>
@@ -86,9 +93,10 @@ internal sealed class ZoneHeights<TZone, TStamp>
         }
     }
 
-    // The zone's heights: generated (once), and the changes over them. While the game's generated heights are not
-    // usable the ground is taken at 0 m, and they are asked for again once the changes move on (the changes are
-    // taken as read either way: not asked for, and told of, at every look).
+    // The zone's heights: generated (once), shaped by its terrain modifiers, and the changes over that (held within
+    // their reach of the shaped ground, as the game holds them). While the game's generated heights are not usable the
+    // ground is taken at 0 m, and they are asked for again once the changes move on (the changes are taken as read
+    // either way: not asked for, and told of, at every look).
     private void Build(Entry entry, (TStamp Stamp, byte[] Data) changes)
     {
         entry.Stamp = changes.Stamp;
@@ -98,11 +106,13 @@ internal sealed class ZoneHeights<TZone, TStamp>
             return;
         }
 
+        Array.Copy(entry.Base, entry.Shaped, _vertices);
+        _ground.Shape(entry.Zone, entry.Shaped);
         if (changes.Data == null)
         {
-            Array.Copy(entry.Base, entry.Heights, _vertices);
+            Array.Copy(entry.Shaped, entry.Heights, _vertices);
         }
-        else if (TerrainChanges.Apply(changes.Data, entry.Base, entry.Heights) is { } problem)
+        else if (TerrainChanges.Apply(changes.Data, entry.Shaped, entry.Heights) is { } problem)
         {
             _ground.Warn(entry.Zone, problem);
         }
@@ -143,6 +153,7 @@ internal sealed class ZoneHeights<TZone, TStamp>
             Zone = zone;
             Heights = new float[vertices];
             Base = new float[vertices];
+            Shaped = new float[vertices];
         }
 
         public TZone Zone { get; }
@@ -151,6 +162,9 @@ internal sealed class ZoneHeights<TZone, TStamp>
 
         // The generated heights, once made.
         public float[] Base { get; }
+
+        // The generated heights shaped by the zone's terrain modifiers, the players' changes not yet over them.
+        public float[] Shaped { get; }
 
         public bool Generated { get; set; }
 

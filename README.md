@@ -433,7 +433,11 @@ there to the new grid (same volume), at once when the file is saved.
   voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's heightmap
-  builder makes them, plus the players' terrain changes; the solid objects come from their saved objects and the
+  builder makes them, shaped by the terrain modifiers of the locations in and round each zone (read from the
+  location's prefab through the proxy object that stands for it: a village's levelled yard, the ground round a
+  ruin; the players' games make this on their own terrain, never in what the server keeps) and of any old shaping
+  piece, in the game's order, plus the players' terrain changes over that (a terrain edit is made over the shaped
+  ground); the solid objects come from their saved objects and the
   prefabs' colliders (a place's ruins from its location's prefab, through the proxy object that stands for it),
   on the layers the players' game casts the ground under its water on. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed in a way a
   player would see, every `SendSeconds` (packed a few blocks a frame, written together once all are), and the game
