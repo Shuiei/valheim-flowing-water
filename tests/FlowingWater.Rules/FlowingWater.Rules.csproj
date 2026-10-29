@@ -26,6 +26,7 @@
     <Compile Include="../../src/Server/NoRoom.cs" Link="Mod/NoRoom.cs" />
     <Compile Include="../../src/Server/ColumnTile.cs" Link="Mod/ColumnTile.cs" />
     <Compile Include="../../src/Server/TerrainChanges.cs" Link="Mod/TerrainChanges.cs" />
+    <Compile Include="../../src/Server/TerrainShaping.cs" Link="Mod/TerrainShaping.cs" />
     <Compile Include="../../src/Server/MarkerRules.cs" Link="Mod/MarkerRules.cs" />
     <Compile Include="../../src/Server/MarkerRights.cs" Link="Mod/MarkerRights.cs" />
     <Compile Include="../../src/Server/WorldLoad.cs" Link="Mod/WorldLoad.cs" />
