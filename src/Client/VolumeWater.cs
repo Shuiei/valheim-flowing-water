@@ -105,6 +105,12 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int PourMinId = Shader.PropertyToID("_PourMin");
     private static readonly int PourMaxId = Shader.PropertyToID("_PourMax");
     private static readonly int SizeId = Shader.PropertyToID("_Size");
+    private static readonly int FrothId = Shader.PropertyToID("_Froth");
+    private static readonly int FrothAliveId = Shader.PropertyToID("_FrothAlive");
+    private static readonly int FrothCapacityId = Shader.PropertyToID("_FrothCapacity");
+    private static readonly int FrothRateId = Shader.PropertyToID("_FrothRate");
+    private static readonly int FrothCountId = Shader.PropertyToID("_FrothCount");
+    private static readonly int FrothCountInId = Shader.PropertyToID("_FrothCountIn");
 
     // No particles: the counters and the drawing's arguments.
     private static readonly uint[] NoAlive = new uint[3];
@@ -129,8 +135,16 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private readonly int _compact;
     private readonly int _settle;
     private readonly int _seed;
+    private readonly int _frothClear;
+    private readonly int _frothMove;
 
     private readonly ComputeBuffer[] _particles = new ComputeBuffer[2];
+
+    private readonly ComputeBuffer[] _froth = new ComputeBuffer[2];
+
+    private readonly ComputeBuffer _frothAlive;
+
+    private readonly ComputeBuffer _frothCount;
 
     private readonly ComputeBuffer _alive;
     private readonly ComputeBuffer _type;
@@ -163,11 +177,13 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     private readonly List<Spring> _springList = new(MostSprings);
 
-    private UnityEngine.Rendering.AsyncGPUReadbackRequest _counting;
+    private readonly Counter _counted;
 
-    private bool _countingNow;
+    private readonly Counter _frothCounted;
 
     private int _current;
+
+    private int _frothCurrent;
 
     private uint _seedCounter;
 
@@ -199,9 +215,10 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     /// <summary>
     /// Room for <paramref name="capacity"/> particles over a grid of <paramref name="cellsX"/> by <paramref name="cellsY"/>
-    /// (up) by <paramref name="cellsZ"/> cells of <paramref name="cellSize"/> metres, from <see cref="Origin"/>.
+    /// (up) by <paramref name="cellsZ"/> cells of <paramref name="cellSize"/> metres, from <see cref="Origin"/>; the
+    /// froth (a quarter as many particles) drawn with <paramref name="froth"/>, or none made (null).
     /// </summary>
-    public VolumeWater(ComputeShader shader, Material material, int capacity, int cellsX, int cellsY, int cellsZ, float cellSize)
+    public VolumeWater(ComputeShader shader, Material material, Material froth, int capacity, int cellsX, int cellsY, int cellsZ, float cellSize)
     {
         if (capacity <= 0)
         {
@@ -238,13 +255,23 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _compact = shader.FindKernel("Compact");
         _settle = shader.FindKernel("Settle");
         _seed = shader.FindKernel("Seed");
+        _frothClear = shader.FindKernel("FrothClear");
+        _frothMove = shader.FindKernel("FrothMove");
+        FrothCapacity = froth != null ? Math.Max(1024, capacity / 4) : 1;
         for (int k = 0; k < 2; k++)
         {
             _particles[k] = new ComputeBuffer(capacity, Stride);
+            _froth[k] = new ComputeBuffer(FrothCapacity, Stride);
         }
 
         _alive = new ComputeBuffer(3, sizeof(uint));
+        _frothAlive = new ComputeBuffer(3, sizeof(uint));
+        _frothCount = new ComputeBuffer(_cells, sizeof(int));
+        _frothCount.SetData(new int[_cells]);
         Arguments = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
+        Froth = new Cloud(froth, new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments), Spacing);
+        _counted = new Counter(_alive, capacity);
+        _frothCounted = new Counter(_frothAlive, FrothCapacity);
         _type = new ComputeBuffer(_cells, sizeof(int));
         _count = new ComputeBuffer(_cells, sizeof(int));
         _div = new ComputeBuffer(_cells, sizeof(float));
@@ -276,6 +303,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Clear();
         Properties.SetBuffer(ParticlesId, _particles[0]);
         Properties.SetFloat(SizeId, 0.8f * Spacing);
+        Froth.Properties.SetBuffer(ParticlesId, _froth[0]);
     }
 
     /// <summary>A cell's side (m).</summary>
@@ -303,18 +331,25 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     public int Capacity { get; }
 
     /// <summary>Particles now, read back from the card (a wait: for the console, previews and tests).</summary>
-    public int Count
-    {
-        get
-        {
-            uint[] alive = new uint[3];
-            _alive.GetData(alive);
-            return (int)Math.Min(alive[0], (uint)Capacity);
-        }
-    }
+    public int Count => _counted.Now;
 
     /// <summary>Particles as the card last answered (no wait).</summary>
-    public int LastCount { get; private set; }
+    public int LastCount => _counted.Last;
+
+    /// <summary>Froth particles at most (a quarter of the water's; 1 with no froth material).</summary>
+    public int FrothCapacity { get; }
+
+    /// <summary>Froth particles now, read back from the card (a wait).</summary>
+    public int FrothCount => _frothCounted.Now;
+
+    /// <summary>
+    /// How much froth the water's violence makes (0: none; 1: as tuned): spray, foam and bubbles, particles of their own
+    /// that carry no water, drawn over it.
+    /// </summary>
+    public float FrothRate { get; set; } = 1f;
+
+    /// <summary>The froth as drawn: its own buffer, arguments and material (none to draw without the froth material).</summary>
+    public Cloud Froth { get; }
 
     /// <summary>The indirect drawing arguments: six points a particle.</summary>
     public ComputeBuffer Arguments { get; }
@@ -432,12 +467,15 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         return Count - before;
     }
 
-    /// <summary>No water: every particle gone.</summary>
+    /// <summary>No water: every particle gone, the froth with it.</summary>
     public void Clear()
     {
         _alive.SetData(NoAlive);
         Arguments.SetData(NoArgs);
-        LastCount = 0;
+        _frothAlive.SetData(NoAlive);
+        Froth.Arguments.SetData(NoArgs);
+        _counted.Last = 0;
+        _frothCounted.Last = 0;
     }
 
     /// <summary>Moves the water over this much time, in steps of <see cref="Substep"/> at most.</summary>
@@ -470,29 +508,16 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
             Solve();
             Finish();
-        }
-
-        Substeps = steps;
-
-        if (_countingNow && !Application.isPlaying)
-        {
-            _counting.WaitForCompletion();
-        }
-
-        if (_countingNow && _counting.done)
-        {
-            _countingNow = false;
-            if (!_counting.hasError)
+            if (Froth.Material != null)
             {
-                LastCount = (int)Math.Min(_counting.GetData<uint>()[0], (uint)Capacity);
+                MoveFroth();
             }
         }
 
-        if (!_countingNow)
-        {
-            _counting = UnityEngine.Rendering.AsyncGPUReadback.Request(_alive);
-            _countingNow = true;
-        }
+        Substeps = steps;
+        _counted.Poll();
+        _frothCounted.Poll();
+        Froth.LastCount = _frothCounted.Last;
     }
 
     /// <summary>Every particle's twelve floats, read back from the card: for previews and tests.</summary>
@@ -503,6 +528,19 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         if (count > 0)
         {
             _particles[_current].GetData(data, 0, 0, count * 12);
+        }
+
+        return data;
+    }
+
+    /// <summary>Every froth particle's twelve floats (its place; its life left, born with, own number and kind; its velocity), read back from the card: for previews and tests.</summary>
+    public float[] ReadFroth()
+    {
+        int count = FrothCount;
+        float[] data = new float[count * 12];
+        if (count > 0)
+        {
+            _froth[_frothCurrent].GetData(data, 0, 0, count * 12);
         }
 
         return data;
@@ -525,8 +563,13 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     {
         _particles[0].Release();
         _particles[1].Release();
+        _froth[0].Release();
+        _froth[1].Release();
         _alive.Release();
+        _frothAlive.Release();
+        _frothCount.Release();
         Arguments.Release();
+        Froth.Arguments.Release();
         _type.Release();
         _count.Release();
         _div.Release();
@@ -627,6 +670,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetFloat(DriftId, Drift);
         _shader.SetInt(OpenSidesId, OpenSides ? 1 : 0);
         _shader.SetInt(SeedId, (int)_seedCounter);
+        _shader.SetInt(FrothCapacityId, FrothCapacity);
+        _shader.SetFloat(FrothRateId, Froth.Material != null ? Math.Max(0f, FrothRate) : 0f);
         _shader.SetInt(BedCellsId, _bedCells);
         _shader.SetFloat(BedDxId, _bedDx);
         _shader.SetVector(BedOriginId, _bedOrigin);
@@ -655,7 +700,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _given.SetData(new uint[MostSprings]);
 
         // (A kernel reads the solids for the faces thin pieces close too: unbound, Unity would skip the kernel.)
-        foreach (int kernel in new[] { _clearCells, _gather, _relax, _project, _move, _emit, _seed })
+        foreach (int kernel in new[] { _clearCells, _gather, _relax, _project, _move, _emit, _seed, _frothMove })
         {
             _shader.SetTexture(kernel, BedId, _bed);
             _shader.SetTexture(kernel, SolidsId, _solids ?? _noSolids);
@@ -759,6 +804,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetBuffer(_emit, GivenId, _given);
         _shader.SetBuffer(_regulate, GivenInId, _given);
         _shader.SetBuffer(_move, TakenId, _taken);
+        _shader.SetBuffer(_move, FrothId, _froth[_frothCurrent]);
+        _shader.SetBuffer(_move, FrothAliveId, _frothAlive);
+        _shader.SetBuffer(_move, FrothCountInId, _frothCount);
         _shader.SetBuffer(_compact, SortedId, _particles[1 - _current]);
     }
 
@@ -813,9 +861,114 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         Properties.SetBuffer(ParticlesId, _particles[_current]);
     }
 
+    // The froth moved by its kinds, compacted and counted, with the water's kernels bound to its own buffers (the
+    // next step's Common binds the water's again).
+    private void MoveFroth()
+    {
+        _shader.SetInt(CapacityId, FrothCapacity);
+        _shader.SetBuffer(_frothClear, FrothCountId, _frothCount);
+        DispatchCells(_frothClear);
+        _shader.SetBuffer(_frothMove, FrothCountId, _frothCount);
+        _shader.SetBuffer(_frothMove, ParticlesId, _froth[_frothCurrent]);
+        _shader.SetBuffer(_frothMove, AliveInId, _frothAlive);
+        _shader.SetBuffer(_frothMove, CountInId, _count);
+        _shader.SetBuffer(_frothMove, VelInId, _vel);
+        int groups = (FrothCapacity + Threads - 1) / Threads;
+        _shader.Dispatch(_frothMove, groups, 1, 1);
+        _shader.SetBuffer(_compact, ParticlesInId, _froth[_frothCurrent]);
+        _shader.SetBuffer(_compact, SortedId, _froth[1 - _frothCurrent]);
+        _shader.SetBuffer(_compact, AliveId, _frothAlive);
+        _shader.Dispatch(_compact, groups, 1, 1);
+        _shader.SetBuffer(_settle, AliveId, _frothAlive);
+        _shader.SetBuffer(_settle, ArgsId, Froth.Arguments);
+        _shader.Dispatch(_settle, 1, 1, 1);
+        _frothCurrent = 1 - _frothCurrent;
+        Froth.Properties.SetBuffer(ParticlesId, _froth[_frothCurrent]);
+    }
+
     private void DispatchCells(int kernel) => _shader.Dispatch(kernel, (_cells + Threads - 1) / Threads, 1, 1);
 
     private void DispatchFaces(int kernel) => _shader.Dispatch(kernel, (_faces + Threads - 1) / Threads, 1, 1);
 
     private void DispatchParticles(int kernel) => _shader.Dispatch(kernel, (Capacity + Threads - 1) / Threads, 1, 1);
+
+    /// <summary>A set of particles as drawn: the froth's (<see cref="IParticleCloud"/> for <see cref="ParticleSurface"/>).</summary>
+    public sealed class Cloud : IParticleCloud
+    {
+        internal Cloud(Material material, ComputeBuffer arguments, float spacing)
+        {
+            Material = material;
+            Arguments = arguments;
+            Spacing = spacing;
+        }
+
+        /// <inheritdoc/>
+        public ComputeBuffer Arguments { get; }
+
+        /// <summary>The froth's material; null when the bundle had none (no froth is made then).</summary>
+        public Material Material { get; }
+
+        /// <inheritdoc/>
+        public MaterialPropertyBlock Properties { get; } = new();
+
+        /// <summary>Froth particles as the card last answered (no wait).</summary>
+        public int LastCount { get; internal set; }
+
+        /// <inheritdoc/>
+        public float Spacing { get; }
+    }
+
+    // A buffer's first count, read back from the card without a wait (asked each poll, taken when it comes; the editor,
+    // not playing, waits), or with one.
+    private sealed class Counter
+    {
+        private readonly ComputeBuffer _buffer;
+
+        private readonly int _most;
+
+        private UnityEngine.Rendering.AsyncGPUReadbackRequest _request;
+
+        private bool _asked;
+
+        public Counter(ComputeBuffer buffer, int most)
+        {
+            _buffer = buffer;
+            _most = most;
+        }
+
+        public int Last { get; set; }
+
+        public int Now
+        {
+            get
+            {
+                uint[] counts = new uint[3];
+                _buffer.GetData(counts);
+                return (int)Math.Min(counts[0], (uint)_most);
+            }
+        }
+
+        public void Poll()
+        {
+            if (_asked && !Application.isPlaying)
+            {
+                _request.WaitForCompletion();
+            }
+
+            if (_asked && _request.done)
+            {
+                _asked = false;
+                if (!_request.hasError)
+                {
+                    Last = (int)Math.Min(_request.GetData<uint>()[0], (uint)_most);
+                }
+            }
+
+            if (!_asked)
+            {
+                _request = UnityEngine.Rendering.AsyncGPUReadback.Request(_buffer);
+                _asked = true;
+            }
+        }
+    }
 }

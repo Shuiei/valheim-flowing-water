@@ -116,6 +116,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 64; the card's square is this at most then); more costs the card more, by the square |
 | `Client.VolumeHeight` | 24 | Height of the volume water's grid, metres (8 to 48), centred on you: water above or below it is the server's |
 | `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³) |
+| `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
 
@@ -335,12 +336,28 @@ exactly that; a grid 20 m square with open sides, poured from a pool the server 
 square (within 3 %, 1 m deep, none left behind) as it is moved east and north 2 m at a time with its new strip seeded,
 and as it is dropped 2 m, as the game moves it after the camera (the arithmetic of that following, and of a source's
 sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover). `FW_PREVIEW_ITERATIONS`,
-`FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` try other solver settings, `FW_PREVIEW_SPHERES=1` draws the particles.
+`FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` and `FW_PREVIEW_FROTH` try other solver settings, `FW_PREVIEW_SPHERES=1` draws
+the particles.
+
+Where the water is violent it throws froth: spray, foam and bubbles, after Ihmsen, Akinci, Akinci and Teschner's
+unified diffuse particles (2012), read off the grid. Each step every particle of the water faster than 1.5 m/s is
+given three potentials: the air it traps (how much the velocity differs across its cell: a jet into a pool, a shear),
+its crest (fast water with air above it: a fall's lip, a front) and its impact (the speed the ground or what is built
+just took from it), each counting the more the faster it goes, and makes that many froth particles a second (scaled
+by `Client.VolumeFroth`), in its water and going as it goes with some spread, or, struck, thrown back off what it
+struck. A cell already holding six froth particles takes no more (froth covers water, it does not pile up), and a
+source's own sphere makes none (its outflow is no violence of the water's). Froth carries no water. Each froth
+particle is what the water round it makes it: in a cell with little water
+it is spray, falling and slowed by the air, the finer the more (a drop falls, a mist hangs and spreads); in the top
+cell of the water it is foam, riding the surface with the water's velocity; under more water it is a bubble, rising
+through it with the water to foam. Each lives one to three seconds (foam twice that), and spray down on dry ground
+is gone at once. They are drawn after the water's surface as soft sprites (`FlowingWaterFroth.shader`): spray as
+drops that grow into a thin mist as they fade, foam as white specks, bubbles as faint ones, lit as the sea's foam.
+Their room is a quarter of the water's particles; when it is full, no more is made until some is spent.
 
 What it is not yet: its own look (it is drawn as the particle prototype's spheres melted into a surface, which is
-dark in deep water and shows no foam), spray, foam and mist where it is thrown (a fall's foot, fast water on a rock:
-next), swum in or floated on (the server's water says what you swim in), spread over the frame's budget, and the
-server does not learn what it does.
+dark in deep water), swum in or floated on (the server's water says what you swim in), spread over the frame's
+budget, and the server does not learn what it does.
 
 ### Grid size
 

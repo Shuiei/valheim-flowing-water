@@ -39,6 +39,7 @@ internal sealed class Settings
         VolumeRange = config.Bind("Client", "VolumeRange", 32f, new ConfigDescription("Side of the square round you the volume water fills, metres (the card's square is this at most then); more costs the card more, by the square.", new AcceptableValueRange<float>(16f, 64f)));
         VolumeHeight = config.Bind("Client", "VolumeHeight", 24f, new ConfigDescription("Height of the volume water's grid, metres, centred on you: water above or below it is the server's.", new AcceptableValueRange<float>(8f, 48f)));
         VolumeCapacity = config.Bind("Client", "VolumeCapacity", 1 << 20, new ConfigDescription("Particles of the volume water at most (eight to a cell of 0.25 m: a million is 2000 m³); more costs the card memory.", new AcceptableValueRange<int>(65536, 1 << 22)));
+        VolumeFroth = config.Bind("Client", "VolumeFroth", 1f, new ConfigDescription("How much spray, foam and bubbles the volume water throws where it is violent (a fall's foot, a jet into a pool, water striking a wall or the ground, a fast front): 0 none, 1 as tuned, more a wilder water. Particles of their own, a quarter of VolumeCapacity at most.", new AcceptableValueRange<float>(0f, 4f)));
         WaterVolume = config.Bind("Client", "WaterVolume", 0.7f, new ConfigDescription("Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent), within the game's sound-effects volume.", new AcceptableValueRange<float>(0f, 1f)));
         FlowTextureSpeed = config.Bind("Client", "FlowTextureSpeed", 0.5f, new ConfigDescription("Unused for now (it was the column water's): how fast the stream texture ran.", new AcceptableValueRange<float>(0f, 5f)));
     }
@@ -107,6 +108,8 @@ internal sealed class Settings
     public ConfigEntry<float> VolumeHeight { get; }
 
     public ConfigEntry<int> VolumeCapacity { get; }
+
+    public ConfigEntry<float> VolumeFroth { get; }
 
     public ConfigEntry<float> WaterVolume { get; }
 }

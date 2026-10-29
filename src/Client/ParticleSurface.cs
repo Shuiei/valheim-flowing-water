@@ -80,9 +80,10 @@ internal sealed class ParticleSurface : IDisposable
     /// <summary>
     /// The water as this camera will draw it next: the command buffer filled for this frame's particles (as many as the
     /// card says there are), on the camera (moved from the last one if it changed), and the surface drawn over the scene
-    /// with <paramref name="surface"/> (the mod's particle surface material).
+    /// with <paramref name="surface"/> (the mod's particle surface material); then <paramref name="froth"/> (the volume
+    /// water's spray, foam and bubbles) with its own material, over the surface, when there is any.
     /// </summary>
-    public void Render(Camera camera, IParticleCloud water, Material surface)
+    public void Render(Camera camera, IParticleCloud water, Material surface, IParticleCloud froth = null)
     {
         if (_camera != camera)
         {
@@ -107,6 +108,7 @@ internal sealed class ParticleSurface : IDisposable
         if (Spheres)
         {
             _commands.DrawProceduralIndirect(Matrix4x4.identity, water.Material, SpheresPass, MeshTopology.Triangles, water.Arguments, 0, water.Properties);
+            Froth(camera, froth);
             return;
         }
 
@@ -129,6 +131,17 @@ internal sealed class ParticleSurface : IDisposable
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         Graphics.DrawProcedural(surface, Everywhere, MeshTopology.Triangles, 3, 1, camera, null, ShadowCastingMode.Off, false, 0);
+        Froth(camera, froth);
+    }
+
+    // The froth over the water: a draw the camera sorts with the scene's transparent things by its material's queue,
+    // one after the surface's (the order of the calls here does not place it; the queue does).
+    private static void Froth(Camera camera, IParticleCloud froth)
+    {
+        if (froth != null && froth.Material != null && froth.LastCount > 0)
+        {
+            Graphics.DrawProceduralIndirect(froth.Material, Everywhere, MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
+        }
     }
 
     /// <summary>Off the camera it was on.</summary>

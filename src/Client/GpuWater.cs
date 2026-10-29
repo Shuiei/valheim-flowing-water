@@ -633,14 +633,14 @@ internal sealed class GpuWater : IDisposable
     {
         if (_volume == null)
         {
-            if (!Materials.Volume(out Material material, out _, out ComputeShader compute))
+            if (!Materials.Volume(out Material material, out _, out Material froth, out ComputeShader compute))
             {
                 return false;
             }
 
             Settings settings = FlowingWaterPlugin.Settings;
             int rows = VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize);
-            _volume = new VolumeWater(compute, material, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
+            _volume = new VolumeWater(compute, material, froth, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
             {
                 OpenSides = true,
                 // Two metres of the square's edge take the server's water each step, whatever the cells' size.
@@ -683,12 +683,13 @@ internal sealed class GpuWater : IDisposable
 
         _volumeReseed = 0;
 
+        _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
         _volume.Step(Math.Min(Time.deltaTime, 1f / 15f));
         Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
         if (camera != null && Materials.Particles(out _, out Material surface, out _))
         {
             _surface ??= new ParticleSurface();
-            _surface.Render(camera, _volume, surface);
+            _surface.Render(camera, _volume, surface, _volume.Froth);
         }
 
         return true;

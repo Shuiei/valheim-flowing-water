@@ -84,6 +84,7 @@ again within a couple of seconds. The main ones:
 | `Client.VolumeRange` | 32 | Side of the square the volume water fills, metres (16 to 64); more costs the card more |
 | `Client.VolumeHeight` | 24 | Height of its grid, metres (8 to 48), centred on you |
 | `Client.VolumeCapacity` | 1048576 | Its particles at most |
+| `Client.VolumeFroth` | 1 | How much spray, foam and bubbles it throws where it is violent (0 none, up to 4) |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144); more costs the card more |
 
 Every setting, how the simulation works and how to build it:
