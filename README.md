@@ -107,7 +107,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes (see [Water on the graphics card](#water-on-the-graphics-card)); off = drawn as the server sends it |
 | `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres (32 to 256) |
 | `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1; never larger than the server's voxels) |
-| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
+| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things (1 = at the water's own speed; a light thing catches up within a second; a boat with someone aboard is pulled over several, and drifts slower than the water against its own drag) |
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
@@ -590,7 +590,23 @@ there to the new grid (same volume), at once when the file is saved.
   surface over them: the top of the stack of water they are in or just over (the server's water, not eased), so a pool
   on a raised floor floats a swimmer at its own level. Harmony patches make the game's water-level checks and the
   level any water volume reports include the flowing water, and let a swimmer drift with the current of the voxel they
-  are in.
+  are in. The current is the water's own speed: the server sends what flows through a voxel's faces over a face's
+  area, the speed times how full the voxel is, so a sheet a tenth of a voxel thick runs ten times as fast as that.
+  It carries a floating thing along the current toward the water's speed (times `CurrentStrength`): what the thing
+  lacks of it, over how long a thing of its mass takes to catch up, 0.5 s for 1 kg, growing as the cube root of the
+  mass (the water's drag grows with a thing's surface, its mass with its volume). An item or a crate (1 to 15 kg)
+  catches up within a second or so, a log or a cart (100 kg) in 2.3 s; a karve or a raft (1000 kg) is pulled over 5
+  s, a longship over 6.3 s, but against the drag the game keeps on ships (below) it settles well under the water's
+  speed. The water never brakes a thing running down the current faster than it, and holds back one going
+  up it the harder the faster it goes. The game's own drag on a floating thing (`Floating`'s, a share of its speed
+  each physics step) brakes it toward standing still, not toward the water: what it takes along the current is given
+  back while the thing is carried, so an item runs at nine tenths of the water's speed instead of a third. A ship is
+  no thing the water boxes tell of, so ships are carried on their own, each physics step, at their waterline, and
+  only with someone aboard: the game holds a ship no one is aboard where it is, on the sea as on a river (it loses
+  nine tenths of any speed each step), so it stays moored. With someone aboard it keeps the game's own drag, strong
+  sideways and light along the hull: a raft lying across a current of 1.9 m/s drifts at about 0.3 m/s, one pointing
+  down it nearly at the water's speed, and it can still be sailed or rowed up it. Only the game simulating a thing (its
+  owner) carries it, so every player sees it go the same way.
 
 ## Building
 

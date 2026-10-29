@@ -124,6 +124,23 @@ public class VoxelFieldTests
     }
 
     [Fact]
+    public void WaterATenthOfAVoxelThickRunsTenTimesItsFlow()
+    {
+        // The server sends the flow through the faces over a face's area: 0.3 m/s from a voxel a tenth full is water
+        // running 3 m/s; a film thinner than LeastShare is taken as that thick.
+        var view = new BrickView(0, 0, 0, 1f);
+        int i = Brick.Index(2, 0, 2);
+        view.Water[i] = 0.1f;
+        view.VelocityX[i] = 0.3f;
+        int film = Brick.Index(4, 0, 2);
+        view.Water[film] = 0.01f;
+        view.VelocityZ[film] = 0.1f;
+
+        Assert.Equal(3f, VoxelField.WaterVelocity(view, i).X, 4);
+        Assert.Equal(0.1f / VoxelField.LeastShare, VoxelField.WaterVelocity(view, film).Z, 4);
+    }
+
+    [Fact]
     public void TheVelocityIsTheVoxelsTheSwimmerIsIn()
     {
         VoxelField field = Current(1.5f, -0.5f);

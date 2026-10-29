@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.0 — 2026-10-29
+
+### Changed
+- The current carries floating things toward its own speed, light ones quickly and heavy ones slowly: an item or a
+  crate runs nearly as fast as the river within a second or so, a log or a cart in about 2 seconds.
+- The current now carries boats with someone aboard, slowly: a raft across a river drifts down it at about a sixth of
+  the water's speed, faster when it points down the river. A boat sailing down faster than the water is not slowed
+  by it, and one sailing up is held back. A boat with no one aboard stays where it is, as the game holds it.
+- Thin, fast water carries swimmers and floating things at its real speed. It was taken as much slower where the
+  water is a thin sheet or falls.
+
 ## v0.43.0 — 2026-10-29
 
 ### Added
