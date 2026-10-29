@@ -561,11 +561,15 @@ there to the new grid (same volume), at once when the file is saved.
   where its water stands open to the air (from its floor, or the water beside it, up to its level; not toward water
   beside it at most 0.35 of a voxel lower, or a voxel lower, which the surface joins it to, unless that column holds
   water higher up, which the surface joins instead, or the server says the dry voxel beside holds some ground: the
-  side shows over it), and water falling through the air as a column through each voxel it falls through, as wide as
-  its water, capped where the fall starts and ends, so a fall is one cascade of white water (only over open air: water
-  stepping down a slope steeper than the voxels, from one to the next with ground under it, is the surface's, one
-  sheet down the slope: the server marks with each wet voxel's open faces whether the voxel under it holds ground,
-  which it does not send otherwise). These faces and the surface are drawn from both sides: from inside the water, it
+  side shows over it; nor toward the column beside when its water's top is within three voxels of this one's and as
+  deep, to 0.35 of a voxel: a sheet down a slope, which crosses each row at another height in each column, its levels
+  in a row apart by the ground's step, not the water's), and water falling through the air as a column through each
+  voxel it falls through, as wide as its water, capped where the fall starts and ends, so a fall is one cascade of
+  white water (only over open air: water stepping down a slope steeper than the voxels, from one to the next with
+  ground under it, or over water lying on ground in the voxel under it, is the surface's, one sheet down the slope:
+  the server marks with each wet voxel's open faces whether the voxel under it holds ground, which it does not send
+  otherwise). Without these two, a stream down a hill outside the card's square drew a grid of small walls and
+  columns under its surface, seen through it as dark patches. These faces and the surface are drawn from both sides: from inside the water, it
   is still seen.
   With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
   instead: the top of each wet voxel with no water over it, its corners shared with the tops beside it that are one

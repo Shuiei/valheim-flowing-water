@@ -84,6 +84,42 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void ASheetDownASlopeShowsNoSideBetweenItsColumns()
+    {
+        // Ground 0.8 into row 0 under one column and 0.2 under the next: a sheet 0.3 deep over both crosses row 0 high in
+        // the first (and goes on up into row 1) and low in the second. Their levels in row 0 differ by half a voxel,
+        // the ground's step, not the water's: no side between them.
+        var view = new BrickView(0, 0, 0, 1f);
+        int a = Brick.Index(5, 0, 5), b = Brick.Index(6, 0, 5);
+        view.Solid[a] = 0.8f;
+        Wet(view, 5, 0, 5, 0.2f, East);
+        Wet(view, 5, 1, 5, 0.1f, East | Up);
+        view.Solid[b] = 0.2f;
+        Wet(view, 6, 0, 5, 0.3f, West | Up);
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f) && System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Y + 8f < 1f);
+    }
+
+    [Fact]
+    public void ASheetDownASlopeTwoVoxelsAVoxelShowsNoSideTowardTheColumnBelow()
+    {
+        // A sheet 0.3 deep on ground in row 2 here and in row 0 beside, open to the air between: the surface's slope
+        // joins them; and a pool as high beside but 0.9 deep is other water, its side shows.
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 2, 5)] = 0.5f;
+        Wet(view, 5, 2, 5, 0.3f, East | Up);
+        view.Solid[Brick.Index(6, 0, 5)] = 0.5f;
+        Wet(view, 6, 0, 5, 0.3f, Up);
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+
+        view.Solid[Brick.Index(6, 0, 5)] = 0f;
+        Wet(view, 6, 0, 5, 0.9f, Up);
+        Assert.Equal(1, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
     public void WaterSteppingDownToWaterAVoxelLowerShowsNoSide()
     {
         // Thin water on a step, open east toward dry air over water a voxel lower: the surface runs down to it.
@@ -178,6 +214,19 @@ public class VoxelShellTests
         {
             Wet(view, x, 12 - x, 8, 0.1f, BrickData.AllOpen | BrickData.GroundUnder);
         }
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void ASheetCrossingARowOverGroundWithWaterOnItIsNoFall()
+    {
+        // A sheet down a slope crossing from row 0 into row 1: ground 0.6 and water 0.3 in row 0, the sheet's top 0.2
+        // in row 1 over it. The water in row 1 stands on the water on the ground under it: no fall's column.
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 0, 5)] = 0.6f;
+        Wet(view, 5, 0, 5, 0.3f, 0);
+        Wet(view, 5, 1, 5, 0.2f, Up | Down);
 
         Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
     }
