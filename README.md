@@ -426,7 +426,9 @@ grid's top and bottom, the water fades into the bricks beyond (a stream down a h
 one into the other, not a seam across it). The bricks draw nothing else inside the square while the volume is on (the
 server's columns say nothing of what the volume holds), only those bands, the world beyond, and water above or below
 the grid's height (it follows the camera: a lake far below a cliff you stand on is the bricks' to draw). With the camera under the water, the scene is seen through the water up to its
-surface or the scene, tinted and dimmed by that much water. The console's `flowingwater particles spheres` draws the
+surface or the scene (looking down, up to the scene: under the floor deep water is given the volume holds no
+particles), its light taken over the material's `_UnderFog` distance, red first, and the water's own light in its
+place: the shallow colour near, the deep colour far, lit by the sky and the sun over it. The console's `flowingwater particles spheres` draws the
 particles as spheres instead, for testing, and `flowingwater particles look N` takes the drawing apart (1 the density
 alone, 2 the sheet on the ground alone, 3 the water seen through as grey, 4 the surface's distance in bands of a
 metre, 5 its normal as a colour, 6 without the smoothing, 7 the cells' fullness alone, 8 the density of water on no

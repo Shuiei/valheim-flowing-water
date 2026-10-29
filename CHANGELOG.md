@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.4 — 2026-10-29
+
+### Fixed
+- Under the volume water you see the pool round you, tinted green and fading with the distance, instead of near
+  black a couple of metres away.
+
 ## v0.42.3 — 2026-10-29
 
 ### Fixed

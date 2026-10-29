@@ -312,13 +312,24 @@ Shader "FlowingWater/VolumeSurface"
 
                 if (under)
                 {
-                    // Under the water: the scene through it, fading into the water's own colour with the distance.
+                    // Under the water: the scene through it, its light lost over _UnderFog (red first) as clear water
+                    // takes it, not over the depth a surface's colour is reckoned from (that turned a pool's far side
+                    // black a few metres off); and in its place the water's own light, scattered from the sky above:
+                    // the shallow colour near, the deep colour far.
                     float3 behindUnder = tex2D(_FlowingWaterVolumeBehind, i.grab.xy / i.grab.w).rgb;
-                    float3 dim = max(skyLight, _LeastLight * skyLight);
-                    float3 deep = _ColorBottom.rgb * dim;
-                    float3 colourUnder = (behindUnder * through * _SurfaceColor.rgb) + (deep * (1.0 - through));
-                    float far = saturate(thickness / max(_UnderFog, 0.1));
-                    colourUnder = lerp(colourUnder, deep, far * far);
+                    float fog = max(_UnderFog, 0.1);
+                    // Looking down, the view stays in the water until it meets the scene (the march counts only the
+                    // particles: under the floor deep water is given, it found none); looking up, it leaves through
+                    // the surface, as far as the march went.
+                    float3 look = normalize(Place(ndc, 1.0));
+                    float toScene = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv)) / max(-look.z, 1e-4);
+                    float path = ViewToWorldDirection(look).y < 0.0 ? max(thickness, toScene) : thickness;
+                    // (Nearly all of it, a twentieth left, over _UnderFog: the scene fades into the water's colour
+                    // over that far, as the setting says.)
+                    float3 throughUnder = exp(-3.0 * path * _BodyTint.rgb / fog);
+                    float3 lit = skyLight + (0.25 * sunColour * saturate(sun.y));
+                    float3 scattered = lerp(_ColorTop.rgb, _ColorBottom.rgb, saturate(path / (2.0 * fog))) * lit;
+                    float3 colourUnder = (behindUnder * throughUnder) + (scattered * (1.0 - throughUnder));
                     return fixed4(colourUnder, 1.0);
                 }
 
