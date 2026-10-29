@@ -149,8 +149,8 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         return changes == null ? ((ZDOID.None, 0u, shapers), null) : ((changes.m_uid, changes.DataRevision, shapers), changes.GetByteArray(ChangesHash));
     }
 
-    // What shapes a sector: each of its location proxies and shaping pieces by id and place, in whatever order the
-    // game lists them.
+    // What shapes a sector: each of its location proxies and shaping pieces by id and place (a proxy by its turn too:
+    // its modifiers stand turned as it is), in whatever order the game lists them.
     private int Shapers(Vector2s sector)
     {
         long key = TileData.Key(sector);
@@ -165,10 +165,12 @@ internal sealed class ZoneTerrain : IZoneGround<Vector2s, (ZDOID Id, uint Revisi
         foreach (ZDO zdo in _found)
         {
             int prefab = zdo.GetPrefab();
-            if (prefab == LocationProxyHash || ShapingPiece(prefab) != null)
+            bool proxy = prefab == LocationProxyHash;
+            if (proxy || ShapingPiece(prefab) != null)
             {
                 Vector3 at = zdo.GetPosition();
-                int one = unchecked((((((zdo.m_uid.GetHashCode() * 31) + at.x.GetHashCode()) * 31) + at.y.GetHashCode()) * 31) + at.z.GetHashCode());
+                int turn = proxy ? zdo.GetRotation().GetHashCode() : 0;
+                int one = unchecked((((((((zdo.m_uid.GetHashCode() * 31) + at.x.GetHashCode()) * 31) + at.y.GetHashCode()) * 31) + at.z.GetHashCode()) * 31) + turn);
                 sum = unchecked(sum + one);
                 count++;
             }
