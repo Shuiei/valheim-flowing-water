@@ -79,4 +79,98 @@ internal static class VolumeFollow
     /// uncovered, on every side (the band is the same all round; the old sides hold water already).
     /// </summary>
     public static int Reseed(int dx, int dz, int perVoxel) => Math.Max(Math.Abs(dx), Math.Abs(dz)) * perVoxel;
+
+    /// <summary>Of the room for particles, the share the server's water may take (the rest for what sources pour, falls, waves).</summary>
+    public const float DeepShare = 0.75f;
+
+    /// <summary>Metres of deep water the volume moves at the least, however full it would be.</summary>
+    public const float LeastKeep = 1f;
+
+    /// <summary>
+    /// The depth kept is let be while the water it holds stays within this share of the budget, either way (the floor
+    /// under deep water does not move with every change of the server's water; what it holds over the budget fits in
+    /// the room left over); and with none kept, all of it moves until it takes more than the budget, then again once it
+    /// takes this share less.
+    /// </summary>
+    public const float KeepSlack = 0.2f;
+
+    /// <summary>
+    /// How much of the server's deep water the volume moves (its top so many metres; under them the server's water is
+    /// the volume's floor), so that the water in its grid fits <paramref name="budget"/> cubic metres: 0 where all of it
+    /// fits (no such floor). The columns' tops and depths are the server's (a column with no water has a depth of 0),
+    /// <paramref name="area"/> square metres each; only the water between the grid's bottom and top counts. The depth
+    /// kept is the most that fits, at least <see cref="LeastKeep"/>; the one kept now (<paramref name="current"/>, 0:
+    /// none) is let be within <see cref="KeepSlack"/>.
+    /// </summary>
+    public static float DeepKeep(float[] tops, float[] depths, float area, float gridBottom, float gridTop, float budget, float current)
+    {
+        if (tops.Length != depths.Length)
+        {
+            throw new ArgumentException($"{tops.Length} tops and {depths.Length} depths", nameof(depths));
+        }
+
+        float deepest = 0f;
+        for (int i = 0; i < tops.Length; i++)
+        {
+            deepest = Math.Max(deepest, InGrid(tops[i], depths[i], gridBottom, gridTop));
+        }
+
+        float all = Held(tops, depths, area, gridBottom, gridTop, deepest);
+        if (current > 0f)
+        {
+            float held = Held(tops, depths, area, gridBottom, gridTop, current);
+            if (all <= budget * (1f - KeepSlack))
+            {
+                return 0f;
+            }
+
+            if (held >= budget * (1f - KeepSlack) && held <= budget * (1f + KeepSlack))
+            {
+                return current;
+            }
+        }
+
+        if (all <= budget)
+        {
+            return 0f;
+        }
+
+        // The deepest kept that fits, by halves (the water held grows with the depth kept).
+        float low = LeastKeep, high = deepest;
+        if (Held(tops, depths, area, gridBottom, gridTop, low) > budget)
+        {
+            return LeastKeep;
+        }
+
+        for (int k = 0; k < 24; k++)
+        {
+            float middle = 0.5f * (low + high);
+            if (Held(tops, depths, area, gridBottom, gridTop, middle) <= budget)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
+    }
+
+    // The water the grid holds with this much kept of each column's: from its top down so far, within the grid.
+    private static float Held(float[] tops, float[] depths, float area, float gridBottom, float gridTop, float keep)
+    {
+        float held = 0f;
+        for (int i = 0; i < tops.Length; i++)
+        {
+            held += Math.Min(InGrid(tops[i], depths[i], gridBottom, gridTop), keep);
+        }
+
+        return held * area;
+    }
+
+    // How deep a column's water is within the grid (0: none there).
+    private static float InGrid(float top, float depth, float gridBottom, float gridTop) =>
+        depth > 0f ? Math.Max(0f, Math.Min(top, gridTop) - Math.Max(top - depth, gridBottom)) : 0f;
 }

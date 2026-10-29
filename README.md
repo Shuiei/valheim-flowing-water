@@ -115,7 +115,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
 | `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 128; the card's square is this at most then); more costs the card more, by the square, and a wide square of small cells is cut down in height to what the card runs at once (128 m of 0.5 m cells leaves 15.5 m; 96 m, 28 m; 64 m, 48 m) |
 | `Client.VolumeHeight` | 32 | Height of the volume water's grid, metres (8 to 64), about you with seven tenths of it above you: water above or below it is the server's, and comes into the grid as it falls in (cut to what the card runs at once: 31.75 m for a 32 m square of 0.25 m cells) |
-| `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³) |
+| `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³); where the water round you would take more than three quarters of them, only the top metres of deep water move (at least 1 m), the rest staying the server's |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
 | `Client.ParticleCapacity` | 65536 | Particles of the particle water at most (4096 to 262144): no more water is made near you once they are all in use, until some goes; more costs the card more. Takes effect when the water near you is made again |
 | `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
@@ -328,7 +328,13 @@ in once when the square is made (where the server has water, from the ground to 
 two metres wide along the square's edge (water coming in from beyond), and water leaving the square's sides, bottom
 or top is the server's again. Where the server has water beyond a side, that side holds the square's water in, as a
 wall does, so a lake the square cuts stays level at its edge (the band along it takes the server's water as it
-changes); where the world beyond is dry, the side is open and the water goes out. A placed source is an inflow in the grid: a lens centred on the ground, as wide as its
+changes); where the world beyond is dry, the side is open and the water goes out. Deep water would fill the particles'
+room (a lake filling the square at 3 m is 3,000 m³, a million particles hold 2,000), and a full volume takes nothing
+more from a source or a fall: where the server's water in the grid would take more than three quarters of the room,
+the volume moves only the top of deep water, as deep as fits and at least a metre (`VolumeFollow.DeepKeep`, from the
+server's columns, held unless what fits moves a quarter metre), and under that depth the server's water is its floor
+(the ground the solver and the particles see, `GroundAt` in the compute shader). A player does not dive, so the camera
+never sees under it. A placed source is an inflow in the grid: a lens centred on the ground, as wide as its
 rate needs (0.8 m round for the default 2 m³/s, 1.8 m for 10, 5.6 m for 100) and half a metre high at most, its
 cells kept full of particles going out of it, its water rising over it at about a metre a second (a big spring boils
 up over a wide patch; it neither shoots a jet into the sky nor stands on the ground as a ball of water), scaled each

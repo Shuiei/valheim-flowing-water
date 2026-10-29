@@ -113,6 +113,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     private static readonly int FrothAliveId = Shader.PropertyToID("_FrothAlive");
     private static readonly int FrothCapacityId = Shader.PropertyToID("_FrothCapacity");
     private static readonly int FrothRateId = Shader.PropertyToID("_FrothRate");
+
+    private static readonly int DeepKeepId = Shader.PropertyToID("_DeepKeep");
     private static readonly int FrothCountId = Shader.PropertyToID("_FrothCount");
     private static readonly int FrothCountInId = Shader.PropertyToID("_FrothCountIn");
     private static readonly int FineCountId = Shader.PropertyToID("_FineCount");
@@ -417,6 +419,13 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
     /// that carry no water, drawn over it.
     /// </summary>
     public float FrothRate { get; set; } = 1f;
+
+    /// <summary>
+    /// Metres of the server's deep water the volume moves (<see cref="VolumeFollow.DeepKeep"/>): where the server's water
+    /// is deeper, its water under so many metres from its top is the volume's floor, the server's to hold (a lake in the
+    /// square would take every particle). 0: no such floor.
+    /// </summary>
+    public float DeepKeep { get; set; }
 
     /// <summary>The froth as drawn: its own buffer, arguments and material (none to draw without the froth material).</summary>
     public Cloud Froth { get; }
@@ -814,6 +823,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetInt(SeedId, (int)_seedCounter);
         _shader.SetInt(FrothCapacityId, FrothCapacity);
         _shader.SetFloat(FrothRateId, Froth.Material != null ? Math.Max(0f, FrothRate) : 0f);
+        _shader.SetFloat(DeepKeepId, Math.Max(0f, DeepKeep));
         _shader.SetInt(BedCellsId, BedCells);
         _shader.SetFloat(BedDxId, BedDx);
         _shader.SetVector(BedOriginId, BedOrigin);
@@ -845,6 +855,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         foreach (int kernel in new[] { _clearCells, _clearFaces, _gather, _relax, _project, _move, _emit, _seed, _frothMove })
         {
             _shader.SetTexture(kernel, BedId, Bed);
+            // (The ground reads the server's water too: under deep water its floor is the server's.)
+            _shader.SetTexture(kernel, TargetId, _target ?? _noTarget);
             _shader.SetTexture(kernel, SolidsId, _solids ?? _noSolids);
             _shader.SetBuffer(kernel, BodiesId, _bodies);
         }
@@ -1078,6 +1090,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _shader.SetBuffer(_fineWrite, WgtInId, _wgt);
         _shader.SetTexture(_fineWrite, SheetId, Sheet);
         _shader.SetTexture(_fineWrite, BedId, Bed);
+        _shader.SetTexture(_fineWrite, TargetId, _target ?? _noTarget);
         _shader.Dispatch(_fineWrite, groups, 1, 1);
     }
 
