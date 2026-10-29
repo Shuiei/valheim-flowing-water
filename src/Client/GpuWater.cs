@@ -1070,7 +1070,29 @@ internal sealed class GpuWater : IDisposable
             }
         }
 
-        _cast.Start(row, rows, (x, z) => from[((z / perVoxel) * columns) + (x / perVoxel)], new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize), _window.CellSize);
+        var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        float cell = _window.CellSize;
+        float[] found = _ground;
+        int cells = _window.Cells;
+        _cast.Start(row, rows, (x, z) => OverTerrain(from[((z / perVoxel) * columns) + (x / perVoxel)], found[(z * cells) + x], corner.x + ((x + 0.5f) * cell), corner.y + ((z + 0.5f) * cell)), corner, cell);
+    }
+
+    // A ray's start (NaN: not cast) no lower than just over the terrain as this game sees it at x, z: the server's water
+    // gives the height, and where its ground is not the game's (a terrain edit it has not read) that water lies inside
+    // the hill, the ray would start in the ground, meet nothing and make the column a wall, with any water in it held
+    // there. The terrain has no overhang, so a ray from over it still finds every floor and roof under its start. The
+    // terrain is asked for (a raycast of its own, on this thread) only where it can matter: a cell whose ground is not
+    // found yet (none cast, or its last ray met nothing), or a start under the ground its last ray found (which was
+    // over the terrain, or on it).
+    private static float OverTerrain(float from, float lastFound, float x, float z)
+    {
+        bool known = !float.IsNaN(lastFound) && lastFound < BedCast.Wall;
+        if (float.IsNaN(from) || (known && from >= lastFound) || ZoneSystem.instance == null || !ZoneSystem.instance.GetGroundHeight(new Vector3(x, from, z), out float terrain))
+        {
+            return from;
+        }
+
+        return Math.Max(from, terrain + SimColumns.CastOverWater);
     }
 
     // The grid of a square: a point at each cell's centre, its place in cells as its first uv; bounds as high as any
