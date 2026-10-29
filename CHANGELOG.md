@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.4 — 2026-10-29
+
+### Fixed
+- The volume water's pool round a fall's foot no longer shows dark blotches: the spray and splashes over it were
+  counted into the surface under them, standing it up in patches whose sides showed dark on the water.
+
 ## v0.44.3 — 2026-10-29
 
 ### Fixed

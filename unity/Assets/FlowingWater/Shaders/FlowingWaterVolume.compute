@@ -268,6 +268,8 @@ float _FrothRate;
 RWStructuredBuffer<int> _FrothCount;
 StructuredBuffer<int> _FrothCountIn;
 #define FROTH_FULL 6
+// A cell this share of full or less is thin water to the sheet on the ground: two in a row end a column's water.
+#define SHEET_THIN 0.25
 // A powerful source foams: from BOIL_FROM m3/s its lens's top lets bubbles go, all it will from BOIL_FULL, BOIL_FOAM a
 // second from each of its top cells at the most (at FrothRate 1).
 #define BOIL_FROM 5.0
@@ -1815,8 +1817,8 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
     // two of it, nearer counting more (its own count steps by a particle, 3 cm at the default, and the ground it stands
     // on is a crease at each cell, both of which the light would show as lines on the water; a real surface lies smooth
     // over them); and its depth, the same mean of the depths with a dry column counting as none, so the depth thins to
-    // nothing toward dry ground. The particles counted are those from the ground's cell up to the first two cells with
-    // none (water above such a gap is a fall or a splash, not the column's; one empty cell is a pocket in the water). Ground too steep for a
+    // nothing toward dry ground. The particles counted are those from the ground's cell up to where it thins out: two
+    // cells in a row a quarter full or less (one alone is a pocket in the water). Ground too steep for a
     // sheet (a wall, a trunk in the ground's heights: a rise over run past 2, none past 3; a 46° face keeps its whole
     // sheet) holds less of one.
     if (i < (uint)(_Nx * _Nz))
@@ -1845,12 +1847,19 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
                 float particles = 0.0;
                 for (int j = start; j < _Ny; j++)
                 {
-                    int count = _CountIn[CellIndex(int3(o.x, j, o.y))];
-                    // A gap of two empty cells ends the column (water over it is a fall or a splash); one alone is a
-                    // pocket in a sloshing pool, whose water goes on over it (cut there, the column's top dropped a
-                    // cell or two under the surface, seen as dark dashes on the pool).
-                    bool next = j + 1 < _Ny && _CountIn[CellIndex(int3(o.x, j + 1, o.y))] > 0;
-                    if (count == 0 && j > start && !next)
+                    // The column ends where it thins out: at two cells in a row a quarter full or less over its bottom
+                    // one (a solid one among them), the water over them none of its own. Spray and a splash over a pool
+                    // are a particle or two a cell: counted on up to a gap of two empty cells, as they were, they stood
+                    // the sheet up in patches round a fall's foot, their sides dark steps on the pool. One thin cell
+                    // alone is a pocket in a sloshing pool, or the grain's dip inside one (the counts vary from cell to
+                    // cell), whose water goes on over it: cut there, the column's top dropped a cell or two under the
+                    // surface, dark dashes.
+                    uint at = CellIndex(int3(o.x, j, o.y));
+                    uint over = CellIndex(int3(o.x, min(j + 1, _Ny - 1), o.y));
+                    int count = _CountIn[at];
+                    bool thin = count <= SHEET_THIN * REST * _FracIn[at];
+                    bool thinOver = j + 1 >= _Ny || _CountIn[over] <= SHEET_THIN * REST * _FracIn[over];
+                    if (thin && thinOver && j > start)
                     {
                         break;
                     }

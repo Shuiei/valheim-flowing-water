@@ -408,8 +408,8 @@ stretched thinner as it speeds up), so there the density is counted against its 
 where it reaches half of what the cell holds, from two or three particles a cell (a lone drop or two is spray, left
 as thin as it is: boosted, a spray of drops would draw as a solid column); the water seen
 through stays its true thickness, so a fall's sheet is a thin veil. Each column of cells also keeps the depth of the water standing
-on its ground (the particles from the ground's cell up to the first two cells with none, a fall or a splash over a gap not
-being the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
+on its ground (the particles from the ground's cell up to the first two cells in a row a quarter full or less: spray
+and a splash over a pool, a particle or two a cell, are not the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
 ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall; the ray counts
 everything between the ground and that top as water, where the top stands over the ground (a rock standing out of
 the water is dry, the water running round it),
