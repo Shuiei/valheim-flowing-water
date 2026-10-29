@@ -333,9 +333,12 @@ public static class VolumePreview
 
         Log.AppendLine(Inv($"Big spring: {rate} m3/s in the middle of a square {span:0} m across, sides open over the server's water {ServerDepth} m deep, {scene.Water.Iterations} pressure sweeps a step; the water's top (m over the ground) at rings 0 to 14 m from the source, each second."));
         float[] data = null;
+        long gave = 0;
         for (int k = 1; k <= 600; k++)
         {
             scene.Step();
+            (float[] scales, uint[] given) = scene.Water.ReadSources();
+            gave += given[0];
             if (k % 60 == 0)
             {
                 data = scene.Water.Read();
@@ -356,7 +359,6 @@ public static class VolumePreview
                     }
                 }
 
-                (float[] scales, uint[] given) = scene.Water.ReadSources();
                 Measure m = Measure.Of(scene.Water, bed);
                 Log.AppendLine(Inv($"  t={k * Frame:0}s {scene.Water.Count * scene.Water.Litre:0} m3, source speed scaled {scales[0]:0.00} ({springs[0].Flow.x * scales[0]:0.0} m/s), gave {given[0]} a step (wants {rate * Frame / scene.Water.Litre:0}), fastest {m.Fastest:0.0} m/s, froth {Froth.Of(scene.Water)}, highest water at the swimmer {overSwimmer:0.00} m: ") + string.Join(" ", rings.Select((h, i) => Inv($"{i * 2}m:{h:0.00}"))));
             }
@@ -387,6 +389,12 @@ public static class VolumePreview
         float held = scene.Water.Count * scene.Water.Litre, server = ServerDepth * span * span;
         bool ok = held <= 1.25f * server;
         Log.AppendLine(Inv($"  After 10 s the square holds {held:0} m3, the server's water there {server:0} m3: within 25 % over it: {Check(ok)}"));
+
+        // The source gave its rate over the run (the water it gave leaves the square at its sides, so what the square
+        // holds says nothing of it: without this, a source giving nothing passed, the server's water meeting the rest).
+        float gaveWater = gave * scene.Water.Litre, wanted = rate * 600 * Frame;
+        bool gives = Mathf.Abs(gaveWater - wanted) <= 0.15f * wanted;
+        Log.AppendLine(Inv($"  Over 10 s the source gave {gaveWater:0} m3 (its rate's {wanted:0}): within 15 %: {Check(gives)}"));
     }
 
     // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
