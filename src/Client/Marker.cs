@@ -39,6 +39,32 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
     /// <summary>Whether it is still in the world (not destroyed, its object known).</summary>
     public bool IsValid => this != null && _nview != null && _nview.IsValid();
 
+    /// <summary>Every placed source still in the world: where it stands (its piece's foot) and its rate (m³/s), into <paramref name="into"/>.</summary>
+    public static void Sources(List<(Vector3 At, float Rate)> into)
+    {
+        into.Clear();
+        foreach (Marker marker in All)
+        {
+            if (marker != null && !marker.IsDrain && marker._nview != null && marker._nview.IsValid())
+            {
+                into.Add((marker.transform.position, marker.Rate));
+            }
+        }
+    }
+
+    /// <summary>Every placed source and drain still in the world: where it stands, its rate (m³/s), whether a drain and a drain's radius, into <paramref name="into"/>.</summary>
+    public static void Markers(List<(Vector3 At, float Rate, bool Drain, float Radius)> into)
+    {
+        into.Clear();
+        foreach (Marker marker in All)
+        {
+            if (marker != null && marker._nview != null && marker._nview.IsValid())
+            {
+                into.Add((marker.transform.position, marker.Rate, marker.IsDrain, marker.IsDrain ? marker.Radius : 0f));
+            }
+        }
+    }
+
     public static Marker Nearest(Vector3 point, float within)
     {
         Marker best = null;

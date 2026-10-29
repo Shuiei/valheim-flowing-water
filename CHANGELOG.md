@@ -2,12 +2,95 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.42.0 — 2026-10-27
+
+### Fixed
+- The volume water runs down slopes as water does. The solver saw the ground as a stair of whole cells, so a slope
+  was a run of terraces the water sat on and spilled over, in squared pools; now each cell and each face of the
+  grid knows how much of it is clear of the ground, and the pressure follows the real slope. Water let go at the
+  top of a ramp runs down it as a sheet and gathers on the floor below, and nothing is pushed into the ground. Thin
+  water on the ground is also drawn as one smooth skin from the ground to its top, instead of blobs and ridges the
+  size of the grid's cells, and the whole surface is smoothed across the screen before it is lit, so the particles'
+  grain no longer shows as lumps on a pool or a stream. Running water carries ripples that move with it at its own
+  speed, finer the faster it runs; a pool lies still. The volume's grid is 32 m tall now with more of it above you
+  than below, and water falling from above the grid comes into it instead of staying the far water's: a stream down a
+  tall hill is the volume's wherever you stand on it. The square and the grid follow you, not the camera, so a free
+  camera or a far look does not drag the water away; and `Client.VolumeRange` goes up to 128 m now and `Client.VolumeHeight` to 64 m, the grid cut in
+  height to what the card runs at once. Rocks and banks standing out of thin water stay dry, with the water running
+  round them, and a thin film of water on the ground shows the ground, not the sky. A fall is one thin veil of
+  water from its lip to its pool, not a sheet full of holes, and runs white as it speeds up; foam lies on the water
+  as a lace that flows with it and closes where the churn is, instead of specks; spray is small bright droplets
+  and a fine mist that hangs and fades, not balls of fluff; and a smooth sheet running down a slope throws little
+  spray. A big spring wells up over a patch as wide as its rate needs instead of shooting a jet high into the sky;
+  and the water no longer mirrors the ground about you where you see a surface from below. Water no longer hangs
+  frozen in the air as a sheet or a ceiling where the server's idea of the ground differs from the game's (after
+  some terrain edits), and a spray of drops no longer draws as a solid column of water. Where a stream runs past
+  the top or bottom of the volume's grid it blends into the far water instead of ending in a line across it.
+  What players built stays solid to the volume water over its grid's whole height, the grid cut to what that
+  covers, and a lone far drop no longer shows as a black or white speck.
+
+## v0.41.0 — 2026-10-27
+
+### Changed
+- The volume water has a look of its own. It is drawn from its true shape: a surface found through its density,
+  the water seen through each pixel measured, so deep water is dark and thin water clear, a fall's sheet thin, with
+  no halo beyond the water's edge and no whitewash over a fast stream; foam lies where the froth gathers (a fall's
+  foot, a boil, a front); the water fades into the far water at the square's edge instead of ending in a seam; and
+  with your head under it, you see the scene through the water, tinted and dimmed by the water between.
+
+## v0.40.0 — 2026-10-27
+
+### Added
+- The volume water throws spray, foam and bubbles where it is violent: at a fall's foot, where a jet meets a pool,
+  where fast water strikes a wall or the ground, along a fast front. They are particles of their own that carry no
+  water, made from the water's violence (the air it traps, its crests, its impacts) and moved by what they are: spray
+  falls and the finest of it hangs as a thin mist that spreads and fades, foam rides the water's surface, bubbles rise
+  through it to foam. Drawn over the water as soft white specks and drops, lit as the sea's foam. The new
+  `Client.VolumeFroth` setting scales how much there is (0 for none).
+
+## v0.39.0 — 2026-10-26
+
+### Added
+- The water near you as one body of fluid on your graphics card, a prototype behind the new `Client.VolumeWater`
+  setting (off unless you turn it on; it replaces the sheet and `Client.ParticleWater` near you): a 3D fluid on a grid
+  round you, its mass its own. It is poured in from the server's water once and at the square's edge, and from then
+  on it moves as water moves: it pools and levels, a box of walls holds it and it bursts out where a wall is broken,
+  it falls off a ledge and pools below, flows round rocks and what you build, and placed sources pour into it and
+  drains take from it at their rate, nothing made or lost in between; a lake the square cuts stays level at its edge,
+  held by the water beyond. `Client.VolumeRange`, `Client.VolumeHeight` and
+  `Client.VolumeCapacity` size it. Drawn as the particle water is for now; its own look, and spray and foam where it
+  is thrown, come next.
+
+## v0.38.2 — 2026-10-28
+
+### Fixed
+- The server knows the ground as your game shows it near the world's locations: their levelled and smoothed yards are
+  now part of the ground the water runs on, and terrain edits made there (with the hoe or a world editor) land where
+  you see them. The water no longer lies inside a hill or hangs over a hollow there, and you swim where it shows.
+
+## v0.38.1 — 2026-10-27
+
+### Fixed
+- Water near you no longer stands frozen as a wall or a sheet in the air where the server's idea of the ground differs
+  from your game's (after some terrain edits): the ground under it is found from over the terrain you see.
+
 ## v0.38.0 — 2026-10-26
 
 ### Added
 - `flowingwater wipe` takes all the mod's water out of the world and removes every placed source and drain in one go
   (the server config's fixed ones stay), for the host and the server's admins only. On a server the request goes to
   the server, which answers on your console with how much water went.
+- A prototype of water as particles on your graphics card, for the water a sheet cannot be: water pouring over a lip,
+  a dam bursting, something pushed through a pool. With the new `Client.ParticleWater` setting (off unless you turn it
+  on), the water near you is particles of water instead of the sheet: made from the server's water and held to it
+  (a pool rises from below as the server fills it and sinks as it drains), moving as water moves (it falls, breaks
+  up, splashes and pools), kept out of the ground and of what you build (a roof holds it off, a floor on posts holds
+  a pool, a wall holds it in), pushed aside by you, by creatures, by ships' hulls, by carts and by things dropped as
+  they move through it, and coming out of a placed source all round it, as fast as its rate pushes it. The sheet and
+  its spray are not drawn near you then. `Client.ParticleSize` picks the particles' size (0.25 m, or 0.5 for a slow
+  graphics card, at an eighth of the count). The console's `flowingwater particles [m³]` pours a block of it over you whatever
+  the setting, drawn as water with the sea's look (foam where it splashes); `clear` takes it away, `spheres` shows
+  the particles themselves.
 
 ## v0.37.0 — 2026-10-26
 

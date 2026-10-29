@@ -77,7 +77,7 @@ Shader "FlowingWater/WaterShell"
             float2 place;   // on the face, world metres
             float2 water;   // foam, shown
             float2 current; // along the face, m/s
-            float2 inside;  // world x, z a little inside the water the face is the side of
+            float3 inside;  // a world place a little inside the water the face is the side of
             float3 worldPos;
             float4 screenPos;
             float4 grabPos;
@@ -90,7 +90,7 @@ Shader "FlowingWater/WaterShell"
             o.place = v.texcoord.xy;
             o.water = v.texcoord1.xy;
             o.current = v.texcoord2.xy;
-            o.inside = (mul(unity_ObjectToWorld, v.vertex).xyz - (UnityObjectToWorldNormal(v.normal) * 0.1)).xz;
+            o.inside = mul(unity_ObjectToWorld, v.vertex).xyz - (UnityObjectToWorldNormal(v.normal) * 0.1);
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
 

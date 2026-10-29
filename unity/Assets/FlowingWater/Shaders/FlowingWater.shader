@@ -203,7 +203,7 @@ Shader "FlowingWater/Water"
         void surf(Input i, inout SurfaceOutputStandard o)
         {
             // Where the water moved on the card draws it, the brick does not.
-            if (!Draws(i.cell) || SimDraws(i.worldPos.xz))
+            if (!Draws(i.cell) || SimDraws(i.worldPos))
             {
                 discard;
             }

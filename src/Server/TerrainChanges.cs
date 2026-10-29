@@ -7,20 +7,20 @@ namespace FlowingWater.Server;
 /// The players' terrain changes in a zone, read without the game from the bytes its terrain-changes object keeps
 /// (gzip of the format version, the operation count, the last operation's point and radius, then for each vertex
 /// whether it changed and, if so, its level and smoothing deltas; its paint after, not read), and applied over the
-/// generated heights within the game's limit.
+/// zone's ground before them (generated, and shaped by its terrain modifiers) within the game's limit.
 /// </summary>
 internal static class TerrainChanges
 {
-    /// <summary>The game clamps a vertex to this far from its generated height, whatever the tools did.</summary>
+    /// <summary>The game clamps a vertex to this far from its height before the changes, whatever the tools did.</summary>
     public const float MaxChange = 8f;
 
     /// <summary>
-    /// The heights the changes make over the generated ones. Changes that cannot be read leave the whole zone as
-    /// generated; a change that is not a number leaves its vertex as generated (it would make the water's solids none
-    /// too, and the water with them).
+    /// The heights the changes make over the ground before them. Changes that cannot be read leave the whole zone as
+    /// it was; a change that is not a number leaves its vertex as it was (it would make the water's solids none too,
+    /// and the water with them).
     /// </summary>
     /// <param name="data">The changes, as the game keeps them.</param>
-    /// <param name="generated">The generated heights.</param>
+    /// <param name="generated">The heights before the changes (generated, and shaped by the zone's terrain modifiers).</param>
     /// <param name="heights">Set to the heights with the changes, as many as <paramref name="generated"/>.</param>
     /// <returns>What was wrong with the changes, for the log; null when there was nothing.</returns>
     public static string Apply(byte[] data, float[] generated, float[] heights)

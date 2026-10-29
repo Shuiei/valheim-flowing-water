@@ -1,0 +1,1803 @@
+// FlowingWater's volume water: the water near the camera as one body of fluid on the graphics card, moved as water
+// moves, its mass conserved, authoritative for how it moves (the server keeps only what persists and what is far).
+// A hybrid of particles and a grid (FLIP, Zhu and Bridson 2005, with APIC's care for the transfers kept simple): the
+// particles carry the water (each a cube of water half a cell on a side: eight to a cell at rest) and move with it;
+// each step their velocity is put on a staggered grid (a MAC grid, the velocity through each cell face), gravity is
+// added, and a pressure is solved over the cells that hold water so that no water is made or lost in any cell (the
+// divergence is driven to zero, with a little correction for cells with more or fewer particles than rest, which
+// keeps the volume from drifting); the corrected grid velocity goes back to the particles (mostly as the change, so
+// the particles' own motion is kept: FLIP; a little as the grid's own, so it stays stable: PIC), which are moved
+// along it and kept out of the ground, what is built and the bodies in the water. Cells under the ground (the card's
+// water's heights), in a built voxel (ParticleSolids) or in a body are solid: the water goes round them, pools over
+// them, is held in by them, and breaks out where one is gone.
+// A step:
+//   ClearCells     each cell air, or solid where it is wholly under the ground or a voxel or a body is; how much of
+//                  each cell is clear of the ground (a cell of a slope is part ground, part water: a cut cell); no
+//                  particles counted, no pressure,
+//   ClearFaces     every face's sums empty, and how much of each face is clear of the ground (its area to the flow:
+//                  a face part in the ground passes that much less; the pressure sees the slope, not a stair of
+//                  cells),
+//   Scatter        each particle's velocity onto the faces round it (a trilinear share each, summed in fixed point),
+//                  counted into its cell, which holds water then,
+//   Gather         each face's velocity from its sums; gravity; a solid face still, a source's face at its speed
+//                  (scaled by Regulate),
+//   Collect        the cells with water, in a list (the pressure is solved over them only),
+//   Arguments      how many groups work through the list,
+//   Divergence     each cell's net outflow, less the drift correction,
+//   Relax          the pressure, one sweep of Gauss-Seidel over the cells of one colour (red, then black: so many
+//                  sweeps),
+//   Project        the faces' velocity less the pressure's slope across them,
+//   Extend         the velocity carried a face out into the air, twice, so a particle at the surface reads it,
+//   Move           each particle's velocity from the grid (FLIP with a little PIC), moved along the grid's velocity
+//                  (two half steps), kept out of what is solid, let go out of the square's sides (the water beyond
+//                  is the server's), taken by a drain within its reach,
+//   Emit           a source's cells filled with particles going out of it as fast as its rate pushes them,
+//   Regulate       each source's speed scaled by what it gave against its rate (its cells, cut to the grid and some
+//                  against the ground, give less than its sphere would),
+//   Compact        the particles still there, into the other buffer,
+//   Settle         how many, and the drawing's arguments.
+// Once, or for the edge band each frame: Seed, the server's water poured as particles where the cells hold none.
+// For the drawing (FlowingWaterVolumeMarch.shader), after each frame's steps: FineClear, FineSplat and FineWrite put
+// the water's density on a grid of half-cells (a particle's size), each particle shared over the eight nearest, as a
+// texture the drawing samples smoothly and marches through for the water's surface and thickness; with it the cells
+// that hold water or stand next to some (the march skips the rest) and the froth in each cell (foam on the surface).
+// The froth (Ihmsen, Akinci, Akinci and Teschner 2012, over the grid): where the water is violent, Move makes froth
+// particles, the water's spray, foam and bubbles, which carry no water and are drawn as what they are (small, white)
+// over the water; they are moved by FrothMove by their kind each step (spray falls and drifts, foam rides the surface,
+// bubbles rise), then compacted and counted as the water's particles are (Compact and Settle, bound to theirs).
+#pragma kernel ClearCells
+#pragma kernel ClearFaces
+#pragma kernel Scatter
+#pragma kernel Gather
+#pragma kernel Collect
+#pragma kernel Arguments
+#pragma kernel Divergence
+#pragma kernel Relax
+#pragma kernel Project
+#pragma kernel Extend
+#pragma kernel Move
+#pragma kernel Emit
+#pragma kernel Regulate
+#pragma kernel Compact
+#pragma kernel Settle
+#pragma kernel Seed
+#pragma kernel FrothClear
+#pragma kernel FrothMove
+#pragma kernel FineClear
+#pragma kernel FineSplat
+#pragma kernel FineSmooth
+#pragma kernel FineWrite
+
+#define THREADS 256
+#define AIR 0
+#define FLUID 1
+#define SOLID 2
+// A source's cell: water comes out of it at the source's speed (an inflow, as a moving wall is to the pressure).
+#define EMIT 3
+#define GONE 0xFFFFFFFFu
+// Fixed point for the faces' sums: a thousandth of a millimetre a second over sixty-four particles' shares.
+#define FIX 65536.0
+// Particles a cell holds at rest (two a side).
+#define REST 8
+#define PER_SIDE 2
+#define MOST_SOURCES 16
+#define MOST_BODIES 32
+
+struct Particle
+{
+    // The place; w: GONE once let go.
+    float4 place;
+    // xyz: unused (the drawing's layout); w: the share of the particle that is spray (in the air, few about it).
+    // A froth particle: x its life left (s), y the life it was born with, z its own random number (its size), w its
+    // kind (SPRAY, FOAM or BUBBLE, as FrothMove last found it).
+    float4 predicted;
+    // The velocity; w: the particles in its cell, as a share of rest (the drawing's density).
+    float4 velocity;
+};
+
+// A froth particle's kinds: in the air, on the water's surface, under it.
+#define SPRAY 0.0
+#define FOAM 1.0
+#define BUBBLE 2.0
+// Cells with this many particles or more hold water to the froth.
+#define WET 2
+
+// A water source or drain (ParticleWater.Spout's layout kept: ring = centre and reach, flow = speed, rate, drain).
+struct Spring
+{
+    float4 ring;
+    float4 flow;
+};
+
+// A box in the water (ParticleWater.Body's layout), or a sphere.
+struct Body
+{
+    float4 centre;
+    float4 half;
+    float4 axisX;
+    float4 axisY;
+};
+
+// The game's graphics (Direct3D 12 under Unity) lets a kernel write eight buffers at most: each kernel binds what it
+// writes as RW and what it only reads under an ...In name (the same buffer, read-only), and the faces' fields hold
+// their three axes in one buffer each, one after the other.
+RWStructuredBuffer<Particle> _Particles;
+StructuredBuffer<Particle> _ParticlesIn;
+RWStructuredBuffer<Particle> _Sorted;
+// [0] particles there; [1] the compaction's slot counter; [2] the seed's and emitters' spawn counter.
+RWStructuredBuffer<uint> _Alive;
+StructuredBuffer<uint> _AliveIn;
+RWStructuredBuffer<uint> _Args;
+uint _Capacity;
+
+// The grid: _Nx by _Ny by _Nz cells of _H metres, from the world point _Origin (its lowest, south-west corner).
+int _Nx;
+int _Ny;
+int _Nz;
+float _H;
+float3 _Origin;
+float _Dt;
+float _Gravity;
+float _Flip;
+float _MaxSpeed;
+// A drift correction: this share of a cell's excess or lack of particles is mended by the pressure each step.
+float _Drift;
+// Whether water may leave through the square's sides (the world beyond is the server's) or they are walls.
+int _OpenSides;
+uint _Seed;
+int _Parity;
+
+// Cells.
+RWStructuredBuffer<int> _Type;
+StructuredBuffer<int> _TypeIn;
+// How much of each cell is clear of the ground (0 buried, 1 clear), and of each face (its area to the flow; 0 held).
+RWStructuredBuffer<float> _Frac;
+StructuredBuffer<float> _FracIn;
+RWStructuredBuffer<float> _Area;
+StructuredBuffer<float> _AreaIn;
+// A cell clear of the ground by less than this share holds no water of its own (too thin a sliver to count).
+#define LEAST_CLEAR 0.05
+RWStructuredBuffer<int> _Count;
+StructuredBuffer<int> _CountIn;
+RWStructuredBuffer<float> _Div;
+StructuredBuffer<float> _DivIn;
+RWStructuredBuffer<float> _P;
+StructuredBuffer<float> _PIn;
+AppendStructuredBuffer<uint> _ActiveOut;
+StructuredBuffer<uint> _Active;
+RWStructuredBuffer<uint> _ActiveArgs;
+StructuredBuffer<uint> _ActiveArgsIn;
+// Faces: the x, y and z faces' values one after the other, each set (_Nx + 1) by (_Ny + 1) by (_Nz + 1) (FaceAt).
+RWStructuredBuffer<int> _Mom;
+StructuredBuffer<int> _MomIn;
+RWStructuredBuffer<int> _Wgt;
+StructuredBuffer<int> _WgtIn;
+RWStructuredBuffer<float> _Vel;
+StructuredBuffer<float> _VelIn;
+RWStructuredBuffer<float> _Vel0;
+StructuredBuffer<float> _Vel0In;
+RWStructuredBuffer<int> _Mask;
+RWStructuredBuffer<int> _Mask2;
+
+// The ground: the card's water's heights (SimGrid.Bed), _BedCells a side of _BedDx metres from _BedOrigin (world x, z).
+Texture2D<float> _Bed;
+int _BedCells;
+float _BedDx;
+float2 _BedOrigin;
+
+// What is built (ParticleSolids): a byte a voxel, _SolidColumns a side of _VoxelSize metres from _SolidOrigin (world
+// x, z), _SolidRows up from world height _SolidY0; the top bit is a solid voxel, the low six the voxel's faces a piece
+// thinner than a voxel closes (east, west, up, down, north, south).
+#define SOLID_BIT 128u
+#define CLOSED_EAST 1u
+#define CLOSED_WEST 2u
+#define CLOSED_UP 4u
+#define CLOSED_DOWN 8u
+#define CLOSED_NORTH 16u
+#define CLOSED_SOUTH 32u
+int _SolidsOn;
+Texture3D<float> _Solids;
+int _SolidColumns;
+int _SolidRows;
+float _VoxelSize;
+float2 _SolidOrigin;
+float _SolidY0;
+
+StructuredBuffer<Body> _Bodies;
+uint _BodyCount;
+StructuredBuffer<Spring> _Springs;
+uint _SpringCount;
+// What each drain has taken this step (particles), and may at most.
+RWStructuredBuffer<uint> _Taken;
+// What each source gave this step (particles), and the scale of its speed, kept from step to step (Regulate).
+RWStructuredBuffer<uint> _Given;
+StructuredBuffer<uint> _GivenIn;
+RWStructuredBuffer<float> _Scale;
+StructuredBuffer<float> _ScaleIn;
+#define MOST_SCALE 2.0
+
+// The server's water (SimGrid.Target): a texel a voxel column of the card's square, _PerVoxel cells of the bed's to
+// its side, from the bed's origin: the water's resting top (x), whether the card draws it (y), its depth (z).
+Texture2D<float4> _Target;
+int _PerVoxel;
+// Seeding: cells within this many cells of the square's sides only (0: all), and the share of a short column's lack
+// made this call.
+int _SeedBand;
+float _SeedShare;
+#define DRY_TOP -1000.0
+
+// Where a block of still water is poured (the console, the preview): from _PourMin to _PourMax (world), on Seed with
+// _PourOn.
+int _PourOn;
+float3 _PourMin;
+float3 _PourMax;
+
+// The drawing's density: the particles' shares on the half-cells (fixed point, FINE_FIX a whole particle), and the
+// textures written from them and from the cells' counts.
+RWStructuredBuffer<uint> _FineCount;
+StructuredBuffer<uint> _FineCountIn;
+// The water standing on the ground in each column of cells (a texel a column): x its top (height over the grid's
+// bottom), the mean of the wet columns' tops about it (a dry column takes its wet neighbours', so the top blends
+// between texels without a dry one's nothing pulling it down); y its depth (m, 0 dry), smoothed over the columns about
+// so it thins to nothing toward dry ground. Water too sparse for the density to make a surface of (a sheet a particle
+// or two thick) is drawn from this, between the ground and that top, where the top stands over the ground (a rock
+// standing out of the water is dry), and the density's own surface is held to it where the two meet.
+RWTexture2D<float2> _Sheet;
+// Which way FineSmooth smooths (0 x, 1 y, 2 z), reading _FineCountIn and writing _FineCount.
+int _Axis;
+RWTexture3D<float> _Fine;
+RWTexture3D<float> _Coarse;
+RWTexture3D<float> _Foam;
+// Each cell's velocity (m/s, the mean of its faces'), for the drawing's ripples, which run with the water.
+RWTexture3D<float4> _Flow;
+#define FINE_FIX 256.0
+
+// The froth: its particles (the Particle layout, its meanings above), their counters as the water's ([0] there, [1]
+// the compaction's, [2] the spawn's), their room, and how much froth the water's violence makes (0: none).
+RWStructuredBuffer<Particle> _Froth;
+RWStructuredBuffer<uint> _FrothAlive;
+uint _FrothCapacity;
+float _FrothRate;
+// Froth particles in each cell, as FrothMove last counted them (a step behind for Move): a cell with FROTH_FULL or
+// more takes no more (froth covers water, it does not pile up).
+RWStructuredBuffer<int> _FrothCount;
+StructuredBuffer<int> _FrothCountIn;
+#define FROTH_FULL 6
+// Water slower than this (m/s) makes no froth; its drops' drag (1/s) at the least and the most (a fine mist hangs, a
+// drop falls); a bubble's rise (m/s²).
+#define FROTH_SLOW 1.5
+#define DRAG_LEAST 0.8
+#define DRAG_MOST 10.0
+#define BUOYANCY 4.0
+// A froth particle whose own number is this or more is mist (fine drops that hang in the air), under it a droplet.
+#define MIST_FROM 0.55
+
+float Random(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return word / 4294967296.0;
+}
+
+uint Alive()
+{
+    return min(_Alive[0], _Capacity);
+}
+
+uint AliveIn()
+{
+    return min(_AliveIn[0], _Capacity);
+}
+
+bool Gone(Particle p)
+{
+    return asuint(p.place.w) == GONE;
+}
+
+int CellIndex(int3 c)
+{
+    return ((c.z * _Ny) + c.y) * _Nx + c.x;
+}
+
+bool InGrid(int3 c)
+{
+    return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < _Nx && c.y < _Ny && c.z < _Nz;
+}
+
+int FaceIndex(int3 f)
+{
+    return ((f.z * (_Ny + 1)) + f.y) * (_Nx + 1) + f.x;
+}
+
+int FaceCount()
+{
+    return (_Nx + 1) * (_Ny + 1) * (_Nz + 1);
+}
+
+// A face's place in a field: its axis's set, then its index.
+int FaceAt(int3 f, int axis)
+{
+    return (axis * FaceCount()) + FaceIndex(f);
+}
+
+bool InFaces(int3 f)
+{
+    return f.x >= 0 && f.y >= 0 && f.z >= 0 && f.x <= _Nx && f.y <= _Ny && f.z <= _Nz;
+}
+
+int3 CellOf(float3 place)
+{
+    return (int3)floor((place - _Origin) / _H);
+}
+
+float3 CentreOf(int3 c)
+{
+    return _Origin + ((float3(c) + 0.5) * _H);
+}
+
+// The ground's height under a world point, between the bed's cells' centres (a slope is smooth), unless the cells
+// round it step by more than STEP_UP (a wall, a cliff: then the cell's own, so the wall's height is not lent as a
+// ramp to the floor beside it).
+#define STEP_UP 1.0
+float GroundAt(float2 xz)
+{
+    float2 at = ((xz - _BedOrigin) / _BedDx) - 0.5;
+    int2 c = (int2)floor(at);
+    float2 f = at - c;
+    int2 c00 = clamp(c, 0, _BedCells - 1), c11 = clamp(c + 1, 0, _BedCells - 1);
+    float b00 = _Bed[c00], b10 = _Bed[int2(c11.x, c00.y)], b01 = _Bed[int2(c00.x, c11.y)], b11 = _Bed[c11];
+    float lowest = min(min(b00, b10), min(b01, b11)), highest = max(max(b00, b10), max(b01, b11));
+    if (highest - lowest > STEP_UP)
+    {
+        return _Bed[clamp((int2)floor((xz - _BedOrigin) / _BedDx), 0, _BedCells - 1)];
+    }
+
+    return lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+}
+
+// How much of a cell is clear of the ground, 0 to 1: the ground under four points of its footprint against its top.
+float ClearShare(int3 c)
+{
+    float3 centre = CentreOf(c);
+    float top = centre.y + (0.5 * _H);
+    float q = 0.25 * _H;
+    float share = 0.0;
+    share += saturate((top - GroundAt(centre.xz + float2(-q, -q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(q, -q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(-q, q))) / _H);
+    share += saturate((top - GroundAt(centre.xz + float2(q, q))) / _H);
+    return 0.25 * share;
+}
+
+// How much of a face is clear of the ground, 0 to 1: an upright face by the ground under two points along it against
+// its top; a level face (axis 1) by how many of four points of it stand over the ground.
+float FaceClear(int3 f, int axis)
+{
+    float3 corner = _Origin + (float3(f) * _H);
+    float q = 0.25 * _H;
+    if (axis == 1)
+    {
+        float over = 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(q, q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(3.0 * q, q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(q, 3.0 * q)) ? 1.0 : 0.0;
+        over += corner.y > GroundAt(corner.xz + float2(3.0 * q, 3.0 * q)) ? 1.0 : 0.0;
+        return 0.25 * over;
+    }
+
+    float top = corner.y + _H;
+    float2 a = axis == 0 ? corner.xz + float2(0.0, q) : corner.xz + float2(q, 0.0);
+    float2 b = axis == 0 ? corner.xz + float2(0.0, 3.0 * q) : corner.xz + float2(3.0 * q, 0.0);
+    return 0.5 * (saturate((top - GroundAt(a)) / _H) + saturate((top - GroundAt(b)) / _H));
+}
+
+// The voxel a world point is in, in the built voxels' own coordinates.
+int3 VoxelOf(float3 place)
+{
+    return (int3)floor(float3(place.x - _SolidOrigin.x, place.y - _SolidY0, place.z - _SolidOrigin.y) / _VoxelSize);
+}
+
+// A voxel's byte: its solid bit and closed faces (0 out of the built voxels).
+uint Built(int3 v)
+{
+    if (_SolidsOn == 0 || v.x < 0 || v.z < 0 || v.x >= _SolidColumns || v.z >= _SolidColumns || v.y < 0 || v.y >= _SolidRows)
+    {
+        return 0u;
+    }
+
+    return (uint)round(_Solids[v] * 255.0);
+}
+
+bool BuiltAt(float3 place)
+{
+    return (Built(VoxelOf(place)) & SOLID_BIT) != 0u;
+}
+
+// Whether a piece thinner than a voxel closes the way from the voxel of one point to the voxel of another along an
+// axis (a face of either voxel between them).
+bool ClosedBetween(float3 from, float3 to, int axis)
+{
+    if (_SolidsOn == 0)
+    {
+        return false;
+    }
+
+    int3 a = VoxelOf(from), b = VoxelOf(to);
+    int fromCell = axis == 0 ? a.x : axis == 1 ? a.y : a.z;
+    int toCell = axis == 0 ? b.x : axis == 1 ? b.y : b.z;
+    if (fromCell == toCell)
+    {
+        return false;
+    }
+
+    bool forward = toCell > fromCell;
+    uint fromBits = Built(a), toBits = Built(b);
+    if (axis == 0)
+    {
+        return forward ? ((fromBits & CLOSED_EAST) | (toBits & CLOSED_WEST)) != 0u : ((fromBits & CLOSED_WEST) | (toBits & CLOSED_EAST)) != 0u;
+    }
+
+    if (axis == 1)
+    {
+        return forward ? ((fromBits & CLOSED_UP) | (toBits & CLOSED_DOWN)) != 0u : ((fromBits & CLOSED_DOWN) | (toBits & CLOSED_UP)) != 0u;
+    }
+
+    return forward ? ((fromBits & CLOSED_NORTH) | (toBits & CLOSED_SOUTH)) != 0u : ((fromBits & CLOSED_SOUTH) | (toBits & CLOSED_NORTH)) != 0u;
+}
+
+// Whether the grid face between two cells (along an axis) is closed by a thin piece.
+bool ClosedFace(int3 a, int3 b, int axis)
+{
+    return ClosedBetween(CentreOf(a), CentreOf(b), axis);
+}
+
+bool InBody(float3 place)
+{
+    for (uint b = 0u; b < _BodyCount; b++)
+    {
+        Body body = _Bodies[b];
+        float3 d = place - body.centre.xyz;
+        if (body.centre.w > 1.5)
+        {
+            if (dot(d, d) < body.half.x * body.half.x)
+            {
+                return true;
+            }
+
+            continue;
+        }
+
+        float3 ax = body.axisX.xyz, ay = body.axisY.xyz, az = cross(ax, ay);
+        float3 local = float3(dot(d, ax), dot(d, ay), dot(d, az));
+        if (all(abs(local) < body.half.xyz))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Whether a world point is in something solid: the ground, a built voxel, a body.
+bool SolidAt(float3 place)
+{
+    return place.y < GroundAt(place.xz) || BuiltAt(place) || InBody(place);
+}
+
+// Where a point stands from a source's centre, its height stretched so the source's lens (as wide as its reach,
+// flow.w high: VolumeWater.Spring) is a sphere of its reach; a source with no height given is a sphere.
+float3 FromSource(Spring spring, float3 place)
+{
+    float3 away = place - spring.ring.xyz;
+    away.y *= spring.flow.w > 0.0 ? spring.ring.w / spring.flow.w : 1.0;
+    return away;
+}
+
+// The source whose lens a point is in, or -1.
+int SourceAt(float3 place)
+{
+    for (uint s = 0u; s < _SpringCount; s++)
+    {
+        Spring spring = _Springs[s];
+        if (spring.flow.z < 0.5 && length(FromSource(spring, place)) < spring.ring.w)
+        {
+            return (int)s;
+        }
+    }
+
+    return -1;
+}
+
+// The velocity a source gives at a point: out of its lens's surface at its speed (up over its top, outward at its
+// rim), scaled as Regulate found it.
+float3 SourceVelocity(int s, float3 place)
+{
+    Spring spring = _Springs[s];
+    float3 away = FromSource(spring, place);
+    float d = length(away);
+    return (d > 1e-4 ? away / d : float3(0.0, 1.0, 0.0)) * spring.flow.x * _ScaleIn[s];
+}
+
+// A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
+// The server's water in the column under a cell (SimGrid.Target's texel: the resting top, whether the sheet draws it,
+// the depth), the nearest column of the square's for a cell beyond its sides. Whether the sheet draws a column is the
+// sheet's affair (the handover clears it along the square's edge and while a column settles): the volume takes the
+// server's water wherever it is.
+float4 ServerAt(int3 c)
+{
+    float3 centre = CentreOf(c);
+    int columns = max(1, _BedCells / max(1, _PerVoxel));
+    int2 column = clamp((int2)floor((centre.xz - _BedOrigin) / (_BedDx * _PerVoxel)), 0, columns - 1);
+    return _Target[column];
+}
+
+// Whether the server has water at a cell's height beyond an open side: it holds the square's water in there, as a
+// wall does (a lake the square cuts stays level at its edge; the band along the side takes the server's water as it
+// changes); dry beyond, the side is air and the water goes out.
+bool WetBeyond(int3 c)
+{
+    float4 server = ServerAt(c);
+    return server.x > DRY_TOP && server.z > 0.0 && CentreOf(c).y < server.x;
+}
+
+int TypeAt(int3 c)
+{
+    if (c.y < 0)
+    {
+        return SOLID;
+    }
+
+    if (c.y >= _Ny)
+    {
+        return AIR;
+    }
+
+    if (c.x < 0 || c.z < 0 || c.x >= _Nx || c.z >= _Nz)
+    {
+        return _OpenSides == 0 || WetBeyond(c) ? SOLID : AIR;
+    }
+
+    return _TypeIn[CellIndex(c)];
+}
+
+float PressureAt(int3 c)
+{
+    return InGrid(c) && _TypeIn[CellIndex(c)] == FLUID ? _PIn[CellIndex(c)] : 0.0;
+}
+
+// A face's velocity, trilinear at a point of the grid's coordinates (the face's own: the point less the face's offset).
+float SampleFace(StructuredBuffer<float> field, float3 g, int axis)
+{
+    g = clamp(g, 0.0, float3(_Nx, _Ny, _Nz));
+    int3 b = clamp((int3)floor(g), 0, int3(_Nx - 1, _Ny - 1, _Nz - 1));
+    float3 f = saturate(g - b);
+    float v = 0.0;
+    for (int k = 0; k < 2; k++)
+    {
+        for (int j = 0; j < 2; j++)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * (k == 0 ? 1.0 - f.z : f.z);
+                v += w * field[FaceAt(b + int3(i, j, k), axis)];
+            }
+        }
+    }
+
+    return v;
+}
+
+float3 Velocity(float3 place)
+{
+    float3 g = (place - _Origin) / _H;
+    return float3(SampleFace(_VelIn, g - float3(0.0, 0.5, 0.5), 0), SampleFace(_VelIn, g - float3(0.5, 0.0, 0.5), 1), SampleFace(_VelIn, g - float3(0.5, 0.5, 0.0), 2));
+}
+
+float3 OldVelocity(float3 place)
+{
+    float3 g = (place - _Origin) / _H;
+    return float3(SampleFace(_Vel0In, g - float3(0.0, 0.5, 0.5), 0), SampleFace(_Vel0In, g - float3(0.5, 0.0, 0.5), 1), SampleFace(_Vel0In, g - float3(0.5, 0.5, 0.0), 2));
+}
+
+// A particle's share of its velocity onto the eight faces round it, and their weights.
+void ScatterFace(float3 g, float value, int axis)
+{
+    g = clamp(g, 0.0, float3(_Nx, _Ny, _Nz));
+    int3 b = clamp((int3)floor(g), 0, int3(_Nx - 1, _Ny - 1, _Nz - 1));
+    float3 f = saturate(g - b);
+    for (int k = 0; k < 2; k++)
+    {
+        for (int j = 0; j < 2; j++)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * (k == 0 ? 1.0 - f.z : f.z);
+                if (w > 1e-5)
+                {
+                    int at = FaceAt(b + int3(i, j, k), axis);
+                    InterlockedAdd(_Mom[at], (int)round(w * value * FIX));
+                    InterlockedAdd(_Wgt[at], (int)round(w * FIX));
+                }
+            }
+        }
+    }
+}
+
+// A particle in something solid put out of it: the ground along its slope (so water on a bank slides down), a built
+// voxel or a body out through the nearest face.
+float3 Unsolid(float3 x, float3 before)
+{
+    float ground = GroundAt(x.xz);
+    if (x.y < ground)
+    {
+        float e = 0.5 * _BedDx;
+        float gx = GroundAt(x.xz + float2(e, 0.0)) - GroundAt(x.xz - float2(e, 0.0));
+        float gz = GroundAt(x.xz + float2(0.0, e)) - GroundAt(x.xz - float2(0.0, e));
+        float3 n = normalize(float3(-gx, 2.0 * e, -gz));
+        float under = ground - x.y;
+        x = n.y < 0.5 ? float3(x.x, ground, x.z) : x + (n * (under * n.y));
+        x.y = max(x.y, GroundAt(x.xz));
+    }
+
+    if (BuiltAt(x))
+    {
+        float3 rel = float3(x.x - _SolidOrigin.x, x.y - _SolidY0, x.z - _SolidOrigin.y);
+        int3 v = (int3)floor(rel / _VoxelSize);
+        float3 lo = float3(v) * _VoxelSize, hi = lo + _VoxelSize;
+        float3 sides[6] = { float3(-1, 0, 0), float3(1, 0, 0), float3(0, -1, 0), float3(0, 1, 0), float3(0, 0, -1), float3(0, 0, 1) };
+        float pushes[6] = { rel.x - lo.x, hi.x - rel.x, rel.y - lo.y, hi.y - rel.y, rel.z - lo.z, hi.z - rel.z };
+        float best = 1e9;
+        float3 to = x;
+        for (int s = 0; s < 6; s++)
+        {
+            float3 candidate = x + (sides[s] * (pushes[s] + (0.01 * _VoxelSize)));
+            if (pushes[s] < best && !BuiltAt(candidate))
+            {
+                best = pushes[s];
+                to = candidate;
+            }
+        }
+
+        x = best < 1e9 ? to : before;
+    }
+
+    for (uint b = 0u; b < _BodyCount; b++)
+    {
+        Body body = _Bodies[b];
+        float3 d = x - body.centre.xyz;
+        if (body.centre.w > 1.5)
+        {
+            float dist = length(d);
+            x = dist < body.half.x ? body.centre.xyz + ((dist > 1e-6 ? d / dist : float3(0.0, 1.0, 0.0)) * body.half.x) : x;
+            continue;
+        }
+
+        float3 ax = body.axisX.xyz, ay = body.axisY.xyz, az = cross(ax, ay);
+        float3 local = float3(dot(d, ax), dot(d, ay), dot(d, az));
+        float3 ext = body.half.xyz;
+        if (all(abs(local) < ext))
+        {
+            float3 pen = ext - abs(local);
+            float3 side = float3(local.x < 0.0 ? -1.0 : 1.0, local.y < 0.0 ? -1.0 : 1.0, local.z < 0.0 ? -1.0 : 1.0);
+            if (pen.x <= pen.y && pen.x <= pen.z)
+            {
+                local.x = side.x * ext.x;
+            }
+            else if (pen.y <= pen.z)
+            {
+                local.y = side.y * ext.y;
+            }
+            else
+            {
+                local.z = side.z * ext.z;
+            }
+
+            x = body.centre.xyz + (ax * local.x) + (ay * local.y) + (az * local.z);
+        }
+    }
+
+    x.y = max(x.y, GroundAt(x.xz));
+    return x;
+}
+
+// A particle made at a place, still or with a velocity; false when there is no room.
+bool Spawn(float3 place, float3 velocity)
+{
+    uint at;
+    InterlockedAdd(_Alive[2], 1u, at);
+    at += _Alive[0];
+    if (at >= _Capacity)
+    {
+        return false;
+    }
+
+    Particle p;
+    p.place = float4(place, 1.0);
+    p.predicted = float4(0.0, 0.0, 0.0, 0.0);
+    p.velocity = float4(velocity, 1.0);
+    _Particles[at] = p;
+    return true;
+}
+
+// A froth particle made at a place with a velocity, to live this long; false when there is no room for it.
+bool SpawnFroth(float3 place, float3 velocity, float life, float own)
+{
+    uint at;
+    InterlockedAdd(_FrothAlive[2], 1u, at);
+    at += _FrothAlive[0];
+    if (at >= _FrothCapacity)
+    {
+        return false;
+    }
+
+    Particle f;
+    f.place = float4(place, 1.0);
+    f.predicted = float4(life, life, own, SPRAY);
+    f.velocity = float4(velocity, 0.0);
+    _Froth[at] = f;
+    return true;
+}
+
+int CountAt(int3 c)
+{
+    return InGrid(c) ? _CountIn[CellIndex(c)] : 0;
+}
+
+// Where a value stands between a least (0) and a most (1): a potential's share.
+float Share(float value, float least, float most)
+{
+    return saturate((value - least) / (most - least));
+}
+
+float3 RandomDirection(inout uint state)
+{
+    float z = (2.0 * Random(state)) - 1.0;
+    float a = 6.2831853 * Random(state);
+    float r = sqrt(max(0.0, 1.0 - (z * z)));
+    return float3(r * cos(a), r * sin(a), z);
+}
+
+// The froth a particle of the water makes this step, by its violence (Ihmsen et al. 2012's potentials, read off the
+// grid): the air it traps (how much the velocity differs across its cell: a jet into a pool, a shear), its crest (fast
+// water at the surface: a fall's lip, a front), its impact (the speed the ground or what is built took from it), each
+// the more the faster it goes. The froth starts in the particle's water, going as the water goes with some spread, or,
+// struck, thrown back off what it struck.
+void MakeFroth(uint i, float3 x, float3 v, float3 pushed, int count, int3 c)
+{
+    float speed = length(v);
+    if (speed < FROTH_SLOW || !InGrid(c) || _FrothCountIn[CellIndex(c)] >= FROTH_FULL || SourceAt(x) >= 0)
+    {
+        // Slow; in a cell full of froth; or in a source's sphere, whose outflow is no violence of the water's.
+        return;
+    }
+
+    float e = 0.5 * _H;
+    float3 dx = Velocity(x + float3(e, 0.0, 0.0)) - Velocity(x - float3(e, 0.0, 0.0));
+    float3 dy = Velocity(x + float3(0.0, e, 0.0)) - Velocity(x - float3(0.0, e, 0.0));
+    float3 dz = Velocity(x + float3(0.0, 0.0, e)) - Velocity(x - float3(0.0, 0.0, e));
+    float trapped = Share(sqrt(dot(dx, dx) + dot(dy, dy) + dot(dz, dz)), 2.0, 7.0);
+    float crest = CountAt(c + int3(0, 1, 0)) < WET ? Share(speed, 3.5, 10.0) : 0.0;
+    float struck = length(pushed) / _Dt;
+    float impact = Share(struck, 1.0, 8.0);
+    float energy = Share(speed * speed, FROTH_SLOW * FROTH_SLOW, 64.0);
+    float rate = _FrothRate * energy * ((6.0 * trapped) + (2.0 * crest) + (16.0 * impact));
+    uint state = (i * 2246822519u) ^ (_Seed * 3266489917u) ^ 0x27d4eb2fu;
+    int n = min(3, (int)floor((rate * _Dt) + Random(state)));
+    for (int k = 0; k < n; k++)
+    {
+        // Spread about the particle, but never into what it stands on (a splash's froth born inside the ground would
+        // count as landed at once, and die where it was made).
+        float3 place = Unsolid(x + ((float3(Random(state), Random(state), Random(state)) - 0.5) * (_H / PER_SIDE)), x);
+        float3 velocity;
+        if (impact > trapped && impact > crest)
+        {
+            // Thrown back off what it struck, up to half as fast as it came, spread about the push's direction.
+            float3 away = normalize((pushed / max(length(pushed), 1e-6)) + (RandomDirection(state) * 0.6));
+            velocity = away * struck * lerp(0.2, 0.5, Random(state));
+        }
+        else
+        {
+            velocity = v + (RandomDirection(state) * 0.3 * speed);
+            if (trapped > crest && Random(state) < 0.5)
+            {
+                // Half of what trapped air makes is a splash: thrown up out of the plunge, not carried down with it.
+                velocity.y = abs(velocity.y) * lerp(0.3, 0.8, Random(state));
+            }
+        }
+
+        // Its own number decides what it is drawn as: under MIST_FROM a droplet (small, falls), over it mist (fine,
+        // hangs, drifts and fades); mist lives longer.
+        float own = Random(state);
+        if (!SpawnFroth(place, velocity, lerp(1.0, 2.5, Random(state)) * (own >= MIST_FROM ? 1.6 : 1.0), own))
+        {
+            return;
+        }
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void ClearCells(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)(_Nx * _Ny * _Nz))
+    {
+        return;
+    }
+
+    int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+    float3 centre = CentreOf(c);
+    float clear = ClearShare(c);
+    _Frac[i] = clear;
+    _Type[i] = clear < LEAST_CLEAR || BuiltAt(centre) || InBody(centre) ? SOLID : SourceAt(centre) >= 0 ? EMIT : AIR;
+    _Count[i] = 0;
+    _Div[i] = 0.0;
+    // The pressure is kept from the last step: a pool at rest starts its relaxation nearly solved.
+}
+
+[numthreads(THREADS, 1, 1)]
+void ClearFaces(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)((_Nx + 1) * (_Ny + 1) * (_Nz + 1)))
+    {
+        return;
+    }
+
+    int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
+    for (int a = 0; a < 3; a++)
+    {
+        int at = (a * FaceCount()) + (int)i;
+        _Mom[at] = 0;
+        _Wgt[at] = 0;
+        _Vel[at] = 0.0;
+        _Vel0[at] = 0.0;
+        _Mask[at] = 0;
+        // The face's area to the flow: none against a solid cell or across a closed face, else what is clear of the
+        // ground (a source's faces keep theirs: the inflow counts).
+        float area = 0.0;
+        if (within[a])
+        {
+            int3 back = f - offsets[a];
+            bool shut = TypeAt(back) == SOLID || TypeAt(f) == SOLID || ClosedFace(back, f, a);
+            area = shut ? 0.0 : FaceClear(f, a);
+        }
+
+        _Area[at] = area;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Scatter(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= AliveIn())
+    {
+        return;
+    }
+
+    Particle p = _ParticlesIn[i];
+    if (Gone(p))
+    {
+        return;
+    }
+
+    int3 c = CellOf(p.place.xyz);
+    if (!InGrid(c))
+    {
+        return;
+    }
+
+    float3 g = (p.place.xyz - _Origin) / _H;
+    ScatterFace(g - float3(0.0, 0.5, 0.5), p.velocity.x, 0);
+    ScatterFace(g - float3(0.5, 0.0, 0.5), p.velocity.y, 1);
+    ScatterFace(g - float3(0.5, 0.5, 0.0), p.velocity.z, 2);
+    int cell = CellIndex(c);
+    InterlockedAdd(_Count[cell], 1);
+    InterlockedMax(_Type[cell], FLUID);
+}
+
+// Whether a face is between two cells of which one is solid (it is still then), or a source's (it has the source's
+// velocity then: Prescribed).
+bool Held(int type)
+{
+    return type == SOLID || type == EMIT;
+}
+
+bool SolidFaceU(int3 f)
+{
+    return Held(TypeAt(f - int3(1, 0, 0))) || Held(TypeAt(f));
+}
+
+bool SolidFaceV(int3 f)
+{
+    return Held(TypeAt(f - int3(0, 1, 0))) || Held(TypeAt(f));
+}
+
+bool SolidFaceW(int3 f)
+{
+    return Held(TypeAt(f - int3(0, 0, 1))) || Held(TypeAt(f));
+}
+
+// The velocity a held face has along its axis: a source's where one of its cells is a source's (and neither solid),
+// else still.
+float Prescribed(int3 a, int3 b, float3 facePlace, int axis)
+{
+    int ta = TypeAt(a), tb = TypeAt(b);
+    if (ta == SOLID || tb == SOLID)
+    {
+        return 0.0;
+    }
+
+    int s = SourceAt(facePlace);
+    if (s < 0)
+    {
+        s = SourceAt(CentreOf(ta == EMIT ? a : b));
+    }
+
+    return s < 0 ? 0.0 : SourceVelocity(s, facePlace)[axis];
+}
+
+[numthreads(THREADS, 1, 1)]
+void Gather(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)FaceCount())
+    {
+        return;
+    }
+
+    int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    // The face's place: at the cell's corner along its axis, at the cell's middle across.
+    float3 corners[3] = { float3(f.x, f.y + 0.5, f.z + 0.5), float3(f.x + 0.5, f.y, f.z + 0.5), float3(f.x + 0.5, f.y + 0.5, f.z) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
+    for (int a = 0; a < 3; a++)
+    {
+        int at = (a * FaceCount()) + (int)i;
+        float v = 0.0;
+        bool valid = _WgtIn[at] > 0;
+        if (valid)
+        {
+            v = (float)_MomIn[at] / (float)_WgtIn[at];
+        }
+
+        // The old velocity, for FLIP: before gravity and the pressure (both are the change the particles take).
+        _Vel0[at] = v;
+        _Vel[at] = a == 1 && valid ? v - (_Gravity * _Dt) : v;
+        _Mask[at] = valid ? 1 : 0;
+        if (within[a] && (Held(TypeAt(f - offsets[a])) || Held(TypeAt(f)) || ClosedFace(f - offsets[a], f, a) || _AreaIn[at] <= 0.0))
+        {
+            float held = ClosedFace(f - offsets[a], f, a) || _AreaIn[at] <= 0.0 ? 0.0 : Prescribed(f - offsets[a], f, _Origin + (corners[a] * _H), a);
+            _Vel[at] = held;
+            _Vel0[at] = held;
+            _Mask[at] = 1;
+        }
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Collect(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i < (uint)(_Nx * _Ny * _Nz) && _TypeIn[i] == FLUID)
+    {
+        _ActiveOut.Append(i);
+    }
+}
+
+[numthreads(1, 1, 1)]
+void Arguments(uint3 id : SV_DispatchThreadID)
+{
+    // [3] holds the count the card copied in; the groups follow.
+    _ActiveArgs[0] = (_ActiveArgs[3] + THREADS - 1) / THREADS;
+    _ActiveArgs[1] = 1;
+    _ActiveArgs[2] = 1;
+}
+
+[numthreads(THREADS, 1, 1)]
+void Divergence(uint3 id : SV_DispatchThreadID)
+{
+    uint n = id.x;
+    if (n >= _ActiveArgsIn[3])
+    {
+        return;
+    }
+
+    uint i = _Active[n];
+    int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+    // The net outflow through the faces' clear areas (a face part in the ground passes that much less).
+    float div = 0.0;
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    for (int a = 0; a < 3; a++)
+    {
+        int lo = FaceAt(c, a), hi = FaceAt(c + offsets[a], a);
+        div += (_AreaIn[hi] * _VelIn[hi]) - (_AreaIn[lo] * _VelIn[lo]);
+    }
+
+    div /= _H;
+    // Too many particles in the cell: a little outflow asked for; too few, in a cell inside the water (one at the
+    // surface is part empty by nature): a little inflow.
+    int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
+    bool inside = true;
+    for (int s = 0; s < 6; s++)
+    {
+        inside = inside && TypeAt(c + sides[s]) != AIR;
+    }
+
+    // Rest for a cell is its clear share of REST (a cell half in the ground holds half the particles at rest).
+    float rest = max(REST * _FracIn[i], 1.0);
+    float excess = clamp(((float)_CountIn[i] - rest) / rest, inside ? -1.0 : 0.0, 1.0);
+    _Div[i] = div - (_Drift * excess / _Dt);
+}
+
+[numthreads(THREADS, 1, 1)]
+void Relax(uint3 id : SV_DispatchThreadID)
+{
+    uint n = id.x;
+    if (n >= _ActiveArgsIn[3])
+    {
+        return;
+    }
+
+    uint i = _Active[n];
+    int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+    if (((c.x + c.y + c.z) & 1) != _Parity)
+    {
+        return;
+    }
+
+    int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
+    float sum = 0.0;
+    float open = 0.0;
+    for (int s = 0; s < 6; s++)
+    {
+        int3 next = c + sides[s];
+        int type = TypeAt(next);
+        if (Held(type) || ClosedFace(c, next, s / 2))
+        {
+            continue;
+        }
+
+        // The face between, weighted by its area to the flow (the face toward a lower neighbour is this cell's own).
+        float area = _AreaIn[FaceAt((s & 1) == 0 ? c : next, s / 2)];
+        open += area;
+        sum += area * (type == FLUID ? _P[CellIndex(next)] : 0.0);
+    }
+
+    _P[i] = open > 0.0 ? (sum - (_DivIn[i] * _H * _H / _Dt)) / open : 0.0;
+}
+
+[numthreads(THREADS, 1, 1)]
+void Project(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)FaceCount())
+    {
+        return;
+    }
+
+    int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
+    int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+    bool within[3] = { f.y < _Ny && f.z < _Nz, f.x < _Nx && f.z < _Nz, f.x < _Nx && f.y < _Ny };
+    for (int a = 0; a < 3; a++)
+    {
+        if (!within[a])
+        {
+            continue;
+        }
+
+        int3 back = f - offsets[a];
+        int ta = TypeAt(back), tb = TypeAt(f);
+        if (Held(ta) || Held(tb) || ClosedFace(back, f, a))
+        {
+            // Held: as Gather set it.
+            continue;
+        }
+
+        int at = (a * FaceCount()) + (int)i;
+        if ((ta == FLUID || tb == FLUID) && _AreaIn[at] > 0.0)
+        {
+            _Vel[at] -= _Dt * (PressureAt(f) - PressureAt(back)) / _H;
+            _Mask[at] = 1;
+        }
+    }
+}
+
+// One face's velocity, new and old alike (a particle at the surface takes the change between them: both must come
+// from the same faces), from its valid neighbours along its axis's set, when it has none of its own.
+void ExtendOne(int3 f, uint i, int axis)
+{
+    int at = (axis * FaceCount()) + (int)i;
+    if (_Mask[at] != 0)
+    {
+        _Mask2[at] = 1;
+        return;
+    }
+
+    int3 sides[6] = { int3(-1, 0, 0), int3(1, 0, 0), int3(0, -1, 0), int3(0, 1, 0), int3(0, 0, -1), int3(0, 0, 1) };
+    float sum = 0.0;
+    float sumOld = 0.0;
+    float n = 0.0;
+    for (int s = 0; s < 6; s++)
+    {
+        int3 next = f + sides[s];
+        if (InFaces(next) && _Mask[FaceAt(next, axis)] != 0)
+        {
+            sum += _Vel[FaceAt(next, axis)];
+            sumOld += _Vel0[FaceAt(next, axis)];
+            n += 1.0;
+        }
+    }
+
+    if (n > 0.0)
+    {
+        _Vel[at] = sum / n;
+        _Vel0[at] = sumOld / n;
+        _Mask2[at] = 1;
+    }
+    else
+    {
+        _Mask2[at] = 0;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Extend(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)FaceCount())
+    {
+        return;
+    }
+
+    int3 f = int3(i % (_Nx + 1), (i / (_Nx + 1)) % (_Ny + 1), i / ((_Nx + 1) * (_Ny + 1)));
+    ExtendOne(f, i, 0);
+    ExtendOne(f, i, 1);
+    ExtendOne(f, i, 2);
+}
+
+[numthreads(THREADS, 1, 1)]
+void Move(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= AliveIn())
+    {
+        return;
+    }
+
+    Particle p = _Particles[i];
+    if (Gone(p))
+    {
+        return;
+    }
+
+    float3 x = p.place.xyz;
+    float3 grid = Velocity(x);
+    float3 flip = p.velocity.xyz + (grid - OldVelocity(x));
+    float3 v = lerp(grid, flip, _Flip);
+    float speed = length(v);
+    v = speed > _MaxSpeed ? v * (_MaxSpeed / speed) : v;
+
+    // Moved along the grid's velocity, two half steps; not through a face a thin piece closes (held at the face).
+    float3 mid = x + (0.5 * _Dt * grid);
+    float3 to = x + (_Dt * Velocity(mid));
+    float3 free = to;
+    to = Unsolid(to, x);
+    if (_SolidsOn != 0)
+    {
+        int3 was = VoxelOf(x);
+        float3 lo = float3(_SolidOrigin.x, _SolidY0, _SolidOrigin.y) + (float3(was) * _VoxelSize), hi = lo + _VoxelSize;
+        float gap = 0.02 * _VoxelSize;
+        if (ClosedBetween(x, to, 0))
+        {
+            to.x = clamp(to.x, lo.x + gap, hi.x - gap);
+        }
+
+        if (ClosedBetween(x, to, 1))
+        {
+            to.y = clamp(to.y, lo.y + gap, hi.y - gap);
+        }
+
+        if (ClosedBetween(x, to, 2))
+        {
+            to.z = clamp(to.z, lo.z + gap, hi.z - gap);
+        }
+    }
+
+    // Out of the square's sides: the server's water now (the band along them is poured again from it); out of the top: held.
+    float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);
+    float eps = 0.01 * _H;
+    if (to.x < lo.x || to.z < lo.z || to.x >= hi.x || to.z >= hi.z)
+    {
+        if (_OpenSides != 0)
+        {
+            p.place.w = asfloat(GONE);
+            _Particles[i] = p;
+            return;
+        }
+
+        to.x = clamp(to.x, lo.x + eps, hi.x - eps);
+        to.z = clamp(to.z, lo.z + eps, hi.z - eps);
+    }
+
+    to.y = min(to.y, hi.y - eps);
+    if (to.y < lo.y)
+    {
+        p.place.w = asfloat(GONE);
+        _Particles[i] = p;
+        return;
+    }
+
+    // Taken by a drain within reach, up to what it takes this step.
+    for (uint s = 0u; s < _SpringCount; s++)
+    {
+        Spring spring = _Springs[s];
+        if (spring.flow.z > 0.5 && distance(to, spring.ring.xyz) < spring.ring.w)
+        {
+            uint k;
+            InterlockedAdd(_Taken[s], 1u, k);
+            if (k < (uint)spring.flow.w)
+            {
+                p.place.w = asfloat(GONE);
+                _Particles[i] = p;
+                return;
+            }
+        }
+    }
+
+    int3 c = CellOf(to);
+    int count = CountAt(c);
+    bool clear = to.y > GroundAt(to.xz) + _H;
+    p.place.xyz = to;
+    p.velocity = float4(v, (float)count / REST);
+    p.predicted.w = clear ? saturate(1.0 - ((float)count / 3.0)) : 0.0;
+    _Particles[i] = p;
+    if (_FrothRate > 0.0)
+    {
+        MakeFroth(i, to, v, to - free, count, c);
+    }
+}
+
+// A source's cells (within its reach, not solid) kept at rest's count, the new particles going out of it at its
+// speed: the pressure spreads what the cells cannot hold; a drain's reach is cleared by Move.
+[numthreads(THREADS, 1, 1)]
+void Emit(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] != EMIT)
+    {
+        return;
+    }
+
+    int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+    float3 centre = CentreOf(c);
+    int s = SourceAt(centre);
+    if (s < 0)
+    {
+        return;
+    }
+
+    uint state = (i * 2654435761u) ^ (_Seed * 40503u) ^ 0x9E3779B9u;
+    int lack = (int)round(REST * _FracIn[i]) - _CountIn[i];
+    // Places in the ground are passed over: as many tries as it takes (a cell half clear needs about twice the tries).
+    int tries = (int)ceil(lack / max(_FracIn[i], LEAST_CLEAR));
+    for (int k = 0, made = 0; k < tries && made < lack; k++)
+    {
+        float3 place = centre + ((float3(Random(state), Random(state), Random(state)) - 0.5) * _H);
+        if (SolidAt(place))
+        {
+            continue;
+        }
+
+        if (!Spawn(place, SourceVelocity(s, place)))
+        {
+            return;
+        }
+
+        made++;
+        InterlockedAdd(_Given[(uint)s], 1u);
+    }
+}
+
+// Each source's speed scaled toward giving its rate: a fifth of the way each step, twice its speed at most (a source
+// whose sphere is mostly in the ground gives what it can).
+[numthreads(1, 1, 1)]
+void Regulate(uint3 id : SV_DispatchThreadID)
+{
+    for (uint s = 0u; s < _SpringCount; s++)
+    {
+        Spring spring = _Springs[s];
+        if (spring.flow.z > 0.5)
+        {
+            continue;
+        }
+
+        // Particles a step: the rate's water in particles of a cell's water over REST.
+        float want = spring.flow.y * _Dt * REST / (_H * _H * _H);
+        float given = (float)_GivenIn[s];
+        float scale = _Scale[s] <= 0.0 ? 1.0 : _Scale[s];
+        scale = given > 0.5 ? scale * lerp(1.0, want / given, 0.2) : scale * 1.05;
+        _Scale[s] = clamp(scale, 0.25, MOST_SCALE);
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void Compact(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= min(_Alive[0] + _Alive[2], _Capacity))
+    {
+        return;
+    }
+
+    Particle p = _ParticlesIn[i];
+    if (Gone(p))
+    {
+        return;
+    }
+
+    uint slot;
+    InterlockedAdd(_Alive[1], 1u, slot);
+    _Sorted[slot] = p;
+}
+
+[numthreads(1, 1, 1)]
+void Settle(uint3 id : SV_DispatchThreadID)
+{
+    uint n = min(_Alive[1], _Capacity);
+    _Alive[0] = n;
+    _Alive[1] = 0u;
+    _Alive[2] = 0u;
+    _Args[0] = n * 6u;
+    _Args[1] = 1u;
+    _Args[2] = 0u;
+    _Args[3] = 0u;
+}
+
+// The server's water poured as particles: in each cell of a column the server has water in, between the ground and
+// the water's top, that holds none (a share of what it lacks: a column filling), still. Within _SeedBand cells of
+// the square's sides only, when that is set (the edge, each frame: water coming in from beyond). Or a block of still
+// water (_PourOn), wherever the cells hold none.
+[numthreads(THREADS, 1, 1)]
+void Seed(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    // A whole pour (the square made or moved, the grid following the camera) fills the cells that hold no water, not
+    // the loosely packed ones of water that is there already (a pool would swell with every pour); the edge band's
+    // pour each step tops up what its cells lack, so the band keeps the server's level.
+    if (i >= (uint)(_Nx * _Ny * _Nz) || _TypeIn[i] == SOLID || _CountIn[i] >= (_SeedShare >= 1.0 ? 1 : REST))
+    {
+        return;
+    }
+
+    // The band: the square's sides, and its top where the server's water stands above the grid (a fall from above
+    // the grid comes in through its top row; a column whose water the grid holds whole is the grid's own).
+    int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+    bool side = c.x < _SeedBand || c.z < _SeedBand || c.x >= _Nx - _SeedBand || c.z >= _Nz - _SeedBand;
+    bool topRow = c.y >= _Ny - _SeedBand;
+    if (_SeedBand > 0 && !side && !topRow)
+    {
+        return;
+    }
+
+    float3 centre = CentreOf(c);
+    float3 lo = centre - (0.5 * _H), hi = centre + (0.5 * _H);
+    float top;
+    if (_PourOn != 0)
+    {
+        if (any(hi < _PourMin) || any(lo > _PourMax))
+        {
+            return;
+        }
+
+        top = _PourMax.y;
+        lo = max(lo, _PourMin);
+        hi = min(hi, _PourMax);
+    }
+    else
+    {
+        int2 column = (int2)floor((centre.xz - _BedOrigin) / (_BedDx * _PerVoxel));
+        float4 target = _Target[column];
+        if (target.x <= DRY_TOP || target.z <= 0.0)
+        {
+            return;
+        }
+
+        top = target.x;
+        if (_SeedBand > 0 && !side && topRow && top < _Origin.y + (_Ny * _H))
+        {
+            // In the top band for its height alone: only water from above the grid comes in there.
+            return;
+        }
+    }
+
+    if (lo.y >= top)
+    {
+        return;
+    }
+
+    // The water this cell is to hold: its clear share, less what lies over the water's top or outside the pour (the
+    // ground fills the cell from its bottom up, so the clear part is its upper 1 - clear share: the water is the part
+    // of that under the top).
+    float clear = _FracIn[i];
+    float groundAt = centre.y + (0.5 * _H) - (clear * _H);
+    float water = saturate((min(hi.y, top) - max(lo.y, groundAt)) / _H) * saturate((hi.x - lo.x) / _H) * saturate((hi.z - lo.z) / _H);
+    // The top band is filled whole each step (the water coming down into the grid is a flow, not a level to keep;
+    // what the band holds goes on down the slope and the band is filled again); the sides take their share.
+    float share = _SeedBand > 0 && !side && topRow ? 1.0 : _SeedShare;
+    uint state = (i * 9781u) ^ (_Seed * 6271u) ^ 0x5bd1e995u;
+    int lack = (int)round(REST * water) - _CountIn[i];
+    int n = (int)floor((lack * share) + Random(state));
+    // Places in the ground or over the water's top are passed over: as many tries as it takes to make n (a cell half
+    // clear needs about twice the tries), within reason.
+    int tries = (int)ceil(n / max(water, LEAST_CLEAR)) + 2;
+    for (int k = 0, made = 0; k < tries && made < n; k++)
+    {
+        float3 place = lerp(lo, hi, float3(Random(state), Random(state), Random(state)));
+        if (place.y >= top || SolidAt(place))
+        {
+            continue;
+        }
+
+        if (!Spawn(place, 0.0))
+        {
+            return;
+        }
+
+        made++;
+    }
+}
+
+// A froth particle moved by its kind (_Particles, _AliveIn and _Capacity bound to the froth's): spray falls, slowed
+// by the air (the finer, the more: a mist hangs), foam rides the water's surface with its velocity, a bubble rises
+// through the water with it; each ages (foam at half the rate), gone when its life is spent, out of the grid, or, as
+// spray, down on dry ground.
+[numthreads(THREADS, 1, 1)]
+void FrothClear(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < (uint)(_Nx * _Ny * _Nz))
+    {
+        _FrothCount[id.x] = 0;
+    }
+}
+
+[numthreads(THREADS, 1, 1)]
+void FrothMove(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= min(_AliveIn[0] + _AliveIn[2], _Capacity))
+    {
+        return;
+    }
+
+    Particle f = _Particles[i];
+    if (Gone(f))
+    {
+        return;
+    }
+
+    float3 x = f.place.xyz;
+    float3 v = f.velocity.xyz;
+    int3 c = CellOf(x);
+    int here = CountAt(c), above = CountAt(c + int3(0, 1, 0));
+    float kind = here < WET ? SPRAY : above < WET ? FOAM : BUBBLE;
+    float3 grid = Velocity(x);
+    float life = f.predicted.x;
+    if (kind == SPRAY)
+    {
+        float drag = lerp(DRAG_LEAST, DRAG_MOST, f.predicted.z * f.predicted.z);
+        v += float3(0.0, -_Gravity, 0.0) * _Dt;
+        v *= 1.0 - saturate(drag * _Dt);
+        life -= _Dt;
+    }
+    else if (kind == FOAM)
+    {
+        // Along the surface, held to it: the top of the water in its cell, by how full the cell is.
+        float top = _Origin.y + ((c.y + saturate((float)here / REST)) * _H);
+        v = float3(grid.x, 0.0, grid.z);
+        x.y += (top - x.y) * saturate(6.0 * _Dt);
+        life -= 0.5 * _Dt;
+    }
+    else
+    {
+        v = lerp(v, grid, saturate(4.0 * _Dt));
+        v.y = min(v.y + (BUOYANCY * _Dt), grid.y + 1.5);
+        life -= 0.5 * _Dt;
+    }
+
+    float3 to = x + (v * _Dt);
+    float3 free = to;
+    to = Unsolid(to, x);
+    if (kind == SPRAY && any(to != free))
+    {
+        // Down: on water it is foam from here; on dry ground, a wet mark gone at once.
+        v = 0.0;
+        life = CountAt(CellOf(to)) < WET ? min(life, 0.1) : life;
+    }
+
+    float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);
+    if (life <= 0.0 || any(to < lo) || any(to >= hi))
+    {
+        f.place.w = asfloat(GONE);
+        _Particles[i] = f;
+        return;
+    }
+
+    f.place.xyz = to;
+    f.predicted.x = life;
+    f.predicted.w = kind;
+    f.velocity.xyz = v;
+    _Particles[i] = f;
+    InterlockedAdd(_FrothCount[CellIndex(CellOf(to))], 1);
+}
+
+int3 FineCells()
+{
+    return int3(_Nx, _Ny, _Nz) * PER_SIDE;
+}
+
+int FineIndex(int3 f)
+{
+    int3 n = FineCells();
+    return ((f.z * n.y) + f.y) * n.x + f.x;
+}
+
+[numthreads(THREADS, 1, 1)]
+void FineClear(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    if (id.x < (uint)(n.x * n.y * n.z))
+    {
+        _FineCount[id.x] = 0u;
+    }
+
+}
+
+// A particle's share on a half-cell along one axis, by how far the half-cell's centre is from the particle (in
+// half-cells): a quadratic spline over the three nearest, whose shares add up to one (a particle at rest is one
+// density spread over its neighbours, so the surface is smooth, not a cobble a particle).
+float Spline(float away)
+{
+    away = abs(away);
+    return away < 0.5 ? 0.75 - (away * away) : away < 1.5 ? 0.5 * (1.5 - away) * (1.5 - away) : 0.0;
+}
+
+// A radial spline over a distance in half-cells (the quadratic one, radially): one at the centre, nothing past 1.5.
+float Radial(float r)
+{
+    return r < 0.5 ? 0.75 - (r * r) : r < 1.5 ? 0.5 * (1.5 - r) * (1.5 - r) : 0.0;
+}
+
+// Whether a half-cell is clear of the ground and the solids (its cell is, enough to hold water): density is laid on
+// no half-cell inside a wall or the ground (it would show through a thin wall, and as a fuzz on the wall's far side).
+bool ClearHalf(int3 at)
+{
+    return _FracIn[CellIndex(at / PER_SIDE)] >= LEAST_CLEAR;
+}
+
+// Each particle's density shared on the half-cells about it. In a full cell (a pool), over the three nearest each way:
+// the surface stays sharp. Where its cell holds few (a fall's sheet, a splash, the water's edge), the particles are far
+// apart and a narrow splat leaves holes between them: the splat is wider there, and drawn out along the particle's
+// velocity (a sheet or a jet is long along its flow and thin across it), with the same total, so they join into one
+// surface, as an anisotropic kernel does (Yu and Turk 2013, in a cheap form). The weights are summed first and the
+// share divided by the sum, so a particle is one density whatever its shape.
+[numthreads(THREADS, 1, 1)]
+void FineSplat(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= AliveIn())
+    {
+        return;
+    }
+
+    Particle p = _ParticlesIn[i];
+    if (Gone(p))
+    {
+        return;
+    }
+
+    int3 cell = CellOf(p.place.xyz);
+    int count = InGrid(cell) ? _CountIn[CellIndex(cell)] : 0;
+    int3 n = FineCells();
+    float3 g = ((p.place.xyz - _Origin) / (_H / PER_SIDE)) - 0.5;
+    int3 b = (int3)round(g);
+    float speed = length(p.velocity.xyz);
+    if (count >= 6 || speed < 2.0)
+    {
+        // A full cell's, or slow water's (the grain at a pool's surface and walls is no sheet to be joined up).
+        for (int k = -1; k <= 1; k++)
+        {
+            for (int j = -1; j <= 1; j++)
+            {
+                for (int l = -1; l <= 1; l++)
+                {
+                    int3 at = b + int3(l, j, k);
+                    if (any(at < 0) || any(at >= n) || !ClearHalf(at))
+                    {
+                        continue;
+                    }
+
+                    float w = Spline(g.x - at.x) * Spline(g.y - at.y) * Spline(g.z - at.z);
+                    if (w > 1e-3)
+                    {
+                        InterlockedAdd(_FineCount[FineIndex(at)], (uint)round(w * FINE_FIX));
+                    }
+                }
+            }
+        }
+
+        return;
+    }
+
+    // Sparse and fast: wider across (1.4 half-cells for a few neighbours, 1.8 for nearly none), and along the
+    // velocity up to three times that (a fall's particles draw apart as they speed up; their density is stretched
+    // with them, so the sheet stays one). The taps are the kernel's own box: as long each way as its reach that way.
+    float3 along = p.velocity.xyz / speed;
+    float width = count >= 3 ? 1.4 : 1.8;
+    float stretch = speed > 0.5 ? clamp(speed / 3.0, 1.0, 3.0) : 1.0;
+    float3 extent = 1.5 * width * sqrt(1.0 + (((stretch * stretch) - 1.0) * along * along));
+    int3 reach = min((int3)ceil(extent), 7);
+    float sum = 0.0;
+    int3 lo = max(b - reach, 0), hi = min(b + reach, n - 1);
+    // (Two turns over the same taps: the first sums the weights, the second shares the density by them.)
+    for (int turn = 0; turn < 2; turn++)
+    {
+        for (int z = lo.z; z <= hi.z; z++)
+        {
+            for (int y = lo.y; y <= hi.y; y++)
+            {
+                for (int x = lo.x; x <= hi.x; x++)
+                {
+                    if (!ClearHalf(int3(x, y, z)))
+                    {
+                        continue;
+                    }
+
+                    float3 o = float3(x, y, z) - g;
+                    float par = dot(o, along);
+                    float3 perp = o - (par * along);
+                    float r = sqrt((dot(perp, perp) / (width * width)) + ((par * par) / (width * width * stretch * stretch)));
+                    float w = Radial(r);
+                    if (w <= 1e-4)
+                    {
+                        continue;
+                    }
+
+                    if (turn == 0)
+                    {
+                        sum += w;
+                    }
+                    else
+                    {
+                        InterlockedAdd(_FineCount[FineIndex(int3(x, y, z))], (uint)round(w / sum * FINE_FIX));
+                    }
+                }
+            }
+        }
+
+        if (sum <= 1e-6)
+        {
+            return;
+        }
+    }
+}
+
+// The density smoothed along one axis (a quarter, a half, a quarter of the three half-cells): run once each way, the
+// particles' grain goes out of the surface, which the drawing lights as one.
+[numthreads(THREADS, 1, 1)]
+void FineSmooth(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    uint i = id.x;
+    if (i >= (uint)(n.x * n.y * n.z))
+    {
+        return;
+    }
+
+    int3 f = int3(i % n.x, (i / n.x) % n.y, i / (n.x * n.y));
+    int3 step = int3(_Axis == 0 ? 1 : 0, _Axis == 1 ? 1 : 0, _Axis == 2 ? 1 : 0);
+    int3 before = max(f - step, 0), after = min(f + step, n - 1);
+    _FineCount[i] = (_FineCountIn[FineIndex(before)] + (2u * _FineCountIn[i]) + _FineCountIn[FineIndex(after)]) / 4u;
+}
+
+// The textures the drawing reads: each half-cell's density; each cell's water as a share of rest (the march steps over
+// cells with none about them, and a thin fast sheet, too sparse for the half-cells, still makes a surface of it); each
+// cell's froth as a share of full.
+[numthreads(THREADS, 1, 1)]
+void FineWrite(uint3 id : SV_DispatchThreadID)
+{
+    int3 n = FineCells();
+    uint i = id.x;
+    if (i < (uint)(n.x * n.y * n.z))
+    {
+        int3 f = int3(i % n.x, (i / n.x) % n.y, i / (n.x * n.y));
+        _Fine[f] = _FineCountIn[i] / FINE_FIX;
+    }
+
+    if (i < (uint)(_Nx * _Ny * _Nz))
+    {
+        int3 c = int3(i % _Nx, (i / _Nx) % _Ny, i / (_Nx * _Ny));
+        _Coarse[c] = (float)_CountIn[i] / max(REST * _FracIn[i], 1.0);
+        _Foam[c] = saturate((float)_FrothCountIn[i] / FROTH_FULL);
+        // The cell's velocity from the faces' sums as Scatter left them (the drawing runs after the step's own faces
+        // were cleared and the particles counted again: their velocity is in the sums, not in the faces).
+        float3 flow = 0.0;
+        if (_CountIn[i] > 0)
+        {
+            int3 offsets[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+            for (int a = 0; a < 3; a++)
+            {
+                int lo = FaceAt(c, a), hi = FaceAt(c + offsets[a], a);
+                float vlo = _WgtIn[lo] > 0 ? (float)_MomIn[lo] / (float)_WgtIn[lo] : 0.0;
+                float vhi = _WgtIn[hi] > 0 ? (float)_MomIn[hi] / (float)_WgtIn[hi] : 0.0;
+                flow[a] = 0.5 * (vlo + vhi);
+            }
+        }
+
+        _Flow[c] = float4(flow, 0.0);
+    }
+
+    // The water standing on the ground in each column of cells: its top, the mean of the tops of the wet columns within
+    // two of it, nearer counting more (its own count steps by a particle, 3 cm at the default, and the ground it stands
+    // on is a crease at each cell, both of which the light would show as lines on the water; a real surface lies smooth
+    // over them); and its depth, the same mean of the depths with a dry column counting as none, so the depth thins to
+    // nothing toward dry ground. The particles counted are those from the ground's cell up to the first two cells with
+    // none (water above such a gap is a fall or a splash, not the column's; one empty cell is a pocket in the water). Ground too steep for a
+    // sheet (a wall, a trunk in the ground's heights: a rise over run past 2, none past 3; a 46° face keeps its whole
+    // sheet) holds less of one.
+    if (i < (uint)(_Nx * _Nz))
+    {
+        int2 column = int2(i % _Nx, i / _Nx);
+        float tops = 0.0;
+        float wet = 0.0;
+        float depth = 0.0;
+        float weights = 0.0;
+        for (int dz = -2; dz <= 2; dz++)
+        {
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int2 o = column + int2(dx, dz);
+                if (o.x < 0 || o.y < 0 || o.x >= _Nx || o.y >= _Nz)
+                {
+                    continue;
+                }
+
+                float2 at = _Origin.xz + ((float2(o) + 0.5) * _H);
+                float under = GroundAt(at);
+                float2 slope = float2(GroundAt(at + float2(_H, 0.0)) - GroundAt(at - float2(_H, 0.0)), GroundAt(at + float2(0.0, _H)) - GroundAt(at - float2(0.0, _H))) / (2.0 * _H);
+                float keep = 1.0 - smoothstep(2.0, 3.0, length(slope));
+                float w = (3.0 - abs(dx)) * (3.0 - abs(dz));
+                int start = clamp((int)floor((under - _Origin.y) / _H), 0, _Ny - 1);
+                float particles = 0.0;
+                for (int j = start; j < _Ny; j++)
+                {
+                    int count = _CountIn[CellIndex(int3(o.x, j, o.y))];
+                    // A gap of two empty cells ends the column (water over it is a fall or a splash); one alone is a
+                    // pocket in a sloshing pool, whose water goes on over it (cut there, the column's top dropped a
+                    // cell or two under the surface, seen as dark dashes on the pool).
+                    bool next = j + 1 < _Ny && _CountIn[CellIndex(int3(o.x, j + 1, o.y))] > 0;
+                    if (count == 0 && j > start && !next)
+                    {
+                        break;
+                    }
+
+                    particles += count;
+                }
+
+                float own = keep * particles * _H / REST;
+                depth += w * own;
+                weights += w;
+                if (own > 0.0)
+                {
+                    tops += w * (max(under - _Origin.y, 0.0) + own);
+                    wet += w;
+                }
+            }
+        }
+
+        _Sheet[column] = float2(wet > 0.0 ? tops / wet : 0.0, weights > 0.0 ? depth / weights : 0.0);
+    }
+}

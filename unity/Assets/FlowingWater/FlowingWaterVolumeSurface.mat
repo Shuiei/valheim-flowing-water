@@ -1,0 +1,67 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: FlowingWaterVolumeSurface
+  m_Shader: {fileID: 4800000, guid: ba5be6b69dbd4b446bc307dca70b7807, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _FoamTex:
+        m_Texture: {fileID: 2800000, guid: 21f9943c184691e569b919268d3e4a92, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Normal:
+        m_Texture: {fileID: 2800000, guid: 1f85a96afcd1233349f739ddd1df723d, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _BodyDepth: 2.5
+    - _DeepWater: 6
+    - _DepthFade: 15
+    - _EdgeThickness: 0.2
+    - _FlowCycle: 1.5
+    - _FlowFrom: 0.2
+    - _FlowFull: 1.5
+    - _FlowTiling: 4
+    - _FoamFrom: 0.25
+    - _FoamFull: 1
+    - _Glossiness: 0.94
+    - _LeastLight: 0.45
+    - _NormalPower: 0.5
+    - _NormalScale: 0.04
+    - _RapidsSpeed: 3
+    - _RefractionMax: 0.01
+    - _RefractionScale: 0.1
+    - _RushFrom: 5
+    - _RushFull: 11
+    - _RushThin: 0.4
+    - _ThickMost: 4
+    - _UnderFog: 12
+    - _WaveVel: 1
+    m_Colors:
+    - _BodyTint: {r: 1.6, g: 1.1, b: 0.9, a: 0}
+    - _ColorBottom: {r: 0.098, g: 0.196, b: 0.169, a: 1}
+    - _ColorBottomShallow: {r: 0.196, g: 0.176, b: 0.106, a: 1}
+    - _ColorTop: {r: 0.315, g: 0.524, b: 0.361, a: 1}
+    - _FoamColor: {r: 0.838, g: 0.838, b: 0.838, a: 1}
+    - _SurfaceColor: {r: 0.728, g: 0.728, b: 0.728, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
