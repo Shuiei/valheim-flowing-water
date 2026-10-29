@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.43.0 — 2026-10-29
+
+### Added
+- Running water is heard again: a stream babbles where it runs fast, and rapids and falls roar. It is louder the
+  more water passes, follows the `WaterVolume` setting and the game's sound-effects volume, and
+  `flowingwater sound` says what is heard.
+
 ## v0.42.6 — 2026-10-29
 
 ### Fixed

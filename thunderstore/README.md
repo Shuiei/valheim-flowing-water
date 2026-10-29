@@ -9,7 +9,7 @@ the river follows it.
 - **Players** see the water (its sides and its falls too, drawn as the voxels it fills, and from inside it), swim
   in it, float on it, get wet, and are carried by its current; ships are
   placed and sail on it. The game's own water checks (fishing, building, creatures) see it too. Running water
-  is silent for now: its sound comes back in a later version.
+  is heard: a stream babbles, and rapids and falls roar.
 - Near you, **your graphics card moves the water** between the server's changes, as water moves: let go, it surges
   out over the ground, runs up the walls and sloshes back; waves cross a pool and come back. The server still says
   how much water is where (and what you swim in); a card without compute shaders draws it as the server sends it.
@@ -76,7 +76,7 @@ again within a couple of seconds. The main ones:
 | `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres |
 | `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1): smaller is finer and costs the card more |
 | `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things |
-| `Client.WaterVolume` | 0.7 | Unused for now (waits for the water's sound on the 3D water): how loud running water is (0 = silent) |
+| `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
 | `Client.Spray` | true | Falls (as curtains), splashes and spray on your graphics card (with `Client.GpuWater`) |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on your graphics card instead of a sheet, made from the server's water and held to it, moving as water moves (it falls, breaks up, splashes, pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the console's `flowingwater particles` pours some either way |
 | `Client.ParticleSize` | 0.25 | Side of a particle, metres: 0.25 is water as it looks; 0.5 is coarse and an eighth of the particles, for a slow card |
