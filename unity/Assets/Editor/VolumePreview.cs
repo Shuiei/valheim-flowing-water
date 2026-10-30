@@ -345,7 +345,7 @@ public static class VolumePreview
         // A swimmer 6 m from the source, a box as the game hands the water a character (FW_PREVIEW_BODY=0: none).
         if (Environment.GetEnvironmentVariable("FW_PREVIEW_BODY") != "0")
         {
-            scene.Water.SetBodies(new List<ParticleWater.Body> { ParticleWater.Body.Box(new Vector3(middle - 6f, 0.9f, middle), new Vector3(0.3f, 0.9f, 0.3f), Quaternion.identity) });
+            scene.Boxes(new Bounds(new Vector3(middle - 6f, 0.9f, middle), new Vector3(0.6f, 1.8f, 0.6f)));
         }
 
         Log.AppendLine(Inv($"Big spring: {rate} m3/s in the middle of a square {span:0} m across, sides open over the server's water {ServerDepth} m deep, {scene.Water.Iterations} pressure sweeps a step; the water's top (m over the ground) at rings 0 to 14 m from the source, each second."));
@@ -467,7 +467,7 @@ public static class VolumePreview
         var half = new Vector3(0.49f, 0.925f, 0.49f);
         float[] bed = Field((x, z) => Grade * (middle - x));
         using Scene scene = OpenSides("vwader", bed, GridCells, Depth);
-        scene.Water.SetBodies(new List<ParticleWater.Body> { ParticleWater.Body.Box(new Vector3(middle, half.y, middle), half, Quaternion.identity) });
+        scene.Boxes(new Bounds(new Vector3(middle, half.y, middle), 2f * half));
 
         Log.AppendLine(Inv($"Wader: a box {2f * half.x:0.00} m across and {2f * half.y:0.00} m high in a stream {Depth} m deep down a bed falling {Grade * 100f:0} % to the east, each second: the stream's speed by the box and the water's top against it (over the bed under the box)."));
         float stream = 0f, heap = 0f;
@@ -1065,6 +1065,9 @@ public static class VolumePreview
 
         private float _gap;
 
+        // The characters' boxes the water flows round, drawn in the shots.
+        private Bounds[] _boxes = Array.Empty<Bounds>();
+
         public void Step() => Water.Step(Frame);
 
         // Four walls round a box (world x0..x1, z0..z1, up to a height), the east one open from the floor to the gap's
@@ -1098,9 +1101,22 @@ public static class VolumePreview
             _gap = gap;
         }
 
+        // Characters as the game hands them to the water (upright boxes, ParticleWater.Body.Box).
+        public void Boxes(params Bounds[] boxes)
+        {
+            Water.SetBodies(boxes.Select(b => ParticleWater.Body.Box(b.center, b.extents, Quaternion.identity)).ToList());
+            _boxes = boxes;
+        }
+
         public void Shot(string file, Vector3 from, Vector3 at)
         {
             var drawn = new List<GameObject>();
+            if (_boxes.Length > 0)
+            {
+                var material = new Material(Shader.Find("Standard")) { color = new Color(0.7f, 0.25f, 0.2f) };
+                drawn.AddRange(_boxes.Select(b => Slab(b.center, b.size, material)));
+            }
+
             if (_walls.size.sqrMagnitude > 0f)
             {
                 // The walls as thin slabs (the east one from the gap up).
