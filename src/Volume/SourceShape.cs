@@ -118,7 +118,8 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
         return places;
     }
 
-    public bool Equals(SourceShape other) => AllRound == other.AllRound && Heading == other.Heading && Width == other.Width && Spread == other.Spread && Throw == other.Throw;
+    // Exact, as the hash is: the same values held to their ranges, not near ones.
+    public bool Equals(SourceShape other) => AllRound == other.AllRound && Heading.Equals(other.Heading) && Width.Equals(other.Width) && Spread.Equals(other.Spread) && Throw.Equals(other.Throw);
 
     public override bool Equals(object obj) => obj is SourceShape other && Equals(other);
 
