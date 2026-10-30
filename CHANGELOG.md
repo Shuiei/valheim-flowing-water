@@ -27,6 +27,12 @@ All notable changes to FlowingWater. Newest first.
   river runs out of a wide outlet along the ground. The server's water and the water near you both follow it. The
   panel to set it comes next; until then a source pours all round, as every source placed before does.
 
+## v0.45.2 — 2026-10-29
+
+### Fixed
+- The volume water preview draws the character's box in its wader and big-source frames: the water flowed round it,
+  but the frames showed only the water, with a hole where the character stood.
+
 ## v0.45.1 — 2026-10-29
 
 ### Added
