@@ -41,7 +41,7 @@ public class VoxelShellTests
         var corners = Corners(shell).ToList();
         Assert.All(corners, c => Assert.Equal(6f - 8f, c.X, 3));
         Assert.All(corners, c => Assert.Equal((1f, 0f, 0f), c.Normal));
-        Assert.Equal([0f, 1f, 1.5f], corners.Select(c => c.Y + 8f).Distinct().OrderBy(y => y).Select(y => (float)System.Math.Round(y, 3)));
+        Assert.Equal([0f, 1f, 1.5f], corners.Select(c => c.Y + 8f).Distinct().OrderBy(y => y).Select(y => (float)Math.Round(y, 3)));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class VoxelShellTests
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
         Assert.Equal(1, shell.Faces);
-        Assert.Equal([0.2f, 0.55f], Corners(shell).Select(c => (float)System.Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
+        Assert.Equal([0.2f, 0.55f], Corners(shell).Select(c => (float)Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.DoesNotContain(Corners(shell), c => System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Normal == (1f, 0f, 0f));
+        Assert.DoesNotContain(Corners(shell), c => Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Normal == (1f, 0f, 0f));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class VoxelShellTests
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
         Assert.Equal(1, shell.Faces);
-        Assert.Equal([0.3f, 0.8f], Corners(shell).Select(c => (float)System.Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
+        Assert.Equal([0.3f, 0.8f], Corners(shell).Select(c => (float)Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
     }
 
     [Fact]
