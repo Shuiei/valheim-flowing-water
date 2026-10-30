@@ -45,7 +45,7 @@ internal static class MarkerSliders
     public static float Spread(int notch) => Clamp(notch, 0, SpreadNotches - 1) * 5f;
 
     /// <summary>The spread notch a shape stands at: all round, or the one nearest its spread.</summary>
-    public static int SpreadNotch(SourceShape shape) => shape.AllRound ? SpreadNotches : Clamp((int)Math.Round(shape.Spread / 5f), 0, SpreadNotches - 1);
+    public static int SpreadNotch(SourceShape shape) => shape.AllRound ? SpreadNotches : FanNotch(shape.Spread);
 
     /// <summary>A throw notch's throw, degrees.</summary>
     public static float Throw(int notch) => Clamp(notch, 0, ThrowNotches) * 5f;
@@ -92,6 +92,34 @@ internal static class MarkerSliders
     public static int ReachNotch(float reach) => Clamp((int)Math.Round(reach / 0.25f), 1, ReachNotches);
 
     /// <summary>
+    /// The rate the power slider gives when a slider moved: the one kept while it still stands at the notch nearest it
+    /// (a rate between notches, typed before 0.47.0 or set by the console or the config, is not moved by another
+    /// slider), else its notch's.
+    /// </summary>
+    public static float SlidRate(int notch, float kept, bool drain) => notch == RateNotch(kept, drain) ? kept : Rate(notch, drain);
+
+    /// <summary>The reach the reach slider gives when a slider moved: the one kept while it still stands at the notch nearest it, else its notch's.</summary>
+    public static float SlidReach(int notch, float kept) => notch == ReachNotch(kept) ? kept : Reach(notch);
+
+    /// <summary>
+    /// The shape the shape sliders give when one moved, from the shape kept: each value kept while its slider still
+    /// stands at the notch nearest it, else its notch's, and the heading kept (the piece's turn). Made all round, it
+    /// keeps its spread; turned back, it takes the spread its slider stands at (dragged back, the slider passes the
+    /// notches between, each taken in turn: the one kept would come back only on a jump straight to its notch).
+    /// </summary>
+    public static SourceShape Slid(SourceShape kept, int width, int spread, int throwUp)
+    {
+        bool allRound = AllRound(spread);
+        float fan = allRound || (!kept.AllRound && spread == FanNotch(kept.Spread)) ? kept.Spread : Spread(spread);
+        return new SourceShape(
+            allRound,
+            kept.Heading,
+            width == WidthNotch(kept.Width) ? kept.Width : Width(width),
+            fan,
+            throwUp == ThrowNotch(kept.Throw) ? kept.Throw : Throw(throwUp));
+    }
+
+    /// <summary>
     /// What a shape's water is, in a player's words: all round; thrown up (10 degrees or more), a slim or (fanned 45 or
     /// more) wide jet spray; along the ground, fanned out (15 degrees or more) a slim or wide spray, else a small or
     /// (3 m wide or more) wide river.
@@ -116,6 +144,9 @@ internal static class MarkerSliders
     public static string Describe(SourceShape shape) => shape.AllRound
         ? Kind(shape)
         : $"{Kind(shape)}, {(shape.Width > 0f ? MarkerValues.Format(shape.Width) + " m wide" : "from a point")}, {(shape.Spread > 0f ? "fanned " + MarkerValues.Format(shape.Spread) + "°" : "straight")}, {(shape.Throw > 0f ? "thrown up " + MarkerValues.Format(shape.Throw) + "°" : "along the ground")}";
+
+    // The spread notch nearest a spread, the all-round one left out.
+    private static int FanNotch(float spread) => Clamp((int)Math.Round(spread / 5f), 0, SpreadNotches - 1);
 
     private static int Clamp(int value, int low, int high) => Math.Min(high, Math.Max(low, value));
 }

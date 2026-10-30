@@ -105,4 +105,37 @@ public class MarkerSlidersTests
         Assert.Equal("a slim jet spray, from a point, fanned 20°, thrown up 30°", MarkerSliders.Describe(new SourceShape(false, 0f, 0f, 20f, 30f)));
         Assert.Equal("a wide river, 6 m wide, straight, along the ground", MarkerSliders.Describe(new SourceShape(false, 0f, 6f, 0f, 0f)));
     }
+
+    [Fact]
+    public void AValueBetweenNotchesIsKeptWhileItsSliderStaysAtTheNotchNearestIt()
+    {
+        Assert.Equal(0.337f, MarkerSliders.SlidRate(MarkerSliders.RateNotch(0.337f, false), 0.337f, false));
+        Assert.Equal(MarkerSliders.Rate(60, false), MarkerSliders.SlidRate(60, 0.337f, false));
+        Assert.Equal(0f, MarkerSliders.SlidRate(0, 0f, true));
+        Assert.Equal(1.1f, MarkerSliders.SlidReach(MarkerSliders.ReachNotch(1.1f), 1.1f));
+        Assert.Equal(2f, MarkerSliders.SlidReach(8, 1.1f));
+    }
+
+    [Fact]
+    public void MovingOneShapeSliderLeavesTheOtherValuesAndTheHeadingAsTheyWere()
+    {
+        var kept = new SourceShape(false, 135f, 1.3f, 22f, 33f);
+        int width = MarkerSliders.WidthNotch(1.3f), spread = MarkerSliders.SpreadNotch(kept), throwUp = MarkerSliders.ThrowNotch(33f);
+
+        Assert.Equal(kept, MarkerSliders.Slid(kept, width, spread, throwUp));
+        Assert.Equal(new SourceShape(false, 135f, 4f, 22f, 33f), MarkerSliders.Slid(kept, 8, spread, throwUp));
+        Assert.Equal(new SourceShape(false, 135f, 1.3f, 22f, 10f), MarkerSliders.Slid(kept, width, spread, 2));
+    }
+
+    [Fact]
+    public void ASourceMadeAllRoundKeepsItsOutletAndTakesTheSpreadItsSliderStandsAtWhenTurnedBack()
+    {
+        var kept = new SourceShape(false, 0f, 1.3f, 22f, 33f);
+        int width = MarkerSliders.WidthNotch(1.3f), throwUp = MarkerSliders.ThrowNotch(33f);
+
+        SourceShape round = MarkerSliders.Slid(kept, width, MarkerSliders.SpreadNotches, throwUp);
+        Assert.Equal(new SourceShape(true, 0f, 1.3f, 22f, 33f), round);
+        Assert.Equal(new SourceShape(false, 0f, 1.3f, 20f, 33f), MarkerSliders.Slid(round, width, MarkerSliders.SpreadNotch(kept), throwUp));
+        Assert.Equal(new SourceShape(false, 0f, 1.3f, 30f, 33f), MarkerSliders.Slid(round, width, 6, throwUp));
+    }
 }

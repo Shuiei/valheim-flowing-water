@@ -140,10 +140,15 @@ internal sealed class MarkerPanel : MonoBehaviour
     // refused (the player may not change it), it is said why and the sliders go back to what is kept.
     private void Slid()
     {
-        int spread = (int)_view.Spread.Slider.value;
-        var shape = new SourceShape(MarkerSliders.AllRound(spread), 0f, MarkerSliders.Width((int)_view.Width.Slider.value), MarkerSliders.Spread(spread), MarkerSliders.Throw((int)_view.Throw.Slider.value));
-        float rate = MarkerSliders.Rate((int)_view.Power.Slider.value, _drain);
-        float radius = MarkerSliders.Reach((int)_view.Reach.Slider.value);
+        if (Placed && !_target.IsValid)
+        {
+            Close();
+            return;
+        }
+
+        SourceShape shape = MarkerSliders.Slid(KeptShape, (int)_view.Width.Slider.value, (int)_view.Spread.Slider.value, (int)_view.Throw.Slider.value);
+        float rate = MarkerSliders.SlidRate((int)_view.Power.Slider.value, KeptRate, _drain);
+        float radius = MarkerSliders.SlidReach((int)_view.Reach.Slider.value, KeptRadius);
         if (Placed)
         {
             ChangeTarget(rate, radius, shape);
@@ -165,12 +170,6 @@ internal sealed class MarkerPanel : MonoBehaviour
 
     private void ChangeTarget(float rate, float radius, SourceShape shape)
     {
-        if (!_target.IsValid)
-        {
-            Close();
-            return;
-        }
-
         if (Commands.MarkerRefusal(CommandRights.MarkerUse.Change) is { } refusal)
         {
             Say(refusal, false);
@@ -189,7 +188,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             _target.Change(used, radius);
         }
 
-        if (!_drain && shape != _target.Shape)
+        if (!_drain && shape != _target.KeptShape)
         {
             _target.ChangeShape(shape);
         }
@@ -267,6 +266,14 @@ internal sealed class MarkerPanel : MonoBehaviour
         UpdateKeys();
     }
 
+    // The values kept: the placed one's (an all-round source's with its outlet's, kept for a turn back), or the next
+    // one's.
+    private float KeptRate => Placed ? _target.Rate : HoePieces.Next.Rate(_drain);
+
+    private float KeptRadius => Placed ? _target.Radius : HoePieces.Next.Radius;
+
+    private SourceShape KeptShape => Placed ? _target.KeptShape : HoePieces.Next.Shape;
+
     // The values kept (the placed one's, or the next one's) on the sliders and beside them, and a source's drawings.
     private void ShowValues()
     {
@@ -275,8 +282,8 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        float rate = Placed ? _target.Rate : HoePieces.Next.Rate(_drain);
-        float radius = Placed ? _target.Radius : HoePieces.Next.Radius;
+        float rate = KeptRate;
+        float radius = KeptRadius;
         _view.Power.Slider.SetValueWithoutNotify(MarkerSliders.RateNotch(rate, _drain));
         _view.Power.Value.text = MarkerValues.RateText(rate, _drain);
         if (_drain)
@@ -286,7 +293,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        SourceShape shape = Placed ? _target.Shape : HoePieces.Next.Shape;
+        SourceShape shape = KeptShape;
         _view.Width.Slider.SetValueWithoutNotify(MarkerSliders.WidthNotch(shape.Width));
         _view.Spread.Slider.SetValueWithoutNotify(MarkerSliders.SpreadNotch(shape));
         _view.Throw.Slider.SetValueWithoutNotify(MarkerSliders.ThrowNotch(shape.Throw));

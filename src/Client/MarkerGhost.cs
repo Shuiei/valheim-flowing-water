@@ -8,14 +8,14 @@ namespace FlowingWater.Client;
 /// <summary>
 /// What the hoe's ghost of a source shows over the ground while it is placed: an arrow the way it faces (the ghost's own
 /// turn, which the game's rotate keys change) and the outline of where its water goes, as the panel's values for the
-/// next one have it: its outlet's width, fanned out by its spread, as far as a jet lands (6 m along the ground); all
-/// round, a ring round it. Drawn in the ghost's own space, so it turns with it; made again when the values change.
+/// next one have it (<see cref="GhostOutline"/>). Drawn in the ghost's own space, so it turns with it; made again when
+/// the values change.
 /// </summary>
 internal sealed class MarkerGhost : MonoBehaviour
 {
-    // How far out the outline goes along the ground, metres, and at the most for a jet's landing; how thick its lines
-    // are and how far over the ground (over the game's grass: laid on the ground, it was hidden in it).
-    private const float Along = 6f, MostOut = 20f, Line = 0.12f, Lift = 0.35f;
+    // How thick its lines are and how far over the ground (over the game's grass: laid on the ground, it was hidden in
+    // it).
+    private const float Line = 0.12f, Lift = 0.35f;
 
     private static readonly Color Outline = new(0.55f, 0.85f, 0.95f), Arrow = new(1f, 0.75f, 0.3f);
 
@@ -84,30 +84,15 @@ internal sealed class MarkerGhost : MonoBehaviour
         _vertices.Clear();
         _outline.Clear();
         _arrow.Clear();
-        if (shape.AllRound)
+        foreach (((float X, float Y) from, (float X, float Y) to) in GhostOutline.Outline(shape, rate))
         {
-            const int Sides = 32;
-            for (int k = 0; k < Sides; k++)
-            {
-                float a0 = k * 2f * Mathf.PI / Sides, a1 = (k + 1) * 2f * Mathf.PI / Sides;
-                Strip(_outline, new Vector2(Mathf.Sin(a0), Mathf.Cos(a0)) * 1.5f, new Vector2(Mathf.Sin(a1), Mathf.Cos(a1)) * 1.5f);
-            }
+            Strip(_outline, new Vector2(from.X, from.Y), new Vector2(to.X, to.Y));
         }
-        else
-        {
-            float half = shape.OutletWidth / 2f;
-            float far = Mathf.Min(MostOut, SourcePreview.Lands(shape, rate) ?? Along);
-            float fan = Mathf.Tan(shape.Spread / 2f * Mathf.Deg2Rad) * far;
-            Vector2 leftNear = new(-half, 0f), rightNear = new(half, 0f), leftFar = new(-half - fan, far), rightFar = new(half + fan, far);
-            Strip(_outline, leftNear, rightNear);
-            Strip(_outline, leftNear, leftFar);
-            Strip(_outline, rightNear, rightFar);
-            Strip(_outline, leftFar, rightFar);
 
-            // The arrow: a shaft out of the outlet's middle and a head.
-            float length = Mathf.Min(2.5f, far * 0.6f);
-            Strip(_arrow, Vector2.zero, new Vector2(0f, length), 2.5f);
-            Triangle(_arrow, new Vector2(-0.35f, length), new Vector2(0.35f, length), new Vector2(0f, length + 0.6f));
+        if (GhostOutline.Arrow(shape, rate) is { } arrow)
+        {
+            Strip(_arrow, Vector2.zero, new Vector2(0f, arrow.Shaft), 2.5f);
+            Triangle(_arrow, new Vector2(arrow.Left.X, arrow.Left.Y), new Vector2(arrow.Right.X, arrow.Right.Y), new Vector2(arrow.Tip.X, arrow.Tip.Y));
         }
 
         _mesh.Clear();

@@ -235,6 +235,12 @@ internal static class MarkerValues
     public static string KindLine(SourceShape shape, float rate)
     {
         float? lands = SourcePreview.Lands(shape, rate);
-        return Capital(MarkerSliders.Kind(shape)) + (lands is { } far ? $" · lands {Format((float)Math.Round(far))} m out" : string.Empty);
+        string landing = lands switch
+        {
+            null => string.Empty,
+            < 1f => " · lands under 1 m out",
+            { } far => $" · lands {Format((float)Math.Round(far))} m out",
+        };
+        return Capital(MarkerSliders.Kind(shape)) + landing;
     }
 }

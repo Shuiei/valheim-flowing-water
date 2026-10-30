@@ -39,6 +39,9 @@ internal sealed class VoxelGrid
     // The bricks ForgetDry forgets, kept from call to call.
     private readonly List<Brick> _gone = [];
 
+    // A source's outlet's voxels with room as PourOutlet finds them, and the way its water leaves each.
+    private readonly List<(int X, int Y, int Z, Vec3 Way)> _outlet = [];
+
     private readonly ISolids _solids;
 
     /// <summary>A grid of voxels this many metres along a side.</summary>
@@ -211,6 +214,35 @@ internal sealed class VoxelGrid
         Aim(x, y, z, 1, flowY);
         Aim(x, y, z, 2, flowZ);
         return true;
+    }
+
+    /// <summary>
+    /// Pours a source's water out of its outlet, the outlet's middle at a point (world metres), across the way the shape
+    /// faces: a rate (m³/s) for a step, shared out evenly among the outlet's places with room (<see cref="Room"/>), each
+    /// share leaving its voxel the way the outlet sends it there (fanned out across it, thrown up) at that share of the
+    /// rate. An outlet partly against a wall or past the grid's reach pours all of it out of the rest.
+    /// </summary>
+    /// <returns>False when none of it had room: nothing poured.</returns>
+    public bool PourOutlet(float px, float py, float pz, SourceShape shape, float rate, float dt)
+    {
+        (float rightX, float rightZ) = shape.Right;
+        _outlet.Clear();
+        foreach ((float across, float offset) in shape.Outlet(VoxelSize))
+        {
+            if (Room(px + (rightX * offset), py, pz + (rightZ * offset), out int x, out int y, out int z))
+            {
+                _outlet.Add((x, y, z, shape.Direction(across)));
+            }
+        }
+
+        bool poured = false;
+        foreach ((int x, int y, int z, Vec3 way) in _outlet)
+        {
+            float share = rate / _outlet.Count;
+            poured |= PourAimed(x, y, z, share * dt, share * way.X, share * way.Y, share * way.Z);
+        }
+
+        return poured;
     }
 
     // The flow through a voxel's face along an axis raised to at least this one (its upper face going the positive

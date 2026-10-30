@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.48.1 — 2026-10-30
+
+### Fixed
+- Moving one slider of a placed source or drain no longer rounds its other values to their notches: a rate, reach or
+  shape set between notches (typed before 0.47.0, or by the console) stays as it was until its own slider moves.
+- A placed source made all round keeps its width and throw on the panel, so turned back it pours as it did at the
+  spread you pick; they showed as 0 and were lost on the next slider moved.
+- A source facing a way against a wall pours all its water out of the part of its outlet that is open; the part
+  against the wall poured none, and that much was lost.
+- A jet too weak to carry says it lands under 1 m out, not 0 m.
+
 ## v0.48.0 — 2026-10-30
 
 ### Added

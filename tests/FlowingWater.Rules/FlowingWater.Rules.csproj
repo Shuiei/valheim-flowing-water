@@ -40,6 +40,7 @@
     <Compile Include="../../src/Client/MarkerValues.cs" Link="Mod/MarkerValues.cs" />
     <Compile Include="../../src/Client/MarkerSliders.cs" Link="Mod/MarkerSliders.cs" />
     <Compile Include="../../src/Client/SourcePreview.cs" Link="Mod/SourcePreview.cs" />
+    <Compile Include="../../src/Client/GhostOutline.cs" Link="Mod/GhostOutline.cs" />
     <Compile Include="../../src/Client/NextPlacement.cs" Link="Mod/NextPlacement.cs" />
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
     <Compile Include="../../src/Client/BrickPick.cs" Link="Mod/BrickPick.cs" />
