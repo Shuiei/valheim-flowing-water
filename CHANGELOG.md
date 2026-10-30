@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.3 — 2026-10-30
+
+### Fixed
+- Water falling down a high rock face or cliff, seen from afar, is a fall again, not tall spiked sheets and a dashed
+  line of boxes: the water's surface is no longer stretched from a column's top to one many metres under it (the
+  falls draw that water), and a fall keeps one width down its length, running on through a voxel it leaves dry.
+
 ## v0.49.2 — 2026-10-30
 
 ### Fixed

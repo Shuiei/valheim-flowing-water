@@ -59,6 +59,7 @@ struct Input
     float4 water;   // depth, foam, shore, churn (white water the card's waves make: their crests, the water slowing hard)
     float2 current; // m/s
     float steep;    // the surface's slope (rise over run), without its waves
+    float rise;     // the bricks' only: the drawn surface's slope between its tops, dry columns' too (rise over run)
     float3 worldPos;
     float4 screenPos;
     float4 grabPos; // the same point in the grabbed image (upside down on some platforms)

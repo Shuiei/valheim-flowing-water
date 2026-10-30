@@ -102,6 +102,8 @@ Shader "FlowingWater/Water"
 
         // Columns along a side of a brick's textures.
         #define GRID_SIDE 17.0
+        // The steepest the surface is drawn, rise a run (about 72 degrees).
+        #define STEEP_GONE 3.0
 
         float2 GridUv(float2 cell)
         {
@@ -171,6 +173,7 @@ Shader "FlowingWater/Water"
             float wetEast = WetTop(eastOf, surface.x) - WetTop(westOf, surface.x);
             float wetNorth = WetTop(northOf, surface.x) - WetTop(southOf, surface.x);
             o.steep = length(float2(wetEast, wetNorth)) / max(_VoxelSize, 0.001);
+            o.rise = length(float2(east, north)) / max(_VoxelSize, 0.001);
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
@@ -202,8 +205,11 @@ Shader "FlowingWater/Water"
 
         void surf(Input i, inout SurfaceOutputStandard o)
         {
-            // Where the water moved on the card draws it, the brick does not.
-            if (!Draws(i.cell) || SimDraws(i.worldPos))
+            // Where the water moved on the card draws it, the brick does not; nor where its surface stands nearly upright
+            // (STEEP_GONE rise a run between the tops it is drawn through, a dry column's beside the water too):
+            // stretched from a column's top to one many metres under it, down a fall or a high face, it was a tall
+            // spiked sheet; the shell's falls and sides draw that water.
+            if (!Draws(i.cell) || SimDraws(i.worldPos) || i.rise > STEEP_GONE)
             {
                 discard;
             }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlowingWater.Volume;
@@ -40,7 +41,7 @@ public class VoxelShellTests
         var corners = Corners(shell).ToList();
         Assert.All(corners, c => Assert.Equal(6f - 8f, c.X, 3));
         Assert.All(corners, c => Assert.Equal((1f, 0f, 0f), c.Normal));
-        Assert.Equal([0f, 1f, 1.5f], corners.Select(c => c.Y + 8f).Distinct().OrderBy(y => y).Select(y => (float)System.Math.Round(y, 3)));
+        Assert.Equal([0f, 1f, 1.5f], corners.Select(c => c.Y + 8f).Distinct().OrderBy(y => y).Select(y => (float)Math.Round(y, 3)));
     }
 
     [Fact]
@@ -56,7 +57,7 @@ public class VoxelShellTests
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
         Assert.Equal(1, shell.Faces);
-        Assert.Equal([0.2f, 0.55f], Corners(shell).Select(c => (float)System.Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
+        Assert.Equal([0.2f, 0.55f], Corners(shell).Select(c => (float)Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
     }
 
     [Fact]
@@ -105,7 +106,7 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.DoesNotContain(Corners(shell), c => System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Normal == (1f, 0f, 0f));
+        Assert.DoesNotContain(Corners(shell), c => Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Normal == (1f, 0f, 0f));
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public class VoxelShellTests
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
         Assert.Equal(1, shell.Faces);
-        Assert.Equal([0.3f, 0.8f], Corners(shell).Select(c => (float)System.Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
+        Assert.Equal([0.3f, 0.8f], Corners(shell).Select(c => (float)Math.Round(c.Y + 8f, 3)).Distinct().OrderBy(y => y));
     }
 
     [Fact]
@@ -168,7 +169,7 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f) && System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Y + 8f < 1f);
+        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f) && Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Y + 8f < 1f);
     }
 
     [Fact]
@@ -299,6 +300,43 @@ public class VoxelShellTests
         Assert.Equal(0f, corners.Max(c => c.Y), 3);
         Assert.Equal(0.15f, corners.Max(c => c.X) - 0.5f, 3);
         Assert.All(Enumerable.Range(0, shell.Water.Count / 2), k => Assert.Equal(1f, shell.Water[2 * k], 3));
+    }
+
+    [Fact]
+    public void AFallOfUnevenWaterKeepsOneWidthDownItsLength()
+    {
+        // A fall whose voxels hold a tenth and half a tenth of a voxel by turns: as wide as the most of each voxel and
+        // the ones over and under it, so one width all down (as wide as each voxel's own, it was a dashed line).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Wet(view, 8, y, 8, y % 2 == 0 ? 0.09f : 0.04f, BrickData.AllOpen);
+            view.VelocityY[Brick.Index(8, y, 8)] = -4f;
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+
+        Assert.All(corners, c => Assert.Equal(0.15f, Math.Abs(c.X - 0.5f), 3));
+    }
+
+    [Fact]
+    public void AVoxelAFallLeavesDryIsTakenInByTheVoxelOverItUncapped()
+    {
+        // Falling water at rows 7, 6, 4 and 3, row 5 left dry between: one column from 3 m to 8 m, capped at its ends only.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int y in new[] { 3, 4, 6, 7 })
+        {
+            Wet(view, 8, y, 8, 0.09f, BrickData.AllOpen);
+            view.VelocityY[Brick.Index(8, y, 8)] = -4f;
+        }
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal((4 * 4) + 2, shell.Faces);
+        var corners = Corners(shell).ToList();
+        Assert.Equal(-5f, corners.Min(c => c.Y), 3);
+        Assert.Equal(0f, corners.Max(c => c.Y), 3);
+        Assert.Contains(corners, c => Math.Abs(c.Y + 3f) < 1e-3f);
     }
 
     [Fact]

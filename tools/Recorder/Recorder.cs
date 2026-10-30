@@ -1382,6 +1382,13 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         }
 
         var point = new Vector3(v[0], v[1], v[2]);
+
+        // A height of -9999 or lower: on the ground there (a place whose height is not known before the run).
+        if (point.y <= -9999f && ZoneSystem.instance.GetGroundHeight(point, out float ground))
+        {
+            point.y = ground + 0.05f;
+        }
+
         switch (words[0])
         {
             case "!source":
