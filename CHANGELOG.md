@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.45.2 — 2026-10-29
+
+### Fixed
+- The volume water preview draws the character's box in its wader and big-source frames: the water flowed round it,
+  but the frames showed only the water, with a hole where the character stood.
+
 ## v0.45.1 — 2026-10-29
 
 ### Added
