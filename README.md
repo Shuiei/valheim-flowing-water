@@ -356,7 +356,8 @@ fall from a height the grid does not reach still falls through it.
 
 `tools/sim-preview.sh <folder> VolumePreview.Run` runs it without the game and writes `volume.txt` and frames: a box
 of water at rest keeps its depth and every particle over 5 s; the 10 m dam break's front reaches the far wall at
-1.40 s (a real one about 1.3 to 1.5 s) and the water comes to rest near 0.5 m; water let go on a shelf pours over the
+1.40 s (a real one about 1.3 to 1.5 s), it sloshes on for some 15 s (a tank that long and shallow swings about every
+9 s) and lies still 0.50 m deep by its columns' tops after 20 s; water let go on a shelf pours over the
 lip and pools below, none lost; a source of 8 m³/s grows the water by its rate; a box of walls holds 2 m of water and
 empties through a gap opened at its foot, as solid voxels and as thin walls (closed faces); a drain of 2 m³/s takes
 exactly that; a grid 20 m square with open sides, poured from a pool the server has, keeps the server's water in the

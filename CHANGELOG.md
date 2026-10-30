@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.44.3 — 2026-10-29
+
+### Fixed
+- The volume water preview's dam break checks the water once it has come to rest, by its surface: it had checked a
+  tank still sloshing after 8 s, with a depth read 6 cm too high, and failed every run.
+
 ## v0.44.2 — 2026-10-29
 
 ### Fixed

@@ -165,9 +165,16 @@ public static class VolumePreview
         Log.AppendLine(Inv($"Dam break: 10 m tank, a 2.5 m x 2 m column: {added} particles ({added * scene.Water.Litre:0.0} m3)."));
         float hit = -1f;
         float highest = 0f;
-        for (int k = 1; k <= 480; k++)
+        // 20 s: a tank 10 m long, half a metre deep, sloshes for some 9 s a swing, and is still well after 8 s.
+        for (int k = 1; k <= 1200; k++)
         {
             scene.Step();
+            if (k % 120 == 0 && k > 240)
+            {
+                Measure now = Measure.Of(scene.Water, bed);
+                Log.AppendLine(Inv($"  t={k * Frame:0}s its columns' tops {MeanTop(scene.Water, 0.5f):0.000} m on average, moving {now.Speed:0.000} m/s on average, fastest {now.Fastest:0.00} m/s"));
+            }
+
             if (k % 12 == 0 && k <= 240)
             {
                 float[] data = scene.Water.Read();
@@ -190,14 +197,18 @@ public static class VolumePreview
                 Log.AppendLine(Inv($"  t={k * Frame:0.00}s front {front - 10f:0.00} m from the tank's start, at the far wall up to {wall:0.00} m; froth {Froth.Of(scene.Water)}"));
             }
 
-            if (k is 15 or 30 or 60 or 90 or 120 or 180 or 480)
+            if (k is 15 or 30 or 60 or 90 or 120 or 180 or 480 or 1200)
             {
                 scene.Shot(Inv($"vdambreak_{k * Frame:0.00}s"), new Vector3(15f, 3f, 12f), new Vector3(15f, 0.8f, 20f));
             }
         }
 
+        // Once still, its level from the top of each column (the tenth highest particles and half a spacing over them
+        // stand some 6 cm over the surface of water whose particles lie as they fell, not in a lattice).
         Measure rest = Measure.Of(scene.Water, bed);
-        Log.AppendLine(Inv($"  Reaches the far wall at {hit:0.00} s, highest there {highest:0.00} m; after 8 s the water holds {rest.Level:0.00} m of depth (at rest 0.50), {rest.Count} of {added} particles, moving {rest.Speed:0.000} m/s on average: {Check(hit > 1f && hit < 2f && Mathf.Abs(rest.Level - 0.5f) < 0.06f && rest.Count == added)}"));
+        float level = MeanTop(scene.Water, 0.5f);
+        bool still = rest.Speed < 0.06f;
+        Log.AppendLine(Inv($"  Reaches the far wall at {hit:0.00} s, highest there {highest:0.00} m; after 20 s the water lies {level:0.00} m deep by its columns' tops (at rest 0.50), {rest.Count} of {added} particles, moving {rest.Speed:0.000} m/s on average (still: under 0.06): {Check(hit > 1f && hit < 2f && Mathf.Abs(level - 0.5f) < 0.06f && still && rest.Count == added)}"));
     }
 
     // Water let go on a shelf 3 m over a basin: it pours over the lip as one body, falls, and pools below.
@@ -397,9 +408,16 @@ public static class VolumePreview
         Log.AppendLine(Inv($"  Over 10 s the source gave {gaveWater:0} m3 (its rate's {wanted:0}): within 15 %: {Check(gives)}"));
     }
 
-    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
-    // deviation about the mean (m), over the columns that hold water.
-    private static float Roughness(VolumeWater water, float[] bed, float column)
+    // The water's top on average: the height of the highest particle in each column (of a width), over the columns that
+    // hold water.
+    private static float MeanTop(VolumeWater water, float column)
+    {
+        Dictionary<(int, int), float> tops = ColumnTops(water, column);
+        return tops.Count > 0 ? tops.Values.Average() : 0f;
+    }
+
+    // The height of the highest particle in each column (of a width) that holds water, by the column.
+    private static Dictionary<(int, int), float> ColumnTops(VolumeWater water, float column)
     {
         float[] data = water.Read();
         var tops = new Dictionary<(int, int), float>();
@@ -410,6 +428,14 @@ public static class VolumePreview
             tops[key] = Math.Max(tops.TryGetValue(key, out float top) ? top : float.MinValue, y);
         }
 
+        return tops;
+    }
+
+    // How uneven the water's top is: the heights of the highest particle in each column (of a width), their standard
+    // deviation about the mean (m), over the columns that hold water.
+    private static float Roughness(VolumeWater water, float[] bed, float column)
+    {
+        Dictionary<(int, int), float> tops = ColumnTops(water, column);
         if (tops.Count < 2)
         {
             return 0f;
