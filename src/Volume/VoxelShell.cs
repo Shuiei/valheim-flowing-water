@@ -49,11 +49,13 @@ internal sealed class VoxelShell
 
     /// <summary>
     /// The bricks whose shell reads a brick's water, from it: the six beside it (their faces look across), the four
-    /// beside the one over it (a side looks down the column beside it, a few rows under its own) and the four beside
-    /// the one under it (a side in a brick's top row looks for water over the voxel beside, a row up).
+    /// beside the one over it (a side looks down the column beside it, a few rows under its own), the four beside
+    /// the one under it (a side in a brick's top row looks for water over the voxel beside, a row up), and the four
+    /// across its corners along the ground (a fall joined to the one beside asks whether the surface takes that one,
+    /// which looks at its own neighbours: at a brick's corner, one is in the brick across it).
     /// </summary>
     public static IReadOnlyList<(int X, int Y, int Z)> Readers { get; } =
-        [.. Sides, (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (1, -1, 0), (-1, -1, 0), (0, -1, 1), (0, -1, -1)];
+        [.. Sides, (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (1, -1, 0), (-1, -1, 0), (0, -1, 1), (0, -1, -1), (1, 0, 1), (1, 0, -1), (-1, 0, 1), (-1, 0, -1)];
 
     /// <summary>Its corners, metres from the brick's middle (x, y, z each).</summary>
     public List<float> Positions { get; } = [];
