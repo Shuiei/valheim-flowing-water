@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Threading;
 using FlowingWater.Client;
 using FlowingWater.Server;
+using FlowingWater.Volume;
 using Xunit;
 
 namespace FlowingWater.Tests;
@@ -215,14 +216,6 @@ public class MarkerValuesTests
         Assert.False(MarkerValues.Same(1f, -1f));
     }
 
-    [Fact]
-    public void TheHintsSayWhatAValueMayBeAndTheMost()
-    {
-        Assert.Equal("Above 0, up to 100", MarkerValues.RateHint(drain: false));
-        Assert.Equal("0 takes everything; up to 100", MarkerValues.RateHint(drain: true));
-        Assert.Equal("0.25 to 16", MarkerValues.RadiusHint);
-    }
-
     [Theory]
     [InlineData(false, 2f, 0f, "Source: 2 m³/s")]
     [InlineData(false, 500f, 0f, "Source: 100 m³/s")]
@@ -255,8 +248,8 @@ public class MarkerValuesTests
 
     [Theory]
     [InlineData(false, false, "[E] Change")]
-    [InlineData(true, false, "[Enter] Apply   [Esc] or [E] Done")]
-    [InlineData(true, true, "[Enter] Apply   [Esc] or [E] Close   or Remove it below")]
+    [InlineData(true, false, "[Esc] or [E] Done")]
+    [InlineData(true, true, "[Esc] or [E] Close   or Remove it below")]
     public void ThePanelsKeysSayHowToChangeAndLeave(bool editing, bool placed, string keys)
     {
         Assert.Equal(keys, MarkerValues.Keys(editing, placed));
@@ -277,8 +270,9 @@ public class MarkerValuesTests
     {
         Assert.Equal("Water source", MarkerValues.Name(drain: false));
         Assert.Equal("Water drain", MarkerValues.Name(drain: true));
-        Assert.Contains("rate is set in the panel", MarkerValues.Description(drain: false));
-        Assert.Contains("rate and radius are set in the panel", MarkerValues.Description(drain: true));
+        Assert.Contains("width, spread, throw and power are set in the panel", MarkerValues.Description(drain: false));
+        Assert.Contains("the way it faces", MarkerValues.Description(drain: false));
+        Assert.Contains("rate and reach are set in the panel", MarkerValues.Description(drain: true));
         Assert.All([MarkerValues.Description(drain: false), MarkerValues.Description(drain: true)], d => Assert.Contains("changes or removes it", d));
         Assert.All([MarkerValues.Description(drain: false), MarkerValues.Description(drain: true)], d => Assert.Contains("show while a water piece is chosen", d));
     }
@@ -289,5 +283,26 @@ public class MarkerValuesTests
         Assert.Equal("Remove source or drain", MarkerValues.RemoverName);
         Assert.Contains("Shows the sources and drains", MarkerValues.RemoverDescription);
         Assert.Contains("a click removes it", MarkerValues.RemoverDescription);
+    }
+
+    [Fact]
+    public void ASourcesHoverTextSaysItsShapeUnderItsRate()
+    {
+        string hover = MarkerValues.Hover(2f, new SourceShape(false, 0f, 0f, 20f, 30f), mayChange: true);
+
+        Assert.StartsWith("Source: 2 m³/s\nA slim jet spray, from a point, fanned 20°, thrown up 30°", hover);
+        Assert.Contains("$KEY_Use", hover);
+        Assert.Equal("Source: 2 m³/s\nAll round", MarkerValues.Hover(2f, SourceShape.Round, mayChange: false));
+    }
+
+    [Fact]
+    public void ThePanelsLinesSayAJetsKindAndWhereItLands()
+    {
+        Assert.Equal("A slim jet spray · lands 15 m out", MarkerValues.KindLine(new SourceShape(false, 0f, 0f, 20f, 45f), 2f));
+        Assert.Equal("A wide river", MarkerValues.KindLine(new SourceShape(false, 0f, 6f, 0f, 0f), 2f));
+        Assert.Equal("all", MarkerValues.RateText(0f, drain: true));
+        Assert.Equal("2.5 m³/s", MarkerValues.RateText(2.5f, drain: false));
+        Assert.Equal("Wide", MarkerValues.Capital("wide"));
+        Assert.Contains("left end takes everything", MarkerValues.SliderHint(drain: true));
     }
 }

@@ -1174,9 +1174,11 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A place of
     // "~" runs the command where the player is, at once (a film right after a pour: a move takes some 14 s). A command
     // starting with '!' is the recorder's own: "!source x,y,z,rate[,heading,width,spread,throw]" (a source at that
-    // point, all round or facing a way), "!remove x,y,z" (the source within 2 m taken away), "!break x,y,z" (the piece
-    // nearest the point broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there,
-    // turned so many degrees round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
+    // point, all round or facing a way), "!remove x,y,z" (the source within 2 m taken away), "!panel x,y,z" (the
+    // panel opened for the source or drain within 2 m, as [E] on it would), "!slide row,notch" (a slider of that panel
+    // moved), "!break x,y,z" (the piece nearest the point
+    // broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees
+    // round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
     // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
@@ -1308,7 +1310,13 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
-        if (words[0] is not ("!source" or "!remove" or "!break"))
+        if (words[0] == "!slide")
+        {
+            Slide(words.Length > 1 ? words[1] : string.Empty);
+            return;
+        }
+
+        if (words[0] is not ("!source" or "!remove" or "!break" or "!panel"))
         {
             Note("unknown recorder command " + command);
             return;
@@ -1360,6 +1368,24 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 }
 
                 break;
+            case "!panel":
+                // The source and drain panel opened for the source or drain within 2 m, as [E] on it would (the
+                // plugin's own MarkerPanel.Open, found by name: the recorder builds without the plugin).
+                Component nearest = FindObjectsByType<ZNetView>(FindObjectsSortMode.None)
+                    .Where(n => n.IsValid() && Vector3.Distance(n.transform.position, point) <= RemoveReach)
+                    .Select(n => n.GetComponent("Marker"))
+                    .Where(m => m != null)
+                    .OrderBy(m => Vector3.Distance(m.transform.position, point)).FirstOrDefault();
+                System.Reflection.MethodInfo open = Type.GetType("FlowingWater.Client.MarkerPanel, FlowingWater")?.GetMethod("Open");
+                if (nearest == null || open == null)
+                {
+                    Note(nearest == null ? "no source or drain to open the panel for" : "the plugin's MarkerPanel.Open was not found");
+                    break;
+                }
+
+                open.Invoke(null, [nearest]);
+                Note(FormattableString.Invariant($"panel opened for the one at {nearest.transform.position}"));
+                break;
             case "!break":
                 WearNTear piece = FindObjectsByType<WearNTear>(FindObjectsSortMode.None)
                     .OrderBy(w => Vector3.Distance(w.transform.position, point)).FirstOrDefault();
@@ -1394,6 +1420,25 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         GameObject placed = Instantiate(prefab, point, Quaternion.Euler(0f, v[3], 0f));
         placed.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, Player.m_localPlayer.GetPlayerID());
         Note(FormattableString.Invariant($"{words[0]} placed at {point}, turned {v[3]}°"));
+    }
+
+    // "!slide row,notch": a slider of the open source and drain panel (its row: Width, Spread, Throw, Power or Reach)
+    // moved to that notch, as a player dragging it would (the plugin's panel found by name: the recorder builds
+    // without the plugin).
+    private void Slide(string what)
+    {
+        string[] parts = what.Split(',');
+        object panel = Type.GetType("FlowingWater.Client.MarkerPanel, FlowingWater") is { } type ? AccessTools.Field(type, "_panel")?.GetValue(null) : null;
+        object view = panel == null ? null : AccessTools.Field(panel.GetType(), "_view")?.GetValue(panel);
+        object row = parts.Length == 2 && view != null ? AccessTools.Property(view.GetType(), parts[0])?.GetValue(view) : null;
+        if (row == null || AccessTools.Property(row.GetType(), "Slider")?.GetValue(row) is not UnityEngine.UI.Slider slider || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int notch))
+        {
+            Note("no open panel's slider to move: " + what);
+            return;
+        }
+
+        slider.value = notch;
+        Note(FormattableString.Invariant($"slider {parts[0]} moved to notch {notch}"));
     }
 
     // "!drop name x,y,z": that prefab (an item, a log, a boat) let go at the point as it is, for the current to carry.

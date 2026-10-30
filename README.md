@@ -23,12 +23,17 @@ and off its top, and through a notch mined in it.
 
 With the **hoe**: among its pieces are a **Water source**, a **Water drain** and **Remove source or drain**, free to
 build. The source and the drain each go exactly where you aim, on the ground or on anything built (a floor, a wall's
-top). While the source or the drain is the hoe's piece, a panel on the right of the screen shows the rate (m³/s), and
-for a drain the radius (m), that the next one placed takes: **E** lets you change them (the mouse is free and the game
-takes no keys while you type; **Enter** applies, **Esc** or **E** is done). They start from `DefaultSourceRate`,
-`DefaultDrainRate` and `DefaultDrainRadius` and stay as you set them until you quit the game. Placed sources and
+top). While the source or the drain is the hoe's piece, a panel on the right of the screen shows, on sliders, what the
+next one placed takes: a source's width, spread, throw and power, with two drawings of its water (from above, its
+outlet and fan; from the side, its throw's arc and where it lands, named under them: a slim jet spray, a wide river...),
+or a drain's power and reach. **E** lets you change them (the mouse is free and the game takes no keys while you drag;
+**Esc** or **E** is done). Width goes by half metres to 10 m, spread and throw by 5 degrees to 90 and 60 (the spread's
+last notch: all round), power on a logarithm from 0.1 to 100 m³/s (a drain's left end: everything), reach by quarter
+metres to 16 m. They start from `DefaultSourceRate`, `DefaultDrainRate` and `DefaultDrainRadius` (a new source as a
+slim jet) and stay as you set them until you quit the game. Placed sources and
 drains are invisible: they show only while the hoe is in hand with one of these three chosen, or the hammer. Looking
-at a shown one tells what it does; **E** on it opens the panel to change it, or to take it away with the panel's
+at a shown one tells what it does (a source's shape too); **E** on it opens the panel to change it (each change is
+written into it at once), or to take it away with the panel's
 **Remove** button. With **Remove source or drain** chosen, the one you aim at turns red and a click takes it away; the
 hoe removes nothing else. The hammer breaks one as any piece: with it in hand, the one aimed at turns red, and its
 remove takes it away.

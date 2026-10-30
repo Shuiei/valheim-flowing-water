@@ -114,6 +114,13 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
         Write(_nview.GetZDO(), IsDrain, rate, radius);
     }
 
+    /// <summary>A new shape for this placed source, as <see cref="Change"/> writes its rate (the way it faces stays its piece's).</summary>
+    public void ChangeShape(SourceShape shape)
+    {
+        _nview.ClaimOwnership();
+        MarkerShape.Write(_nview.GetZDO(), shape);
+    }
+
     // The game destroys the object at the end of the frame: until then it must not be found again
     // (a second remove in the same frame destroyed it twice and failed).
     public void Remove()
@@ -136,6 +143,10 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
         {
             NextPlacement next = HoePieces.Next;
             Write(_nview.GetZDO(), IsDrain, next.Rate(IsDrain), next.Radius);
+            if (!IsDrain)
+            {
+                MarkerShape.Write(_nview.GetZDO(), next.Shape);
+            }
         }
     }
 
@@ -147,7 +158,7 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
         }
 
         bool mayChange = Commands.MarkerRefusal(CommandRights.MarkerUse.Change) == null && PrivateArea.CheckAccess(transform.position, 0f, false);
-        return Localization.instance.Localize(MarkerValues.Hover(IsDrain, Rate, Radius, mayChange));
+        return Localization.instance.Localize(IsDrain ? MarkerValues.Hover(true, Rate, Radius, mayChange) : MarkerValues.Hover(Rate, Shape, mayChange));
     }
 
     public string GetHoverName() => MarkerValues.Name(IsDrain);
