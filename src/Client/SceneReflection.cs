@@ -25,7 +25,9 @@ internal static class SceneReflection
 
     private static readonly int ProbePositionId = Shader.PropertyToID("unity_SpecCube0_ProbePosition");
 
-    private static ReflectionProbe[] _probes = [];
+    // The scene's probes, looked for at the first draw (_lookedAt starts long ago) and again now and then. No collection
+    // expression: the Unity project compiles this file too (tools/sim-preview.sh), in C# 9.
+    private static ReflectionProbe[] _probes;
 
     private static float _lookedAt = float.NegativeInfinity;
 

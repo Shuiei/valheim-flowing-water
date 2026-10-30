@@ -194,28 +194,33 @@ Shader "FlowingWater/Water"
             return a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : (d.z > 0.0 ? d.w : -1.0)));
         }
 
-        // A column's top row over the brick's floor (the voxel its level is in, the level at its top in it).
-        float RowOf(float4 column)
+        // A column as the next state has it: its surface's values (x level, z shown) and its top row over the brick's
+        // floor in w (SurfaceGrid.Row, from the current's texture: the voxel its top is in, as the shell counts it; its
+        // level, laid flat, may lie a row under it, and taken from the level the shell kept a side the surface joined).
+        float4 ColumnAt(float2 corner)
         {
-            return ceil((column.x / max(_VoxelSize, 0.001)) - 0.001) - 1.0;
+            float4 surface = tex2Dlod(_SurfaceNext, float4(GridUv(corner), 0.0, 0.0));
+            return float4(surface.x, surface.y, surface.z, tex2Dlod(_FlowNext, float4(GridUv(corner), 0.0, 0.0)).w);
         }
 
-        // Whether two columns side by side, both with water, are further apart than the surface joins.
+        // Whether two columns, both with water, are further apart than the surface joins.
         bool Apart(float4 a, float4 b)
         {
-            return a.z > 0.0 && b.z > 0.0 && abs(RowOf(a) - RowOf(b)) > JOIN_ROWS + 0.5;
+            return a.z > 0.0 && b.z > 0.0 && abs(a.w - b.w) > JOIN_ROWS + 0.5;
         }
 
         // Whether the square a point is in spans two columns the surface does not join, as the next state has them: the
-        // shell draws the water there.
+        // shell draws the water there. Across its diagonal too where only opposite corners have water (the corners
+        // between them dry, raised to the mean of their wet neighbours, would carry a sheet between the two).
         bool Unjoined(float2 cell)
         {
             float2 corner = min(floor(cell), GRID_SIDE - 2.0);
-            float4 a = tex2Dlod(_SurfaceNext, float4(GridUv(corner), 0.0, 0.0));
-            float4 b = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(1.0, 0.0)), 0.0, 0.0));
-            float4 c = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(0.0, 1.0)), 0.0, 0.0));
-            float4 d = tex2Dlod(_SurfaceNext, float4(GridUv(corner + float2(1.0, 1.0)), 0.0, 0.0));
-            return Apart(a, b) || Apart(c, d) || Apart(a, c) || Apart(b, d);
+            float4 a = ColumnAt(corner);
+            float4 b = ColumnAt(corner + float2(1.0, 0.0));
+            float4 c = ColumnAt(corner + float2(0.0, 1.0));
+            float4 d = ColumnAt(corner + float2(1.0, 1.0));
+            bool crossed = (b.z <= 0.0 && c.z <= 0.0 && Apart(a, d)) || (a.z <= 0.0 && d.z <= 0.0 && Apart(b, c));
+            return Apart(a, b) || Apart(c, d) || Apart(a, c) || Apart(b, d) || crossed;
         }
 
         // Whether this brick draws the square a point is in: as the next state has it, or where the next shows no

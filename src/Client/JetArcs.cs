@@ -28,8 +28,8 @@ internal static class JetArcs
     // The jets' arcs are followed again this often (s): a source placed, turned or changed, or the ground under its jet.
     private const float FollowSeconds = 0.25f;
 
-    /// <summary>A jet leaves its outlet this far over its marker's foot (m), as the server pours it (VoxelServer's PourPoint).</summary>
-    internal const float OutletLift = 0.3f;
+    // A jet leaves its outlet this far over its marker's foot (m), as the server pours it (VoxelServer's PourPoint).
+    private const float OutletLift = OutletVoxels.Lift;
 
     // What stops a jet: the ground and what is built or stands on it (not characters, nor what lets things through).
     private static readonly string[] SolidLayers = ["Default", "static_solid", "Default_small", "piece", "terrain", "vehicle"];
@@ -160,7 +160,7 @@ internal static class JetArcs
         float voxel = VoxelWater.Field.VoxelSize > 0f ? VoxelWater.Field.VoxelSize : 1f;
         foreach ((Vector3 at, float rate, bool drain, _, SourceShape shape) in Markers)
         {
-            if (drain || !shape.Flies || (at - camera).sqrMagnitude > reach * reach)
+            if (drain || !shape.Flies || !InReach(at, camera, reach))
             {
                 continue;
             }
@@ -188,7 +188,7 @@ internal static class JetArcs
         foreach (ServerJet jet in FlowingWaterPlugin.Server?.Jets ?? _heard)
         {
             var foot = new Vector3(jet.Foot.X, jet.Foot.Y, jet.Foot.Z);
-            if (jet.Landings.Length == 0 || (foot - camera).sqrMagnitude > reach * reach || Loaded(foot))
+            if (jet.Landings.Length == 0 || !InReach(foot, camera, reach) || Loaded(foot))
             {
                 continue;
             }
@@ -228,8 +228,17 @@ internal static class JetArcs
         }
     }
 
+    // Whether a source's jet may come within the draw distance: its marker within it and as far again as the farthest a
+    // jet flies along the ground (a jet thrown toward the camera from past the far clip comes into it).
+    private static bool InReach(Vector3 at, Vector3 camera, float reach)
+    {
+        float within = reach + (SourceShape.MostSpeed * JetFlight.Longest);
+        return (at - camera).sqrMagnitude <= within * within;
+    }
+
     // The share of the way from one place to the next where it first meets the ground, a piece, the sea or the
-    // flowing water's top; null where it meets nothing. A source's own marker is passed through.
+    // flowing water's top; null where it meets nothing. A source's own marker is passed through. The water's top is
+    // looked for along the whole way (a step's end under a shallow pool's water, in the ground under it, found none).
     private static float? Meets(Vec3 from, Vec3 to)
     {
         var a = new Vector3(from.X, from.Y, from.Z);
@@ -249,11 +258,15 @@ internal static class JetArcs
             }
         }
 
-        float sea = ZoneSystem.instance != null ? ZoneSystem.instance.m_waterLevel : float.NegativeInfinity;
-        float top = Math.Max(sea, VoxelWater.SurfaceAt(b));
-        if (b.y < top && a.y > b.y)
+        if (length > 1e-4f && VoxelWater.RayToSurface(a, way / length, length, out Vector3 wet))
         {
-            share = Math.Min(share ?? 1f, Mathf.Clamp01((a.y - top) / (a.y - b.y)));
+            share = Math.Min(share ?? 1f, Vector3.Distance(a, wet) / length);
+        }
+
+        float sea = ZoneSystem.instance != null ? ZoneSystem.instance.m_waterLevel : float.NegativeInfinity;
+        if (b.y < sea && a.y > b.y)
+        {
+            share = Math.Min(share ?? 1f, Mathf.Clamp01((a.y - sea) / (a.y - b.y)));
         }
 
         return share;
