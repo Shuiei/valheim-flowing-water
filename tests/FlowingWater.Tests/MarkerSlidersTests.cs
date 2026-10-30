@@ -128,14 +128,14 @@ public class MarkerSlidersTests
     }
 
     [Fact]
-    public void ASourceMadeAllRoundKeepsItsOutletAndFansOutAsItDidWhenTurnedBack()
+    public void ASourceMadeAllRoundKeepsItsOutletAndTakesTheSpreadItsSliderStandsAtWhenTurnedBack()
     {
         var kept = new SourceShape(false, 0f, 1.3f, 22f, 33f);
         int width = MarkerSliders.WidthNotch(1.3f), throwUp = MarkerSliders.ThrowNotch(33f);
 
         SourceShape round = MarkerSliders.Slid(kept, width, MarkerSliders.SpreadNotches, throwUp);
         Assert.Equal(new SourceShape(true, 0f, 1.3f, 22f, 33f), round);
-        Assert.Equal(kept, MarkerSliders.Slid(round, width, MarkerSliders.SpreadNotch(kept), throwUp));
+        Assert.Equal(new SourceShape(false, 0f, 1.3f, 20f, 33f), MarkerSliders.Slid(round, width, MarkerSliders.SpreadNotch(kept), throwUp));
         Assert.Equal(new SourceShape(false, 0f, 1.3f, 30f, 33f), MarkerSliders.Slid(round, width, 6, throwUp));
     }
 }

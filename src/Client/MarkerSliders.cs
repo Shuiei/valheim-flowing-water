@@ -103,13 +103,14 @@ internal static class MarkerSliders
 
     /// <summary>
     /// The shape the shape sliders give when one moved, from the shape kept: each value kept while its slider still
-    /// stands at the notch nearest it, else its notch's, and the heading kept (the piece's turn); the spread kept too
-    /// when it is made all round, so turned back to the notch nearest it, it fans out as it did.
+    /// stands at the notch nearest it, else its notch's, and the heading kept (the piece's turn). Made all round, it
+    /// keeps its spread; turned back, it takes the spread its slider stands at (dragged back, the slider passes the
+    /// notches between, each taken in turn: the one kept would come back only on a jump straight to its notch).
     /// </summary>
     public static SourceShape Slid(SourceShape kept, int width, int spread, int throwUp)
     {
         bool allRound = AllRound(spread);
-        float fan = allRound || spread == FanNotch(kept.Spread) ? kept.Spread : Spread(spread);
+        float fan = allRound || (!kept.AllRound && spread == FanNotch(kept.Spread)) ? kept.Spread : Spread(spread);
         return new SourceShape(
             allRound,
             kept.Heading,
