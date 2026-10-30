@@ -36,6 +36,14 @@ remove takes it away.
 A source's rate is above 0 and a drain's 0 or more (0 takes everything that reaches it), each 100 m³/s at most: the
 panel holds a higher rate to 100, as the server does, and says so. A drain's radius is 0.25 to 16 m.
 
+A source pours all round (its water out of every side of it), or the way it faces: its piece's turn as it was placed
+(the game's rotate keys turn it while placing), out of an outlet up to 10 m wide (0: a point), fanned out up to 90
+degrees across it (0: straight on, a river; more, a jet spraying out) and thrown up to 60 degrees over the ground (0:
+along it). So a point fanned out a little and thrown up is a slim jet, a wide outlet sent straight along the ground a
+wide river. Its water leaves as fast as it must to pass the rate through a slot 0.25 m high, 12 m/s at most (the slot
+standing higher then): a slim strong jet runs fast, a wide river slow. Every source placed before 0.46.0, and the
+config's fixed ones, pour all round.
+
 Console (F5) command `flowingwater`:
 
 | Command | Does |
@@ -344,7 +352,10 @@ rate needs (0.8 m round for the default 2 m³/s, 1.8 m for 10, 5.6 m for 100) an
 cells kept full of particles going out of it. Its water gushes out of the lens's rim, outward and a little up (about
 30 degrees), as fast as the rim passes its rate (0.6 m/s for 1 m³/s, 5.6 m/s for 100), scaled each step toward giving
 it: welling up over the lens, as it did until 0.44.1, a 100 m³/s source's water stood a metre over the water round it
-to get away, a green dome; out flat along the ground, it ran out under the water, which lay calm over it. A source
+to get away, a green dome; out flat along the ground, it ran out under the water, which lay calm over it. A source facing a way is
+an outlet in front of its marker instead: a cell deep, as wide and as high as its outlet (two cells across and one
+high at least), its cells kept full of particles leaving the way it sends them there, turned out across the outlet by
+up to half its spread toward its ends and thrown up, at the outlet's speed scaled toward giving its rate. A source
 of 5 m³/s or more foams too, to show its power: its lens's top lets bubbles go, all it will from 50 m³/s (6 a second
 from each top cell, at `VolumeFroth` 1), which rise to foam over it and are carried off with its water; a drain takes its rate of particles within its reach. The server's config's fixed sources and
 drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
@@ -503,7 +514,10 @@ there to the new grid (same volume), at once when the file is saved.
   brick saved so) is emptied where it is found and counted in the log, the water round it going on. Each step works only on the part of a block round its water (and its
   borders where the next block has water), and a block whose water has barely moved for a second sleeps (skipped)
   until water is poured in, a solid changes or a block beside it moves: still pools cost almost nothing. A source
-  pours 0.3 m over its point (the first open voxel there, over the piece it stands on); a drain takes from every
+  pours 0.3 m over its point (the first open voxel there, over the piece it stands on); one facing a way pours along
+  its outlet, a share of its rate into each voxel across it, the flows through each voxel's faces the way the outlet
+  sends it raised to that share (the pipes keep a flow's momentum, so its water leaves that way and runs on; a point
+  fanned out is one voxel at 1 m, so its fan shows in the water near you, not the server's); a drain takes from every
   voxel within its radius.
 - **Server.** The simulation works on the saved objects (ZDOs) only, never on scene objects, so it runs on a
   dedicated server and where no player is. Ground heights come from the world generator as the game's heightmap

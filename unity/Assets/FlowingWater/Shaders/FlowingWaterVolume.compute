@@ -107,11 +107,15 @@ struct Particle
 // Cells with this many particles or more hold water to the froth.
 #define WET 2
 
-// A water source or drain (ParticleWater.Spout's layout kept: ring = centre and reach, flow = speed, rate, drain).
+// A water source or drain (VolumeWater.Spring: ring = centre and reach, flow = speed, rate, drain, height; a source
+// facing a way: aim = the way its water leaves its outlet's middle and half its spread, radians; outlet = across it
+// (east, north), its width and height, the width 0 for one all round).
 struct Spring
 {
     float4 ring;
     float4 flow;
+    float4 aim;
+    float4 outlet;
 };
 
 // A box in the water (ParticleWater.Body's layout), or a sphere.
@@ -528,13 +532,48 @@ float3 FromSource(Spring spring, float3 place)
     return away;
 }
 
-// The source whose lens a point is in, or -1.
+// Whether a source faces a way (an outlet in front of it), not all round.
+bool Aimed(Spring spring)
+{
+    return spring.outlet.z > 0.0;
+}
+
+// Where a point stands from a source facing a way: across its outlet (to its right), out in front of it and up from its
+// marker's foot, metres.
+float3 InOutlet(Spring spring, float3 place)
+{
+    float3 d = place - spring.ring.xyz;
+    float2 right = spring.outlet.xy;
+    float2 forward = float2(-right.y, right.x);
+    return float3(dot(d.xz, right), dot(d.xz, forward), d.y);
+}
+
+// Whether a point is in a source: in an all-round one's lens, or in the outlet of one facing a way (a cell deep at its
+// marker, as wide and as high over the ground as the outlet, two cells across and one high at least: padded by half a
+// cell, its cells passed half as much again as the rate at the outlet's speed, and Regulate held a river at its
+// slowest and still over its rate; one cell across, a point's jet could not pass 2 m3/s at twice its speed, its
+// particles a cell's length from leaving it each step).
+bool InSource(Spring spring, float3 place)
+{
+    if (!Aimed(spring))
+    {
+        return length(FromSource(spring, place)) < spring.ring.w;
+    }
+
+    // Half-open, each bound held by the cells on one side of it (a marker standing on cells' corner made four of a
+    // cell's outlet, and four times the water at its speed).
+    float3 o = InOutlet(spring, place);
+    float half = 0.5 * max(spring.outlet.z, 2.0 * _H);
+    return o.x >= -half && o.x < half && o.y >= -0.5 * _H && o.y < 0.5 * _H && o.z >= 0.0 && o.z < max(spring.outlet.w, _H);
+}
+
+// The source a point is in, or -1.
 int SourceAt(float3 place)
 {
     for (uint s = 0u; s < _SpringCount; s++)
     {
         Spring spring = _Springs[s];
-        if (spring.flow.z < 0.5 && length(FromSource(spring, place)) < spring.ring.w)
+        if (spring.flow.z < 0.5 && InSource(spring, place))
         {
             return (int)s;
         }
@@ -543,13 +582,25 @@ int SourceAt(float3 place)
     return -1;
 }
 
-// The velocity a source gives at a point: outward from its middle and a little up (BOIL_TILT up for one out: about 30
-// degrees), at its speed (straight up at the very middle), scaled as Regulate found it. Its water gushes out of the
-// lens's rim and breaks the surface round it: welling up over the lens, a big source's water stood a metre over the
-// water round it to get away, a dome; flat along the ground, it ran out under the water, which lay calm over it.
+// The velocity a source gives at a point. One facing a way: the way its outlet sends it there. One all round: outward
+// from its middle and a little up (BOIL_TILT up for one out: about 30 degrees), at its speed (straight up at the very
+// middle), scaled as Regulate found it. Its water gushes out of the lens's rim and breaks the surface round it:
+// welling up over the lens, a big source's water stood a metre over the water round it to get away, a dome; flat
+// along the ground, it ran out under the water, which lay calm over it.
 float3 SourceVelocity(int s, float3 place)
 {
     Spring spring = _Springs[s];
+    if (Aimed(spring))
+    {
+        // Facing a way: its aim, turned out across the outlet by up to half its spread toward its ends (a point's
+        // outlet, a cell or two across, fans its water out over its cells), at its speed as Regulate scaled it.
+        float across = clamp(InOutlet(spring, place).x / max(0.5 * spring.outlet.z, 0.5 * _H), -1.0, 1.0);
+        float turn = across * spring.aim.w;
+        float c = cos(turn), sn = sin(turn);
+        float3 aim = spring.aim.xyz;
+        return float3((aim.x * c) + (aim.z * sn), aim.y, (aim.z * c) - (aim.x * sn)) * spring.flow.x * _ScaleIn[s];
+    }
+
     float3 away = FromSource(spring, place);
     float flat = length(away.xz);
     float3 way = flat > 1e-4 ? normalize(float3(away.x / flat, BOIL_TILT, away.z / flat)) : float3(0.0, 1.0, 0.0);

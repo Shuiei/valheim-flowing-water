@@ -647,7 +647,42 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return false;
     }
 
-    private bool Pour(Source source, float dt) => PourAt(PourPoint(source), source.Rate * dt);
+    private bool Pour(Source source, float dt) => source.Shape.AllRound ? PourAt(PourPoint(source), source.Rate * dt) : PourShaped(source, dt);
+
+    // A source facing a way pours along its outlet, across the way it faces, a share of its rate into each voxel there,
+    // that share leaving the voxel the way the outlet sends it there (fanned out across it, thrown up). False when none
+    // had room.
+    private bool PourShaped(Source source, float dt)
+    {
+        SourceShape shape = source.Shape;
+        (float Across, float Offset)[] outlet = shape.Outlet(_grid.VoxelSize);
+        (float rightX, float rightZ) = shape.Right;
+        Vector3 middle = PourPoint(source);
+        float share = source.Rate / outlet.Length;
+        bool poured = false;
+        foreach ((float across, float offset) in outlet)
+        {
+            Vector3 point = middle + new Vector3(rightX * offset, 0f, rightZ * offset);
+            if (!_grid.Room(point.x, point.y, point.z, out int x, out int y, out int z))
+            {
+                continue;
+            }
+
+            Vec3 way = shape.Direction(across);
+            poured |= _grid.PourAimed(x, y, z, share * dt, share * way.X, share * way.Y, share * way.Z);
+        }
+
+        if (poured)
+        {
+            _noRoom.Room(middle);
+        }
+        else if (!_grid.Capped)
+        {
+            _noRoom.Add(middle);
+        }
+
+        return poured;
+    }
 
     // A source pours a little over what it stands on, so its water starts on that and not in it or under it.
     private static Vector3 PourPoint(Source source) => source.Point + new Vector3(0f, 0.3f, 0f);

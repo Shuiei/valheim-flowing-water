@@ -138,7 +138,7 @@ internal sealed class MarkerScan
             float radius = drain ? MarkerRules.Reach(zdo.GetFloat(ZdoKeys.Radius, defaultRadius)) : 0f;
             if (_rates.TryRate(zdo.GetFloat(ZdoKeys.Rate, defaultRate), drain, () => zdo.GetPosition().ToString(), id, out float rate))
             {
-                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius));
+                _markers.Add(new Source(zdo.GetPosition(), rate, drain, radius, drain ? null : MarkerShape.Read(zdo)));
             }
         }
     }
@@ -219,17 +219,21 @@ internal sealed class MarkerScan
     }
 }
 
-/// <summary>A source or drain: where, how much a second, and a drain's reach.</summary>
+/// <summary>A source or drain: where, how much a second, a drain's reach and a source's shape.</summary>
 internal sealed class Source
 {
-    /// <summary>A source (radius 0) or drain at a point.</summary>
-    public Source(Vector3 point, float rate, bool drain, float radius)
+    /// <summary>A source (radius 0) or drain at a point; a source all round unless given a shape.</summary>
+    public Source(Vector3 point, float rate, bool drain, float radius, SourceShape? shape = null)
     {
         Point = point;
         Rate = rate;
         Drain = drain;
         Radius = radius;
+        Shape = drain ? SourceShape.Round : shape ?? SourceShape.Round;
     }
+
+    /// <summary>How a source's water leaves it (a drain's: all round, unused).</summary>
+    public SourceShape Shape { get; }
 
     /// <summary>Where it is, world metres.</summary>
     public Vector3 Point { get; }

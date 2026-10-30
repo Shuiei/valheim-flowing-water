@@ -1173,10 +1173,10 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // Console commands at given places (FW_REC_AT: "x,z[,y]|command;x,z[,y]|command"): the player is taken there
     // (standing at y when given, on a floor or in a box) and runs the command; its answer goes to the log. A place of
     // "~" runs the command where the player is, at once (a film right after a pour: a move takes some 14 s). A command
-    // starting with '!' is the recorder's own: "!source x,y,z,rate" (a source at that point), "!remove x,y,z" (the
-    // source within 2 m taken away), "!break x,y,z" (the piece nearest the point broken, as a player would), "!piece name
-    // x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees round the vertical), "!drop name x,y,z"
-    // (any prefab let go there), "!wait s", "!shot
+    // starting with '!' is the recorder's own: "!source x,y,z,rate[,heading,width,spread,throw]" (a source at that
+    // point, all round or facing a way), "!remove x,y,z" (the source within 2 m taken away), "!break x,y,z" (the piece
+    // nearest the point broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there,
+    // turned so many degrees round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
     // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
@@ -1331,9 +1331,21 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         switch (words[0])
         {
             case "!source":
-                GameObject source = Instantiate(ZNetScene.instance.GetPrefab("FlowingWater_Source"), point, Quaternion.identity);
-                source.GetComponent<ZNetView>().GetZDO().Set("FW_Rate".GetStableHashCode(), v[3]);
-                Note(FormattableString.Invariant($"source of {v[3]} m³/s at {point}"));
+                // "!source x,y,z,rate" pours all round; ",heading,width,spread,throw" after it faces that way (degrees
+                // from north), its outlet that wide (m), fanned and thrown up so many degrees.
+                bool faces = v.Length >= 8;
+                GameObject source = Instantiate(ZNetScene.instance.GetPrefab("FlowingWater_Source"), point, faces ? Quaternion.Euler(0f, v[4], 0f) : Quaternion.identity);
+                ZDO zdo = source.GetComponent<ZNetView>().GetZDO();
+                zdo.Set("FW_Rate".GetStableHashCode(), v[3]);
+                if (faces)
+                {
+                    zdo.Set("FW_Shape".GetStableHashCode(), 1);
+                    zdo.Set("FW_Width".GetStableHashCode(), v[5]);
+                    zdo.Set("FW_Spread".GetStableHashCode(), v[6]);
+                    zdo.Set("FW_Throw".GetStableHashCode(), v[7]);
+                }
+
+                Note(FormattableString.Invariant($"source of {v[3]} m³/s at {point}") + (faces ? FormattableString.Invariant($" facing {v[4]}°, {v[5]} m wide, fanned {v[6]}°, thrown up {v[7]}°") : string.Empty));
                 break;
             case "!remove":
                 ZNetView marker = FindObjectsByType<ZNetView>(FindObjectsSortMode.None)

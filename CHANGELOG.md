@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.46.0 — 2026-10-29
+
+### Added
+- A source can face a way and shape its water: out of an outlet up to 10 m wide, fanned out up to 90 degrees and
+  thrown up to 60 degrees, the way its piece was turned as it was placed. A slim jet arches out of a point; a wide
+  river runs out of a wide outlet along the ground. The server's water and the water near you both follow it. The
+  panel to set it comes next; until then a source pours all round, as every source placed before does.
+
 ## v0.45.2 — 2026-10-29
 
 ### Fixed
