@@ -73,6 +73,23 @@ internal static class JetFlight
     }
 
     /// <summary>
+    /// How long a strip flies to where the server has it land, seconds: as long as its way along the ground takes to
+    /// get there (the landing a voxel's way off its arc at most), <see cref="Longest"/> at the most.
+    /// </summary>
+    public static float FlightTo(Strip strip, Vec3 landing)
+    {
+        float vx = strip.Velocity.X, vz = strip.Velocity.Z;
+        float flat = (vx * vx) + (vz * vz);
+        if (!(flat > 1e-6f))
+        {
+            return 0f;
+        }
+
+        float t = (((landing.X - strip.Start.X) * vx) + ((landing.Z - strip.Start.Z) * vz)) / flat;
+        return Math.Min(Longest, Math.Max(0f, t));
+    }
+
+    /// <summary>
     /// How long a strip flies, seconds: till the step its way meets something (<paramref name="meets"/>: from one place
     /// to the next, the share of the way along it where it meets something, null where nothing), <see cref="Longest"/>
     /// at the most (still falling then: it does not land).

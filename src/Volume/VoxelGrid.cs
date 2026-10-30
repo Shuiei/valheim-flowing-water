@@ -232,12 +232,19 @@ internal sealed class VoxelGrid
     {
         (float rightX, float rightZ) = shape.Right;
         _outlet.Clear();
+        Landed.Clear();
         float speed = shape.Speed(rate);
         foreach ((float across, float offset) in shape.Outlet(VoxelSize))
         {
             float ox = px + (rightX * offset), oy = py, oz = pz + (rightZ * offset);
             Vec3 way = shape.Direction(across);
-            if (shape.Flies && Lands(ox, oy, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) is { } landing)
+            (float X, float Y, float Z)? lands = shape.Flies ? Lands(ox, oy, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) : null;
+            if (shape.Flies)
+            {
+                Landed.Add(lands is { } at ? new Vec3(at.X, at.Y, at.Z) : null);
+            }
+
+            if (lands is { } landing)
             {
                 (ox, oy, oz) = landing;
                 way = new Vec3(way.X, 0f, way.Z);
@@ -258,6 +265,12 @@ internal sealed class VoxelGrid
 
         return poured;
     }
+
+    /// <summary>
+    /// Where each place across the last outlet <see cref="PourOutlet"/> poured lands, in its places' order (null where it
+    /// pours at the outlet); none for water that does not fly.
+    /// </summary>
+    public List<Vec3?> Landed { get; } = [];
 
     /// <summary>
     /// Where water leaving a point (world metres) at a velocity (m/s; x east, y up, z north) lands, gravity pulling it

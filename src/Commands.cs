@@ -56,10 +56,12 @@ internal static class Commands
             {
                 ReplyOn(Console.instance).Say(answer);
             });
+            rpc.Register<ZPackage>(VoxelServer.JetsRpc, (_, jets) => JetArcs.Heard(jets.GetArray()));
             return;
         }
 
         rpc.Register(WipeRpc, WipeAsked);
+        FlowingWaterPlugin.Server?.TellJetsAgain();
         CommandRights.Tell(net.GetPeers().FindAll(p => p.m_rpc == rpc), p => p.IsReady(), TellOne);
     }
 

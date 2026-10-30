@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using FlowingWater.Volume;
 using UnityEngine;
 
@@ -8,7 +9,9 @@ namespace FlowingWater.Client;
 /// <summary>
 /// Every placed source's jet in the air within the camera's draw distance (its far clip, as the game's settings set it),
 /// drawn as curtains of falling water (the falls' material, FlowingWaterFall.shader) along the arc its water flies on,
-/// from its outlet till it meets the ground, a piece or water (<see cref="JetFlight"/>). The server pours a jet's water
+/// from its outlet till it meets the ground, a piece or water (<see cref="JetFlight"/>). A source the game has not
+/// loaded, too far off, is drawn from what the server says of its jet (<see cref="Heard"/>): where it stands, and where
+/// each strip lands as the server flies it, the ground under it not being loaded either. The server pours a jet's water
 /// where it lands, and the volume water near the camera flies it only within its grid, too thin there to draw as more
 /// than a few drops: each jet is drawn whole, wherever the camera is. Nothing is sent anywhere.
 /// </summary>
@@ -49,6 +52,12 @@ internal static class JetArcs
 
     private static readonly RaycastHit[] Hits = new RaycastHit[8];
 
+    // The jets as the server last told them (a game playing on a server; one hosting reads its own server's).
+    private static List<ServerJet> _heard = [];
+
+    // Of the strips followed last, how many are the server's (sources not loaded).
+    private static int _fromServer;
+
     private static readonly float[] Data = new float[MostStrips * Floats];
 
     private static readonly MaterialPropertyBlock Properties = new();
@@ -67,6 +76,24 @@ internal static class JetArcs
     {
         Gate.Reset();
         Stop();
+        _heard = [];
+    }
+
+    /// <summary>
+    /// The server told its jets (<see cref="JetNews"/>): they are followed again at once. Bytes that are not its jets are
+    /// logged, and the jets heard before kept.
+    /// </summary>
+    public static void Heard(byte[] data)
+    {
+        try
+        {
+            _heard = JetNews.Read(data);
+            _followed = float.NegativeInfinity;
+        }
+        catch (InvalidDataException e)
+        {
+            FlowingWaterPlugin.Log.LogError($"The server's jets could not be read; the far ones are drawn as last told: {e}");
+        }
     }
 
     /// <summary>The jets drawn, for the console ("flowingwater jets"): each strip's start, how long it flies and where it ends.</summary>
@@ -78,7 +105,7 @@ internal static class JetArcs
             yield break;
         }
 
-        yield return FormattableString.Invariant($"flowingwater: {Strips.Count} strips of jets in the air drawn");
+        yield return FormattableString.Invariant($"flowingwater: {Strips.Count} strips of jets in the air drawn, {_fromServer} of them as the server flies them (their sources not loaded here); {(FlowingWaterPlugin.Server?.Jets ?? _heard).Count} jets in the server's word");
         foreach ((JetFlight.Strip strip, float flight, bool lands, _) in Strips)
         {
             Vec3 end = strip.At(flight);
@@ -144,12 +171,60 @@ internal static class JetArcs
                 float flight = JetFlight.Flight(Cut[k], Meets, out bool lands);
                 // Open at the outlet's ends: the first strip's left, the last one's right (none beside them).
                 int open = (k == 0 ? 1 : 0) + (k == Cut.Count - 1 ? 2 : 0);
-                if (flight > 0f)
+                Add(Cut[k], flight, lands, open);
+            }
+        }
+
+        _fromServer = Strips.Count;
+        FromServer(camera, reach, voxel);
+        _fromServer = Strips.Count - _fromServer;
+    }
+
+    // The server's jets whose sources are not loaded here, within the draw distance: each strip flies to where the
+    // server lands it (a strip pouring at its outlet is not drawn). Its places are the server's: where the voxels' sizes
+    // differ, each strip takes the landing of the place at its share across the outlet.
+    private static void FromServer(Vector3 camera, float reach, float voxel)
+    {
+        foreach (ServerJet jet in FlowingWaterPlugin.Server?.Jets ?? _heard)
+        {
+            var foot = new Vector3(jet.Foot.X, jet.Foot.Y, jet.Foot.Z);
+            if (jet.Landings.Length == 0 || (foot - camera).sqrMagnitude > reach * reach || Loaded(foot))
+            {
+                continue;
+            }
+
+            JetFlight.Strips(new Vec3(foot.x, foot.y + OutletLift, foot.z), jet.Shape, jet.Rate, voxel, Cut);
+            for (int k = 0; k < Cut.Count && Strips.Count < MostStrips; k++)
+            {
+                if (jet.Landings[k * jet.Landings.Length / Cut.Count] is { } landing)
                 {
-                    Write(Strips.Count, Cut[k], flight, lands, open);
-                    Strips.Add((Cut[k], flight, lands, open));
+                    Add(Cut[k], JetFlight.FlightTo(Cut[k], landing), true, (k == 0 ? 1 : 0) + (k == Cut.Count - 1 ? 2 : 0));
                 }
             }
+        }
+    }
+
+    // Whether a source stands at a foot among the markers loaded here.
+    private static bool Loaded(Vector3 foot)
+    {
+        foreach ((Vector3 at, _, bool drain, _, _) in Markers)
+        {
+            if (!drain && (at - foot).sqrMagnitude < 0.01f)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A strip drawn, if it flies at all.
+    private static void Add(JetFlight.Strip strip, float flight, bool lands, int open)
+    {
+        if (flight > 0f)
+        {
+            Write(Strips.Count, strip, flight, lands, open);
+            Strips.Add((strip, flight, lands, open));
         }
     }
 

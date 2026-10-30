@@ -200,6 +200,21 @@ public class VoxelOutletPourTests
     }
 
     [Fact]
+    public void EachPlaceOfAJetSaysWhereItLandsAndARiverNone()
+    {
+        var grid = new VoxelGrid(S, new TestSolids(1));
+        var wide = new SourceShape(false, 90f, 3f, 0f, 30f);
+
+        // 8 m³/s through the 3 m outlet leaves at 10.7 m/s: thrown up 30 degrees it lands about 10 m out.
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, wide, WideRate, Dt));
+
+        Assert.Equal(wide.Outlet(S).Length, grid.Landed.Count);
+        Assert.All(grid.Landed, landing => Assert.True(landing is { X: > 18f }, $"lands at x {landing?.X}"));
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, River, Rate, Dt));
+        Assert.Empty(grid.Landed);
+    }
+
+    [Fact]
     public void AJetWhoseWayPassesTheBrickCapPoursAtItsOutletThrownUp()
     {
         // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so it pours where it is.
