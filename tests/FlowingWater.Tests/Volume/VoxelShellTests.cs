@@ -169,7 +169,7 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f) && System.Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Y + 8f < 1f);
+        Assert.DoesNotContain(Corners(shell), c => c.Normal == (1f, 0f, 0f) && Math.Abs(c.X + 8f - 6f) < 1e-3f && c.Y + 8f < 1f);
     }
 
     [Fact]
