@@ -332,12 +332,7 @@ public static class VolumePreview
         float rate = float.TryParse(Environment.GetEnvironmentVariable("FW_PREVIEW_RATE"), NumberStyles.Float, CultureInfo.InvariantCulture, out float r) ? r : 100f;
         float span = GridCells * Dx, middle = Cells * Dx / 2f, edge = middle - (span / 2f);
         float[] bed = Field((x, z) => 0f);
-        using var scene = new Scene("vbigspring", bed, GridCells);
-        scene.Water.Origin = new Vector3(edge, -3f, edge);
-        scene.Water.OpenSides = true;
-        scene.Water.EdgeBand = VolumeFollow.Band(Dx);
-        scene.Server((x, z) => ServerDepth);
-        scene.Water.SeedFromServer();
+        using Scene scene = OpenSides("vbigspring", bed, GridCells, ServerDepth);
         var springs = new List<VolumeWater.Spring> { VolumeWater.Spring.Source(new Vector3(middle, 0f, middle), rate) };
         scene.Water.SetSprings(springs);
 
@@ -452,25 +447,20 @@ public static class VolumePreview
 
     // A player wading in a stream too slow to sweep them (the current carries a wader wholly only past its footing
     // line, CurrentCarry.FootingLimit: under twice it they are not swept wholly): the game's box for a character (its
-    // capsule's, 0.98 m across and 1.85 m high) standing in a stream 0.3 m deep running down a bed falling 1 % to the
+    // capsule's, 0.98 m across and 1.85 m high) standing in a stream 0.3 m deep running down a bed falling 4 % to the
     // east (the server's water as deep over it, the sides open). The water heaps against the box by its bow wave (up to
-    // twice its speed's head, v^2 / g) and no more, and none rests on the box's top (the pillar a still player stood in by a big source,
-    // its water climbing over its head and lying on the box).
+    // twice its speed's head, v^2 / g) and no more, and none rests on the box's top (the pillar a still player stood in
+    // by a big source, its water climbing over its head and lying on the box).
     private static void Wader()
     {
         const int GridCells = 128;
         const float Depth = 0.3f, Grade = 0.04f;
         // CurrentCarry.FootingLimit, the plugin's (the preview builds without it).
         const float FootingLimit = 0.6f;
-        float span = GridCells * Dx, middle = Cells * Dx / 2f, edge = middle - (span / 2f);
+        float middle = Cells * Dx / 2f;
         var half = new Vector3(0.49f, 0.925f, 0.49f);
         float[] bed = Field((x, z) => Grade * (middle - x));
-        using var scene = new Scene("vwader", bed, GridCells);
-        scene.Water.Origin = new Vector3(edge, -3f, edge);
-        scene.Water.OpenSides = true;
-        scene.Water.EdgeBand = VolumeFollow.Band(Dx);
-        scene.Server((x, z) => Depth);
-        scene.Water.SeedFromServer();
+        using Scene scene = OpenSides("vwader", bed, GridCells, Depth);
         scene.Water.SetBodies(new List<ParticleWater.Body> { ParticleWater.Body.Box(new Vector3(middle, half.y, middle), half, Quaternion.identity) });
 
         Log.AppendLine(Inv($"Wader: a box {2f * half.x:0.00} m across and {2f * half.y:0.00} m high in a stream {Depth} m deep down a bed falling {Grade * 100f:0} % to the east, each second: the stream's speed by the box and the water's top against it (over the bed under the box)."));
@@ -527,6 +517,20 @@ public static class VolumePreview
         Log.AppendLine(Inv($"  The water against the box rises to {heap:0.00} m, its bow wave allowing {allowed:0.00} m: {Check(heap <= allowed)}"));
         Log.AppendLine(Inv($"  {onTop} particles lie on the box's top: none: {Check(onTop == 0)}"));
         scene.Shot("vwader_10s", new Vector3(middle - 5f, 3f, middle - 5f), new Vector3(middle, 0.5f, middle));
+    }
+
+    // A scene whose grid (gridCells across, in the middle of the ground) has its sides open over the server's water this
+    // deep over the ground everywhere, poured from it, as the game's square is.
+    private static Scene OpenSides(string name, float[] bed, int gridCells, float serverDepth)
+    {
+        float edge = (Cells * Dx / 2f) - (gridCells * Dx / 2f);
+        var scene = new Scene(name, bed, gridCells);
+        scene.Water.Origin = new Vector3(edge, -3f, edge);
+        scene.Water.OpenSides = true;
+        scene.Water.EdgeBand = VolumeFollow.Band(Dx);
+        scene.Server((x, z) => serverDepth);
+        scene.Water.SeedFromServer();
+        return scene;
     }
 
     // Water let go at the top of a ramp (22 degrees, 20 m long) onto a flat floor: it runs down as a sheet, not down
