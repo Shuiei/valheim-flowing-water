@@ -103,6 +103,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | Setting | Default | What |
 |---|---|---|
 | `Enabled` | true | Simulate (server) and show (client) |
+| `Debug` | false | Write each `flowingwater` console command and every line it answers to `BepInEx/LogOutput.log` |
 | `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m (see [Grid size](#grid-size)) |
 | `Server.Erosion` | false | Running water wears the ground away and lays it down; not within 5 m of what players built (paused with the 3D water, back in a later version) |
 | `Server.ErosionSpeed` | 1 | How fast erosion goes (1 = millimetres a minute in a fast stream); higher for testing |

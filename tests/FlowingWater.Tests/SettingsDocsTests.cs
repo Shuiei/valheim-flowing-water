@@ -45,9 +45,9 @@ public class SettingsDocsTests
         [.. Bound.Matches(File.ReadAllText(Repository.File("src/Settings.cs")))
             .Select(m => m.Groups["section"].Value == "General" ? m.Groups["key"].Value : $"{m.Groups["section"].Value}.{m.Groups["key"].Value}")];
 
-    // The names in a document's tables that look like settings (with a section, or Enabled).
+    // The names in a document's tables that look like settings (with a section, or the top section's Enabled and Debug).
     private static string[] Rows(string path) =>
         [.. Row.Matches(File.ReadAllText(Repository.File(path)))
             .Select(m => m.Groups["name"].Value)
-            .Where(n => n.Contains('.') || n == "Enabled")];
+            .Where(n => n.Contains('.') || n is "Enabled" or "Debug")];
 }

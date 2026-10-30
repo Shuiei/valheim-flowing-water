@@ -52,7 +52,11 @@ internal static class Commands
             {
                 Rights.Tell(everyone);
             });
-            rpc.Register<string>(WipedRpc, (_, answer) => Console.instance?.AddString(answer));
+            rpc.Register<string>(WipedRpc, (_, answer) =>
+            {
+                Console.instance?.AddString(answer);
+                Reply.Logged(answer);
+            });
             return;
         }
 
@@ -123,17 +127,18 @@ internal static class Commands
 
     private static void RunUnguarded(Terminal.ConsoleEventArgs args)
     {
-        Terminal terminal = args.Context;
+        var terminal = new Reply(args.Context);
+        Reply.Logged($"flowingwater {args.ArgsAll}".TrimEnd() + " (asked)");
         Player player = Player.m_localPlayer;
         if (player == null || ZNet.instance == null)
         {
-            terminal.AddString("flowingwater: needs a player in the world");
+            terminal.Say("flowingwater: needs a player in the world");
             return;
         }
 
         if (Rights.Refusal(ZNet.instance.LocalPlayerIsAdminOrHost()) is { } refusal)
         {
-            terminal.AddString(refusal);
+            terminal.Say(refusal);
             return;
         }
 
@@ -162,20 +167,18 @@ internal static class Commands
                 WipeAll(terminal);
                 break;
             case "info":
-                terminal.AddString("flowingwater: " + VoxelWater.Describe(player.transform.position));
+                terminal.Say("flowingwater: " + VoxelWater.Describe(player.transform.position));
                 break;
             case "sound":
-                terminal.AddString("flowingwater: " + WaterSound.Describe());
-                FlowingWaterPlugin.Log.LogInfo("flowingwater: " + WaterSound.Describe());
+                terminal.SayLogged("flowingwater: " + WaterSound.Describe());
                 break;
             case "debug":
-                terminal.AddString("flowingwater: " + BrickMeasures.DebugInfo(player.transform.position));
+                terminal.Say("flowingwater: " + BrickMeasures.DebugInfo(player.transform.position));
                 break;
             case "solids":
                 foreach (string line in SolidsView.Around(player.transform.position, FlowingWaterPlugin.Settings.CellSize.Value, FlowingWaterPlugin.Server?.Solids))
                 {
-                    terminal.AddString(line);
-                    FlowingWaterPlugin.Log.LogInfo(line);
+                    terminal.SayLogged(line);
                 }
 
                 break;
@@ -183,31 +186,30 @@ internal static class Commands
                 if (args.Length > 2 && args.Args[2].Equals("colours", StringComparison.OrdinalIgnoreCase))
                 {
                     GpuWater.DebugColours = !GpuWater.DebugColours;
-                    terminal.AddString("flowingwater: " + (GpuWater.DebugColours ? "the card's water blue, the bricks' surface red, their sides and falls yellow" : "the water's own colours"));
+                    terminal.Say("flowingwater: " + (GpuWater.DebugColours ? "the card's water blue, the bricks' surface red, their sides and falls yellow" : "the water's own colours"));
                 }
                 else if (args.Length > 2 && args.Args[2].Equals("columns", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (string line in GpuWater.Columns(player.transform.position))
                     {
-                        terminal.AddString(line);
-                        FlowingWaterPlugin.Log.LogInfo(line);
+                        terminal.SayLogged(line);
                     }
                 }
                 else
                 {
-                    terminal.AddString("flowingwater: " + GpuWater.Describe());
+                    terminal.Say("flowingwater: " + GpuWater.Describe());
                 }
 
                 break;
             case "particles":
                 if (args.Length > 2 && args.Args[2].Equals("clear", StringComparison.OrdinalIgnoreCase))
                 {
-                    terminal.AddString("flowingwater: " + GpuWater.ClearParticles());
+                    terminal.Say("flowingwater: " + GpuWater.ClearParticles());
                 }
                 else if (args.Length > 2 && args.Args[2].Equals("spheres", StringComparison.OrdinalIgnoreCase))
                 {
                     ParticleSurface.Spheres = !ParticleSurface.Spheres;
-                    terminal.AddString("flowingwater: the particle water drawn as " + (ParticleSurface.Spheres ? "spheres" : "water"));
+                    terminal.Say("flowingwater: the particle water drawn as " + (ParticleSurface.Spheres ? "spheres" : "water"));
                 }
                 else if (args.Length > 3 && args.Args[2].Equals("look", StringComparison.OrdinalIgnoreCase) && int.TryParse(args.Args[3], out int look))
                 {
@@ -215,36 +217,36 @@ internal static class Commands
                     // the ground), 2 the sheet alone, 3 the water seen through as grey, 4 the surface's distance in
                     // bands of a metre, 5 the surface's normal as a colour, 6 no smoothing of the surface.
                     VolumeSurface.Look = look;
-                    terminal.AddString("flowingwater: the volume water drawn as look " + look);
+                    terminal.Say("flowingwater: the volume water drawn as look " + look);
                 }
                 else if (args.Length > 2 && args.Args[2].Equals("full", StringComparison.OrdinalIgnoreCase))
                 {
                     ParticleSurface.Scale = ParticleSurface.Scale < 1f ? 1f : 0.5f;
-                    terminal.AddString("flowingwater: the particle water's surface drawn at " + (ParticleSurface.Scale < 1f ? "half the screen's size" : "the screen's full size"));
+                    terminal.Say("flowingwater: the particle water's surface drawn at " + (ParticleSurface.Scale < 1f ? "half the screen's size" : "the screen's full size"));
                 }
                 else if (Number(terminal, args, 2, 2f, false, "the water poured (m³)", out float poured))
                 {
-                    terminal.AddString("flowingwater: " + GpuWater.Pour(player.transform.position, poured));
+                    terminal.Say("flowingwater: " + GpuWater.Pour(player.transform.position, poured));
                 }
 
                 break;
             case "flat":
                 WaterBrick.Flat = !WaterBrick.Flat;
-                terminal.AddString("flowingwater: " + (WaterBrick.Flat ? "a plain colour (blue)" : "the water's material"));
+                terminal.Say("flowingwater: " + (WaterBrick.Flat ? "a plain colour (blue)" : "the water's material"));
                 break;
             case "mat":
-                terminal.AddString("flowingwater: " + Tune(args));
+                terminal.Say("flowingwater: " + Tune(args));
                 break;
             case "lift":
                 if (Number(terminal, args, 2, 0f, true, "the lift (m)", out float lift))
                 {
                     WaterBrick.Lift = lift;
-                    terminal.AddString(FormattableString.Invariant($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level"));
+                    terminal.Say(FormattableString.Invariant($"flowingwater: water drawn {WaterBrick.Lift:0.##} m above its level"));
                 }
 
                 break;
             default:
-                terminal.AddString(Usage);
+                terminal.Say(Usage);
                 break;
         }
     }
@@ -274,7 +276,7 @@ internal static class Commands
     // The number at that place after the command, or the fallback (a setting's) when there is none. A word that is
     // not a number, or a number out of range (below 0, or 0 when zero is not allowed), is refused with the reason on
     // the console, and the command does nothing; so is a fallback out of range (a setting written by hand).
-    private static bool Number(Terminal terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
+    private static bool Number(Reply terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
     {
         bool given = args.Length > place;
         string text = given ? args.Args[place] : null;
@@ -284,7 +286,7 @@ internal static class Commands
             return true;
         }
 
-        terminal.AddString(given
+        terminal.Say(given
             ? $"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}, not \"{text}\"; nothing done"
             : FormattableString.Invariant($"flowingwater: {what} must be a number {(zeroAllowed ? "of 0 or more" : "above 0")}: the settings' default is {fallback}; give one, or fix the setting"));
         return false;
@@ -294,14 +296,14 @@ internal static class Commands
     private static bool Parse(string text, out float value) => float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
     // A source (radius 0) or a drain, under the player.
-    private static void Place(Terminal terminal, Player player, string prefabName, float rate, float radius)
+    private static void Place(Reply terminal, Player player, string prefabName, float rate, float radius)
     {
         bool drain = radius > 0f;
         string kind = drain ? "drain" : "source";
         GameObject prefab = ZNetScene.instance.GetPrefab(prefabName);
         if (prefab == null)
         {
-            terminal.AddString($"flowingwater: prefab {prefabName} missing (is the mod on the server too?)");
+            terminal.Say($"flowingwater: prefab {prefabName} missing (is the mod on the server too?)");
             return;
         }
 
@@ -319,52 +321,86 @@ internal static class Commands
         // it knows its placer may place one.
         zdo.Set(ZDOVars.s_creator, player.GetPlayerID());
 
-        terminal.AddString(FormattableString.Invariant($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s")
+        terminal.Say(FormattableString.Invariant($"flowingwater: {kind} placed at {position.x:0},{position.y:0},{position.z:0}, {rate:0.##} m³/s")
             + (rate > MarkerRules.MaxRate ? FormattableString.Invariant($" (the server holds it to {MarkerRules.MaxRate:0} m³/s)") : string.Empty)
             + (drain ? (rate <= 0f ? " (takes everything)" : string.Empty) + FormattableString.Invariant($" within {radius:0.##} m") : string.Empty));
     }
 
     // All the mod's water and every placed source and drain gone: done here where this game is the server (alone or
     // hosting: the host may), else asked of the server, which answers when it is done.
-    private static void WipeAll(Terminal terminal)
+    private static void WipeAll(Reply terminal)
     {
         if (ZNet.instance.IsServer())
         {
-            terminal.AddString(Wipe());
+            terminal.Say(Wipe());
             return;
         }
 
         if (!ZNet.instance.LocalPlayerIsAdminOrHost())
         {
-            terminal.AddString("flowingwater: only the server's admins may wipe the water");
+            terminal.Say("flowingwater: only the server's admins may wipe the water");
             return;
         }
 
         ZNetPeer server = ZNet.instance.GetServerPeer();
         if (server == null)
         {
-            terminal.AddString("flowingwater: not connected to a server");
+            terminal.Say("flowingwater: not connected to a server");
             return;
         }
 
         server.m_rpc.Invoke(WipeRpc);
-        terminal.AddString("flowingwater: asked the server to wipe its water");
+        terminal.Say("flowingwater: asked the server to wipe its water");
     }
 
     // How far from the player the command's remove looks for a source or drain, metres.
     private const float RemoveReach = 5f;
 
-    private static void Remove(Terminal terminal, Player player)
+    private static void Remove(Reply terminal, Player player)
     {
         var marker = Marker.Nearest(player.transform.position, RemoveReach);
         if (marker == null)
         {
-            terminal.AddString(FormattableString.Invariant($"flowingwater: no source or drain within {RemoveReach:0} m"));
+            terminal.Say(FormattableString.Invariant($"flowingwater: no source or drain within {RemoveReach:0} m"));
             return;
         }
 
         string kind = marker.IsDrain ? "drain" : "source";
         marker.Remove();
-        terminal.AddString($"flowingwater: {kind} removed");
+        terminal.Say($"flowingwater: {kind} removed");
+    }
+
+    /// <summary>
+    /// What a command says on the console, line by line; with General.Debug on, each line is written to
+    /// BepInEx/LogOutput.log too, so a session's commands and their answers can be read back.
+    /// </summary>
+    private sealed class Reply
+    {
+        private readonly Terminal _terminal;
+
+        public Reply(Terminal terminal) => _terminal = terminal;
+
+        /// <summary>A line written to the log with General.Debug on.</summary>
+        public static void Logged(string line)
+        {
+            if (FlowingWaterPlugin.Settings.Debug.Value)
+            {
+                FlowingWaterPlugin.Log.LogInfo(line);
+            }
+        }
+
+        /// <summary>A line on the console (and in the log with General.Debug on).</summary>
+        public void Say(string line)
+        {
+            _terminal.AddString(line);
+            Logged(line);
+        }
+
+        /// <summary>A line on the console and always in the log (reports long enough to want reading back there).</summary>
+        public void SayLogged(string line)
+        {
+            _terminal.AddString(line);
+            FlowingWaterPlugin.Log.LogInfo(line);
+        }
     }
 }
