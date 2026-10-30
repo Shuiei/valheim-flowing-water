@@ -177,8 +177,10 @@ internal sealed class VolumeSurface : IDisposable
         ParticleSurface.Free(ref _water);
         ParticleSurface.Free(ref _smoothed);
         ParticleSurface.Free(ref _normal);
-        _water = ParticleSurface.Make("found", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
-        _smoothed = ParticleSurface.Make("found smoothed", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
+        // The distances in full floats: the surface's slope is the difference between neighbours a texel apart, and in
+        // half floats (a centimetre's steps at 20 m) flat water seen along it was terraced in fine stripes.
+        _water = ParticleSurface.Make("found", width, height, 0, RenderTextureFormat.ARGBFloat, FilterMode.Point);
+        _smoothed = ParticleSurface.Make("found smoothed", width, height, 0, RenderTextureFormat.ARGBFloat, FilterMode.Point);
         _normal = ParticleSurface.Make("normal", width, height, 0, RenderTextureFormat.ARGBHalf, FilterMode.Point);
     }
 }
