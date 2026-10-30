@@ -989,7 +989,8 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
             _shader.SetBuffer(kernel, SpringsId, _springs);
         }
 
-        foreach (int kernel in new[] { _gather, _emit })
+        // Each source's scale, wherever a source's cells are found (a facing source's slot is as high as it scales it).
+        foreach (int kernel in new[] { _clearCells, _gather, _move, _emit })
         {
             _shader.SetBuffer(kernel, ScaleInId, _scale);
         }

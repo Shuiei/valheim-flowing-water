@@ -548,12 +548,19 @@ float3 InOutlet(Spring spring, float3 place)
     return float3(dot(d.xz, right), dot(d.xz, forward), d.y);
 }
 
-// Whether a point is in a source: in an all-round one's lens, or in the outlet of one facing a way (a cell deep at its
-// marker, as wide and as high over the ground as the outlet, two cells across and one high at least: padded by half a
-// cell, its cells passed half as much again as the rate at the outlet's speed, and Regulate held a river at its
-// slowest and still over its rate; one cell across, a point's jet could not pass 2 m3/s at twice its speed, its
-// particles a cell's length from leaving it each step).
-bool InSource(Spring spring, float3 place)
+// How high the outlet of source s facing a way stands, metres: its slot as Regulate scaled it to give the rate (a
+// facing source's speed is its own, the server's too, which lands its jet where this one does: scaling its speed, a
+// slot too high for a strong point's jet held it to half, and it fell a few metres out, heaped at the source).
+float SlotHeight(Spring spring, int s)
+{
+    return spring.outlet.w * _ScaleIn[s];
+}
+
+// Whether a point is in source s: in an all-round one's lens, or in the outlet of one facing a way (a cell deep at its
+// marker, as wide as the outlet and as high over the ground as its slot, two cells across and one high at least:
+// padded by half a cell, its cells passed half as much again as the rate at the outlet's speed; one cell across, a
+// point's jet could not pass 2 m3/s at twice its speed, its particles a cell's length from leaving it each step).
+bool InSource(Spring spring, int s, float3 place)
 {
     if (!Aimed(spring))
     {
@@ -564,7 +571,7 @@ bool InSource(Spring spring, float3 place)
     // cell's outlet, and four times the water at its speed).
     float3 o = InOutlet(spring, place);
     float half = 0.5 * max(spring.outlet.z, 2.0 * _H);
-    return o.x >= -half && o.x < half && o.y >= -0.5 * _H && o.y < 0.5 * _H && o.z >= 0.0 && o.z < max(spring.outlet.w, _H);
+    return o.x >= -half && o.x < half && o.y >= -0.5 * _H && o.y < 0.5 * _H && o.z >= 0.0 && o.z < max(SlotHeight(spring, s), _H);
 }
 
 // The source a point is in, or -1.
@@ -573,7 +580,7 @@ int SourceAt(float3 place)
     for (uint s = 0u; s < _SpringCount; s++)
     {
         Spring spring = _Springs[s];
-        if (spring.flow.z < 0.5 && InSource(spring, place))
+        if (spring.flow.z < 0.5 && InSource(spring, (int)s, place))
         {
             return (int)s;
         }
@@ -593,12 +600,13 @@ float3 SourceVelocity(int s, float3 place)
     if (Aimed(spring))
     {
         // Facing a way: its aim, turned out across the outlet by up to half its spread toward its ends (a point's
-        // outlet, a cell or two across, fans its water out over its cells), at its speed as Regulate scaled it.
+        // outlet, a cell or two across, fans its water out over its cells), at its own speed; slower only once
+        // Regulate has its slot under a cell's height (the outlet is a cell high at least, and passes that much less).
         float across = clamp(InOutlet(spring, place).x / max(0.5 * spring.outlet.z, 0.5 * _H), -1.0, 1.0);
         float turn = across * spring.aim.w;
         float c = cos(turn), sn = sin(turn);
         float3 aim = spring.aim.xyz;
-        return float3((aim.x * c) + (aim.z * sn), aim.y, (aim.z * c) - (aim.x * sn)) * spring.flow.x * _ScaleIn[s];
+        return float3((aim.x * c) + (aim.z * sn), aim.y, (aim.z * c) - (aim.x * sn)) * spring.flow.x * min(1.0, SlotHeight(spring, s) / _H);
     }
 
     float3 away = FromSource(spring, place);
