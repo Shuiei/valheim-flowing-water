@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlowingWater.Volume;
@@ -299,6 +300,43 @@ public class VoxelShellTests
         Assert.Equal(0f, corners.Max(c => c.Y), 3);
         Assert.Equal(0.15f, corners.Max(c => c.X) - 0.5f, 3);
         Assert.All(Enumerable.Range(0, shell.Water.Count / 2), k => Assert.Equal(1f, shell.Water[2 * k], 3));
+    }
+
+    [Fact]
+    public void AFallOfUnevenWaterKeepsOneWidthDownItsLength()
+    {
+        // A fall whose voxels hold a tenth and half a tenth of a voxel by turns: as wide as the most of each voxel and
+        // the ones over and under it, so one width all down (as wide as each voxel's own, it was a dashed line).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Wet(view, 8, y, 8, y % 2 == 0 ? 0.09f : 0.04f, BrickData.AllOpen);
+            view.VelocityY[Brick.Index(8, y, 8)] = -4f;
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+
+        Assert.All(corners, c => Assert.Equal(0.15f, Math.Abs(c.X - 0.5f), 3));
+    }
+
+    [Fact]
+    public void AVoxelAFallLeavesDryIsTakenInByTheVoxelOverItUncapped()
+    {
+        // Falling water at rows 7, 6, 4 and 3, row 5 left dry between: one column from 3 m to 8 m, capped at its ends only.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int y in new[] { 3, 4, 6, 7 })
+        {
+            Wet(view, 8, y, 8, 0.09f, BrickData.AllOpen);
+            view.VelocityY[Brick.Index(8, y, 8)] = -4f;
+        }
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal((4 * 4) + 2, shell.Faces);
+        var corners = Corners(shell).ToList();
+        Assert.Equal(-5f, corners.Min(c => c.Y), 3);
+        Assert.Equal(0f, corners.Max(c => c.Y), 3);
+        Assert.Contains(corners, c => Math.Abs(c.Y + 3f) < 1e-3f);
     }
 
     [Fact]
