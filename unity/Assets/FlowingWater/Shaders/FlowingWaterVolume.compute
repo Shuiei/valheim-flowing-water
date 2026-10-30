@@ -568,8 +568,11 @@ bool InSource(Spring spring, int s, float3 place)
     }
 
     // Half-open, each bound held by the cells on one side of it (a marker standing on cells' corner made four of a
-    // cell's outlet, and four times the water at its speed).
+    // cell's outlet, and four times the water at its speed). Its slot stands on the ground under each of its cells: on
+    // a rock's curved top, the ground across the outlet rises over its marker's foot, and the slot's cells under it
+    // gave a jet of 8 m3/s a sixteenth of its water.
     float3 o = InOutlet(spring, place);
+    o.z -= max(0.0, GroundAt(place.xz) - spring.ring.y);
     float half = 0.5 * max(spring.outlet.z, 2.0 * _H);
     return o.x >= -half && o.x < half && o.y >= -0.5 * _H && o.y < 0.5 * _H && o.z >= 0.0 && o.z < max(SlotHeight(spring, s), _H);
 }

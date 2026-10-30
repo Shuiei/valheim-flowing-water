@@ -59,6 +59,10 @@ internal sealed class GpuWater : IDisposable
     private static readonly int FadeCliffsId = Shader.PropertyToID("_FadeCliffs");
     private static readonly int DebugColoursId = Shader.PropertyToID("_FWDebugColours");
 
+    // How far over a source's foot its outlet's voxels are opened (m): the ground across its outlet may rise that much over
+    // the foot on a rock's curved top, and the slot with it.
+    private const float OutletReach = 1.5f;
+
     // The grid drawn, and its shape (cells and cell size): each square of that shape draws the same; one of another shape
     // (the settings changed) takes its place.
     private static Mesh _gridMesh;
@@ -362,7 +366,7 @@ internal sealed class GpuWater : IDisposable
             found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
-        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._cameraY:0.0}); filled from {_water._volumeFilled.x:0}, {_water._volumeFilled.y:0} to {_water._volumeFilled.z:0}, {_water._volumeFilled.w:0}{(_water._volumeReseed > 0 ? $", {_water._volumeReseed} cells of its sides to pour" : string.Empty)}");
+        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._cameraY:0.0}); filled from {_water._volumeFilled.x:0}, {_water._volumeFilled.y:0} to {_water._volumeFilled.z:0}, {_water._volumeFilled.w:0}{(_water._volumeReseed > 0 ? $", {_water._volumeReseed} cells of its sides to pour" : string.Empty)}; {_water._volume.DescribeSources()}");
         string built = _built == null ? string.Empty : FormattableString.Invariant($"; what is built round it: {_built.Objects} solid objects, {_built.Bricks.Count} blocks of voxels holding some, looked over in {_built.LookMilliseconds:0.0} ms");
         return FormattableString.Invariant(
             $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}{built}");
@@ -888,9 +892,10 @@ internal sealed class GpuWater : IDisposable
     }
 
     // A source's outlet stands in the open over what its marker stands on: the voxels it pours out of, from its foot to
-    // as high as the server pours it, are open to the card's water as they are to the server's jet (VoxelGrid.Lands). A
-    // rock's curved top, counted by its height at a column's middle, filled them: the outlet's cells were solid, and the
-    // volume water gave a jet off a rock's top no water.
+    // OutletReach over it (its slot stands on the ground under each of its cells, FlowingWaterVolume's InSource), are
+    // open to the card's water as the server's jet leaves its own voxel (VoxelGrid.Lands). A rock's curved top, counted
+    // by its height at a column's middle, filled them: the outlet's cells were solid, and the volume water gave a jet off
+    // a rock's top no water.
     private void OpenOutlets(byte[] solids, SimWindow window, int baseRow)
     {
         Marker.Markers(_markers);
@@ -906,8 +911,10 @@ internal sealed class GpuWater : IDisposable
             foreach ((_, float offset) in shape.Outlet(s))
             {
                 int x = Mathf.FloorToInt((at.x + (rightX * offset)) / s) - window.X0, z = Mathf.FloorToInt((at.z + (rightZ * offset)) / s) - window.Z0;
-                SolidsLayout.Open(solids, window.Columns, x, Mathf.FloorToInt((at.y + 0.05f) / s) - baseRow, z);
-                SolidsLayout.Open(solids, window.Columns, x, Mathf.FloorToInt((at.y + JetArcs.OutletLift) / s) - baseRow, z);
+                for (int y = Mathf.FloorToInt((at.y + 0.05f) / s); y <= Mathf.FloorToInt((at.y + OutletReach) / s); y++)
+                {
+                    SolidsLayout.Open(solids, window.Columns, x, y - baseRow, z);
+                }
             }
         }
     }
