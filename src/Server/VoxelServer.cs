@@ -462,19 +462,22 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     ZDOID IBrickWorld<ZDOID>.Make(Brick brick)
     {
         float span = Brick.Size * _grid.VoxelSize;
-        return NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash).m_uid;
+        ZDO zdo = NewZdo(new Vector3((brick.X + 0.5f) * span, (brick.Y + 0.5f) * span, (brick.Z + 0.5f) * span), Prefabs.BrickHash);
+        zdo.SetDistant(true);
+        return zdo.m_uid;
     }
 
-    // The game gives a brick's object to a player near it, as it does every object; it is written as it is: the game
-    // sends what the server writes to every player near, its owner too, by the data's revision, and the brick's owner
-    // never writes it. Taking it back each time made it go to and fro, the whole object sent again each time it
-    // changed hands.
+    // The game gives a brick's object to a player near it, as it does every object, and sends it to every player out to
+    // their far simulation distance (a distant object: the game's graphics setting), as far buildings are; it is written
+    // as it is: the game sends what the server writes to every player near, its owner too, by the data's revision, and
+    // the brick's owner never writes it. Taking it back each time made it go to and fro, the whole object sent again
+    // each time it changed hands.
     void IBrickWorld<ZDOID>.Write(ZDOID id, byte[] data) => ZDOMan.instance.GetZDO(id).Set(ZdoKeys.Brick, data);
 
     void IBrickWorld<ZDOID>.Destroy(ZDOID id) => DestroyZdo(ZDOMan.instance.GetZDO(id));
 
     // As ZNetView sets up a new object's ZDO: CreateNewZDO leaves the prefab unset, and a ZDO without one is saved
-    // but can never be found again by prefab.
+    // but can never be found again by prefab. Near only: a brick's is made distant (Make).
     private static ZDO NewZdo(Vector3 position, int prefab)
     {
         ZDO zdo = ZDOMan.instance.CreateNewZDO(position, prefab);
@@ -537,6 +540,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
                 if (same && _grid.Find(view.X, view.Y, view.Z) is { } brick && adopted.Add(key))
                 {
+                    // Saved before 0.49.14, near only: distant now, as every brick is made (Make).
+                    zdo.SetDistant(true);
                     _objects.Adopt(key, zdo.m_uid, brick, zdo.GetByteArray(ZdoKeys.Brick), _grid.VoxelSize);
                     continue;
                 }
