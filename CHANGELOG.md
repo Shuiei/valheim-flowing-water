@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.48.0 — 2026-10-30
+
+### Added
+- Placing a source, its ghost shows the way it faces, a gold arrow that turns with it, and the outline of where its
+  water goes: as wide as its outlet, fanned out by its spread, as far as a jet lands, or a ring all round.
+
 ## v0.47.0 — 2026-10-30
 
 ### Added

@@ -1176,9 +1176,9 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // starting with '!' is the recorder's own: "!source x,y,z,rate[,heading,width,spread,throw]" (a source at that
     // point, all round or facing a way), "!remove x,y,z" (the source within 2 m taken away), "!panel x,y,z" (the
     // panel opened for the source or drain within 2 m, as [E] on it would), "!slide row,notch" (a slider of that panel
-    // moved), "!break x,y,z" (the piece nearest the point
-    // broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there, turned so many degrees
-    // round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
+    // moved), "!ghost x,y,z,heading" (a source's placing ghost there, turned so), "!break x,y,z" (the piece nearest the
+    // point broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there, turned so many
+    // degrees round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
     // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
     {
@@ -1316,7 +1316,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
-        if (words[0] is not ("!source" or "!remove" or "!break" or "!panel"))
+        if (words[0] is not ("!source" or "!remove" or "!break" or "!panel" or "!ghost"))
         {
             Note("unknown recorder command " + command);
             return;
@@ -1367,6 +1367,21 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                     ZNetScene.instance.Destroy(marker.gameObject);
                 }
 
+                break;
+            case "!ghost":
+                // "!ghost x,y,z,heading": the source as the hoe's ghost shows it while placing, turned that way (made
+                // as the game makes its ghost, with networking off for it); left there.
+                ZNetView.m_forceDisableInit = true;
+                try
+                {
+                    Instantiate(ZNetScene.instance.GetPrefab("FlowingWater_Source"), point, Quaternion.Euler(0f, v.Length > 3 ? v[3] : 0f, 0f));
+                }
+                finally
+                {
+                    ZNetView.m_forceDisableInit = false;
+                }
+
+                Note(FormattableString.Invariant($"a source's placing ghost at {point}, turned {(v.Length > 3 ? v[3] : 0f)}°"));
                 break;
             case "!panel":
                 // The source and drain panel opened for the source or drain within 2 m, as [E] on it would (the

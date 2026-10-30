@@ -30,7 +30,9 @@ or a drain's power and reach. **E** lets you change them (the mouse is free and 
 **Esc** or **E** is done). Width goes by half metres to 10 m, spread and throw by 5 degrees to 90 and 60 (the spread's
 last notch: all round), power on a logarithm from 0.1 to 100 m³/s (a drain's left end: everything), reach by quarter
 metres to 16 m. They start from `DefaultSourceRate`, `DefaultDrainRate` and `DefaultDrainRadius` (a new source as a
-slim jet) and stay as you set them until you quit the game. Placed sources and
+slim jet) and stay as you set them until you quit the game. While a source is placed, its ghost shows over the
+ground the way it faces (a gold arrow; the game's rotate keys, the mouse wheel, turn it) and the outline of where its
+water goes: its outlet, fanned out by its spread, as far as a jet lands (6 m along the ground), or a ring all round. Placed sources and
 drains are invisible: they show only while the hoe is in hand with one of these three chosen, or the hammer. Looking
 at a shown one tells what it does (a source's shape too); **E** on it opens the panel to change it (each change is
 written into it at once), or to take it away with the panel's
