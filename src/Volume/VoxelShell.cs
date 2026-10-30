@@ -258,14 +258,14 @@ internal sealed class VoxelShell
 
         // How far the column reaches each way (east, west, north, south): to the shared face where the voxel beside falls,
         // or the one beside it a row up or down (a fall down a slanting face steps aside a voxel a row: its columns meet
-        // at their corners, and are one sheet stepping down the face).
+        // at their corners, and are one sheet stepping down the face); its face toward this one open too.
         float[] reach = _reach;
         for (int k = 0; k < FallSides.Length; k++)
         {
             (int side, int dx, int dz) = FallSides[k];
-            bool joins = DrawnFall(field, at.X + dx, at.Y, at.Z + dz)
-                || (gapUnder == 0 && DrawnFall(field, at.X + dx, at.Y - 1, at.Z + dz) && !DrawnFall(field, at.X, at.Y - 1, at.Z))
-                || (gapOver == 0 && DrawnFall(field, at.X + dx, at.Y + 1, at.Z + dz) && !DrawnFall(field, at.X, at.Y + 1, at.Z));
+            bool joins = JoinedFall(field, at.X + dx, at.Y, at.Z + dz, side)
+                || (gapUnder == 0 && JoinedFall(field, at.X + dx, at.Y - 1, at.Z + dz, side) && !DrawnFall(field, at.X, at.Y - 1, at.Z))
+                || (gapOver == 0 && JoinedFall(field, at.X + dx, at.Y + 1, at.Z + dz, side) && !DrawnFall(field, at.X, at.Y + 1, at.Z));
             reach[k] = (open & (1 << side)) != 0 && joins ? 0.5f * s : half;
         }
 
@@ -289,6 +289,11 @@ internal sealed class VoxelShell
             at.Horizontal(this, bottom, false, reach, foam, 0.85f);
         }
     }
+
+    // Whether voxel (x, y, z) beside a fall, on its side (Sides' bit), is drawn falling with its face toward the fall
+    // open (the bit on the other side, side ^ 1): no piece closes it between them.
+    private static bool JoinedFall(VoxelField field, int x, int y, int z, int side) =>
+        DrawnFall(field, x, y, z) && field.Voxel(x, y, z, out BrickView view, out int i) && (view.Open[i] & (1 << (side ^ 1))) != 0;
 
     // The fall side (FallSides' index) facing (dx, dz).
     private static int Toward(int dx, int dz) => dx > 0 ? 0 : dx < 0 ? 1 : dz > 0 ? 2 : 3;
