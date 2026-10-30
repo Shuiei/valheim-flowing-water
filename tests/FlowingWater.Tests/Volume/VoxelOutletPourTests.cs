@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FlowingWater.Volume;
 using Xunit;
 
@@ -16,6 +17,9 @@ public class VoxelOutletPourTests
     private const float S = 1f, Rate = 2f, Dt = 0.5f;
     private static readonly SourceShape River = new(false, 90f, 4f, 0f, 0f);
     private static readonly int[] Across = [12, 11, 10, 9];
+
+    // A wide jet's rate: through its 4 m slot, it leaves at 8 m/s.
+    private const float WideRate = 8f;
 
     [Fact]
     public void AnOutletSharesItsRateAmongTheVoxelsAcrossItAtTheMarkerEachSentTheWayItFaces()
@@ -117,6 +121,82 @@ public class VoxelOutletPourTests
         Assert.InRange(landing.Value.X, 13f, 18f);
         Assert.True(grid.PourOutlet(10.5f, 11.3f, 10.5f, jet, 0.25f, Dt));
         Assert.Equal(0f, grid.WaterAt(10, 11, 10));
+    }
+
+    [Fact]
+    public void EveryPlaceOfAWideJetLandsAsFarOut()
+    {
+        // The 4 m outlet thrown up 45 degrees, 8 m³/s through its slot leaving at 8 m/s: each of its four places flies
+        // from the outlet's own height, about 6.5 m out, none from where the one before it came down.
+        var grid = new VoxelGrid(S, new TestSolids(1));
+        var jet = new SourceShape(false, 90f, 4f, 0f, 45f);
+
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, WideRate, Dt));
+
+        int lands = (int)(10.5f + (8f * 8f / VoxelSolver.Gravity));
+        foreach (int z in Across)
+        {
+            Assert.Equal(0f, grid.WaterAt(10, 1, z));
+            Assert.Equal(WideRate * Dt / 4f, grid.WaterAt(lands, 1, z), 4);
+        }
+
+        Assert.Equal(WideRate * Dt, grid.TotalWater(), 4);
+    }
+
+    [Fact]
+    public void EachShareOfASpreadJetPoursWhereItsOwnWayLands()
+    {
+        // The same outlet fanned out 60 degrees across: each place's share flies its own way and lands in its own
+        // voxel (where, looked at before any of it is poured, so none lands on another's water).
+        var grid = new VoxelGrid(S, new TestSolids(1));
+        var jet = new SourceShape(false, 90f, 4f, 60f, 45f);
+        float speed = jet.Speed(WideRate);
+        (float rightX, float rightZ) = jet.Right;
+        var landed = new HashSet<(int, int)>();
+        foreach ((float across, float offset) in jet.Outlet(S))
+        {
+            Vec3 way = jet.Direction(across);
+            (float X, float Y, float Z)? landing = grid.Lands(10.5f + (rightX * offset), 1.3f, 10.5f + (rightZ * offset), new Vec3(way.X * speed, way.Y * speed, way.Z * speed));
+            Assert.NotNull(landing);
+            Assert.True(landed.Add(((int)landing.Value.X, (int)landing.Value.Z)), $"two shares land at {landing}");
+        }
+
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, WideRate, Dt));
+
+        foreach ((int x, int z) in landed)
+        {
+            Assert.Equal(WideRate * Dt / 4f, grid.WaterAt(x, 1, z), 4);
+        }
+
+        Assert.Equal(WideRate * Dt, grid.TotalWater(), 4);
+    }
+
+    [Fact]
+    public void AJetComesDownOnTheSolidLowerShareOfAVoxel()
+    {
+        // Ground half a voxel up row 1 from x 12 on: water leaving 1.9 m up flat east at 6 m/s comes down on it at
+        // 1.5 m, not through it to the floor under the row.
+        var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x >= 12 ? 1.5f : 1f));
+
+        (float X, float Y, float Z)? landing = grid.Lands(10.5f, 1.9f, 10.5f, new Vec3(6f, 0f, 0f));
+
+        Assert.NotNull(landing);
+        Assert.InRange(landing.Value.Y, 1.5f, 1.6f);
+        Assert.InRange(landing.Value.X, 12f, 13f);
+    }
+
+    [Fact]
+    public void AJetWhoseWayPassesTheBrickCapPoursAtItsOutletThrownUp()
+    {
+        // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so it pours where it is.
+        var grid = new VoxelGrid(S, new TestSolids(1)) { MaxBricks = 1 };
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f);
+
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
+
+        Assert.Equal(Rate * Dt, grid.WaterAt(10, 1, 10), 4);
+        Assert.True(grid.Locate(10, 1, 10, out Brick brick, out int i));
+        Assert.True(brick.FlowY[i] > 0f, $"up {brick.FlowY[i]}");
     }
 
     [Fact]

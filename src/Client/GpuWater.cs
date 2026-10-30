@@ -1197,11 +1197,12 @@ internal sealed class GpuWater : IDisposable
             // The square's new strip takes the server's water at the next frame, once the volume is bound to the moved
             // square (the volume's own water stays where it is in the world).
             _volume.Origin = new Vector3(window.X0 * window.VoxelSize, _volume.Origin.y, window.Z0 * window.VoxelSize);
-            _volumeReseed = Math.Min(window.Cells / 2, _volumeReseed + VolumeFollow.Reseed(dx, dz, per));
+            _volumeReseed = VolumeFollow.MoreReseed(_volumeReseed, dx, dz, per, window.Cells);
             _movedAt = Time.time;
             _castsSinceMove = 0;
             Vector4 square = Square();
-            _volumeFilled = new Vector4(Math.Max(_volumeFilled.x, square.x), Math.Max(_volumeFilled.y, square.y), Math.Min(_volumeFilled.z, square.z), Math.Min(_volumeFilled.w, square.w));
+            (float x0, float z0, float x1, float z1) = VolumeFollow.StillFilled((_volumeFilled.x, _volumeFilled.y, _volumeFilled.z, _volumeFilled.w), (square.x, square.y, square.z, square.w));
+            _volumeFilled = new Vector4(x0, z0, x1, z1);
         }
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
@@ -1238,10 +1239,8 @@ internal sealed class GpuWater : IDisposable
         return new Vector4(x, z, x + _window.Size, z + _window.Size);
     }
 
-    // Whether a moved square's strip may be poured: its water built for the square as it is (taken since the move),
-    // from the ground as it is now and cast since the move, and no row with water still waiting for its ground. The
-    // first build after a move knew no ground under the strip: its water was dry there, and the strip poured nothing.
-    private bool ReseedReady() => _castFrom != null && _castsSinceMove > 0 && _builtGround == _groundVersion && Array.IndexOf(_castFirst, true) < 0;
+    // Whether a moved square's strip may be poured (VolumeFollow.ReseedReady).
+    private bool ReseedReady() => VolumeFollow.ReseedReady(_castFrom != null, _castsSinceMove, _builtGround, _groundVersion, _castFirst);
 
     // Whether a placed source stands in the square.
     private static bool SourceIn(SimWindow window)

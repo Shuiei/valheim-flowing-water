@@ -102,7 +102,9 @@ Shader "FlowingWater/Water"
 
         // Columns along a side of a brick's textures.
         #define GRID_SIDE 17.0
-        // The steepest the surface is drawn, rise a run (about 72 degrees).
+        // The steepest the surface is drawn, rise a run along either axis (about 72 degrees): the reach of the CPU's
+        // surface, VoxelSurface.MaxStep rows a column, so where it joins two columns as one sheet (and the shell draws
+        // no side between them) this draws it, down a slope that drops as much both ways too.
         #define STEEP_GONE 3.0
 
         float2 GridUv(float2 cell)
@@ -173,7 +175,7 @@ Shader "FlowingWater/Water"
             float wetEast = WetTop(eastOf, surface.x) - WetTop(westOf, surface.x);
             float wetNorth = WetTop(northOf, surface.x) - WetTop(southOf, surface.x);
             o.steep = length(float2(wetEast, wetNorth)) / max(_VoxelSize, 0.001);
-            o.rise = length(float2(east, north)) / max(_VoxelSize, 0.001);
+            o.rise = max(abs(east), abs(north)) / max(_VoxelSize, 0.001);
             o.cell = cell;
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }

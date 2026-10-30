@@ -235,15 +235,15 @@ internal sealed class VoxelGrid
         float speed = shape.Speed(rate);
         foreach ((float across, float offset) in shape.Outlet(VoxelSize))
         {
-            float ox = px + (rightX * offset), oz = pz + (rightZ * offset);
+            float ox = px + (rightX * offset), oy = py, oz = pz + (rightZ * offset);
             Vec3 way = shape.Direction(across);
-            if (shape.Flies && Lands(ox, py, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) is { } landing)
+            if (shape.Flies && Lands(ox, oy, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) is { } landing)
             {
-                (ox, py, oz) = landing;
+                (ox, oy, oz) = landing;
                 way = new Vec3(way.X, 0f, way.Z);
             }
 
-            if (Room(ox, py, oz, out int x, out int y, out int z))
+            if (Room(ox, oy, oz, out int x, out int y, out int z))
             {
                 _outlet.Add((x, y, z, way));
             }
