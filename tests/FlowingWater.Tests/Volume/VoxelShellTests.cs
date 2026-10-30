@@ -398,6 +398,48 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void FallsSideBySideStayApartWhereAPieceClosesTheFaceBetweenThem()
+    {
+        // Columns x 8 and 9 falling, the face between them closed from x 9's side (a piece there): two columns, each
+        // with its own side toward the other (as one sheet, the sheet ran through the piece and left the face bare).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, 8, y, 0.09f);
+            Falling(view, 9, y, 0.09f, BrickData.AllOpen & ~West);
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+
+        Assert.Contains(corners, c => c.Normal == (1f, 0f, 0f) && Math.Abs(c.X - 0.65f) < 1e-3f);
+        Assert.DoesNotContain(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f);
+    }
+
+    [Fact]
+    public void ACapsReachIsItsSidesReach()
+    {
+        // Two falls side by side, rows 4 to 7, the top one capped over and the bottom one under: each cap spans the
+        // column's sides, out to the face the columns share (cut at the column's own width, the sheet's caps left a gap).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, 8, y, 0.09f);
+            Falling(view, 9, y, 0.09f);
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+        var sides = corners.Where(c => c.Normal == (0f, 0f, 1f)).ToList();
+
+        foreach ((float, float, float) cap in new[] { (0f, 1f, 0f), (0f, -1f, 0f) })
+        {
+            var caps = corners.Where(c => c.Normal == cap).ToList();
+            Assert.Equal(sides.Min(c => c.X), caps.Min(c => c.X), 3);
+            Assert.Equal(sides.Max(c => c.X), caps.Max(c => c.X), 3);
+            Assert.Contains(caps, c => Math.Abs(c.X - 1f) < 1e-3f);
+        }
+    }
+
+    [Fact]
     public void AStripOfThinFallsDownAFaceIsOneCurtain()
     {
         // Five columns side by side, each a twentieth of a voxel falling down rows 2 to 9: one curtain 5 voxels wide, its
@@ -430,8 +472,9 @@ public class VoxelShellTests
         var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
 
         // Both reach x 9 m (1 m east of the brick's middle) at the step: the upper part's east and the lower part's west.
-        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y > -2.001f);
-        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y < -1.999f);
+        // (Each part's own corners only: the upper part's over the step at -2 m, the lower part's under it.)
+        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y > -1.999f);
+        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y < -2.001f);
     }
 
     [Fact]
