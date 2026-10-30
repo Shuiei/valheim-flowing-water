@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.8 — 2026-10-30
+
+### Fixed
+- Water on steep rock, beyond the 3D water round you, is drawn by its falls only: its surface there, taken straight
+  between the voxel columns over the rock's curved face, was a heap of jagged sheets standing off the rock and cutting
+  into it under a source on a rock's top.
+
 ## v0.49.7 — 2026-10-30
 
 ### Fixed

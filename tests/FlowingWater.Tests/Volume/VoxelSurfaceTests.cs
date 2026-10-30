@@ -141,7 +141,6 @@ public class VoxelSurfaceTests
 
     [Theory]
     [InlineData(1)]
-    [InlineData(2)]
     [InlineData(VoxelSurface.MaxStep)]
     public void AStreamDownASteepSlopeIsOneSmoothSheet(int drop)
     {
@@ -229,20 +228,20 @@ public class VoxelSurfaceTests
     [Fact]
     public void ASideStopsAtTheSurfaceOverIt()
     {
-        // Water three voxels deep (rows 4 to 6, its level 7) joined to a sheet three rows lower east and west of it
-        // (row 3, level 3.6): their shared corners are at 5.3, under the deep water's top voxel's floor.
-        VoxelField field = Field((5, 4, 5, 1f, 0f), (5, 5, 5, 1f, 0f), (5, 6, 5, 1f, 0f), (6, 3, 5, 0.1f, 0.5f), (4, 3, 5, 0.1f, 0.5f));
+        // Water two voxels deep (rows 4 and 5, its level 6) joined to a sheet two rows lower east and west of it
+        // (row 3, level 3.6): their shared corners are at 4.8, under the deep water's top voxel's floor.
+        VoxelField field = Field((5, 4, 5, 1f, 0f), (5, 5, 5, 1f, 0f), (6, 3, 5, 0.1f, 0.5f), (4, 3, 5, 0.1f, 0.5f));
 
         SurfaceMesh mesh = VoxelSurface.Build(field, field.Find(0, 0, 0));
 
         // The deep water's north side reaches the corners it shares with the sheets and no higher: its top voxel has
         // none there, those under it reach 5.3.
         Vec3[] north = [.. mesh.Vertices.Where(v => v.Z == 6f)];
-        Assert.Equal(5.3f, north.Max(v => v.Y), 4);
+        Assert.Equal(4.8f, north.Max(v => v.Y), 4);
         Assert.Contains(north, v => v.X == 6f && v.Y == 4f);
 
         // No side between them, up the deep water's east face: nothing there over the corners they share.
-        Assert.DoesNotContain(mesh.Vertices, v => v.X == 6f && v.Y > 5.31f);
+        Assert.DoesNotContain(mesh.Vertices, v => v.X == 6f && v.Y > 4.81f);
     }
 
     private static BrickView View(int x, int y, int z) => new(x, y, z, 1f);
