@@ -39,6 +39,9 @@ internal sealed class VoxelGrid
     // The bricks ForgetDry forgets, kept from call to call.
     private readonly List<Brick> _gone = [];
 
+    // How long a jet is followed through the air at the most, seconds, and how often its place is looked at.
+    private const float MostFlight = 6f, FlightStep = 0.02f;
+
     // A source's outlet's voxels with room as PourOutlet finds them, and the way its water leaves each.
     private readonly List<(int X, int Y, int Z, Vec3 Way)> _outlet = [];
 
@@ -220,18 +223,29 @@ internal sealed class VoxelGrid
     /// Pours a source's water out of its outlet, the outlet's middle at a point (world metres), across the way the shape
     /// faces: a rate (m³/s) for a step, shared out evenly among the outlet's places with room (<see cref="Room"/>), each
     /// share leaving its voxel the way the outlet sends it there (fanned out across it, thrown up) at that share of the
-    /// rate. An outlet partly against a wall or past the grid's reach pours all of it out of the rest.
+    /// rate. An outlet partly against a wall or past the grid's reach pours all of it out of the rest. A jet thrown up
+    /// (<see cref="SourceShape.Flies"/>) pours where it lands (<see cref="Lands"/>), on its way along the ground: its
+    /// water flies there in the player's own water, and on the server none of it runs out at the outlet's foot.
     /// </summary>
     /// <returns>False when none of it had room: nothing poured.</returns>
     public bool PourOutlet(float px, float py, float pz, SourceShape shape, float rate, float dt)
     {
         (float rightX, float rightZ) = shape.Right;
         _outlet.Clear();
+        float speed = shape.Speed(rate);
         foreach ((float across, float offset) in shape.Outlet(VoxelSize))
         {
-            if (Room(px + (rightX * offset), py, pz + (rightZ * offset), out int x, out int y, out int z))
+            float ox = px + (rightX * offset), oz = pz + (rightZ * offset);
+            Vec3 way = shape.Direction(across);
+            if (shape.Flies && Lands(ox, py, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) is { } landing)
             {
-                _outlet.Add((x, y, z, shape.Direction(across)));
+                (ox, py, oz) = landing;
+                way = new Vec3(way.X, 0f, way.Z);
+            }
+
+            if (Room(ox, py, oz, out int x, out int y, out int z))
+            {
+                _outlet.Add((x, y, z, way));
             }
         }
 
@@ -243,6 +257,54 @@ internal sealed class VoxelGrid
         }
 
         return poured;
+    }
+
+    /// <summary>
+    /// Where water leaving a point (world metres) at a velocity (m/s; x east, y up, z north) lands, gravity pulling it
+    /// down as it flies: the last place it reaches before a voxel solid there or holding water, looked at every
+    /// <see cref="FlightStep"/> seconds for <see cref="MostFlight"/> at the most (where it got to then, still falling).
+    /// Null when it cannot leave the point (solid or water there already), or its way goes past the grid's reach or
+    /// <see cref="MaxBricks"/>: it pours where it is.
+    /// </summary>
+    public (float X, float Y, float Z)? Lands(float px, float py, float pz, Vec3 velocity)
+    {
+        float s = VoxelSize;
+        float x = px, y = py, z = pz, vy = velocity.Y;
+        (float X, float Y, float Z)? open = null;
+        for (float t = 0f; t <= MostFlight; t += FlightStep)
+        {
+            if (Hit(x, y, z) is not { } hit)
+            {
+                return null;
+            }
+
+            if (hit)
+            {
+                return open;
+            }
+
+            open = (x, y, z);
+            x += velocity.X * FlightStep;
+            z += velocity.Z * FlightStep;
+            y += (vy * FlightStep) - (0.5f * VoxelSolver.Gravity * FlightStep * FlightStep);
+            vy -= VoxelSolver.Gravity * FlightStep;
+        }
+
+        return open;
+
+        // Whether a place is in a voxel's solid (its lower share, as much as is solid) or its water; null where no
+        // brick can hold it.
+        bool? Hit(float hx, float hy, float hz)
+        {
+            int vx = (int)Math.Floor(hx / s), vyy = (int)Math.Floor(hy / s), vz = (int)Math.Floor(hz / s);
+            if (!Within(Brick.Of(vx), Brick.Of(vyy), Brick.Of(vz)) || Make(Brick.Of(vx), Brick.Of(vyy), Brick.Of(vz)) is not { } brick)
+            {
+                return null;
+            }
+
+            int i = Brick.Index(Brick.In(vx), Brick.In(vyy), Brick.In(vz));
+            return brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i] || brick.Water[i] >= 0.5f;
+        }
     }
 
     // The flow through a voxel's face along an axis raised to at least this one (its upper face going the positive

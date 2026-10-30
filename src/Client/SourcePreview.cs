@@ -66,7 +66,7 @@ internal static class SourcePreview
     /// <summary>How far out its water lands, metres: where its arc meets the ground again (null along the ground or all round).</summary>
     public static float? Lands(SourceShape shape, float rate)
     {
-        if (shape.AllRound || shape.Throw < 2f)
+        if (!shape.Flies)
         {
             return null;
         }
@@ -80,7 +80,7 @@ internal static class SourcePreview
     // the ground (or all round), a straight run across it.
     private static (float X, float Y)[] Arc(SourceShape shape, float rate)
     {
-        if (shape.AllRound || shape.Throw < 2f)
+        if (!shape.Flies)
         {
             return [(156f, 101f)];
         }

@@ -535,7 +535,9 @@ public static class VolumePreview
         const float MostSpeed = 12f, Nozzle = 0.25f, Least = 0.25f;
         float rate = river ? 3f : 2f, width = river ? 6f : 0f, spread = river ? 0f : 20f, pitch = river ? 0f : 30f;
         float outlet = Math.Max(width, Least);
-        float speed = Math.Min(MostSpeed, rate / (outlet * Nozzle)), height = Math.Max(Nozzle, rate / (outlet * speed));
+        // The slot as GpuWater.Aimed sizes it: as high as passes the rate at the speed across the cells it fills
+        // (Regulate scales its height to give the rate; the speed is the source's own).
+        float speed = Math.Min(MostSpeed, rate / (outlet * Nozzle)), height = rate / (Math.Max(outlet, 2f * Dx) * speed);
         float up = pitch * Mathf.Deg2Rad;
         var foot = new Vector3(12f, 0f, 20f);
         float[] bed = Field((x, z) => 0f);
@@ -547,7 +549,7 @@ public static class VolumePreview
         scene.Water.SetSprings(springs);
         Log.AppendLine(Inv($"Aimed {(river ? "river" : "jet")}: {rate} m3/s facing east out of an outlet {outlet:0.00} m wide and {height:0.00} m high at {speed:0.0} m/s, fanned {spread:0} degrees, thrown up {pitch:0}, for 3 s."));
         long gave = 0;
-        float highest = 0f;
+        float highest = 0f, lastScale = 0f;
         float flying = 0f;
         int flyers = 0;
         for (int k = 1; k <= 180; k++)
@@ -555,6 +557,7 @@ public static class VolumePreview
             scene.Step();
             (float[] scales, uint[] last) = scene.Water.ReadSources();
             gave += last[0];
+            lastScale = scales[0];
             if (k % 30 == 0)
             {
                 float[] at = scene.Water.Read();
@@ -573,7 +576,7 @@ public static class VolumePreview
                     }
                 }
 
-                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the source's speed scaled {scales[0]:0.00}, it gave {last[0]} particles last step (its rate's {rate * Frame / scene.Water.Litre:0.0}), {gave * scene.Water.Litre:0.0} m3 so far"));
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the source's {(river ? "speed" : "slot")} scaled {scales[0]:0.00}, it gave {last[0]} particles last step (its rate's {rate * Frame / scene.Water.Litre:0.0}), {gave * scene.Water.Litre:0.0} m3 so far"));
             }
         }
 
@@ -601,6 +604,13 @@ public static class VolumePreview
         Log.AppendLine(Inv($"  The water east of it rose to {highest:0.00} m over the ground ({(river ? "a river: under 0.8 m" : "a jet thrown up: over 0.8 m")}): {Check(thrown)}"));
         Log.AppendLine(Inv($"  Its water spans {band:0.0} m across ({(river ? "about its 6 m outlet" : "a slim jet in the air: under 4 m")}): {Check(wide)}"));
         Log.AppendLine(Inv($"  It gave {given:0.0} m3 (its rate's {wanted:0.0}): within 15 %: {Check(gives)}"));
+        if (!river)
+        {
+            // Regulate scaling its slot's height, not its speed, the jet leaves at its own speed while its slot is a
+            // cell high or more (held to about half, it fell a few metres out, heaped at the source).
+            float leaves = Mathf.Min(1f, height * lastScale / Dx);
+            Log.AppendLine(Inv($"  Its slot scaled {lastScale:0.00} ({height * lastScale:0.00} m high), it leaves at {leaves:0.00} of its {speed:0.0} m/s (0.85 at least): {Check(leaves >= 0.85f)}"));
+        }
         scene.Shot(river ? "vaimed_river_3s" : "vaimed_jet_3s", new Vector3(foot.x - 4f, 5f, foot.z - 8f), new Vector3(foot.x + 6f, 0.5f, foot.z));
     }
 

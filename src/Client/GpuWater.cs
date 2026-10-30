@@ -34,6 +34,11 @@ internal sealed class GpuWater : IDisposable
     // Shortest time between two builds of the server's water for the card, seconds.
     private const float BuildSeconds = 0.1f;
 
+    // How far round a source, and from how high over it, the ground is cast where the server's water is not yet
+    // (CastAroundSources), metres: a jet's outline's farthest, and over the highest it throws (60 degrees at its
+    // fastest, about 5.5 m).
+    private const float SourceReach = 20f, SourceRise = 8f;
+
     private static readonly int OnId = Shader.PropertyToID("_FWSimOn");
     private static readonly int OriginId = Shader.PropertyToID("_FWSimOrigin");
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
@@ -72,6 +77,9 @@ internal sealed class GpuWater : IDisposable
 
     // The bricks in the square this frame (kept, not made again each frame).
     private static readonly List<BrickView> NearBricks = [];
+
+    // The placed sources, for whether one pours in the square.
+    private static readonly List<(Vector3 At, float Rate)> NearSources = [];
 
     private static string _off = "not started";
 
@@ -455,13 +463,16 @@ internal sealed class GpuWater : IDisposable
             }
         }
 
-        // No water in the square: nothing to move or draw (water far off does not keep the card busy). The bricks are
+        // No water in the square and no source pouring in it: nothing to move or draw (water far off does not keep the
+        // card busy; a source does, though the server's water is not there: a jet's lands out of the square, and the
+        // water near you flies it out). The bricks are
         // the square's the water is in, kept while the camera stays near its middle: the square round the camera as it is
         // now may be a brick row off it, and built from that one's, the kept square's far edge had none of the server's
         // water (the volume water there took the side for dry, its water ran out, and the pool stood a metre low).
-        if (Near(_water?._window ?? window, NearBricks).Count == 0)
+        SimWindow kept = _water?._window ?? window;
+        if (Near(kept, NearBricks).Count == 0 && !SourceIn(kept))
         {
-            Stop("no water near you");
+            Stop(VoxelWater.Field.Bricks.Count == 0 ? "no water here" : "no water near you");
             return;
         }
 
@@ -490,7 +501,6 @@ internal sealed class GpuWater : IDisposable
             : !settings.GpuWater.Value ? "turned off in the settings (Client.GpuWater)"
             : !settings.CustomShader.Value ? "the mod's shader is turned off (Client.CustomShader)"
             : WaterBrick.Flat ? "the water is drawn flat (flowingwater flat)"
-            : VoxelWater.Field.Bricks.Count == 0 ? "no water here"
             : null;
         if (why != null)
         {
@@ -835,19 +845,25 @@ internal sealed class GpuWater : IDisposable
         {
             if (at.x >= origin.x && at.z >= origin.y && at.x < origin.x + size && at.z < origin.y + size && _springs.Count < VolumeWater.MostSprings)
             {
-                _springs.Add(drain ? VolumeWater.Spring.Drain(at + (Vector3.up * Prefabs.MarkerRadius), radius, rate) : shape.AllRound ? VolumeWater.Spring.SourceOn(at, rate) : Aimed(at, rate, shape));
+                _springs.Add(drain ? VolumeWater.Spring.Drain(at + (Vector3.up * Prefabs.MarkerRadius), radius, rate) : shape.AllRound ? VolumeWater.Spring.SourceOn(at, rate) : Aimed(at, rate, shape, _window.CellSize));
             }
         }
 
         return _springs;
     }
 
-    // A source facing a way, for the volume water: its outlet in front of its marker, as the shape has it.
-    private static VolumeWater.Spring Aimed(Vector3 foot, float rate, SourceShape shape)
+    // A source facing a way, for the volume water: its outlet in front of its marker, as the shape has it, at its speed
+    // (the server's, which lands its jet where this one does); its slot as high as passes the rate at that speed
+    // across the cells it fills, two at least (FlowingWaterVolume's InSource), Regulate scaling its height to give the
+    // rate. Sized for a point's quarter metre instead, and Regulate scaling its speed, the slot of a strong point's jet
+    // was twice what passed its rate: the jet left at about half its speed and fell a few metres out, heaped there.
+    private static VolumeWater.Spring Aimed(Vector3 foot, float rate, SourceShape shape, float cell)
     {
         Vec3 way = shape.Direction(0f);
         (float rightX, float rightZ) = shape.Right;
-        return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, shape.OutletHeight(rate), shape.Speed(rate), shape.Spread * 0.5f * Mathf.Deg2Rad);
+        float speed = shape.Speed(rate);
+        float height = speed > 0f ? rate / (Math.Max(shape.OutletWidth, 2f * cell) * speed) : SourceShape.Nozzle;
+        return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, height, speed, shape.Spread * 0.5f * Mathf.Deg2Rad);
     }
 
     // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to
@@ -900,6 +916,7 @@ internal sealed class GpuWater : IDisposable
         _layers = build.Result.Layers;
         Hand();
         _castFrom = build.Result.Cast;
+        CastAroundSources();
         MarkCastFirst();
         _builtBricks = _buildingBricks;
         _builtGround = _buildingGround;
@@ -1162,6 +1179,47 @@ internal sealed class GpuWater : IDisposable
             _volumeReseed = Math.Max(_volumeReseed, VolumeFollow.Reseed(dx, dz, per));
         }
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
+    }
+
+    // Round a source in the square, the ground is looked for where the server's water is not yet: from SourceRise
+    // over the source, SourceReach round it (as far as a jet's outline goes), so the water near you flies a jet out
+    // onto ground it knows and lands it there (cast only from the server's water, it knew none past the source's foot,
+    // and a jet's water fell through the ground it did not know). Where the server's water is, it is cast from that.
+    private void CastAroundSources()
+    {
+        Marker.Sources(NearSources);
+        int columns = _window.Columns, reach = (int)Math.Ceiling(SourceReach / _window.VoxelSize);
+        foreach ((Vector3 at, _) in NearSources)
+        {
+            int cx = (int)Math.Floor(at.x / _window.VoxelSize) - _window.X0, cz = (int)Math.Floor(at.z / _window.VoxelSize) - _window.Z0;
+            for (int vz = Math.Max(0, cz - reach); vz <= Math.Min(columns - 1, cz + reach); vz++)
+            {
+                for (int vx = Math.Max(0, cx - reach); vx <= Math.Min(columns - 1, cx + reach); vx++)
+                {
+                    int k = (vz * columns) + vx;
+                    if (float.IsNaN(_castFrom[k]) && ((vx - cx) * (vx - cx)) + ((vz - cz) * (vz - cz)) <= reach * reach)
+                    {
+                        _castFrom[k] = at.y + SourceRise;
+                    }
+                }
+            }
+        }
+    }
+
+    // Whether a placed source stands in the square.
+    private static bool SourceIn(SimWindow window)
+    {
+        Marker.Sources(NearSources);
+        float west = window.X0 * window.VoxelSize, south = window.Z0 * window.VoxelSize, side = window.Columns * window.VoxelSize;
+        foreach ((Vector3 at, _) in NearSources)
+        {
+            if (at.x >= west && at.x < west + side && at.z >= south && at.z < south + side)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // The bricks (of the square's voxel size) in a square, into a list, which it gives back.
