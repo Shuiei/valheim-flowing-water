@@ -10,7 +10,7 @@ namespace FlowingWater.Tests;
 /// Where the bricks' surface (FlowingWater.shader) draws, read from its source: not where it stands steeper than the
 /// CPU's surface joins two columns (VoxelSurface.MaxStep rows a column, along either axis, so a slope dropping that much
 /// both ways is still drawn: the shell draws no side there, VoxelShellTests'
-/// ASheetDownADiagonalSlopeThreeVoxelsAColumnBothWaysShowsNoSide; its length, 4.2, was cut, and nothing drew it), and not where the volume water near the camera has
+/// ASheetDownADiagonalSlopeTwoVoxelsAColumnBothWaysShowsNoSide; its length, 2.8, was cut, and nothing drew it; steeper rock is left to the falls), and not where the volume water near the camera has
 /// filled its square (FlowingWaterSimMask.cginc), the strip a move took in left to the bricks till it is poured.
 /// </summary>
 public class BrickShaderTests

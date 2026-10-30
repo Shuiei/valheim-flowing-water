@@ -102,10 +102,11 @@ Shader "FlowingWater/Water"
 
         // Columns along a side of a brick's textures.
         #define GRID_SIDE 17.0
-        // The steepest the surface is drawn, rise a run along either axis (about 72 degrees): the reach of the CPU's
+        // The steepest the surface is drawn, rise a run along either axis (about 63 degrees): the reach of the CPU's
         // surface, VoxelSurface.MaxStep rows a column, so where it joins two columns as one sheet (and the shell draws
-        // no side between them) this draws it, down a slope that drops as much both ways too.
-        #define STEEP_GONE 3.0
+        // no side between them) this draws it, down a slope that drops as much both ways too. Water on steeper rock is
+        // the shell's falls'.
+        #define STEEP_GONE 2.0
 
         float2 GridUv(float2 cell)
         {

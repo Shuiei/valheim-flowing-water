@@ -22,10 +22,11 @@ internal static class VoxelSurface
 
     /// <summary>
     /// The most rows apart the tops of two columns side by side may be and still be one water: the higher one's
-    /// water all over the lower top (a stream running down a slope up to three voxels a voxel). Further apart, the
-    /// higher one ends there with a side (a fall's edge).
+    /// water all over the lower top (a stream running down a slope up to two voxels a voxel, about 63 degrees). Further
+    /// apart, the higher one ends there with a side (a fall's edge); water on rock steeper than that is drawn by its
+    /// falls only (at three, a film on a rock's face under a source was a heap of jagged sheets standing off the rock).
     /// </summary>
-    public const int MaxStep = 3;
+    public const int MaxStep = 2;
 
     /// <summary>
     /// The shallowest water, a share of a voxel from its top down to its floor, whose column has sides: a thinner

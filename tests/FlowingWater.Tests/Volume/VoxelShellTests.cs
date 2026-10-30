@@ -199,22 +199,19 @@ public class VoxelShellTests
     }
 
     [Fact]
-    public void ASheetDownADiagonalSlopeThreeVoxelsAColumnBothWaysShowsNoSide()
+    public void ASheetDownADiagonalSlopeTwoVoxelsAColumnBothWaysShowsNoSide()
     {
-        // Three columns by three, a sheet 0.3 deep on ground dropping three rows a column east and three north: each
-        // column joins the ones below it as one sheet, the surface's (which draws a rise of three a column either way).
-        var view = new BrickView(0, 0, 0, 1f);
-        for (int z = 5; z <= 7; z++)
-        {
-            for (int x = 5; x <= 7; x++)
-            {
-                int row = (3 * (7 - x)) + (3 * (7 - z));
-                view.Solid[Brick.Index(x, row, z)] = 0.5f;
-                Wet(view, x, row, z, 0.3f, Up | (x < 7 ? East : 0) | (z < 7 ? North : 0));
-            }
-        }
+        // Three columns by three, a sheet 0.3 deep on ground dropping two rows a column east and two north: each
+        // column joins the ones below it as one sheet, the surface's (which draws a rise of two a column either way).
+        Assert.Equal(0, VoxelShell.Build(Field(DiagonalSheet(VoxelSurface.MaxStep)), 0, 0, 0).Faces);
+    }
 
-        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    [Fact]
+    public void ASheetDownRockSteeperThanTheSurfaceJoinsKeepsItsSides()
+    {
+        // The same sheet dropping a row more a column: past the surface's reach (it draws no water on rock so steep),
+        // each column ends with its sides toward the ones below.
+        Assert.True(VoxelShell.Build(Field(DiagonalSheet(VoxelSurface.MaxStep + 1)), 0, 0, 0).Faces > 0);
     }
 
     [Fact]
@@ -632,6 +629,23 @@ public class VoxelShellTests
         int i = Brick.Index(x, y, z);
         view.Water[i] = water;
         view.Open[i] = (byte)open;
+    }
+
+    // Three columns by three, a sheet 0.3 deep on ground dropping this many rows a column east and as many north.
+    private static BrickView DiagonalSheet(int drop)
+    {
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int z = 5; z <= 7; z++)
+        {
+            for (int x = 5; x <= 7; x++)
+            {
+                int row = (drop * (7 - x)) + (drop * (7 - z));
+                view.Solid[Brick.Index(x, row, z)] = 0.5f;
+                Wet(view, x, row, z, 0.3f, Up | (x < 7 ? East : 0) | (z < 7 ? North : 0));
+            }
+        }
+
+        return view;
     }
 
     // Water falling at 4 m/s in voxel (8, y, 8).
