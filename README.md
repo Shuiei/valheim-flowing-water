@@ -367,7 +367,9 @@ sphere, is in `VolumeFollow` and `SpringShape`, which the unit tests cover); wat
 runs down it as a sheet thinner than 0.6 m, its front no slower than six tenths of frictionless sliding, and gathers
 on the floor below with nothing pushed into the ground, half of it at least on the floor by 5 s; a spring's basin,
 two seconds after the source stops, has a top whose spread about its mean (standard deviation) from column to column
-is under 12 cm. `FW_PREVIEW_ITERATIONS`,
+is under 12 cm; a character's box (the game's, 0.98 m across and 1.85 m high) standing in a stream 0.3 m deep running
+down a 4 % bed at some 1.2 m/s, slow enough for a wader to stand in, heaps the water against it by no more than its bow
+wave (twice its speed's head) and has none lying on its top. `FW_PREVIEW_ITERATIONS`,
 `FW_PREVIEW_FLIP`, `FW_PREVIEW_DRIFT` and `FW_PREVIEW_FROTH` try other solver settings, `FW_PREVIEW_SPHERES=1` draws
 the particles.
 
