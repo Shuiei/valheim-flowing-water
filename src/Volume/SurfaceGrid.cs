@@ -81,6 +81,12 @@ internal sealed class SurfaceGrid
     /// <summary>1 where the column's top is in the brick's own rows, else 0.</summary>
     public float[] Own { get; } = new float[Side * Side];
 
+    /// <summary>
+    /// Each column's top row over the brick's floor: the voxel its top is in, as the CPU's surface and the shell count
+    /// it (its level, laid flat, may lie a row under it: a film over a voxel not full); 0 where there is none.
+    /// </summary>
+    public float[] Row { get; } = new float[Side * Side];
+
     /// <summary>Each column's current east, metres a second, at its top.</summary>
     public float[] CurrentX { get; } = new float[Side * Side];
 
@@ -126,6 +132,7 @@ internal sealed class SurfaceGrid
                 grid.Depth[k] = depth;
                 grid.Shown[k] = Clamp((depth - Drawing.HideDepth) / (Drawing.ShowDepth - Drawing.HideDepth));
                 grid.Own[k] = own ? 1f : 0f;
+                grid.Row[k] = top - floor;
                 if (column.Voxel(top, out BrickView view, out int v))
                 {
                     grid.CurrentX[k] = view.VelocityX[v];
@@ -204,6 +211,7 @@ internal sealed class SurfaceGrid
         for (int k = 0; k < blend.Own.Length; k++)
         {
             blend.Own[k] = to.Shown[k] > 0f ? to.Own[k] : from.Own[k];
+            blend.Row[k] = to.Row[k];
         }
 
         return blend;

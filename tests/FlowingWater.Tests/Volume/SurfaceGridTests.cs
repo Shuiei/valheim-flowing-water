@@ -48,6 +48,8 @@ public class SurfaceGridTests
 
         Assert.Equal(3.75f, grid.Height[k], 4);
         Assert.Equal(0.25f, grid.Depth[k], 4);
+        // Its top row is still the film's, row 4, as the shell counts it; its level, laid flat, is in row 3.
+        Assert.Equal(4f, grid.Row[k]);
     }
 
     [Fact]

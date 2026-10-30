@@ -432,7 +432,9 @@ Shader "FlowingWater/VolumeSurface"
 #endif
                 LightingStandard_GI(so, lighting, gi);
                 half4 colour = LightingStandard(so, toCamera, gi);
-                colour.rgb += so.Emission;
+                // What is seen through it, as much as the water hides (premultiplied as LightingStandard's albedo: in
+                // full, thin water's edge and a splash's drops added the scene behind to the scene, a bright rim).
+                colour.rgb += so.Emission * so.Alpha;
 
                 // Fogged as the sea, toward the sun's colour where one looks at the sun (premultiplied: the fog's colour
                 // as much as the water hides).
