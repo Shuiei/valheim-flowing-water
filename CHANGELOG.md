@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.5 — 2026-10-30
+
+### Fixed
+- Water falling down a rock face, beyond the 3D water round you, is a sheet again, not rows of thin dashed poles: falls
+  side by side join into one, a fall stepping aside down a slanting face meets at its steps, and a fall runs on
+  through the voxels its water skips as it goes down.
+
 ## v0.49.4 — 2026-10-30
 
 ### Fixed
