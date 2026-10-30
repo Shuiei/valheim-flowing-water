@@ -49,9 +49,19 @@ internal sealed class ParticleSurface : IDisposable
     private static readonly int SunColourId = Shader.PropertyToID("_FWSunColour");
     private static readonly int ParticleSizeId = Shader.PropertyToID("_FWParticleSize");
 
-    private static readonly Bounds Everywhere = new(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
+    // Over everything the camera sees, its middle at the camera: the probes it is lit by are the ones there.
+    private static readonly Vector3 EverywhereSize = new(100000f, 100000f, 100000f);
+
+    /// <summary>
+    /// Bounds over everything a camera sees, their middle at it: what is drawn over the whole screen is lit by the
+    /// reflection and light probes about the camera (as the bricks' water there is), not the world's middle's.
+    /// </summary>
+    internal static Bounds Around(Camera camera) => new(camera.transform.position, EverywhereSize);
 
     private readonly CommandBuffer _commands = new() { name = "FlowingWater particle water" };
+
+    // What the surface is drawn with besides its material: the scene's reflection about the camera (SceneReflection).
+    private readonly MaterialPropertyBlock _lit = new();
 
     // The textures, the camera's size (made again when it changes): the distances (with a depth buffer, the nearest
     // kept), the distances smoothed one way, the thickness.
@@ -131,7 +141,8 @@ internal sealed class ParticleSurface : IDisposable
 
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-        Graphics.DrawProcedural(surface, Everywhere, MeshTopology.Triangles, 3, 1, camera, null, ShadowCastingMode.Off, false, 0);
+        SceneReflection.Into(_lit, camera.transform.position);
+        Graphics.DrawProcedural(surface, Around(camera), MeshTopology.Triangles, 3, 1, camera, _lit, ShadowCastingMode.Off, false, 0);
         Froth(camera, froth);
     }
 
@@ -141,7 +152,8 @@ internal sealed class ParticleSurface : IDisposable
     {
         if (froth != null && froth.Material != null && froth.LastCount > 0)
         {
-            Graphics.DrawProceduralIndirect(froth.Material, Everywhere, MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
+            SceneReflection.Into(froth.Properties, camera.transform.position);
+            Graphics.DrawProceduralIndirect(froth.Material, Around(camera), MeshTopology.Triangles, froth.Arguments, 0, camera, froth.Properties, ShadowCastingMode.Off, false, 0);
         }
     }
 

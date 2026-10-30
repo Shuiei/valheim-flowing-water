@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.6 — 2026-10-30
+
+### Fixed
+- The water near you (Client.VolumeWater) looks as the water beyond it does, so no line shows across a pond or a
+  stream where the one meets the other: it was green and see-through, mirroring little of the sky, where the water
+  beyond mirrors it as the sea does. It is now lit as that water is, mirrors the scene's own sky about you (it mirrored
+  a plain sky from the world's middle), and fades out whole at its edge.
+
 ## v0.49.5 — 2026-10-30
 
 ### Fixed
