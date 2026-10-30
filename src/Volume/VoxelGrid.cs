@@ -293,14 +293,20 @@ internal sealed class VoxelGrid
         return open;
 
         // Whether a place is in a voxel's solid (its lower share, as much as is solid) or its water; null where no
-        // brick can hold it.
+        // brick can hold it, or the solids of one not made yet cannot be read without waiting (they are asked for:
+        // till then the jet pours at its outlet). A brick the flight crosses is made (its solids read once, and kept
+        // up with the ground's changes as any brick's are), and kept while the jet flies through it (Fed): forgotten
+        // as dry, it was made again, its solids read again, every few seconds.
         bool? Hit(float hx, float hy, float hz)
         {
             int vx = (int)Math.Floor(hx / s), vyy = (int)Math.Floor(hy / s), vz = (int)Math.Floor(hz / s);
-            if (!Within(Brick.Of(vx), Brick.Of(vyy), Brick.Of(vz)) || Make(Brick.Of(vx), Brick.Of(vyy), Brick.Of(vz)) is not { } brick)
+            int bx = Brick.Of(vx), by = Brick.Of(vyy), bz = Brick.Of(vz);
+            if (!Within(bx, by, bz) || (Find(bx, by, bz) is null && !_solids.Ready(bx, by, bz, VoxelSize)) || Make(bx, by, bz) is not { } brick)
             {
                 return null;
             }
+
+            brick.Fed = true;
 
             int i = Brick.Index(Brick.In(vx), Brick.In(vyy), Brick.In(vz));
             return brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i] || brick.Water[i] >= 0.5f;

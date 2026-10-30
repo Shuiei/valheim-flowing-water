@@ -7,7 +7,7 @@ namespace FlowingWater.Tests;
 /// <summary>
 /// What a flowingwater command says (<see cref="CommandReply"/>): each line on the console; with Debug on, the command
 /// asked and every line it says (a server's answer among them) in the log too, none of it with Debug off; reports and a
-/// command's failure in the log whatever Debug says.
+/// command's failure (the error and its console line) in the log whatever Debug says.
 /// </summary>
 public class CommandReplyTests
 {
@@ -64,7 +64,7 @@ public class CommandReplyTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AFailureIsLoggedAsAnErrorAndSaidOnTheConsole(bool debug)
+    public void AFailureIsLoggedAsAnErrorAndItsLineWhateverDebugSays(bool debug)
     {
         _debug = debug;
         CommandReply reply = Reply();
@@ -74,7 +74,7 @@ public class CommandReplyTests
         string error = Assert.Single(_error);
         Assert.StartsWith("flowingwater gpu: System.InvalidOperationException: no card", error, StringComparison.Ordinal);
         Assert.Equal(["flowingwater: failed, InvalidOperationException: no card (see BepInEx/LogOutput.log)"], _console);
-        Assert.Equal(debug ? _console : [], _info);
+        Assert.Equal(_console, _info);
     }
 
     [Fact]

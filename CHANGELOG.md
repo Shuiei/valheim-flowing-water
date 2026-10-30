@@ -12,7 +12,10 @@ All notable changes to FlowingWater. Newest first.
   keeps the width of the water past it.
 - The water's surface down a slope dropping steeply both ways at once is drawn again: it was cut as too steep while
   each way was within what the surface joins, and no side drew it either.
-- With Debug on, a flowingwater command that fails writes its console line to the log too.
+- A jet looks at the ground it flies over only once the server can read it without waiting (it pours at its outlet
+  for that moment), and keeps the blocks it flies through while it pours instead of making them again every few
+  seconds.
+- A flowingwater command that fails writes its console line to the log beside its error, Debug on or off.
 
 ## v0.49.3 — 2026-10-30
 

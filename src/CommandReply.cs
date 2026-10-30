@@ -57,11 +57,11 @@ internal sealed class CommandReply
 
     /// <summary>
     /// The command (its words after flowingwater) threw: the exception logged as an error, and its message said on the
-    /// console as any line is (so in the log with Debug on).
+    /// console and in the log, whatever Debug says (the console's line read back beside the error).
     /// </summary>
     public void Failed(string args, Exception e)
     {
         _error($"flowingwater {args}: {e}");
-        Say($"flowingwater: failed, {e.GetType().Name}: {e.Message} (see BepInEx/LogOutput.log)");
+        SayLogged($"flowingwater: failed, {e.GetType().Name}: {e.Message} (see BepInEx/LogOutput.log)");
     }
 }
