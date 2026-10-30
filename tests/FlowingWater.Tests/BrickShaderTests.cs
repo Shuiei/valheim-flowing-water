@@ -24,26 +24,18 @@ public class BrickShaderTests
         Assert.Equal(VoxelSurface.MaxStep + 1, Define(source, "STEEP_GONE"));
         Assert.Contains("o.rise = max(abs(east), abs(north)) / max(_VoxelSize, 0.001);", ShaderSource.Function(source, "void vert("), StringComparison.Ordinal);
         Assert.Contains("i.rise > STEEP_GONE || Unjoined(i.cell))", ShaderSource.Function(source, "void surf("), StringComparison.Ordinal);
-        Assert.Contains("return ceil((column.x / max(_VoxelSize, 0.001)) - 0.001) - 1.0;", ShaderSource.Function(source, "float RowOf("), StringComparison.Ordinal);
-        Assert.Contains("abs(RowOf(a) - RowOf(b)) > JOIN_ROWS + 0.5", ShaderSource.Function(source, "bool Apart("), StringComparison.Ordinal);
+        Assert.Contains("tex2Dlod(_FlowNext, float4(GridUv(corner), 0.0, 0.0)).w", ShaderSource.Function(source, "float4 ColumnAt("), StringComparison.Ordinal);
+        Assert.Contains("abs(a.w - b.w) > JOIN_ROWS + 0.5", ShaderSource.Function(source, "bool Apart("), StringComparison.Ordinal);
+        Assert.Contains("(b.z <= 0.0 && c.z <= 0.0 && Apart(a, d)) || (a.z <= 0.0 && d.z <= 0.0 && Apart(b, c))", ShaderSource.Function(source, "bool Unjoined("), StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(10.9f, 8.7f, false)]
-    [InlineData(10.99f, 8.05f, false)]
-    [InlineData(10.5f, 9.5f, false)]
-    [InlineData(10.99f, 8.0f, true)]
-    [InlineData(11f, 7.5f, true)]
-    public void TwoColumnsAreCutApartByTheirRowsNotTheirLevels(float high, float low, bool cut)
+    [Fact]
+    public void EachColumnsTopRowIsInTheCurrentsSpareChannel()
     {
-        // The shader's rule (above) on two columns' levels (voxels over the brick's floor): rows 10 and 8 are joined
-        // however far their levels (a rise of 2.2 or 2.9 was cut, and the shell drew no side: nothing drew it); a level
-        // at a voxel's very top is that voxel's; and no joined pair rises more than STEEP_GONE.
-        static int Row(float level) => (int)Math.Ceiling(level - 0.001f) - 1;
-        bool apart = Math.Abs(Row(high) - Row(low)) > VoxelSurface.MaxStep;
+        // The shader's rows (above) are SurfaceGrid.Row, the voxel each top is in, not rebuilt from the level laid flat.
+        string pack = System.IO.File.ReadAllText(Repository.File("src/Client/GpuSurface.cs"));
 
-        Assert.Equal(cut, apart);
-        Assert.True(apart || high - low <= VoxelSurface.MaxStep + 1, $"a joined pair rises {high - low}");
+        Assert.Contains("_pixels[(k * 4) + 3] = grid.Row[k];", pack, StringComparison.Ordinal);
     }
 
     // A #define's number in a shader's source.

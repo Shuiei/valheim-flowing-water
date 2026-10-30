@@ -188,7 +188,7 @@ internal sealed class GpuSurface : IDisposable
             _pixels[(k * 4) + 0] = grid.CurrentX[k];
             _pixels[(k * 4) + 1] = grid.CurrentZ[k];
             _pixels[(k * 4) + 2] = grid.Foam[k];
-            _pixels[(k * 4) + 3] = 0f;
+            _pixels[(k * 4) + 3] = grid.Row[k];
         }
 
         flow.SetPixelData(_pixels, 0);
