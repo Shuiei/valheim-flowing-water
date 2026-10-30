@@ -22,7 +22,7 @@ internal static class JetFlight
     /// A strip of a jet: where it leaves the outlet, its velocity there (m/s), its width (m), how fast each of its sides
     /// moves out as it flies (m/s: its share of the spread), and the water it carries across its width (m²/s).
     /// </summary>
-    public readonly struct Strip
+    public readonly struct Strip : IEquatable<Strip>
     {
         public Strip(Vec3 start, Vec3 velocity, float width, float widen, float flow)
         {
@@ -43,8 +43,18 @@ internal static class JetFlight
 
         public float Flow { get; }
 
+        public static bool operator ==(Strip a, Strip b) => a.Equals(b);
+
+        public static bool operator !=(Strip a, Strip b) => !a.Equals(b);
+
         /// <summary>Where it is after so many seconds of flight.</summary>
         public Vec3 At(float t) => new(Start.X + (Velocity.X * t), Start.Y + (Velocity.Y * t) - (0.5f * VoxelSolver.Gravity * t * t), Start.Z + (Velocity.Z * t));
+
+        public bool Equals(Strip other) => Start == other.Start && Velocity == other.Velocity && Width.Equals(other.Width) && Widen.Equals(other.Widen) && Flow.Equals(other.Flow);
+
+        public override bool Equals(object obj) => obj is Strip other && Equals(other);
+
+        public override int GetHashCode() => (Start, Velocity, Width, Widen, Flow).GetHashCode();
     }
 
     /// <summary>
