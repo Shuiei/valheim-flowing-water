@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.0 — 2026-10-30
+
+### Added
+- A `Debug` setting (General, off by default): on, each `flowingwater` console command and every line it answers is
+  written to `BepInEx/LogOutput.log` too, so a session's commands (a `flowingwater info` where a problem showed) can be
+  read back later. The server's answer to a wipe asked from a player's game is logged there too.
+
 ## v0.48.1 — 2026-10-30
 
 ### Fixed

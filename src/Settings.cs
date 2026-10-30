@@ -10,6 +10,7 @@ internal sealed class Settings
     public Settings(ConfigFile config)
     {
         Enabled = config.Bind("General", "Enabled", true, "Simulate (server) and show (client) flowing water.");
+        Debug = config.Bind("General", "Debug", false, "Write each flowingwater console command and every line it answers to BepInEx/LogOutput.log, to read a session back. For testing.");
         CellSize = config.Bind("Server", "CellSize", 1f, new ConfigDescription("Side of the water's cubic voxels, in metres. Smaller voxels give finer streams, shores and falls. Moving water costs the server about 3 times as much at 0.5 as at 1, and about 15 times at 0.25 (for small builds only); still water stays cheap at any size. Changing it moves the water already there to the new grid.", new AcceptableValueList<float>(TileData.CellSizes)));
         Erosion = config.Bind("Server", "Erosion", false, "Running water wears the ground away where it runs fast and lays it down where it slows, so streams slowly cut their own beds. The ground within 5 m of anything players built, and of the game's own places, is left alone. Turning it off stops it; what it did stays. Paused while the water moves to 3D voxels: it comes back in a later version.");
         ErosionSpeed = config.Bind("Server", "ErosionSpeed", 1f, new ConfigDescription("How fast erosion goes (1 = millimetres a minute in a fast stream); higher to watch it happen, for testing. Paused with Erosion: it comes back in a later version.", new AcceptableValueRange<float>(0.1f, 1000f)));
@@ -48,6 +49,8 @@ internal sealed class Settings
     public const float MinSourceRate = 0.001f;
 
     public ConfigEntry<bool> Enabled { get; }
+
+    public ConfigEntry<bool> Debug { get; }
 
     public ConfigEntry<float> CellSize { get; }
 
