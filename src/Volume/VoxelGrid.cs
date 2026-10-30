@@ -217,7 +217,7 @@ internal sealed class VoxelGrid
     // way, the one before it, the lower neighbour's upper face, going the negative way), its brick woken for it.
     private void Aim(int x, int y, int z, int axis, float flow)
     {
-        if (flow == 0f)
+        if (!(Math.Abs(flow) > 0f))
         {
             return;
         }
