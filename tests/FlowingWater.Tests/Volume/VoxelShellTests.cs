@@ -375,6 +375,145 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void TwoFallsSideBySideAreOneSheet()
+    {
+        // Columns x 8 and 9 falling, rows 4 to 7: each reaches the face they share and shows no side there, so the two
+        // are one sheet 1.3 voxels wide (two poles 0.3 wide, side by side, they were).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, 8, y, 0.09f);
+            Falling(view, 9, y, 0.09f);
+        }
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+        var corners = Corners(shell).ToList();
+
+        Assert.Equal((4 * 2 * 3) + 4, shell.Faces);
+        Assert.DoesNotContain(corners, c => c.Normal == (1f, 0f, 0f) && c.X < 1.5f);
+        Assert.DoesNotContain(corners, c => c.Normal == (-1f, 0f, 0f) && c.X > 0.5f);
+        Assert.Equal(0.35f, corners.Min(c => c.X), 3);
+        Assert.Equal(1.65f, corners.Max(c => c.X), 3);
+        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f);
+    }
+
+    [Fact]
+    public void FallsSideBySideStayApartWhereAPieceClosesTheFaceBetweenThem()
+    {
+        // Columns x 8 and 9 falling, the face between them closed from x 9's side (a piece there): two columns, each
+        // with its own side toward the other (as one sheet, the sheet ran through the piece and left the face bare).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, 8, y, 0.09f);
+            Falling(view, 9, y, 0.09f, BrickData.AllOpen & ~West);
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+
+        Assert.Contains(corners, c => c.Normal == (1f, 0f, 0f) && Math.Abs(c.X - 0.65f) < 1e-3f);
+        Assert.DoesNotContain(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f);
+    }
+
+    [Fact]
+    public void ACapsReachIsItsSidesReach()
+    {
+        // Two falls side by side, rows 4 to 7, the top one capped over and the bottom one under: each cap spans the
+        // column's sides, out to the face the columns share (cut at the column's own width, the sheet's caps left a gap).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, 8, y, 0.09f);
+            Falling(view, 9, y, 0.09f);
+        }
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+        var sides = corners.Where(c => c.Normal == (0f, 0f, 1f)).ToList();
+
+        foreach ((float, float, float) cap in new[] { (0f, 1f, 0f), (0f, -1f, 0f) })
+        {
+            var caps = corners.Where(c => c.Normal == cap).ToList();
+            Assert.Equal(sides.Min(c => c.X), caps.Min(c => c.X), 3);
+            Assert.Equal(sides.Max(c => c.X), caps.Max(c => c.X), 3);
+            Assert.Contains(caps, c => Math.Abs(c.X - 1f) < 1e-3f);
+        }
+    }
+
+    [Fact]
+    public void AStripOfThinFallsDownAFaceIsOneCurtain()
+    {
+        // Five columns side by side, each a twentieth of a voxel falling down rows 2 to 9: one curtain 5 voxels wide, its
+        // two ends' sides and its front and back only (a row of five poles, it was).
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 6; x <= 10; x++)
+        {
+            for (int y = 2; y < 10; y++)
+            {
+                Falling(view, x, y, 0.05f);
+            }
+        }
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal((8 * ((5 * 2) + 2)) + (2 * 5), shell.Faces);
+    }
+
+    [Fact]
+    public void AFallSteppingAsideDownAFaceMeetsAtItsSteps()
+    {
+        // Falling water at (8, 7) and (8, 6), then a voxel east at (9, 5) and (9, 4): each part reaches the face between
+        // the columns where the fall steps aside, so they meet there (two boxes 0.7 m apart, it was).
+        var view = new BrickView(0, 0, 0, 1f);
+        Falling(view, 8, 7, 0.09f);
+        Falling(view, 8, 6, 0.09f);
+        Falling(view, 9, 5, 0.09f);
+        Falling(view, 9, 4, 0.09f);
+
+        var corners = Corners(VoxelShell.Build(Field(view), 0, 0, 0)).ToList();
+
+        // Both reach x 9 m (1 m east of the brick's middle) at the step: the upper part's east and the lower part's west.
+        // (Each part's own corners only: the upper part's over the step at -2 m, the lower part's under it.)
+        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y > -1.999f);
+        Assert.Contains(corners, c => c.Normal == (0f, 0f, 1f) && Math.Abs(c.X - 1f) < 1e-3f && c.Y < -2.001f);
+    }
+
+    [Fact]
+    public void AFallRunsThroughTwoVoxelsItLeavesDry()
+    {
+        // Falling water at rows 7, 6, 3 and 2, rows 5 and 4 dry between (falling water fills every other voxel): one
+        // column from 2 m to 8 m, capped at its ends only.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int y in new[] { 2, 3, 6, 7 })
+        {
+            Falling(view, y, 0.09f);
+        }
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+        var corners = Corners(shell).ToList();
+
+        Assert.Equal((4 * 4) + 2, shell.Faces);
+        Assert.Equal(-6f, corners.Min(c => c.Y), 3);
+        Assert.Equal(0f, corners.Max(c => c.Y), 3);
+    }
+
+    [Fact]
+    public void AFallRunsThroughWaterTooThinToDraw()
+    {
+        // Row 5 holds falling water too thin to draw between rows 7, 6 and 4, 3: one column from 3 m to 8 m.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach (int y in new[] { 3, 4, 6, 7 })
+        {
+            Falling(view, y, 0.09f);
+        }
+
+        Falling(view, 5, 0.005f);
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal((4 * 4) + 2, shell.Faces);
+        Assert.Equal(-5f, Corners(shell).Min(c => c.Y), 3);
+    }
+
+    [Fact]
     public void AFallIsNotTakenThroughAGapToWaterTooThinToDraw()
     {
         // Under the dry row 5 only a film at row 4, too thin to draw: the fall from rows 7 and 6 ends at 6 m, capped.
@@ -496,10 +635,13 @@ public class VoxelShellTests
     }
 
     // Water falling at 4 m/s in voxel (8, y, 8).
-    private static void Falling(BrickView view, int y, float water, int open = BrickData.AllOpen)
+    private static void Falling(BrickView view, int y, float water, int open = BrickData.AllOpen) => Falling(view, 8, y, water, open);
+
+    // Water falling at 4 m/s in voxel (x, y, 8).
+    private static void Falling(BrickView view, int x, int y, float water, int open = BrickData.AllOpen)
     {
-        Wet(view, 8, y, 8, water, open);
-        view.VelocityY[Brick.Index(8, y, 8)] = -4f;
+        Wet(view, x, y, 8, water, open);
+        view.VelocityY[Brick.Index(x, y, 8)] = -4f;
     }
 
     private static IEnumerable<(int X, int Y, int Z)> Block(int x0, int x1, int y0, int y1, int z0, int z1) =>

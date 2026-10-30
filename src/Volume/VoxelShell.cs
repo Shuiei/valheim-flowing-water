@@ -26,6 +26,12 @@ internal sealed class VoxelShell
     /// <summary>The widest a falling stream is drawn, a share of the voxel's side.</summary>
     public const float WidestFall = 0.9f;
 
+    /// <summary>
+    /// The most voxels a fall's column runs through between two voxels drawn falling: dry, or holding water too thin to
+    /// draw (falling water fills every other voxel as it goes down, a thin fall fewer).
+    /// </summary>
+    public const int LongestGap = 2;
+
     /// <summary>Falling this fast, metres a second, the water is all foam (as the surface's).</summary>
     public const float FoamFall = SurfaceGrid.FoamFall;
 
@@ -57,6 +63,9 @@ internal sealed class VoxelShell
 
     /// <summary>Each corner's place on its face in world metres (across the face, up it or north), for the textures.</summary>
     public List<float> Places { get; } = [];
+
+    // A fall's reach each way (FallSides' order), kept from voxel to voxel.
+    private readonly float[] _reach = new float[FallSides.Length];
 
     /// <summary>Each corner's water: how much of it is foam (0 to 1) and how much shows (0 to 1).</summary>
     public List<float> Water { get; } = [];
@@ -232,43 +241,84 @@ internal sealed class VoxelShell
     }
 
     // Water falling: a column through the whole voxel, as wide as the most water in it or the falling voxels over and
-    // under it (across a gap, the one past it), capped where the fall starts and ends; a voxel the fall leaves dry
-    // between two drawn falling ones taken in by the one over it, uncapped. Falling water is uneven from voxel to
-    // voxel: as wide as each voxel's own, and capped at each dry one, a fall down a high face was a dashed line of
-    // boxes. Never a side or a cap on a face a piece closes (behind it, it would show through it).
+    // under it (across a gap, the one past it), capped where the fall starts and ends; the voxels a fall runs through
+    // between two drawn falling ones (LongestGap at most) taken in by the one over them, uncapped. Toward a voxel beside
+    // drawn falling too (or a row under or over it, the fall stepping aside), the column reaches the voxels' shared face
+    // and has no side there: falls side by side are one sheet, and one stepping aside down a face meets at its steps. Falling water is uneven from voxel to voxel and spread thin over a face: as wide as each voxel's own, each
+    // a column of its own and capped at each voxel too thin to draw, a fall down a high face was rows of dashed poles.
+    // Never a side or a cap on a face a piece closes (behind it, it would show through it).
     private void Fall(VoxelField field, Voxel at, float water, int open)
     {
         float s = at.Size;
-        bool gapUnder = Gap(field, at.X, at.Y - 1, at.Z) && DrawnFall(field, at.X, at.Y - 2, at.Z);
-        bool gapOver = Gap(field, at.X, at.Y + 1, at.Z) && DrawnFall(field, at.X, at.Y + 2, at.Z);
-        float over = FallingWater(field, at.X, at.Y + (gapOver ? 2 : 1), at.Z), under = FallingWater(field, at.X, at.Y - (gapUnder ? 2 : 1), at.Z);
-        float width = Math.Max(NarrowestFall, Math.Min(WidestFall, (float)Math.Sqrt(Math.Max(water, Math.Max(over, under))))) * s;
-        float bottom = (at.Y - (gapUnder ? 1 : 0)) * s, top = (at.Y + 1) * s;
+        int gapUnder = GapTo(field, at.X, at.Y, at.Z, -1), gapOver = GapTo(field, at.X, at.Y, at.Z, 1);
+        float over = FallingWater(field, at.X, at.Y + gapOver + 1, at.Z), under = FallingWater(field, at.X, at.Y - gapUnder - 1, at.Z);
+        float half = Math.Max(NarrowestFall, Math.Min(WidestFall, (float)Math.Sqrt(Math.Max(water, Math.Max(over, under))))) * s * 0.5f;
+        float bottom = (at.Y - gapUnder) * s, top = (at.Y + 1) * s;
         float foam = 0.6f + (0.4f * Clamp(-at.VY / FoamFall));
-        foreach ((int side, int dx, int dz) in FallSides)
+
+        // How far the column reaches each way (east, west, north, south): to the shared face where the voxel beside falls,
+        // or the one beside it a row up or down (a fall down a slanting face steps aside a voxel a row: its columns meet
+        // at their corners, and are one sheet stepping down the face); its face toward this one open too.
+        float[] reach = _reach;
+        for (int k = 0; k < FallSides.Length; k++)
         {
-            if ((open & (1 << side)) != 0)
+            (int side, int dx, int dz) = FallSides[k];
+            bool joins = JoinedFall(field, at.X + dx, at.Y, at.Z + dz, side)
+                || (gapUnder == 0 && JoinedFall(field, at.X + dx, at.Y - 1, at.Z + dz, side) && !DrawnFall(field, at.X, at.Y - 1, at.Z))
+                || (gapOver == 0 && JoinedFall(field, at.X + dx, at.Y + 1, at.Z + dz, side) && !DrawnFall(field, at.X, at.Y + 1, at.Z));
+            reach[k] = (open & (1 << side)) != 0 && joins ? 0.5f * s : half;
+        }
+
+        for (int k = 0; k < FallSides.Length; k++)
+        {
+            (int side, int dx, int dz) = FallSides[k];
+            if ((open & (1 << side)) != 0 && reach[k] < 0.5f * s)
             {
-                at.Side(this, dx, dz, width * 0.5f, bottom, top, foam, 0.85f);
+                // Across the face, to the right seen from outside: the reach toward the side the other way, and this one.
+                at.Side(this, dx, dz, reach[k], reach[Toward(dz, -dx)], reach[Toward(-dz, dx)], bottom, top, foam, 0.85f);
             }
         }
 
-        if ((open & (1 << 2)) != 0 && !field.IsWet(at.X, at.Y + 1, at.Z) && !gapOver)
+        if ((open & (1 << 2)) != 0 && !field.IsWet(at.X, at.Y + 1, at.Z) && gapOver == 0)
         {
-            at.Horizontal(this, top, true, width * 0.5f, foam, 0.85f);
+            at.Horizontal(this, top, true, reach, foam, 0.85f);
         }
 
-        if (!field.IsWet(at.X, at.Y - 1, at.Z) && !gapUnder)
+        if (!field.IsWet(at.X, at.Y - 1, at.Z) && gapUnder == 0)
         {
-            at.Horizontal(this, bottom, false, width * 0.5f, foam, 0.85f);
+            at.Horizontal(this, bottom, false, reach, foam, 0.85f);
         }
     }
 
-    // A voxel a fall may run through though it is dry: no water in it and no ground (a fall never draws into the rock).
-    // A dry voxel's ground is not sent: the voxel over it says it holds some (BrickData.GroundUnder).
+    // Whether voxel (x, y, z) beside a fall, on its side (Sides' bit), is drawn falling with its face toward the fall
+    // open (the bit on the other side, side ^ 1): no piece closes it between them.
+    private static bool JoinedFall(VoxelField field, int x, int y, int z, int side) =>
+        DrawnFall(field, x, y, z) && field.Voxel(x, y, z, out BrickView view, out int i) && (view.Open[i] & (1 << (side ^ 1))) != 0;
+
+    // The fall side (FallSides' index) facing (dx, dz).
+    private static int Toward(int dx, int dz) => dx > 0 ? 0 : dx < 0 ? 1 : dz > 0 ? 2 : 3;
+
+    // How many voxels from (x, y, z) up (dy 1) or down (-1) a fall runs through to the next voxel drawn falling (Gap
+    // each, LongestGap at most): 0 when the next is no gap, or no voxel drawn falling is found past them.
+    private static int GapTo(VoxelField field, int x, int y, int z, int dy)
+    {
+        for (int k = 1; k <= LongestGap && Gap(field, x, y + (k * dy), z); k++)
+        {
+            if (DrawnFall(field, x, y + ((k + 1) * dy), z))
+            {
+                return k;
+            }
+        }
+
+        return 0;
+    }
+
+    // A voxel a fall may run through though nothing in it is drawn: dry, or its water too thin to draw (as Build has
+    // it), and no ground (a fall never draws into the rock). A dry voxel's ground is not sent: the voxel over it says
+    // it holds some (BrickData.GroundUnder).
     private static bool Gap(VoxelField field, int x, int y, int z) =>
-        !field.IsWet(x, y, z) && Solid(field, x, y, z) < BrickData.HoldsGround
-        && !(field.Voxel(x, y + 1, z, out BrickView over, out int i) && (over.Open[i] & BrickData.GroundUnder) != 0);
+        !(field.Voxel(x, y, z, out BrickView view, out int i) && view.Water[i] * view.VoxelSize > Drawing.HideDepth) && Solid(field, x, y, z) < BrickData.HoldsGround
+        && !(field.Voxel(x, y + 1, z, out BrickView over, out int j) && (over.Open[j] & BrickData.GroundUnder) != 0);
 
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
 
@@ -337,8 +387,14 @@ internal sealed class VoxelShell
 
         private float MZ => (Z + 0.5f) * Size;
 
-        // A side facing (dx, dz), reach metres from the voxel's middle, from bottom to top (world heights).
-        public void Side(VoxelShell shell, int dx, int dz, float reach, float bottom, float top, float foam, float shown)
+        // A side facing (dx, dz), reach metres from the voxel's middle, as wide each way, from bottom to top (world
+        // heights).
+        public void Side(VoxelShell shell, int dx, int dz, float reach, float bottom, float top, float foam, float shown) =>
+            Side(shell, dx, dz, reach, reach, reach, bottom, top, foam, shown);
+
+        // A side facing (dx, dz), reach metres from the voxel's middle, from left metres to its left to right to its right
+        // (seen from outside), from bottom to top (world heights).
+        public void Side(VoxelShell shell, int dx, int dz, float reach, float left, float right, float bottom, float top, float foam, float shown)
         {
             // Across the face, to the right seen from outside (for the east face, north).
             float ax = -dz, az = dx;
@@ -349,7 +405,7 @@ internal sealed class VoxelShell
             for (int k = 0; k < 4; k++)
             {
                 // Clockwise seen from outside: left bottom, left top, right top, right bottom.
-                float side = k < 2 ? -reach : reach;
+                float side = k < 2 ? -left : right;
                 float h = k is 0 or 3 ? bottom : top;
                 float px = fx + (ax * side), pz = fz + (az * side);
                 shell.Corner(px - Middle.X, h - Middle.Y, pz - Middle.Z, n, uA + side, h, foam, shown, along, VY);
@@ -358,13 +414,14 @@ internal sealed class VoxelShell
             shell.Quad();
         }
 
-        // A face across the voxel at a height, up or down, reach metres from its middle each way.
-        public void Horizontal(VoxelShell shell, float height, bool up, float reach, float foam, float shown)
+        // A face across the voxel at a height, up or down, reach metres from its middle each way (east, west, north,
+        // south: FallSides' order).
+        public void Horizontal(VoxelShell shell, float height, bool up, float[] reach, float foam, float shown)
         {
             (float X, float Y, float Z) n = (0f, up ? 1f : -1f, 0f);
             foreach ((int a, int b) in up ? UpCorners : DownCorners)
             {
-                float ra = a * reach, rb = b * reach;
+                float ra = a > 0 ? reach[0] : -reach[1], rb = b > 0 ? reach[2] : -reach[3];
                 shell.Corner(MX + ra - Middle.X, height - Middle.Y, MZ + rb - Middle.Z, n, MX + ra, MZ + rb, foam, shown, VX, VZ);
             }
 
