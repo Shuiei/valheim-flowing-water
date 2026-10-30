@@ -1206,7 +1206,6 @@ internal sealed class GpuWater : IDisposable
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
 
-    // The bricks (of the square's voxel size) in a square, into a list, which it gives back.
     // Round a source in the square, the ground is looked for where the server's water is not yet: from SourceRise
     // over the source, SourceReach round it (as far as a jet's outline goes), so the water near you flies a jet out
     // onto ground it knows and lands it there (cast only from the server's water, it knew none past the source's foot,
@@ -1260,6 +1259,7 @@ internal sealed class GpuWater : IDisposable
         return false;
     }
 
+    // The bricks (of the square's voxel size) in a square, into a list, which it gives back.
     private static List<BrickView> Near(SimWindow window, List<BrickView> into)
     {
         into.Clear();
