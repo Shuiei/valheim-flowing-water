@@ -88,6 +88,17 @@ public class JetFlightTests
     }
 
     [Fact]
+    public void StripsAreTheSameByEveryValue()
+    {
+        var strip = new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0.2f, 2f);
+
+        Assert.Equal(strip, new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0.2f, 2f));
+        Assert.True(strip == new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0.2f, 2f));
+        Assert.True(strip != new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0.3f, 2f));
+        Assert.NotEqual(strip, new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 2f, 0.2f, 2f));
+    }
+
+    [Fact]
     public void AStripMeetingNothingFliesTheLongestStillFalling()
     {
         var strip = new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0f, 1f);
