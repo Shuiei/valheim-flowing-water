@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.45.1 — 2026-10-29
+
+### Added
+- The volume water preview stands a character in a stream slow enough to wade in and checks the water heaps against
+  them only as its bow wave does, with none lying on their head (the glassy pillar's case, which the preview's
+  big-source swimmer, in water deeper than the game's player stood in, never showed).
+
 ## v0.45.0 — 2026-10-29
 
 ### Added
