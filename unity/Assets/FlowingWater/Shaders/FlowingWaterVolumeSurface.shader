@@ -16,6 +16,7 @@ Shader "FlowingWater/VolumeSurface"
         _SurfaceColor ("Tint of what is seen through", Color) = (0.728, 0.728, 0.728, 1)
         _FoamColor ("Foam colour", Color) = (0.838, 0.838, 0.838, 1)
         _Glossiness ("Smoothness", Range(0, 1)) = 0.94
+        _Metallic ("Metallic", Range(0, 1)) = 0
         _Normal ("Ripple normals", 2D) = "bump" {}
         _FoamTex ("Foam", 2D) = "white" {}
         _NormalPower ("Ripple strength", Range(0, 5)) = 0.5
@@ -38,7 +39,6 @@ Shader "FlowingWater/VolumeSurface"
         // The volume water's own.
         _EdgeThickness ("Water thinner than this along the view (m) fades out", Float) = 0.2
         _ThickMost ("Water seen through more than this (m) takes no more of the light", Float) = 4
-        _LeastLight ("The least light on the water's body (share of the sky's), so it is never black", Range(0, 1)) = 0.45
         _FoamFrom ("Froth in a cell from this share of full shows as foam", Range(0, 1)) = 0.25
         _FoamFull ("Froth at this share of full is whole foam", Range(0, 1)) = 1
         _RushFrom ("Water this fast (m/s) begins to run white", Float) = 5
@@ -58,14 +58,18 @@ Shader "FlowingWater/VolumeSurface"
             Cull Off
             ZWrite Off
             ZTest Always
-            Blend SrcAlpha OneMinusSrcAlpha
+            Blend One OneMinusSrcAlpha
 
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 4.5
             #pragma multi_compile_fog
+            // Lit as a surface shader with alpha:premul is (the bricks' water's).
+            #define _ALPHAPREMULTIPLY_ON 1
             #include "UnityCG.cginc"
+            #include "UnityPBSLighting.cginc"
+            #include "FlowingWaterShallow.cginc"
 
             int _VolumeLook;
             sampler2D _FlowingWaterVolumeBehind;
@@ -78,9 +82,11 @@ Shader "FlowingWater/VolumeSurface"
             sampler2D _FoamTex;
             fixed4 _ColorTop;
             fixed4 _ColorBottom;
+            fixed4 _ColorBottomShallow;
             fixed4 _SurfaceColor;
             fixed4 _FoamColor;
             float _Glossiness;
+            float _Metallic;
             float _NormalPower;
             float _NormalScale;
             float _WaveVel;
@@ -97,7 +103,6 @@ Shader "FlowingWater/VolumeSurface"
             float4 _BodyTint;
             float _EdgeThickness;
             float _ThickMost;
-            float _LeastLight;
             float _FoamFrom;
             float _FoamFull;
             float _RushFrom;
@@ -306,9 +311,9 @@ Shader "FlowingWater/VolumeSurface"
                 float seen = min(thickness * saturate(0.2 + abs(dot(lieN, toCamera))), _ThickMost);
                 float3 through = exp(-seen * _BodyTint.rgb / max(_BodyDepth, 0.001));
                 through *= 1.0 - saturate(seen / _DepthFade);
-                // The water's own colour where its light is taken: the surface's green where it is shallow, the deep
-                // colour where it is deep, dimmer than the surface's own light (it is light from below, scattered).
-                float3 body = 0.6 * lerp(_ColorTop.rgb, _ColorBottom.rgb, saturate(seen / _DeepWater));
+                // The water's own colour where its light is taken, as the bricks' water has it (FlowingWaterLook.cginc):
+                // the shallow water's colour, the deep colour where it is deep.
+                float3 body = (1.0 - through) * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, saturate(seen / _DeepWater));
 
                 if (under)
                 {
@@ -362,26 +367,6 @@ Shader "FlowingWater/VolumeSurface"
                 float2 grab = (i.grab.xy / i.grab.w) + bend;
                 float3 behind = tex2D(_FlowingWaterVolumeBehind, grab).rgb;
 
-                float3 ambient = ShadeSH9(float4(worldN, 1.0));
-                float3 lit = max(ambient + (sunColour * saturate(dot(worldN, sun))), _LeastLight * skyLight);
-                float3 colour = (behind * through * _SurfaceColor.rgb) + (body * (1.0 - through) * lit);
-
-                // The sky in the surface, more the flatter one looks along it (a soft mip of the probe, its brightness
-                // held: the sun's disk in it would otherwise blaze over metres of water); the sun's glint on its own.
-                // (Thin water on the ground shows little sky: a wet film is the ground's colour, not a mirror; the sky
-                // comes in with the thickness.)
-                float fresnel = 0.02 + (0.98 * pow(1.0 - saturate(dot(lieN, toCamera)), 5.0));
-                float3 reflected = reflect(-toCamera, worldN);
-                float3 sky = DecodeHDR(UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflected, 3.0), unity_SpecCube0_HDR);
-                sky = min(sky, 1.2);
-                // (None on a surface seen from below, a fall's underside or a wave's: the probe is the scene about
-                // the camera, and a surface over the camera would mirror the ground in it; and never a whole mirror,
-                // as the sea is not: the probe's scene is blurred and reflected at most two thirds.)
-                float solid = saturate(thickness / 0.3) * step(worldPos.y, _WorldSpaceCameraPos.y) * step(0.0, worldN.y);
-                colour = lerp(colour, sky, 0.65 * fresnel * _Glossiness * solid);
-                float glint = pow(saturate(dot(worldN, normalize(sun + toCamera))), 256.0) * _Glossiness;
-                colour += sunColour * glint * solid;
-
                 // Foam where the froth gathers on the surface (a fall's foot, a jet's boil, a front): the sea's foam
                 // texture laid over the water and dragged along with the flow (two phases, as the ripples), covering
                 // the more of it the more froth there is (its lighter parts first, so it breaks up into lace at its
@@ -406,22 +391,62 @@ Shader "FlowingWater/VolumeSurface"
                 // White water is whitened all over, the lace streaking it (a fall's sheet is white with streaks of
                 // clear water, not a sheet of lace).
                 foam = max(foam, rush * (0.5 + (0.5 * lace)) * _FoamColor.a);
-                float3 foamLit = 0.85 * _FoamColor.rgb * (ambient + (sunColour * saturate(dot(worldN, sun))));
-                colour = lerp(colour, foamLit, foam);
 
-                // Fogged as the sea, toward the sun's colour where one looks at the sun.
+                // Lit with Unity's standard lighting, as the bricks' water is (a surface shader on FlowingWaterLook.cginc's
+                // Look, its alpha premultiplied): the same body and what is behind seen through it, the sea's smoothness
+                // and metal, the sun, and the sky of the probe about the camera mirrored, so the two are one water where
+                // they meet at the square's side. (Lit by a reckoning of its own, the sky a third of it at most, blurred,
+                // and none on thin water, it was a green see-through square in a pond of sky.) Foam as the bricks' too.
+                SurfaceOutputStandard so;
+                so.Albedo = lerp(body, _FoamColor.rgb, foam);
+                so.Normal = worldN;
+                so.Emission = behind * through * _SurfaceColor.rgb * (1.0 - foam);
+                so.Metallic = _Metallic * (1.0 - foam);
+                // Thin water mirrors the sky less sharply, as the bricks' does (SHALLOW_GLOSS).
+                so.Smoothness = lerp(_Glossiness * lerp(lerp(SHALLOW_GLOSS, 1.0, saturate(seen / SHALLOW_ABSORB)), 1.0, running), 0.1, foam);
+                so.Occlusion = 1.0;
+                // Thin water fades out into the scene (a splash's drops are not discs).
+                so.Alpha = saturate(thickness / max(_EdgeThickness, 0.001));
+                UnityGI gi;
+                UNITY_INITIALIZE_OUTPUT(UnityGI, gi);
+                gi.light.color = sunColour;
+                gi.light.dir = sun;
+                UnityGIInput lighting;
+                UNITY_INITIALIZE_OUTPUT(UnityGIInput, lighting);
+                lighting.light = gi.light;
+                lighting.worldPos = worldPos;
+                lighting.worldViewDir = toCamera;
+                lighting.atten = 1.0;
+                lighting.ambient = ShadeSH3Order(half4(worldN, 1.0));
+                lighting.probeHDR[0] = unity_SpecCube0_HDR;
+                lighting.probeHDR[1] = unity_SpecCube1_HDR;
+#if defined(UNITY_SPECCUBE_BLENDING) || defined(UNITY_SPECCUBE_BOX_PROJECTION)
+                lighting.boxMin[0] = unity_SpecCube0_BoxMin;
+#endif
+#ifdef UNITY_SPECCUBE_BOX_PROJECTION
+                lighting.boxMax[0] = unity_SpecCube0_BoxMax;
+                lighting.probePosition[0] = unity_SpecCube0_ProbePosition;
+                lighting.boxMax[1] = unity_SpecCube1_BoxMax;
+                lighting.boxMin[1] = unity_SpecCube1_BoxMin;
+                lighting.probePosition[1] = unity_SpecCube1_ProbePosition;
+#endif
+                LightingStandard_GI(so, lighting, gi);
+                half4 colour = LightingStandard(so, toCamera, gi);
+                colour.rgb += so.Emission;
+
+                // Fogged as the sea, toward the sun's colour where one looks at the sun (premultiplied: the fog's colour
+                // as much as the water hides).
 #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
                 float toSun = saturate(dot(-toCamera, sun));
                 float3 sunFog = pow(max(_SunFogColor.rgb, 0.0), 2.2);
                 float3 fogColour = dot(_SunFogColor.rgb, 1.0) > 0.0 ? lerp(unity_FogColor.rgb, sunFog, toSun) : unity_FogColor.rgb;
                 UNITY_CALC_FOG_FACTOR_RAW(eye);
-                colour = lerp(fogColour, colour, saturate(unityFogFactor));
+                colour.rgb = lerp(fogColour * colour.a, colour.rgb, saturate(unityFogFactor));
 #endif
 
-                // Thin water fades out into the scene (a splash's drops are not discs); at the square's side the water
-                // fades into the sheet's bricks beyond.
-                float alpha = saturate(thickness / max(_EdgeThickness, 0.001)) * found.w;
-                return fixed4(colour, alpha);
+                // At the square's side the water fades into the sheet's bricks beyond: all of it, its mirrored sky too
+                // (premultiplied, the sky was whole to the very side, and the two waters' skies added up along it).
+                return colour * found.w;
             }
             ENDCG
         }

@@ -34,9 +34,10 @@ internal sealed class VolumeSurface : IDisposable
 
     private const int SmoothPass = 1;
 
-    private static readonly Bounds Everywhere = new(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
-
     private readonly CommandBuffer _commands = new() { name = "FlowingWater volume water" };
+
+    // What the surface is drawn with besides its material: the scene's reflection about the camera (SceneReflection).
+    private readonly MaterialPropertyBlock _lit = new();
 
     private readonly RenderTargetIdentifier[] _targets = new RenderTargetIdentifier[2];
 
@@ -130,7 +131,8 @@ internal sealed class VolumeSurface : IDisposable
 
         // Back to the camera's own target for what it draws next.
         _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-        Graphics.DrawProcedural(surface, Everywhere, MeshTopology.Triangles, 3, 1, camera, null, ShadowCastingMode.Off, false, 0);
+        SceneReflection.Into(_lit, camera.transform.position);
+        Graphics.DrawProcedural(surface, ParticleSurface.Around(camera), MeshTopology.Triangles, 3, 1, camera, _lit, ShadowCastingMode.Off, false, 0);
         ParticleSurface.Froth(camera, froth);
     }
 

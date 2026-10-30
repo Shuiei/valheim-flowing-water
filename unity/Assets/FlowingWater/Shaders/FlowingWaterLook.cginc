@@ -233,12 +233,8 @@ float CascadeStreaks(float2 world, float2 current, float speed)
     return RunningFoam(uv, float2(0.0, speed * CASCADE_ALONG));
 }
 
-// Shallow still water (none of it as the water runs: running water looks as it did): it keeps this share of its
-// ripples at least, and thinner than SHALLOW_ABSORB metres it is down to this share as glossy (what is seen through it
-// is the water's body's, below).
-#define SHALLOW_RIPPLES 0.5
-#define SHALLOW_ABSORB 0.8
-#define SHALLOW_GLOSS 0.85
+// Shallow still water's ripples and gloss (what is seen through it is the water's body's, below).
+#include "FlowingWaterShallow.cginc"
 
 // The water's look at a point the shader draws.
 void Look(Input i, inout SurfaceOutputStandard o)

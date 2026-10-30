@@ -45,6 +45,7 @@ Material:
     - _FoamFull: 1
     - _Glossiness: 0.94
     - _LeastLight: 0.45
+    - _Metallic: 0
     - _NormalPower: 0.5
     - _NormalScale: 0.04
     - _RapidsSpeed: 3
