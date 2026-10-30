@@ -47,6 +47,16 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     /// <summary>A new source's shape facing a heading: a slim jet, a point fanning out 20 degrees, thrown up 30.</summary>
     public static SourceShape Jet(float heading) => new(false, heading, 0f, 20f, 30f);
 
+    /// <summary>
+    /// A shape as a source's object keeps it: facing a way when its flag is 1 (<see cref="Flag"/>), else all round (no
+    /// flag written: placed before 0.46.0), its width, spread and throw kept either way, so one made all round faces
+    /// with them again when turned back.
+    /// </summary>
+    public static SourceShape Kept(int flag, float heading, float width, float spread, float throwUp) => new(flag != 1, heading, width, spread, throwUp);
+
+    /// <summary>The way a piece faces whose forward points (east, north), degrees clockwise from north (0 to 360; north for none).</summary>
+    public static float HeadingOf(float forwardX, float forwardZ) => Wrap((float)(Math.Atan2(forwardX, forwardZ) * 180.0 / Math.PI));
+
     /// <summary>Out of every side, not the way it faces.</summary>
     public bool AllRound { get; }
 
@@ -61,6 +71,12 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
 
     /// <summary>How far up it is thrown, degrees over the ground.</summary>
     public float Throw { get; }
+
+    /// <summary>The flag a source's object keeps for it (<see cref="Kept"/>): 1 facing a way, 0 all round.</summary>
+    public int Flag => AllRound ? 0 : 1;
+
+    /// <summary>The shape its water takes: all round, <see cref="Round"/> (the values kept for a turn back pour nothing), else itself.</summary>
+    public SourceShape Poured => AllRound ? Round : this;
 
     /// <summary>The outlet's width the water leaves through, metres: <see cref="LeastWidth"/> at least.</summary>
     public float OutletWidth => Math.Max(Width, LeastWidth);

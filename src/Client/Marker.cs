@@ -37,6 +37,9 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
     /// <summary>A source's shape as written in it, facing its piece's turn (all round for one with none written).</summary>
     public SourceShape Shape => MarkerShape.Read(_nview.GetZDO());
 
+    /// <summary>Its shape with the values an all-round one keeps for a turn back (<see cref="MarkerShape.Kept"/>).</summary>
+    public SourceShape KeptShape => MarkerShape.Kept(_nview.GetZDO());
+
     /// <summary>A drain's radius as written in it, metres.</summary>
     public float Radius => _nview.GetZDO().GetFloat(ZdoKeys.Radius, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value);
 

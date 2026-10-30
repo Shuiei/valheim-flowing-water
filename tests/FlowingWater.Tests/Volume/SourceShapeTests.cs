@@ -111,4 +111,37 @@ public class SourceShapeTests
         Assert.True(SourceShape.Round.AllRound);
         Assert.NotEqual(jet, SourceShape.Round);
     }
+
+    [Fact]
+    public void AShapeComesBackAsItsObjectKeepsItFacingOrAllRound()
+    {
+        var facing = new SourceShape(false, 45f, 3.5f, 25f, 15f);
+        var round = new SourceShape(true, 45f, 3.5f, 25f, 15f);
+
+        Assert.Equal(facing, SourceShape.Kept(facing.Flag, 45f, facing.Width, facing.Spread, facing.Throw));
+        Assert.Equal(round, SourceShape.Kept(round.Flag, 45f, round.Width, round.Spread, round.Throw));
+        Assert.Equal(3.5f, SourceShape.Kept(round.Flag, 45f, 3.5f, 25f, 15f).Width);
+    }
+
+    [Fact]
+    public void AnAllRoundSourcesWaterTakesNoneOfTheValuesItKeepsForATurnBack()
+    {
+        // No flag written (placed before 0.46.0): all round, as it always poured.
+        Assert.Equal(SourceShape.Round, SourceShape.Kept(0, 120f, 0f, 0f, 0f).Poured);
+        Assert.Equal(SourceShape.Round, new SourceShape(true, 45f, 3.5f, 25f, 15f).Poured);
+        var facing = new SourceShape(false, 45f, 3.5f, 25f, 15f);
+        Assert.Equal(facing, facing.Poured);
+    }
+
+    [Theory]
+    [InlineData(0f, 1f, 0f)]
+    [InlineData(1f, 0f, 90f)]
+    [InlineData(0f, -1f, 180f)]
+    [InlineData(-1f, 0f, 270f)]
+    [InlineData(-1f, 1f, 315f)]
+    [InlineData(0f, 0f, 0f)]
+    public void APiecesForwardGivesTheWayItFacesClockwiseFromNorth(float forwardX, float forwardZ, float heading)
+    {
+        Assert.Equal(heading, SourceShape.HeadingOf(forwardX, forwardZ), 3);
+    }
 }

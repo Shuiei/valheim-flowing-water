@@ -1,4 +1,3 @@
-using System;
 using FlowingWater.Volume;
 using UnityEngine;
 
@@ -12,21 +11,17 @@ namespace FlowingWater;
 /// </summary>
 internal static class MarkerShape
 {
-    /// <summary>The shape a source's object holds, facing the way it is turned.</summary>
-    public static SourceShape Read(ZDO zdo)
-    {
-        if (zdo.GetInt(ZdoKeys.Shape, 0) != 1)
-        {
-            return SourceShape.Round;
-        }
+    /// <summary>The shape a source's object holds as its water takes it, facing the way it is turned (all round: <see cref="SourceShape.Round"/>).</summary>
+    public static SourceShape Read(ZDO zdo) => Kept(zdo).Poured;
 
-        return new SourceShape(false, HeadingOf(zdo.GetRotation()), zdo.GetFloat(ZdoKeys.Width, 0f), zdo.GetFloat(ZdoKeys.Spread, 0f), zdo.GetFloat(ZdoKeys.Throw, 0f));
-    }
+    /// <summary>The shape a source's object holds, with the values one made all round keeps for a turn back (the panel shows them).</summary>
+    public static SourceShape Kept(ZDO zdo) =>
+        SourceShape.Kept(zdo.GetInt(ZdoKeys.Shape, 0), HeadingOf(zdo.GetRotation()), zdo.GetFloat(ZdoKeys.Width, 0f), zdo.GetFloat(ZdoKeys.Spread, 0f), zdo.GetFloat(ZdoKeys.Throw, 0f));
 
     /// <summary>A source's shape into its object, which this game owns (the way it faces is its piece's own turn: not written).</summary>
     public static void Write(ZDO zdo, SourceShape shape)
     {
-        zdo.Set(ZdoKeys.Shape, shape.AllRound ? 0 : 1);
+        zdo.Set(ZdoKeys.Shape, shape.Flag);
         zdo.Set(ZdoKeys.Width, shape.Width);
         zdo.Set(ZdoKeys.Spread, shape.Spread);
         zdo.Set(ZdoKeys.Throw, shape.Throw);
@@ -36,7 +31,6 @@ internal static class MarkerShape
     public static float HeadingOf(Quaternion rotation)
     {
         Vector3 forward = rotation * Vector3.forward;
-        float heading = (float)(Math.Atan2(forward.x, forward.z) * 180.0 / Math.PI);
-        return heading < 0f ? heading + 360f : heading;
+        return SourceShape.HeadingOf(forward.x, forward.z);
     }
 }
