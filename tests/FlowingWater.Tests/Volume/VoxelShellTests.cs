@@ -70,6 +70,18 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void AShellIsReadAgainWhenTheBrickAcrossItsCornerChanges()
+    {
+        // A fall joined to the one beside asks whether the surface takes that one (DrawnFall, SurfaceTakes), which looks
+        // at its neighbours along the ground: at a brick's corner, one of them is in the brick across the corner.
+        Assert.Contains((1, 0, 1), VoxelShell.Readers);
+        Assert.Contains((1, 0, -1), VoxelShell.Readers);
+        Assert.Contains((-1, 0, 1), VoxelShell.Readers);
+        Assert.Contains((-1, 0, -1), VoxelShell.Readers);
+        Assert.Equal(VoxelShell.Readers.Count, VoxelShell.Readers.Distinct().Count());
+    }
+
+    [Fact]
     public void WaterOverTheColumnBesideInTheBrickUpThereChangesASideInABricksTopRow()
     {
         // Water in the top row of brick 0, open east toward lower water in brick (1, 0, 0): the surface joins them. With
