@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.2 — 2026-10-30
+
+### Fixed
+- Walking with the 3D water on (Client.VolumeWater), no empty strip opens ahead of you: each time the water round you
+  followed you on (every 8 m), the 16 m it took in ahead stood without water for about a second, then filled from
+  the side. It was poured before the server's water there was known; now it is poured once it is, a fraction of a
+  second later, and the far water stays drawn there until then.
+
 ## v0.49.1 — 2026-10-30
 
 ### Fixed

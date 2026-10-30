@@ -91,6 +91,14 @@ public static class BuildBundles
     public static Material Prepare()
     {
         AssetDatabase.Refresh();
+        // Every shader imported again: a change to an include reached only the shaders that include it themselves, not
+        // those that take it through another include (FlowingWaterSimMask.cginc through FlowingWaterLook.cginc: the
+        // bricks' shader was built from the mask as it was before, and hid the water the mask left to it).
+        foreach (string guid in AssetDatabase.FindAssets("t:Shader t:ComputeShader", new[] { "Assets/FlowingWater/Shaders" }))
+        {
+            AssetDatabase.ImportAsset(AssetDatabase.GUIDToAssetPath(guid), ImportAssetOptions.ForceUpdate);
+        }
+
         Import(NormalPath, TextureImporterType.NormalMap, true);
         Import(FoamPath, TextureImporterType.SingleChannel, false);
 

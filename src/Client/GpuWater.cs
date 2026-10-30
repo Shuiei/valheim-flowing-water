@@ -44,6 +44,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int SizeId = Shader.PropertyToID("_FWSimSize");
     private static readonly int WholeId = Shader.PropertyToID("_FWSimWhole");
     private static readonly int EdgeId = Shader.PropertyToID("_FWSimEdge");
+    private static readonly int FilledId = Shader.PropertyToID("_FWSimFilled");
     private static readonly int BottomId = Shader.PropertyToID("_FWSimBottom");
     private static readonly int TopId = Shader.PropertyToID("_FWSimTop");
     private static readonly int TargetId = Shader.PropertyToID("_FWSimTarget");
@@ -100,9 +101,20 @@ internal sealed class GpuWater : IDisposable
 
     private bool _volumeSeeded;
 
-    // Cells of the square's sides to seed from the server's water at the next frame (the square moved: its strip is
-    // poured once the volume has the moved square's ground and solids, not before).
+    // Cells of the square's sides to seed from the server's water (the square moved: its strip is poured once the
+    // moved square's water is built and the ground under it cast, ReseedReady; poured the next frame, the strip had
+    // none of the server's water yet and stood empty until its water ran in from the side).
     private int _volumeReseed;
+
+    // The part of the square the volume has filled, world x, z of its south-west and north-east corners: the square,
+    // but for a strip a move uncovered until it is poured (the bricks draw it meanwhile, _FWSimFilled).
+    private Vector4 _volumeFilled;
+
+    // When the square last moved (Time.time), for the log's time to pour its strip; and the ground's casts taken in
+    // since (a build of the moved square before any left its strip's ground unknown, so its water dry).
+    private float _movedAt;
+
+    private int _castsSinceMove;
 
     // Whether the square was found too wide for the volume (told once).
     private bool _volumeTooWide;
@@ -350,7 +362,7 @@ internal sealed class GpuWater : IDisposable
             found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
-        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._cameraY:0.0})");
+        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._cameraY:0.0}); filled from {_water._volumeFilled.x:0}, {_water._volumeFilled.y:0} to {_water._volumeFilled.z:0}, {_water._volumeFilled.w:0}{(_water._volumeReseed > 0 ? $", {_water._volumeReseed} cells of its sides to pour" : string.Empty)}");
         string built = _built == null ? string.Empty : FormattableString.Invariant($"; what is built round it: {_built.Objects} solid objects, {_built.Bricks.Count} blocks of voxels holding some, looked over in {_built.LookMilliseconds:0.0} ms");
         return FormattableString.Invariant(
             $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}{built}");
@@ -561,6 +573,7 @@ internal sealed class GpuWater : IDisposable
         {
             _grid.WriteBed(row, _ground, rows);
             _groundVersion += changed ? 1 : 0;
+            _castsSinceMove++;
         }
 
         TakeBuild();
@@ -612,6 +625,7 @@ internal sealed class GpuWater : IDisposable
             // for the band along its sides where it fades into the bricks.
             Shader.SetGlobalFloat(WholeId, _volume != null ? 1f : 0f);
             Shader.SetGlobalFloat(EdgeId, VolumeFollow.BandMetres);
+            Shader.SetGlobalVector(FilledId, _volume != null ? _volumeFilled : Square());
             // Within the grid's height only (it follows the camera): water in the square above or below it is the
             // bricks' to draw, as the water beyond the square is.
             Shader.SetGlobalFloat(BottomId, _volume != null ? _volume.Origin.y : 0f);
@@ -763,15 +777,22 @@ internal sealed class GpuWater : IDisposable
         {
             _volume.SeedFromServer();
             _volumeSeeded = true;
+            _volumeReseed = 0;
+            _volumeFilled = Square();
         }
-        else if (_volumeReseed > 0)
+        else if (_volumeReseed > 0 && ReseedReady())
         {
-            // The square moved this frame: its new strip takes the server's water, now that the volume has the moved
-            // square's ground, water and solids.
+            // The square moved: its new strip takes the server's water, now that the moved square's water is built
+            // and the ground under it cast.
             _volume.SeedFromServer(1f, _volumeReseed);
-        }
+            if (FlowingWaterPlugin.Settings.Debug.Value)
+            {
+                FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: the moved square's sides poured {_volumeReseed} cells wide, {Time.time - _movedAt:0.00} s after it moved"));
+            }
 
-        _volumeReseed = 0;
+            _volumeReseed = 0;
+            _volumeFilled = Square();
+        }
 
         _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
         _volume.DeepKeep = DeepKeep();
@@ -1176,7 +1197,11 @@ internal sealed class GpuWater : IDisposable
             // The square's new strip takes the server's water at the next frame, once the volume is bound to the moved
             // square (the volume's own water stays where it is in the world).
             _volume.Origin = new Vector3(window.X0 * window.VoxelSize, _volume.Origin.y, window.Z0 * window.VoxelSize);
-            _volumeReseed = Math.Max(_volumeReseed, VolumeFollow.Reseed(dx, dz, per));
+            _volumeReseed = Math.Min(window.Cells / 2, _volumeReseed + VolumeFollow.Reseed(dx, dz, per));
+            _movedAt = Time.time;
+            _castsSinceMove = 0;
+            Vector4 square = Square();
+            _volumeFilled = new Vector4(Math.Max(_volumeFilled.x, square.x), Math.Max(_volumeFilled.y, square.y), Math.Min(_volumeFilled.z, square.z), Math.Min(_volumeFilled.w, square.w));
         }
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
@@ -1206,6 +1231,18 @@ internal sealed class GpuWater : IDisposable
             }
         }
     }
+
+    // The square, world x, z of its south-west and north-east corners.
+    private Vector4 Square()
+    {
+        float x = _window.X0 * _window.VoxelSize, z = _window.Z0 * _window.VoxelSize;
+        return new Vector4(x, z, x + _window.Size, z + _window.Size);
+    }
+
+    // Whether a moved square's strip may be poured: its water built for the square as it is (taken since the move),
+    // from the ground as it is now and cast since the move, and no row with water still waiting for its ground. The
+    // first build after a move knew no ground under the strip: its water was dry there, and the strip poured nothing.
+    private bool ReseedReady() => _castFrom != null && _castsSinceMove > 0 && _builtGround == _groundVersion && Array.IndexOf(_castFirst, true) < 0;
 
     // Whether a placed source stands in the square.
     private static bool SourceIn(SimWindow window)

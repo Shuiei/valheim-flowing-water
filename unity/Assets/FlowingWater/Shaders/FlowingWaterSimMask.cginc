@@ -16,6 +16,10 @@ sampler2D _FWSimTarget;
 // or below the grid is the bricks' to draw.
 float _FWSimWhole;
 float _FWSimEdge;
+// The part of the square the volume has filled (world x, z of its south-west corner, then of its north-east one):
+// the square, but for the strip a move of it uncovered until that strip has taken the server's water (the bricks
+// draw it meanwhile: left to the volume, it stood empty until its water ran in from the side).
+float4 _FWSimFilled;
 float _FWSimBottom;
 float _FWSimTop;
 
@@ -47,7 +51,7 @@ bool SimDraws(float3 world)
         return false;
     }
 
-    float2 edge = min(uv, 1.0 - uv) * _FWSimSize;
+    float2 edge = min(world.xz - _FWSimFilled.xy, _FWSimFilled.zw - world.xz);
     if (_FWSimWhole > 0.5 && min(edge.x, edge.y) > _FWSimEdge)
     {
         // The volume draws within its grid's height but for a band as wide along its top and bottom, where it fades

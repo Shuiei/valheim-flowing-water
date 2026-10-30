@@ -1086,6 +1086,39 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note(off > 5f ? $"at {player.transform.position.ToString("F1")} ({off:0} m from {target.x:0}, {target.z:0}: slid)" : $"at {player.transform.position.ToString("F1")}");
     }
 
+    // "!glide x,z,speed": the player carried over the ground to x, z at so many metres a second, while the steps after
+    // it go on (a film of the water as one walks: a step's move takes some 14 s and the water has long caught up).
+    private IEnumerator Glide(Vector2 to, float speed)
+    {
+        Player player = Player.m_localPlayer;
+        Note(FormattableString.Invariant($"gliding to {to.x:0.#}, {to.y:0.#} at {speed:0.#} m/s"));
+        while (player != null && player == Player.m_localPlayer)
+        {
+            var at = new Vector2(player.transform.position.x, player.transform.position.z);
+            Vector2 next = Vector2.MoveTowards(at, to, speed * Time.deltaTime);
+            var place = new Vector3(next.x, player.transform.position.y, next.y);
+            if (ZoneSystem.instance.GetGroundHeight(place, out float ground))
+            {
+                place.y = ground + 0.05f;
+            }
+
+            player.transform.position = place;
+            if (player.GetComponent<Rigidbody>() is { } body)
+            {
+                body.position = place;
+                body.linearVelocity = Vector3.zero;
+            }
+
+            if (next == to)
+            {
+                Note(FormattableString.Invariant($"glided to {player.transform.position}"));
+                yield break;
+            }
+
+            yield return null;
+        }
+    }
+
     private IEnumerator Views(Site site, string name)
     {
         yield return Shot(site.Behind(), site.At(14f), name + "-behind");
@@ -1177,7 +1210,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // point, all round or facing a way), "!remove x,y,z" (the source within 2 m taken away), "!panel x,y,z" (the
     // panel opened for the source or drain within 2 m, as [E] on it would), "!slide row,notch" (a slider of that panel
     // moved), "!ghost x,y,z,heading" (a source's placing ghost there, turned so), "!break x,y,z" (the piece nearest the
-    // point broken, as a player would), "!piece name x,y,z,yaw" (a piece of that prefab placed there, turned so many
+    // point broken, as a player would), "!glide x,z,speed" (the player carried over the ground there at so many m/s
+    // while the steps after it go on), "!piece name x,y,z,yaw" (a piece of that prefab placed there, turned so many
     // degrees round the vertical), "!drop name x,y,z" (any prefab let go there), "!wait s", "!shot
     // from,at,name" and "!film from,at,name,seconds,fps" (points as x,y,z).
     private IEnumerator At()
@@ -1313,6 +1347,18 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         if (words[0] == "!slide")
         {
             Slide(words.Length > 1 ? words[1] : string.Empty);
+            return;
+        }
+
+        if (words[0] == "!glide")
+        {
+            if (words.Length < 2 || !Numbers(words[1], out float[] g) || g.Length != 3 || g[2] <= 0f)
+            {
+                Note("recorder !glide needs x,z,speed: " + command);
+                return;
+            }
+
+            StartCoroutine(Glide(new Vector2(g[0], g[1]), g[2]));
             return;
         }
 
