@@ -24,4 +24,22 @@ internal static class SolidsLayout
     /// them out: x fastest, then the row, then z.
     /// </summary>
     public static int Index(int columns, int x, int y, int z) => (((z * Rows) + y) * columns) + x;
+
+    /// <summary>
+    /// Opens a voxel (from the bytes' first column, row and depth) that is solid: water moves through it (the faces a
+    /// piece closes stay closed). Nothing where it is past the bytes.
+    /// </summary>
+    /// <returns>Whether it was solid.</returns>
+    public static bool Open(byte[] solids, int columns, int x, int y, int z)
+    {
+        if (x < 0 || z < 0 || y < 0 || x >= columns || z >= columns || y >= Rows)
+        {
+            return false;
+        }
+
+        int i = Index(columns, x, y, z);
+        bool solid = (solids[i] & Solid) != 0;
+        solids[i] = (byte)(solids[i] & ~Solid);
+        return solid;
+    }
 }

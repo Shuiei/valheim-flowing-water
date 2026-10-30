@@ -106,12 +106,14 @@ public sealed class FlowingWaterPlugin : BaseUnityPlugin
     [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls it on the plugin's object.")]
     private void FixedUpdate() => Client.ShipCurrent.Tick();
 
-    // After every brick's frame: the water near the camera moved and drawn on the graphics card, and heard.
+    // After every brick's frame: the water near the camera moved and drawn on the graphics card, the jets in the air
+    // drawn, and the water heard.
     [SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Unity calls it by name.")]
     [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Unity calls it on the plugin's object.")]
     private void LateUpdate()
     {
         Client.GpuWater.Tick();
+        Client.JetArcs.Tick();
         Client.WaterSound.Tick();
     }
 

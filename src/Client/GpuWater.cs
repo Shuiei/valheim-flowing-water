@@ -887,6 +887,31 @@ internal sealed class GpuWater : IDisposable
         return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, height, speed, shape.Spread * 0.5f * Mathf.Deg2Rad);
     }
 
+    // A source's outlet stands in the open over what its marker stands on: the voxels it pours out of, from its foot to
+    // as high as the server pours it, are open to the card's water as they are to the server's jet (VoxelGrid.Lands). A
+    // rock's curved top, counted by its height at a column's middle, filled them: the outlet's cells were solid, and the
+    // volume water gave a jet off a rock's top no water.
+    private void OpenOutlets(byte[] solids, SimWindow window, int baseRow)
+    {
+        Marker.Markers(_markers);
+        float s = window.VoxelSize;
+        foreach ((Vector3 at, _, bool drain, _, SourceShape shape) in _markers)
+        {
+            if (drain || shape.AllRound)
+            {
+                continue;
+            }
+
+            (float rightX, float rightZ) = shape.Right;
+            foreach ((_, float offset) in shape.Outlet(s))
+            {
+                int x = Mathf.FloorToInt((at.x + (rightX * offset)) / s) - window.X0, z = Mathf.FloorToInt((at.z + (rightZ * offset)) / s) - window.Z0;
+                SolidsLayout.Open(solids, window.Columns, x, Mathf.FloorToInt((at.y + 0.05f) / s) - baseRow, z);
+                SolidsLayout.Open(solids, window.Columns, x, Mathf.FloorToInt((at.y + JetArcs.OutletLift) / s) - baseRow, z);
+            }
+        }
+    }
+
     // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to
     // see: their water comes as the square's other water does).
     private List<ParticleWater.Spout> Spouts(Vector2 origin)
@@ -944,6 +969,7 @@ internal sealed class GpuWater : IDisposable
         _builtFalls = _buildingFalls;
         if (build.Result.Solids != null)
         {
+            OpenOutlets(build.Result.Solids, _buildingWindow, _buildingBase);
             _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
             _solidsTaken = build.Result.Solids;
             _builtBase = _buildingBase;

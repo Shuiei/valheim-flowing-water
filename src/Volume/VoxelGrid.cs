@@ -263,13 +263,16 @@ internal sealed class VoxelGrid
     /// Where water leaving a point (world metres) at a velocity (m/s; x east, y up, z north) lands, gravity pulling it
     /// down as it flies: the last place it reaches before a voxel solid there or holding water, looked at every
     /// <see cref="FlightStep"/> seconds for <see cref="MostFlight"/> at the most (where it got to then, still falling).
-    /// Null when it cannot leave the point (solid or water there already), or its way goes past the grid's reach or
-    /// <see cref="MaxBricks"/>: it pours where it is.
+    /// The point's own voxel is not solid to it: an outlet stands in the open over what its marker stands on, and a
+    /// rock's curved top, counted by its height at the column's middle, filled the outlet's voxel higher than it; the
+    /// jet poured at the outlet and ran down the rock's face. Null when it cannot leave the point (water there
+    /// already), or its way goes past the grid's reach or <see cref="MaxBricks"/>: it pours where it is.
     /// </summary>
     public (float X, float Y, float Z)? Lands(float px, float py, float pz, Vec3 velocity)
     {
         float s = VoxelSize;
         float x = px, y = py, z = pz, vy = velocity.Y;
+        int ox = (int)Math.Floor(px / s), oy = (int)Math.Floor(py / s), oz = (int)Math.Floor(pz / s);
         (float X, float Y, float Z)? open = null;
         for (float t = 0f; t <= MostFlight; t += FlightStep)
         {
@@ -309,7 +312,8 @@ internal sealed class VoxelGrid
             brick.Fed = true;
 
             int i = Brick.Index(Brick.In(vx), Brick.In(vyy), Brick.In(vz));
-            return brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i] || brick.Water[i] >= 0.5f;
+            bool own = vx == ox && vyy == oy && vz == oz;
+            return (!own && (brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i])) || brick.Water[i] >= 0.5f;
         }
     }
 

@@ -2,6 +2,19 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.10 — 2026-10-30
+
+### Fixed
+- A source's jet is seen in the air wherever you are, out to the game's draw distance: it was drawn only in the 3D
+  water round you, and vanished as you walked away from it or down from it. Each jet is now drawn whole along its arc,
+  as wide as its outlet and fanning out by its spread, white as it falls, till it meets the ground, a piece or water.
+  `flowingwater jets` logs where each one flies.
+- Water falling out of the bottom of the 3D water round you falls on: it splashed in mid-air on an invisible floor
+  under you, which went down with you. Only the ground, what is built and the server's water stop it now. Water thrown
+  out of its top no longer heaps in the air there.
+- A jet off a rock's top flies: a rock's curved top counted its outlet as inside the rock, so the jet poured at the
+  source and ran down the rock's face, and the water near you gave none.
+
 ## v0.49.8 — 2026-10-30
 
 ### Fixed
