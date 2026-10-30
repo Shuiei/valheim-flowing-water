@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using FlowingWater.Server;
+using FlowingWater.Volume;
 
 namespace FlowingWater.Client;
 
@@ -124,6 +125,19 @@ internal static class MarkerValues
         return true;
     }
 
+    /// <summary>Words begun with a capital letter, as a line of the panel or the hover text begins.</summary>
+    public static string Capital(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        char[] letters = text.ToCharArray();
+        letters[0] = char.ToUpperInvariant(letters[0]);
+        return new string(letters);
+    }
+
     /// <summary>A number as the panel and the hover text show it: up to two decimals, a point before them.</summary>
     public static string Format(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
@@ -132,15 +146,6 @@ internal static class MarkerValues
     /// larger, or a few of the smallest floats near 0 (Unity's Mathf.Approximately), not exactly.
     /// </summary>
     public static bool Same(float a, float b) => Math.Abs(b - a) < Math.Max(1e-6f * Math.Max(Math.Abs(a), Math.Abs(b)), float.Epsilon * 8f);
-
-    /// <summary>What a rate may be, under its field.</summary>
-    /// <param name="drain">A drain's, else a source's.</param>
-    public static string RateHint(bool drain) => drain
-        ? $"0 takes everything; up to {Format(MarkerRules.MaxRate)}"
-        : $"Above 0, up to {Format(MarkerRules.MaxRate)}";
-
-    /// <summary>What a radius may be, under its field.</summary>
-    public static string RadiusHint => $"{Format(MinRadius)} to {Format(MarkerRules.MaxDrainRadius)}";
 
     /// <summary>The piece's name, in the hoe and over a placed one.</summary>
     /// <param name="drain">A drain, else a source.</param>
@@ -155,8 +160,8 @@ internal static class MarkerValues
     /// <summary>The piece's description in the hoe.</summary>
     /// <param name="drain">A drain, else a source.</param>
     public static string Description(bool drain) => drain
-        ? "Takes the water that reaches it. Its rate and radius are set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it."
-        : "Water springs from it. Its rate is set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it.";
+        ? "Takes the water that reaches it. Its rate and reach are set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it."
+        : "Water springs from it, the way it faces (turn it as you place it) or all round. Its width, spread, throw and power are set in the panel on the right. Placed ones show while a water piece is chosen; [E] on one changes or removes it.";
 
     /// <summary>
     /// What a source or drain does, as the server takes it: its rate held to the most (or "no water" when it is not
@@ -193,6 +198,15 @@ internal static class MarkerValues
     public static string Hover(bool drain, float rate, float radius, bool mayChange) =>
         Describe(drain, rate, radius) + (mayChange ? "\n[<color=yellow><b>$KEY_Use</b></color>] Settings" : string.Empty);
 
+    /// <summary>The hover text over a placed source, with its shape under its rate (<see cref="MarkerSliders.Describe"/>).</summary>
+    /// <param name="rate">Its rate, as written in it.</param>
+    /// <param name="shape">Its shape, as written in it.</param>
+    /// <param name="mayChange">Whether the player may change it.</param>
+    public static string Hover(float rate, SourceShape shape, bool mayChange)
+    {
+        return Describe(false, rate, 0f) + "\n" + Capital(MarkerSliders.Describe(shape)) + (mayChange ? "\n[<color=yellow><b>$KEY_Use</b></color>] Settings" : string.Empty);
+    }
+
     /// <summary>The panel's title.</summary>
     /// <param name="drain">A drain's values, else a source's.</param>
     /// <param name="placed">A placed one's, else those the next one placed takes.</param>
@@ -205,6 +219,22 @@ internal static class MarkerValues
     /// <param name="editing">Whether its values are being changed (the mouse free, the fields open).</param>
     /// <param name="placed">A placed one's, else those the next one placed takes.</param>
     public static string Keys(bool editing, bool placed) => editing
-        ? placed ? $"[Enter] Apply   [Esc] or [E] Close   or {RemoveLabel} it below" : "[Enter] Apply   [Esc] or [E] Done"
+        ? placed ? $"[Esc] or [E] Close   or {RemoveLabel} it below" : "[Esc] or [E] Done"
         : "[E] Change";
+
+    /// <summary>The hint under the panel's sliders.</summary>
+    /// <param name="drain">A drain's, else a source's.</param>
+    public static string SliderHint(bool drain) => drain
+        ? "Power at its left end takes everything that reaches it."
+        : "It faces the way it is turned as you place it. Throw 0° runs along the ground; up to 60° arches it into the air.";
+
+    /// <summary>A rate beside its slider: a drain's 0 is "all", the others in m³/s.</summary>
+    public static string RateText(float rate, bool drain) => drain && !(rate > 0f) ? "all" : Format(rate) + " m³/s";
+
+    /// <summary>The line naming a source's water under its drawings, and how far out a jet lands.</summary>
+    public static string KindLine(SourceShape shape, float rate)
+    {
+        float? lands = SourcePreview.Lands(shape, rate);
+        return Capital(MarkerSliders.Kind(shape)) + (lands is { } far ? $" · lands {Format((float)Math.Round(far))} m out" : string.Empty);
+    }
 }

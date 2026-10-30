@@ -6,30 +6,34 @@ namespace FlowingWater.Client;
 
 /// <summary>
 /// The widgets of the source and drain panel (<see cref="MarkerPanel"/>), built in code on the game's own canvas in its
-/// font, sprites and colours: a title, a rate field with its label and hint, a radius field with its own, a status line,
-/// the keys and a Remove button. What they show and do is the panel's; this only makes and lays them out.
+/// font, sprites and colours: a title; for a source, two drawings of its water (from above and from the side) with a
+/// line naming it, and a slider for each of its width, spread, throw and power; for a drain, sliders for its power
+/// and reach; each slider with its label and value beside it, a hint under them, a status line, the keys and a Remove
+/// button. What they show and do is the panel's; this only makes and lays them out.
 /// </summary>
 internal sealed class MarkerPanelView
 {
     /// <summary>The panel's object, under the game's canvas.</summary>
     public const string ObjectName = "FlowingWater panel";
 
-    /// <summary>The colour of the hints, and of a status that was taken as typed.</summary>
+    /// <summary>The colour of the hints, and of a status that was taken as set.</summary>
     public static readonly Color Plain = new(0.85f, 0.85f, 0.85f);
 
-    private const string RateName = "Rate";
-
-    private const string RadiusName = "Radius";
+    // A slider's label and value while what it sets does not apply.
+    private static readonly Color DimColour = new(0.6f, 0.6f, 0.6f);
 
     private const string RemoveName = "Remove";
 
-    // The panel's size and its rows, canvas units from its top left: the title, then each field with its label beside
-    // and its hint under it, then the status, the keys and (a placed one's) the Remove button at the foot.
-    private const float Width = 360f;
+    // The panel's size and its rows, canvas units from its top left: the title; a source's drawings, captioned, and the
+    // line naming its water; the sliders, each a row with its label left and its value right; a hint; the status, the
+    // keys and (a placed one's) the Remove button at the foot.
+    private const float PanelWidth = 360f;
 
     private const float Gutter = 18f;
 
-    private const float FieldWidth = 110f;
+    private const float LabelWidth = 66f;
+
+    private const float ValueWidth = 88f;
 
     private const float ButtonWidth = 140f;
 
@@ -39,22 +43,30 @@ internal sealed class MarkerPanelView
 
     private const float TitleSize = 26f;
 
-    private const float RateLabelTop = 64f;
+    private const float CaptionTop = 56f;
 
-    private const float RateFieldTop = 60f;
+    private const float CaptionHeight = 18f;
 
-    private const float RateHintTop = 96f;
+    private const float DrawingTop = 76f;
 
-    private const float RadiusLabelTop = 128f;
+    private const float DrawingWidth = 156f;
 
-    private const float RadiusFieldTop = 124f;
+    private const float DrawingHeight = 117f;
 
-    private const float RadiusHintTop = 160f;
+    private const float KindTop = 198f;
 
-    // Where the status goes: under the radius for a drain, under the rate for a source.
-    private const float StatusTopDrain = 196f;
+    private const float KindHeight = 26f;
 
-    private const float StatusTopSource = 132f;
+    // The first slider's row: a source's under its drawings, a drain's under the title.
+    private const float RowsTopSource = 230f;
+
+    private const float RowsTopDrain = 62f;
+
+    private const float RowHeight = 34f;
+
+    private const float RowStep = 40f;
+
+    private const float HintHeight = 40f;
 
     private const float StatusHeight = 40f;
 
@@ -64,15 +76,13 @@ internal sealed class MarkerPanelView
 
     private const float RemoveBelowStatus = 76f;
 
-    private const float LabelHeight = 30f;
-
-    private const float HintHeight = 22f;
-
     private const float FieldHeight = 34f;
 
     private const float TextSize = 20f;
 
     private const float HintSize = 16f;
+
+    private const float CaptionSize = 14f;
 
     // What the panel's height adds under the status: room for the keys, and for the Remove button under them.
     private const float FootPlaced = 126f;
@@ -93,23 +103,39 @@ internal sealed class MarkerPanelView
 
     public TextMeshProUGUI Title { get; private set; }
 
-    public TextMeshProUGUI RateHint { get; private set; }
+    /// <summary>A source's water from above (its texture is the panel's to draw).</summary>
+    public RawImage Top { get; private set; }
 
-    public TextMeshProUGUI RadiusLabel { get; private set; }
+    /// <summary>A source's water from the side.</summary>
+    public RawImage Side { get; private set; }
 
-    public TextMeshProUGUI RadiusHint { get; private set; }
+    /// <summary>The line naming a source's water, under its drawings.</summary>
+    public TextMeshProUGUI Kind { get; private set; }
+
+    public Row Width { get; private set; }
+
+    public Row Spread { get; private set; }
+
+    public Row Throw { get; private set; }
+
+    public Row Power { get; private set; }
+
+    public Row Reach { get; private set; }
+
+    public TextMeshProUGUI Hint { get; private set; }
 
     public TextMeshProUGUI Status { get; private set; }
 
     public TextMeshProUGUI Keys { get; private set; }
 
-    public TMP_InputField Rate { get; private set; }
-
-    public TMP_InputField Radius { get; private set; }
-
     public Button Remove { get; private set; }
 
-    /// <summary>The panel's widgets under the canvas, in this style; built inactive, so that the fields wake up whole.</summary>
+    // A source's widgets only, a drain's only.
+    private GameObject[] _sourceOnly;
+
+    private GameObject[] _drainOnly;
+
+    /// <summary>The panel's widgets under the canvas, in this style; built inactive, so that the sliders wake up whole.</summary>
     public static MarkerPanelView Build(Transform canvas, Style style)
     {
         var view = new MarkerPanelView();
@@ -126,39 +152,67 @@ internal sealed class MarkerPanelView
         view.Root = root;
         view.Frame = frame;
         view.Title = Text(root.transform, "Title", style, TitleSize, style.Title, TitleTop, TitleHeight);
-        _ = Label(root.transform, "Rate label", style, "Rate", RateLabelTop);
-        view.Rate = Field(root.transform, RateName, style, RateFieldTop);
-        view.RateHint = Text(root.transform, "Rate hint", style, HintSize, Plain, RateHintTop, HintHeight);
-        view.RadiusLabel = Label(root.transform, "Radius label", style, "Radius", RadiusLabelTop);
-        view.Radius = Field(root.transform, RadiusName, style, RadiusFieldTop);
-        view.RadiusHint = Text(root.transform, "Radius hint", style, HintSize, Plain, RadiusHintTop, HintHeight);
-        view.Status = Text(root.transform, "Status", style, HintSize, Plain, StatusTopDrain, StatusHeight);
+        TextMeshProUGUI above = Text(root.transform, "From above", style, CaptionSize, Plain, CaptionTop, CaptionHeight);
+        above.text = "From above";
+        TextMeshProUGUI beside = Text(root.transform, "From the side", style, CaptionSize, Plain, CaptionTop, CaptionHeight);
+        beside.text = "From the side";
+        Place(beside.rectTransform, Gutter + DrawingWidth + 12f, CaptionTop, DrawingWidth, CaptionHeight);
+        view.Top = Drawing(root.transform, "Top view", Gutter);
+        view.Side = Drawing(root.transform, "Side view", Gutter + DrawingWidth + 12f);
+        view.Kind = Text(root.transform, "Kind", style, 18f, style.Title, KindTop, KindHeight);
+        view.Width = Slider(root.transform, "Width", style, MarkerSliders.WidthNotches, 0);
+        view.Spread = Slider(root.transform, "Spread", style, MarkerSliders.SpreadNotches, 0);
+        view.Throw = Slider(root.transform, "Throw", style, MarkerSliders.ThrowNotches, 0);
+        view.Power = Slider(root.transform, "Power", style, MarkerSliders.RateNotches, 0);
+        view.Reach = Slider(root.transform, "Reach", style, MarkerSliders.ReachNotches, 1);
+        view.Hint = Text(root.transform, "Hint", style, HintSize, Plain, 0f, HintHeight);
+        view.Hint.textWrappingMode = TextWrappingModes.Normal;
+        view.Status = Text(root.transform, "Status", style, HintSize, Plain, 0f, StatusHeight);
         view.Status.textWrappingMode = TextWrappingModes.Normal;
-        view.Keys = Text(root.transform, "Keys", style, HintSize, style.Title, StatusTopDrain + KeysBelowStatus, KeysHeight);
+        view.Keys = Text(root.transform, "Keys", style, HintSize, style.Title, 0f, KeysHeight);
         view.Remove = RemoveButton(root.transform, style);
+        view._sourceOnly = [above.gameObject, beside.gameObject, view.Top.gameObject, view.Side.gameObject, view.Kind.gameObject, view.Width.Root, view.Spread.Root, view.Throw.Root];
+        view._drainOnly = [view.Reach.Root];
         return view;
     }
 
-    /// <summary>The widgets a drain's (with its radius) or a source's, a placed one's (with Remove) or the next one's.</summary>
+    /// <summary>The widgets a drain's or a source's, a placed one's (with Remove) or the next one's.</summary>
     public void Layout(bool drain, bool placed)
     {
-        RadiusLabel.gameObject.SetActive(drain);
-        Radius.gameObject.SetActive(drain);
-        RadiusHint.gameObject.SetActive(drain);
-        // A placed one's Remove button goes under the keys, away from the fields.
-        float top = drain ? StatusTopDrain : StatusTopSource;
-        Place(Status.rectTransform, top, Width - (2f * Gutter), StatusHeight);
-        Place(Keys.rectTransform, top + KeysBelowStatus, Width - (2f * Gutter), KeysHeight);
-        Place((RectTransform)Remove.transform, top + RemoveBelowStatus, ButtonWidth, FieldHeight);
-        Frame.sizeDelta = new Vector2(Width, top + (placed ? FootPlaced : Foot));
+        foreach (GameObject only in _sourceOnly)
+        {
+            only.SetActive(!drain);
+        }
+
+        foreach (GameObject only in _drainOnly)
+        {
+            only.SetActive(drain);
+        }
+
+        Row[] rows = drain ? [Power, Reach] : [Width, Spread, Throw, Power];
+        float top = drain ? RowsTopDrain : RowsTopSource;
+        foreach (Row row in rows)
+        {
+            row.Place(top);
+            top += RowStep;
+        }
+
+        Place(Hint.rectTransform, Gutter, top, PanelWidth - (2f * Gutter), HintHeight);
+        top += HintHeight + 4f;
+        // A placed one's Remove button goes under the keys, away from the sliders.
+        Place(Status.rectTransform, Gutter, top, PanelWidth - (2f * Gutter), StatusHeight);
+        Place(Keys.rectTransform, Gutter, top + KeysBelowStatus, PanelWidth - (2f * Gutter), KeysHeight);
+        Place((RectTransform)Remove.transform, Gutter, top + RemoveBelowStatus, ButtonWidth, FieldHeight);
+        Frame.sizeDelta = new Vector2(PanelWidth, top + (placed ? FootPlaced : Foot));
     }
 
-    private static TextMeshProUGUI Label(Transform parent, string name, Style style, string text, float top)
+    /// <summary>Whether the sliders take the mouse and keys (while the panel's values are changed), else only show.</summary>
+    public void Interactable(bool on)
     {
-        TextMeshProUGUI label = Text(parent, name, style, TextSize, Color.white, top, LabelHeight);
-        label.text = text;
-        label.rectTransform.sizeDelta = new Vector2(Width - (2f * Gutter) - FieldWidth - 8f, LabelHeight);
-        return label;
+        foreach (Row row in new[] { Width, Spread, Throw, Power, Reach })
+        {
+            row.Slider.interactable = on;
+        }
     }
 
     private static TextMeshProUGUI Text(Transform parent, string name, Style style, float size, Color colour, float top, float height)
@@ -176,61 +230,91 @@ internal sealed class MarkerPanelView
         text.alignment = TextAlignmentOptions.MidlineLeft;
         text.textWrappingMode = TextWrappingModes.NoWrap;
         text.raycastTarget = false;
-        Place(text.rectTransform, top, Width - (2f * Gutter), height);
+        Place(text.rectTransform, Gutter, top, PanelWidth - (2f * Gutter), height);
         return text;
     }
 
-    // A one-line field for a number: digits, a point or comma and a sign only (a key like [E] types nothing).
-    private static TMP_InputField Field(Transform parent, string name, Style style, float top)
+    // A drawing's frame, its texture drawn by the panel (SourcePreview's size, scaled to the frame).
+    private static RawImage Drawing(Transform parent, string name, float left)
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        var rect = (RectTransform)go.transform;
-        Place(rect, top, FieldWidth, FieldHeight);
-        rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(1f, 1f);
-        rect.anchoredPosition = new Vector2(-Gutter, -top);
-        Image back = go.AddComponent<Image>();
-        Sprite(back, style.Field, new Color(0f, 0f, 0f, 0.6f));
+        RawImage image = go.AddComponent<RawImage>();
+        image.raycastTarget = false;
+        image.texture = new Texture2D(SourcePreview.Width, SourcePreview.Height, TextureFormat.RGBA32, false) { name = name, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        Place(image.rectTransform, left, DrawingTop, DrawingWidth, DrawingHeight);
+        return image;
+    }
 
-        var area = new GameObject("Text Area", typeof(RectTransform), typeof(RectMask2D));
-        area.transform.SetParent(go.transform, false);
-        var areaRect = (RectTransform)area.transform;
-        areaRect.anchorMin = Vector2.zero;
-        areaRect.anchorMax = Vector2.one;
-        areaRect.offsetMin = new Vector2(8f, 2f);
-        areaRect.offsetMax = new Vector2(-8f, -2f);
-
-        var textObject = new GameObject("Text", typeof(RectTransform));
-        textObject.transform.SetParent(area.transform, false);
-        TextMeshProUGUI text = textObject.AddComponent<TextMeshProUGUI>();
-        if (style.Font != null)
+    // A slider's row: its label, the slider by whole notches from the first to the last, and its value.
+    private static Row Slider(Transform parent, string label, Style style, int last, int first)
+    {
+        var go = new GameObject(label + " row", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var row = new Row
         {
-            text.font = style.Font;
+            Root = go,
+            Label = Text(go.transform, "Label", style, TextSize, Color.white, 0f, RowHeight),
+            Value = Text(go.transform, "Value", style, 18f, Color.white, 0f, RowHeight),
+        };
+        row.Label.text = label;
+        Place(row.Label.rectTransform, 0f, 0f, LabelWidth, RowHeight);
+        row.Value.alignment = TextAlignmentOptions.MidlineRight;
+        Place(row.Value.rectTransform, PanelWidth - (2f * Gutter) - ValueWidth, 0f, ValueWidth, RowHeight);
+
+        var bar = new GameObject("Slider", typeof(RectTransform));
+        bar.transform.SetParent(go.transform, false);
+        Place((RectTransform)bar.transform, LabelWidth + 8f, 0f, PanelWidth - (2f * Gutter) - LabelWidth - ValueWidth - 16f, RowHeight);
+        Image track = Child(bar.transform, "Track", style.Field, new Color(0f, 0f, 0f, 0.6f));
+        var trackRect = track.rectTransform;
+        trackRect.anchorMin = new Vector2(0f, 0.5f);
+        trackRect.anchorMax = new Vector2(1f, 0.5f);
+        trackRect.sizeDelta = new Vector2(0f, 10f);
+
+        var fillArea = new GameObject("Fill Area", typeof(RectTransform));
+        fillArea.transform.SetParent(bar.transform, false);
+        var fillAreaRect = (RectTransform)fillArea.transform;
+        fillAreaRect.anchorMin = new Vector2(0f, 0.5f);
+        fillAreaRect.anchorMax = new Vector2(1f, 0.5f);
+        fillAreaRect.sizeDelta = new Vector2(-12f, 10f);
+        Image fill = Child(fillArea.transform, "Fill", null, new Color(style.Title.r, style.Title.g, style.Title.b, 0.55f));
+        fill.rectTransform.sizeDelta = Vector2.zero;
+
+        var handleArea = new GameObject("Handle Area", typeof(RectTransform));
+        handleArea.transform.SetParent(bar.transform, false);
+        var handleAreaRect = (RectTransform)handleArea.transform;
+        handleAreaRect.anchorMin = Vector2.zero;
+        handleAreaRect.anchorMax = Vector2.one;
+        handleAreaRect.sizeDelta = new Vector2(-12f, 0f);
+        Image handle = Child(handleArea.transform, "Handle", style.Button ?? style.Field, style.Title);
+        handle.rectTransform.sizeDelta = new Vector2(14f, 0f);
+
+        row.Slider = bar.AddComponent<Slider>();
+        row.Slider.fillRect = fill.rectTransform;
+        row.Slider.handleRect = handle.rectTransform;
+        row.Slider.targetGraphic = handle;
+        row.Slider.direction = UnityEngine.UI.Slider.Direction.LeftToRight;
+        row.Slider.wholeNumbers = true;
+        row.Slider.minValue = first;
+        row.Slider.maxValue = last;
+        row.Slider.interactable = false;
+        return row;
+    }
+
+    // An image stretched over its parent (anchors set by the caller after), in a sprite or a plain colour.
+    private static Image Child(Transform parent, string name, Sprite sprite, Color plain)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Image image = go.AddComponent<Image>();
+        Sprite(image, sprite, plain);
+        if (sprite != null)
+        {
+            image.color = plain.a < 1f ? Color.white : plain;
         }
 
-        text.fontSize = TextSize;
-        text.color = Color.white;
-        text.alignment = TextAlignmentOptions.MidlineRight;
-        text.textWrappingMode = TextWrappingModes.NoWrap;
-        Fill(text.rectTransform);
-
-        TMP_InputField field = go.AddComponent<TMP_InputField>();
-        field.textViewport = areaRect;
-        field.textComponent = text;
-        field.targetGraphic = back;
-        if (style.Font != null)
-        {
-            field.fontAsset = style.Font;
-        }
-
-        field.pointSize = TextSize;
-        field.lineType = TMP_InputField.LineType.SingleLine;
-        field.characterLimit = 10;
-        field.restoreOriginalTextOnEscape = true;
-        field.onValidateInput = (_, _, added) => char.IsDigit(added) || added is '.' or ',' or '-' ? added : '\0';
-        field.interactable = false;
-        return field;
+        Fill(image.rectTransform);
+        return image;
     }
 
     // The button that removes a placed one: the game's button sprite and font, hidden until a placed one is changed.
@@ -250,12 +334,12 @@ internal sealed class MarkerPanelView
         return button;
     }
 
-    // Placed from the panel's top left.
-    private static void Place(RectTransform rect, float top, float width, float height)
+    // Placed from its parent's top left.
+    private static void Place(RectTransform rect, float left, float top, float width, float height)
     {
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
         rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(Gutter, -top);
+        rect.anchoredPosition = new Vector2(left, -top);
         rect.sizeDelta = new Vector2(width, height);
     }
 
@@ -279,6 +363,29 @@ internal sealed class MarkerPanelView
         image.sprite = sprite;
         image.type = sprite.border != Vector4.zero ? Image.Type.Sliced : Image.Type.Simple;
         image.color = Color.white;
+    }
+
+    /// <summary>A slider's row: its label, its slider by whole notches and its value, placed together.</summary>
+    public sealed class Row
+    {
+        public GameObject Root { get; set; }
+
+        public TextMeshProUGUI Label { get; set; }
+
+        public Slider Slider { get; set; }
+
+        public TextMeshProUGUI Value { get; set; }
+
+        /// <summary>The row placed this far from the panel's top.</summary>
+        public void Place(float top) => MarkerPanelView.Place((RectTransform)Root.transform, Gutter, top, PanelWidth - (2f * Gutter), RowHeight);
+
+        /// <summary>Its label and value dimmed (what it sets does not apply now: a source's width or throw all round), or not.</summary>
+        public void Dim(bool dim)
+        {
+            Color colour = dim ? DimColour : Color.white;
+            Label.color = colour;
+            Value.color = colour;
+        }
     }
 
     /// <summary>The look of the game's own text box (the sign's): its font, title colour and sprites; plain when not found.</summary>

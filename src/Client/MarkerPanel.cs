@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using TMPro;
+using FlowingWater.Volume;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -7,10 +7,10 @@ using UnityEngine.UI;
 namespace FlowingWater.Client;
 
 /// <summary>
-/// The panel on the right of the screen with a source's or drain's rate (and a drain's radius): those the next one
-/// placed takes while one is the hoe's piece, or a placed one's after [E] on it. [E] changes the next one's values;
-/// while they are changed the mouse is free and the game takes no keys (as for its own text boxes); [Esc] or [E]
-/// ends it. Its widgets are <see cref="MarkerPanelView"/>'s, on the game's own dialog canvas; never on a dedicated
+/// The panel on the right of the screen with a source's shape and power, or a drain's power and reach, on sliders:
+/// those the next one placed takes while one is the hoe's piece, or a placed one's after [E] on it (each change written
+/// into it at once). [E] changes the next one's values; while they are changed the mouse is free and the game takes no
+/// keys (as for its own text boxes); [Esc] or [E] ends it. Its widgets are <see cref="MarkerPanelView"/>'s, on the game's own dialog canvas; never on a dedicated
 /// server.
 /// </summary>
 internal sealed class MarkerPanel : MonoBehaviour
@@ -136,47 +136,38 @@ internal sealed class MarkerPanel : MonoBehaviour
         _panel = null;
     }
 
-    // A value typed in a field: taken for the next one or written into the placed one; refused, it is said why and
-    // the field shows the value kept. Enter, leaving the field and closing the panel all come here.
-    private void Typed(bool radius, string text)
+    // A slider moved: the values the sliders stand at taken for the next one, or written into the placed one; one
+    // refused (the player may not change it), it is said why and the sliders go back to what is kept.
+    private void Slid()
     {
+        int spread = (int)_view.Spread.Slider.value;
+        var shape = new SourceShape(MarkerSliders.AllRound(spread), 0f, MarkerSliders.Width((int)_view.Width.Slider.value), MarkerSliders.Spread(spread), MarkerSliders.Throw((int)_view.Throw.Slider.value));
+        float rate = MarkerSliders.Rate((int)_view.Power.Slider.value, _drain);
+        float radius = MarkerSliders.Reach((int)_view.Reach.Slider.value);
         if (Placed)
         {
-            ChangeTarget(radius, text);
+            ChangeTarget(rate, radius, shape);
         }
         else
         {
-            float before = radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain);
-            bool taken = radius ? HoePieces.Next.TrySetRadius(text, out string note) : HoePieces.Next.TrySetRate(_drain, text, out note);
-            if (!taken || note != null || !MarkerValues.Same(before, radius ? HoePieces.Next.Radius : HoePieces.Next.Rate(_drain)))
+            NextPlacement next = HoePieces.Next;
+            bool taken = next.TrySetRate(_drain, rate, out string note) & (!_drain || next.TrySetRadius(radius, out note));
+            if (!_drain)
             {
-                Say(note, taken);
+                next.SetShape(shape.AllRound, shape.Width, shape.Spread, shape.Throw);
             }
+
+            Say(note, taken);
         }
 
-        // The field typed in shows what was kept (held, or the value before a refused one), though it may still have
-        // the focus while Enter is handled.
-        ShowValues(true);
+        ShowValues();
     }
 
-    private void ChangeTarget(bool radius, string text)
+    private void ChangeTarget(float rate, float radius, SourceShape shape)
     {
         if (!_target.IsValid)
         {
             Close();
-            return;
-        }
-
-        float rate = _target.Rate;
-        float reach = _target.Radius;
-        bool taken = radius ? MarkerValues.TryRadius(text, out float value, out string note) : MarkerValues.TryRate(text, _drain, out value, out note);
-        if (!taken || MarkerValues.Same(value, radius ? reach : rate))
-        {
-            if (!taken || note != null)
-            {
-                Say(note, taken);
-            }
-
             return;
         }
 
@@ -186,14 +177,24 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        if (!PrivateArea.CheckAccess(_target.transform.position))
+        if (!PrivateArea.CheckAccess(_target.transform.position, 0f, false))
         {
             Say(Localization.instance.Localize("$msg_privatezone"), false);
             return;
         }
 
-        _target.Change(radius ? rate : value, radius ? value : reach);
-        Say(note ?? "Changed: " + MarkerValues.Describe(_drain, _target.Rate, _target.Radius), true);
+        bool taken = MarkerValues.TryRate(rate, _drain, out float used, out string note);
+        if (taken && !(MarkerValues.Same(used, _target.Rate) && (!_drain || MarkerValues.Same(radius, _target.Radius))))
+        {
+            _target.Change(used, radius);
+        }
+
+        if (!_drain && shape != _target.Shape)
+        {
+            _target.ChangeShape(shape);
+        }
+
+        Say(note, taken);
     }
 
     private void TickPlaced(Player player)
@@ -259,16 +260,15 @@ internal sealed class MarkerPanel : MonoBehaviour
         _drain = drain;
         gameObject.SetActive(true);
         _view.Title.text = MarkerValues.Title(drain, Placed);
-        _view.RateHint.text = "m³/s: " + MarkerValues.RateHint(drain);
-        _view.RadiusHint.text = "m: " + MarkerValues.RadiusHint;
+        _view.Hint.text = MarkerValues.SliderHint(drain);
         _view.Layout(drain, Placed);
         Say(null, true);
         ShowValues();
         UpdateKeys();
     }
 
-    // The values in the fields; a field being typed in is left alone unless the typing is done (forced).
-    private void ShowValues(bool force = false)
+    // The values kept (the placed one's, or the next one's) on the sliders and beside them, and a source's drawings.
+    private void ShowValues()
     {
         if (Placed && !_target.IsValid)
         {
@@ -277,14 +277,35 @@ internal sealed class MarkerPanel : MonoBehaviour
 
         float rate = Placed ? _target.Rate : HoePieces.Next.Rate(_drain);
         float radius = Placed ? _target.Radius : HoePieces.Next.Radius;
-        if (force || !_view.Rate.isFocused)
+        _view.Power.Slider.SetValueWithoutNotify(MarkerSliders.RateNotch(rate, _drain));
+        _view.Power.Value.text = MarkerValues.RateText(rate, _drain);
+        if (_drain)
         {
-            _view.Rate.SetTextWithoutNotify(MarkerValues.Format(rate));
+            _view.Reach.Slider.SetValueWithoutNotify(MarkerSliders.ReachNotch(radius));
+            _view.Reach.Value.text = MarkerValues.Format(MarkerSliders.Reach(MarkerSliders.ReachNotch(radius))) + " m";
+            return;
         }
 
-        if (force || !_view.Radius.isFocused)
+        SourceShape shape = Placed ? _target.Shape : HoePieces.Next.Shape;
+        _view.Width.Slider.SetValueWithoutNotify(MarkerSliders.WidthNotch(shape.Width));
+        _view.Spread.Slider.SetValueWithoutNotify(MarkerSliders.SpreadNotch(shape));
+        _view.Throw.Slider.SetValueWithoutNotify(MarkerSliders.ThrowNotch(shape.Throw));
+        _view.Width.Value.text = shape.Width > 0f ? MarkerValues.Format(shape.Width) + " m" : "a point";
+        _view.Spread.Value.text = shape.AllRound ? "all round" : shape.Spread > 0f ? MarkerValues.Format(shape.Spread) + "°" : "straight";
+        _view.Throw.Value.text = shape.Throw > 0f ? MarkerValues.Format(shape.Throw) + "°" : "ground";
+        _view.Width.Dim(shape.AllRound);
+        _view.Throw.Dim(shape.AllRound);
+        _view.Kind.text = MarkerValues.KindLine(shape, rate);
+        Draw(_view.Top, SourcePreview.Top(shape));
+        Draw(_view.Side, SourcePreview.Side(shape, rate));
+    }
+
+    private static void Draw(RawImage image, byte[] pixels)
+    {
+        if (image.texture is Texture2D texture)
         {
-            _view.Radius.SetTextWithoutNotify(MarkerValues.Format(radius));
+            texture.LoadRawTextureData(pixels);
+            texture.Apply(false);
         }
     }
 
@@ -292,14 +313,11 @@ internal sealed class MarkerPanel : MonoBehaviour
     {
         _editing = true;
         _openedFrame = Time.frameCount;
-        _view.Rate.interactable = true;
-        _view.Radius.interactable = true;
+        _view.Interactable(true);
         UpdateKeys();
-        _view.Rate.Select();
-        _view.Rate.ActivateInputField();
     }
 
-    // The values no longer changed: what was typed is taken (as Enter would), the fields close.
+    // The values no longer changed: the sliders only show again.
     private void Stop()
     {
         if (!_editing)
@@ -308,20 +326,9 @@ internal sealed class MarkerPanel : MonoBehaviour
         }
 
         _editing = false;
-        foreach (TMP_InputField field in new[] { _view.Rate, _view.Radius })
-        {
-            if (field.isFocused)
-            {
-                field.DeactivateInputField(true);
-            }
-
-            field.interactable = false;
-        }
-
+        _view.Interactable(false);
         EventSystem.current?.SetSelectedGameObject(null);
-
         ShowValues();
-
         UpdateKeys();
     }
 
@@ -406,10 +413,10 @@ internal sealed class MarkerPanel : MonoBehaviour
         MarkerPanel panel = view.Root.AddComponent<MarkerPanel>();
         panel._view = view;
         view.Remove.onClick.AddListener(panel.RemoveTarget);
-        view.Rate.onSubmit.AddListener(text => panel.Typed(false, text));
-        view.Rate.onEndEdit.AddListener(text => panel.Typed(false, text));
-        view.Radius.onSubmit.AddListener(text => panel.Typed(true, text));
-        view.Radius.onEndEdit.AddListener(text => panel.Typed(true, text));
+        foreach (MarkerPanelView.Row row in new[] { view.Width, view.Spread, view.Throw, view.Power, view.Reach })
+        {
+            row.Slider.onValueChanged.AddListener(_ => panel.Slid());
+        }
         _panel = panel;
         return _panel;
     }

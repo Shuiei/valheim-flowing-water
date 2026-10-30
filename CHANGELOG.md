@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.47.0 — 2026-10-30
+
+### Added
+- The source and drain panel sets them on sliders: a source's width, spread, throw and power, with a drawing of its
+  water from above and from the side and its name (a slim jet spray, a wide river...); a drain's power and reach. A
+  source faces the way it is turned as you place it; the spread's last notch pours all round. A new source starts as
+  a slim jet. Looking at a placed source tells its shape too.
+
+### Changed
+- The panel's rate and radius are no longer typed: the sliders replace the boxes, and Enter is no longer needed.
+
 ## v0.46.0 — 2026-10-29
 
 ### Added
