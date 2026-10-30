@@ -20,6 +20,40 @@ public class CurrentCarryTests
         Assert.Equal(seconds, CurrentCarry.Seconds(mass), 3);
     }
 
+    [Theory]
+    [InlineData(0.5f, 1f, 0f)]
+    [InlineData(3f, 0.1f, 0f)]
+    [InlineData(0.7f, 4.5f, 1f)]
+    [InlineData(0.6f, 2f, 1f)]
+    [InlineData(0f, 5f, 0f)]
+    [InlineData(-1f, 5f, 0f)]
+    public void AWaderIsTakenOffTheirFeetOnlyByWaterDeepAndFastEnough(float depth, float speed, float share)
+    {
+        Assert.Equal(share, CurrentCarry.WadeShare(depth, speed), 4);
+    }
+
+    [Fact]
+    public void TheWadersShareGrowsSmoothlyBetweenTheFootingLimitAndTwiceIt()
+    {
+        float half = CurrentCarry.WadeShare(1f, 1.5f * CurrentCarry.FootingLimit);
+        float less = CurrentCarry.WadeShare(1f, 1.2f * CurrentCarry.FootingLimit);
+        float more = CurrentCarry.WadeShare(1f, 1.8f * CurrentCarry.FootingLimit);
+
+        Assert.Equal(0.5f, half, 4);
+        Assert.True(less > 0f && less < half && half < more && more < 1f);
+    }
+
+    [Theory]
+    [InlineData(0.1f, 0.5f, 0.1f)]
+    [InlineData(0.5f, 1f, 0.5f)]
+    [InlineData(1.5f, 0.2f, 1f)]
+    [InlineData(0.3f, 5f, 1f)]
+    [InlineData(0f, 5f, 0f)]
+    public void AWaderTakesTheCurrentByTheDepthAndAllOfItOnceSwept(float depth, float speed, float share)
+    {
+        Assert.Equal(share, CurrentCarry.WaderShare(depth, speed), 4);
+    }
+
     [Fact]
     public void ACrateIsPulledFasterThanABoatAndFasterWaterPullsHarder()
     {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using FlowingWater.Client;
 using HarmonyLib;
 using UnityEngine;
@@ -145,7 +146,12 @@ internal static class SetLiquidLevelPatch
 }
 
 /// <summary>
-/// A swimming character drifts with the current (its own game simulates it: the owner). Left out, with an error, when
+/// The current adds to a character's own speed in the water (its own game simulates it: the owner): a swimmer's all of
+/// it; a wader's across the ground, a share growing with the depth, all of it once the water would take them off their
+/// feet (<see cref="CurrentCarry.WadeShare"/>), so running down a stream is faster than on the ground and walking up it
+/// slower, and fast water sweeps them along (standing still in it, they piled it up on themselves). The game makes a
+/// character's speed each step from the last step's, so the current added at a step is taken off again before the
+/// next (else it built on itself: a wader ran 200 m in four seconds). Left out, with an error, when
 /// the game's body field is not found: it is looked up as the patch is prepared, not at the first character to move,
 /// where a failure would have been thrown at every one of them.
 /// </summary>
@@ -154,6 +160,9 @@ internal static class SetLiquidLevelPatch
 internal static class CurrentPatch
 {
     private static readonly PatchTargets Targets = GameMethods.For(nameof(CurrentPatch), (typeof(Character), "UpdateMotion"));
+
+    // The current added to each character's speed at its last step, taken off before its next.
+    private static readonly ConditionalWeakTable<Character, StrongBox<Vector3>> Added = new();
 
     private static AccessTools.FieldRef<Character, Rigidbody> _body;
 
@@ -176,17 +185,47 @@ internal static class CurrentPatch
 
     private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
 
+    private static void Prefix(Character __instance)
+    {
+        if (Added.TryGetValue(__instance, out StrongBox<Vector3> added))
+        {
+            Rigidbody body = _body(__instance);
+            if (body != null)
+            {
+                body.linearVelocity -= added.Value;
+            }
+
+            Added.Remove(__instance);
+        }
+    }
+
     private static void Postfix(Character __instance)
     {
-        if (!__instance.IsSwimming() || !__instance.IsOwner() || !VoxelWater.CurrentAt(__instance.transform.position, out Vector3 current))
+        if (!__instance.IsOwner())
+        {
+            return;
+        }
+
+        Vector3 position = __instance.transform.position;
+        bool swimming = __instance.IsSwimming();
+        float depth = swimming ? 0f : VoxelWater.SurfaceAt(position) - position.y;
+        if ((!swimming && !(depth > 0f)) || !VoxelWater.CurrentAt(position, out Vector3 current))
         {
             return;
         }
 
         Rigidbody body = _body(__instance);
-        if (body != null)
+        if (body == null)
         {
-            body.linearVelocity += current * FlowingWaterPlugin.Settings.CurrentStrength.Value;
+            return;
+        }
+
+        float strength = FlowingWaterPlugin.Settings.CurrentStrength.Value;
+        Vector3 add = swimming ? current * strength : new Vector3(current.x, 0f, current.z) * (strength * CurrentCarry.WaderShare(depth, new Vector2(current.x, current.z).magnitude));
+        if (add != Vector3.zero)
+        {
+            body.linearVelocity += add;
+            Added.Add(__instance, new StrongBox<Vector3>(add));
         }
     }
 }

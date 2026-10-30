@@ -2,6 +2,17 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.45.0 — 2026-10-29
+
+### Added
+- The current carries you when you wade, not only when you swim: it adds to your speed by how deep the water is
+  (half its speed at the knees, all of it from the waist up), so running down a stream is faster than on dry ground
+  and walking up it slower; water fast and deep enough to take a person off their feet sweeps you along.
+
+### Fixed
+- No more glassy pillar round you near a big source: standing still in fast water, you piled it up over your head;
+  now it carries you along.
+
 ## v0.44.5 — 2026-10-29
 
 ### Fixed

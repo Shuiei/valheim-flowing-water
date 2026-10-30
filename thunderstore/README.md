@@ -75,7 +75,7 @@ again within a couple of seconds. The main ones:
 | `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes; off = drawn as the server sends it |
 | `Client.GpuWaterRange` | 96 | Side of the square round you whose water the card moves, metres |
 | `Client.GpuWaterCell` | 0.25 | Side of the card's cells, metres (0.125, 0.25, 0.5 or 1): smaller is finer and costs the card more |
-| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers and floating things (1 = at the water's own speed; a light thing catches up within a second; a boat with someone aboard is pulled over several, and drifts slower than the water against its own drag) |
+| `Client.CurrentStrength` | 1 | How strongly the current carries swimmers, waders and floating things (1 = at the water's own speed; a wader takes a share by the depth, all of it from the waist or once the water would take them off their feet; a light thing catches up within a second; a boat with someone aboard is pulled over several, and drifts slower than the water against its own drag) |
 | `Client.WaterVolume` | 0.7 | How loud running water is (0 = silent), within the game's sound-effects volume |
 | `Client.Spray` | true | Falls (as curtains), splashes and spray on your graphics card (with `Client.GpuWater`) |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on your graphics card instead of a sheet, made from the server's water and held to it, moving as water moves (it falls, breaks up, splashes, pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the console's `flowingwater particles` pours some either way |
