@@ -99,7 +99,7 @@ internal sealed class GpuWater : IDisposable
     // Whether the square was found too wide for the volume (told once).
     private bool _volumeTooWide;
 
-    private readonly List<(Vector3 At, float Rate, bool Drain, float Radius)> _markers = [];
+    private readonly List<(Vector3 At, float Rate, bool Drain, float Radius, SourceShape Shape)> _markers = [];
 
     private readonly List<VolumeWater.Spring> _springs = [];
 
@@ -831,15 +831,23 @@ internal sealed class GpuWater : IDisposable
         Marker.Markers(_markers);
         _springs.Clear();
         float size = _window.Cells * _window.CellSize;
-        foreach ((Vector3 at, float rate, bool drain, float radius) in _markers)
+        foreach ((Vector3 at, float rate, bool drain, float radius, SourceShape shape) in _markers)
         {
             if (at.x >= origin.x && at.z >= origin.y && at.x < origin.x + size && at.z < origin.y + size && _springs.Count < VolumeWater.MostSprings)
             {
-                _springs.Add(drain ? VolumeWater.Spring.Drain(at + (Vector3.up * Prefabs.MarkerRadius), radius, rate) : VolumeWater.Spring.SourceOn(at, rate));
+                _springs.Add(drain ? VolumeWater.Spring.Drain(at + (Vector3.up * Prefabs.MarkerRadius), radius, rate) : shape.AllRound ? VolumeWater.Spring.SourceOn(at, rate) : Aimed(at, rate, shape));
             }
         }
 
         return _springs;
+    }
+
+    // A source facing a way, for the volume water: its outlet in front of its marker, as the shape has it.
+    private static VolumeWater.Spring Aimed(Vector3 foot, float rate, SourceShape shape)
+    {
+        Vec3 way = shape.Direction(0f);
+        (float rightX, float rightZ) = shape.Right;
+        return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, shape.OutletHeight(rate), shape.Speed(rate), shape.Spread * 0.5f * Mathf.Deg2Rad);
     }
 
     // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to

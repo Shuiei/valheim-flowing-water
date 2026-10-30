@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using FlowingWater.Volume;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -33,6 +34,9 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
 
     public float Rate => _nview.GetZDO().GetFloat(ZdoKeys.Rate, IsDrain ? FlowingWaterPlugin.Settings.DefaultDrainRate.Value : FlowingWaterPlugin.Settings.DefaultSourceRate.Value);
 
+    /// <summary>A source's shape as written in it, facing its piece's turn (all round for one with none written).</summary>
+    public SourceShape Shape => MarkerShape.Read(_nview.GetZDO());
+
     /// <summary>A drain's radius as written in it, metres.</summary>
     public float Radius => _nview.GetZDO().GetFloat(ZdoKeys.Radius, FlowingWaterPlugin.Settings.DefaultDrainRadius.Value);
 
@@ -52,15 +56,15 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
         }
     }
 
-    /// <summary>Every placed source and drain still in the world: where it stands, its rate (m³/s), whether a drain and a drain's radius, into <paramref name="into"/>.</summary>
-    public static void Markers(List<(Vector3 At, float Rate, bool Drain, float Radius)> into)
+    /// <summary>Every placed source and drain still in the world: where it stands, its rate (m³/s), whether a drain, a drain's radius and a source's shape, into <paramref name="into"/>.</summary>
+    public static void Markers(List<(Vector3 At, float Rate, bool Drain, float Radius, SourceShape Shape)> into)
     {
         into.Clear();
         foreach (Marker marker in All)
         {
             if (marker != null && marker._nview != null && marker._nview.IsValid())
             {
-                into.Add((marker.transform.position, marker.Rate, marker.IsDrain, marker.IsDrain ? marker.Radius : 0f));
+                into.Add((marker.transform.position, marker.Rate, marker.IsDrain, marker.IsDrain ? marker.Radius : 0f, marker.IsDrain ? SourceShape.Round : marker.Shape));
             }
         }
     }

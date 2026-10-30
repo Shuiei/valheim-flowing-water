@@ -194,6 +194,48 @@ internal sealed class VoxelGrid
         return true;
     }
 
+    /// <summary>
+    /// Pours this much water into voxel (x, y, z), cubic metres, sent on its way: the flows through its faces the way
+    /// it goes raised to at least the flow given along each axis (cubic metres a second; positive east, up and north),
+    /// so a source's jet or river leaves it with its momentum, carried on and braked by the solver as any flow is.
+    /// </summary>
+    /// <returns>False when its brick could not be made (<see cref="MaxBricks"/>): nothing poured.</returns>
+    public bool PourAimed(int x, int y, int z, float cubicMetres, float flowX, float flowY, float flowZ)
+    {
+        if (!Pour(x, y, z, cubicMetres))
+        {
+            return false;
+        }
+
+        Aim(x, y, z, 0, flowX);
+        Aim(x, y, z, 1, flowY);
+        Aim(x, y, z, 2, flowZ);
+        return true;
+    }
+
+    // The flow through a voxel's face along an axis raised to at least this one (its upper face going the positive
+    // way, the one before it, the lower neighbour's upper face, going the negative way), its brick woken for it.
+    private void Aim(int x, int y, int z, int axis, float flow)
+    {
+        if (flow == 0f)
+        {
+            return;
+        }
+
+        int back = flow < 0f ? 1 : 0;
+        int fx = x - (axis == 0 ? back : 0), fy = y - (axis == 1 ? back : 0), fz = z - (axis == 2 ? back : 0);
+        if (Make(Brick.Of(fx), Brick.Of(fy), Brick.Of(fz)) is not { } brick)
+        {
+            return;
+        }
+
+        brick.Wake();
+        int i = Brick.Index(Brick.In(fx), Brick.In(fy), Brick.In(fz));
+        float[] faces = axis == 0 ? brick.FlowX : axis == 1 ? brick.FlowY : brick.FlowZ;
+        faces[i] = flow > 0f ? Math.Max(faces[i], flow) : Math.Min(faces[i], flow);
+        brick.Wets(i);
+    }
+
     /// <summary>The water in voxel (x, y, z), as a share of its volume; 0 where there is no brick.</summary>
     public float WaterAt(int x, int y, int z) => Locate(x, y, z, out Brick brick, out int index) ? brick.Water[index] : 0f;
 

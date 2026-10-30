@@ -41,7 +41,7 @@ public static class VolumePreview
             SimPreview.Output = _output;
             BuildBundles.Prepare();
             string[] chosen = (Environment.GetEnvironmentVariable("FW_PREVIEW_SCENES") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries);
-            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow", "slope", "bigspring", "wader" };
+            string[] known = { "rest", "dambreak", "ledge", "spring", "box", "fence", "drain", "follow", "slope", "bigspring", "wader", "aimed" };
             string[] unknown = chosen.Where(name => Array.IndexOf(known, name) < 0).ToArray();
             if (unknown.Length > 0)
             {
@@ -102,6 +102,12 @@ public static class VolumePreview
             if (Runs("wader"))
             {
                 Wader();
+            }
+
+            if (Runs("aimed"))
+            {
+                Aimed(false);
+                Aimed(true);
             }
 
             File.WriteAllText(Path.Combine(_output, "volume.txt"), Log.ToString());
@@ -517,6 +523,85 @@ public static class VolumePreview
         Log.AppendLine(Inv($"  The water against the box rises to {heap:0.00} m, its bow wave allowing {allowed:0.00} m: {Check(heap <= allowed)}"));
         Log.AppendLine(Inv($"  {onTop} particles lie on the box's top: none: {Check(onTop == 0)}"));
         scene.Shot("vwader_10s", new Vector3(middle - 5f, 3f, middle - 5f), new Vector3(middle, 0.5f, middle));
+    }
+
+    // A source facing east on flat ground for 3 s, as the game hands the volume water one (GpuWater.Aimed, from the
+    // plugin's SourceShape): a slim jet (a point's outlet, fanned out 20 degrees, thrown up 30, 2 m3/s: held to 12 m/s
+    // through a slot higher than the nozzle's) or a river (6 m wide, straight, along the ground, 3 m3/s: 2 m/s through
+    // the nozzle). Its water goes east of it and none west, a jet up into the air and down again, a river as a band
+    // about its outlet's width; the source gives its rate.
+    private static void Aimed(bool river)
+    {
+        const float MostSpeed = 12f, Nozzle = 0.25f, Least = 0.25f;
+        float rate = river ? 3f : 2f, width = river ? 6f : 0f, spread = river ? 0f : 20f, pitch = river ? 0f : 30f;
+        float outlet = Math.Max(width, Least);
+        float speed = Math.Min(MostSpeed, rate / (outlet * Nozzle)), height = Math.Max(Nozzle, rate / (outlet * speed));
+        float up = pitch * Mathf.Deg2Rad;
+        var foot = new Vector3(12f, 0f, 20f);
+        float[] bed = Field((x, z) => 0f);
+        using var scene = new Scene(river ? "vaimed_river" : "vaimed_jet", bed);
+        var springs = new List<VolumeWater.Spring>
+        {
+            VolumeWater.Spring.Aimed(foot, rate, new Vector3(Mathf.Cos(up), Mathf.Sin(up), 0f), new Vector2(0f, -1f), outlet, height, speed, spread * 0.5f * Mathf.Deg2Rad),
+        };
+        scene.Water.SetSprings(springs);
+        Log.AppendLine(Inv($"Aimed {(river ? "river" : "jet")}: {rate} m3/s facing east out of an outlet {outlet:0.00} m wide and {height:0.00} m high at {speed:0.0} m/s, fanned {spread:0} degrees, thrown up {pitch:0}, for 3 s."));
+        long gave = 0;
+        float highest = 0f;
+        float flying = 0f;
+        int flyers = 0;
+        for (int k = 1; k <= 180; k++)
+        {
+            scene.Step();
+            (float[] scales, uint[] last) = scene.Water.ReadSources();
+            gave += last[0];
+            if (k % 30 == 0)
+            {
+                float[] at = scene.Water.Read();
+                for (int p = 0; p < at.Length / 12; p++)
+                {
+                    float x = at[p * 12], y = at[(p * 12) + 1], z = at[(p * 12) + 2] - foot.z;
+                    if (x > foot.x + 1f)
+                    {
+                        highest = Math.Max(highest, y);
+                        // The water in the air (a jet's, over the water lying on the ground): how far across it spans.
+                        if (y > 0.5f)
+                        {
+                            flying += z * z;
+                            flyers++;
+                        }
+                    }
+                }
+
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s the source's speed scaled {scales[0]:0.00}, it gave {last[0]} particles last step (its rate's {rate * Frame / scene.Water.Litre:0.0}), {gave * scene.Water.Litre:0.0} m3 so far"));
+            }
+        }
+
+        float[] data = scene.Water.Read();
+        int n = data.Length / 12, west = 0;
+        float east = 0f, across = 0f;
+        for (int p = 0; p < n; p++)
+        {
+            float x = data[p * 12] - foot.x, z = data[(p * 12) + 2] - foot.z;
+            west += x < -0.5f ? 1 : 0;
+            east += x;
+            across += z * z;
+        }
+
+        east = n > 0 ? east / n : 0f;
+        // A band's width from its spread about its middle (an even band w wide spreads w / sqrt(12)): the river's lying
+        // water, the jet's in the air.
+        float band = river ? (n > 0 ? Mathf.Sqrt(across / n) * Mathf.Sqrt(12f) : 0f) : (flyers > 0 ? Mathf.Sqrt(flying / flyers) * Mathf.Sqrt(12f) : 0f);
+        float given = gave * scene.Water.Litre, wanted = rate * 180 * Frame;
+        bool goes = east > (river ? 2f : 3f) && west < n / 50;
+        bool thrown = river ? highest < 0.8f : highest > 0.8f;
+        bool wide = river ? band > 4f && band < 10f : band < 4f;
+        bool gives = Mathf.Abs(given - wanted) <= 0.15f * wanted;
+        Log.AppendLine(Inv($"  After 3 s its water's middle lies {east:0.00} m east of it, {west} of {n} particles west of it: {Check(goes)}"));
+        Log.AppendLine(Inv($"  The water east of it rose to {highest:0.00} m over the ground ({(river ? "a river: under 0.8 m" : "a jet thrown up: over 0.8 m")}): {Check(thrown)}"));
+        Log.AppendLine(Inv($"  Its water spans {band:0.0} m across ({(river ? "about its 6 m outlet" : "a slim jet in the air: under 4 m")}): {Check(wide)}"));
+        Log.AppendLine(Inv($"  It gave {given:0.0} m3 (its rate's {wanted:0.0}): within 15 %: {Check(gives)}"));
+        scene.Shot(river ? "vaimed_river_3s" : "vaimed_jet_3s", new Vector3(foot.x - 4f, 5f, foot.z - 8f), new Vector3(foot.x + 6f, 0.5f, foot.z));
     }
 
     // A scene whose grid (gridCells across, in the middle of the ground) has its sides open over the server's water this

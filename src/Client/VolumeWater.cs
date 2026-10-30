@@ -324,7 +324,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _mask2 = new ComputeBuffer(3 * _faces, sizeof(int));
 
         _bodies = new ComputeBuffer(MostBodies, 16 * sizeof(float));
-        _springs = new ComputeBuffer(MostSprings, 8 * sizeof(float));
+        _springs = new ComputeBuffer(MostSprings, 16 * sizeof(float));
         _taken = new ComputeBuffer(MostSprings, sizeof(uint));
         _given = new ComputeBuffer(MostSprings, sizeof(uint));
         _scale = new ComputeBuffer(MostSprings, sizeof(float));
@@ -753,6 +753,15 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         public Vector4 Flow;
 
         /// <summary>
+        /// A source facing a way: the way its water leaves its outlet's middle (a unit: east, up, north) and half how far
+        /// it fans out across the outlet (radians); none for one all round (<see cref="Outlet"/>'s width 0).
+        /// </summary>
+        public Vector4 Aim;
+
+        /// <summary>A source facing a way: across its outlet, to its right (east, north, a unit), and the outlet's width and height (m); all 0 for one all round or a drain.</summary>
+        public Vector4 Outlet;
+
+        /// <summary>
         /// A source at <paramref name="centre"/> giving <paramref name="rate"/> m³/s: its water wells up out of a lens
         /// round it (an ellipsoid as wide as the rate needs, 0.4 m at least, 1.8 m for 10 m³/s, 5.6 m for 100, and half
         /// a metre high at most), rising over it at about a metre a second.
@@ -764,6 +773,24 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
         /// <summary>A source whose marker stands at <paramref name="foot"/>: its lens is centred on the ground there, its dome over it.</summary>
         public static Spring SourceOn(Vector3 foot, float rate) => Source(foot, rate);
+
+        /// <summary>
+        /// A source facing a way, its marker at <paramref name="foot"/>, giving <paramref name="rate"/> m³/s: its water
+        /// leaves an outlet in front of it, <paramref name="width"/> across (<paramref name="right"/> along it: east,
+        /// north) and <paramref name="height"/> high, at <paramref name="speed"/> m/s the way <paramref name="way"/>
+        /// points at its middle, turned out by up to <paramref name="halfSpread"/> radians toward its ends.
+        /// </summary>
+        public static Spring Aimed(Vector3 foot, float rate, Vector3 way, Vector2 right, float width, float height, float speed, float halfSpread)
+        {
+            float reach = 0.5f * Mathf.Sqrt((width * width) + (height * height));
+            return new Spring
+            {
+                Ring = new Vector4(foot.x, foot.y, foot.z, reach),
+                Flow = new Vector4(speed, rate, 0f, height),
+                Aim = new Vector4(way.x, way.y, way.z, halfSpread),
+                Outlet = new Vector4(right.x, right.y, width, height),
+            };
+        }
 
         private static float Reach(float rate) => SpringShape.Reach(rate);
 
@@ -778,11 +805,11 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
         public static bool operator !=(Spring a, Spring b) => !a.Equals(b);
 
-        public readonly bool Equals(Spring other) => Ring == other.Ring && Flow == other.Flow;
+        public readonly bool Equals(Spring other) => Ring == other.Ring && Flow == other.Flow && Aim == other.Aim && Outlet == other.Outlet;
 
         public override readonly bool Equals(object obj) => obj is Spring other && Equals(other);
 
-        public override readonly int GetHashCode() => (Ring.GetHashCode() * 397) ^ Flow.GetHashCode();
+        public override readonly int GetHashCode() => (((((Ring.GetHashCode() * 397) ^ Flow.GetHashCode()) * 397) ^ Aim.GetHashCode()) * 397) ^ Outlet.GetHashCode();
     }
 
     private static uint[] Counts(params uint[] values) => values;
