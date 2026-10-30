@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.1 — 2026-10-30
+
+### Fixed
+- A jet's water lands where the jet comes down, on the server too: it poured at the source's foot and ran down from
+  there (down the cliff under a jet thrown off a ledge, drawn as water far off), while the jet flew over it. Now the
+  server follows each jet's arc and pours its water where it meets the ground, a wall or water, still running the
+  way it flew. A river along the ground pours at its outlet as before.
+
 ## v0.49.0 — 2026-10-30
 
 ### Added

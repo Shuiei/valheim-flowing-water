@@ -78,6 +78,9 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     /// <summary>The shape its water takes: all round, <see cref="Round"/> (the values kept for a turn back pour nothing), else itself.</summary>
     public SourceShape Poured => AllRound ? Round : this;
 
+    /// <summary>Whether its water flies, thrown up out of the outlet (2 degrees at least), and lands farther out; else it runs out along the ground.</summary>
+    public bool Flies => !AllRound && Throw >= 2f;
+
     /// <summary>The outlet's width the water leaves through, metres: <see cref="LeastWidth"/> at least.</summary>
     public float OutletWidth => Math.Max(Width, LeastWidth);
 
