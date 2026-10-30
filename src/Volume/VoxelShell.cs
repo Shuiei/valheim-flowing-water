@@ -97,17 +97,7 @@ internal sealed class VoxelShell
             int open = view.Open[i];
             if (Falling(field, view, i, x, y, z, open))
             {
-                // Over a voxel holding ground it runs down a slope steeper than the voxels, voxel to voxel: the surface
-                // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel). The
-                // server says so with its open faces (the ground under dry voxels is not sent). Water falling on into the
-                // voxel under it is a fall all the same, down a cliff's face too (the surface draws a column's top only),
-                // and so is the foot of a fall, water falling into it from over it: its column goes down to the ground.
-                // (The voxel under holding ground itself, its water a sheet's lower part on it, as a sheet down a
-                // slope leaves it crossing from one row to the next: the water over it stands on that, it is no fall.)
-                bool groundUnder = Solid(field, x, y - 1, z) >= BrickData.HoldsGround;
-                bool steps = ((open & BrickData.GroundUnder) != 0 || groundUnder)
-                    && (!field.IsWet(x, y - 1, z) || groundUnder) && !FallsInto(field, x, y, z);
-                if (!steps)
+                if (!Steps(field, x, y, z, open))
                 {
                     shell.Fall(field, at, water, open);
                 }
@@ -124,6 +114,25 @@ internal sealed class VoxelShell
     // Over the air, holding no floor, the voxel under it not full: falling.
     private static bool Falling(VoxelField field, BrickView view, int i, int x, int y, int z, int open) =>
         (open & (1 << 3)) != 0 && view.Solid[i] < BrickData.HoldsGround && field.WaterAt(x, y - 1, z) + Solid(field, x, y - 1, z) < VoxelField.Full;
+
+    // Over a voxel holding ground water falling runs down a slope steeper than the voxels, voxel to voxel: the surface
+    // draws it there as one sheet down the slope (a column capped at each step drew a box a voxel). The server says so
+    // with its open faces (the ground under dry voxels is not sent). Water falling on into the voxel under it is a fall
+    // all the same, down a cliff's face too (the surface draws a column's top only), and so is the foot of a fall, water
+    // falling into it from over it: its column goes down to the ground. (The voxel under holding ground itself, its
+    // water a sheet's lower part on it, as a sheet down a slope leaves it crossing from one row to the next: the water
+    // over it stands on that, it is no fall.)
+    private static bool Steps(VoxelField field, int x, int y, int z, int open)
+    {
+        bool groundUnder = Solid(field, x, y - 1, z) >= BrickData.HoldsGround;
+        return ((open & BrickData.GroundUnder) != 0 || groundUnder) && (!field.IsWet(x, y - 1, z) || groundUnder) && !FallsInto(field, x, y, z);
+    }
+
+    // Whether voxel (x, y, z) is drawn as a fall, as Build draws it: water enough to show, out of the rock, falling, no
+    // sheet's step down a slope.
+    private static bool DrawnFall(VoxelField field, int x, int y, int z) =>
+        field.Voxel(x, y, z, out BrickView view, out int i) && view.Water[i] * view.VoxelSize > Drawing.HideDepth && view.Solid[i] < 1f
+        && Falling(field, view, i, x, y, z, view.Open[i]) && !Steps(field, x, y, z, view.Open[i]);
 
     // Whether the voxel over (x, y, z) holds water falling into it.
     private static bool FallsInto(VoxelField field, int x, int y, int z) => FallingWater(field, x, y + 1, z) > 0f;
@@ -223,17 +232,17 @@ internal sealed class VoxelShell
     }
 
     // Water falling: a column through the whole voxel, as wide as the most water in it or the falling voxels over and
-    // under it, capped where the fall starts and ends; a voxel the fall leaves dry between two falling ones taken in
-    // by the one over it, uncapped. Falling water is uneven from voxel to voxel: as wide as each voxel's own, and
-    // capped at each dry one, a fall down a high face was a dashed line of boxes. Never a side or a cap on a face a
-    // piece closes (behind it, it would show through it).
+    // under it (across a gap, the one past it), capped where the fall starts and ends; a voxel the fall leaves dry
+    // between two drawn falling ones taken in by the one over it, uncapped. Falling water is uneven from voxel to
+    // voxel: as wide as each voxel's own, and capped at each dry one, a fall down a high face was a dashed line of
+    // boxes. Never a side or a cap on a face a piece closes (behind it, it would show through it).
     private void Fall(VoxelField field, Voxel at, float water, int open)
     {
         float s = at.Size;
-        float most = Math.Max(water, Math.Max(FallingWater(field, at.X, at.Y + 1, at.Z), FallingWater(field, at.X, at.Y - 1, at.Z)));
-        float width = Math.Max(NarrowestFall, Math.Min(WidestFall, (float)Math.Sqrt(most))) * s;
-        bool gapUnder = Gap(field, at.X, at.Y - 1, at.Z) && FallingWater(field, at.X, at.Y - 2, at.Z) > 0f;
-        bool gapOver = Gap(field, at.X, at.Y + 1, at.Z) && FallingWater(field, at.X, at.Y + 2, at.Z) > 0f;
+        bool gapUnder = Gap(field, at.X, at.Y - 1, at.Z) && DrawnFall(field, at.X, at.Y - 2, at.Z);
+        bool gapOver = Gap(field, at.X, at.Y + 1, at.Z) && DrawnFall(field, at.X, at.Y + 2, at.Z);
+        float over = FallingWater(field, at.X, at.Y + (gapOver ? 2 : 1), at.Z), under = FallingWater(field, at.X, at.Y - (gapUnder ? 2 : 1), at.Z);
+        float width = Math.Max(NarrowestFall, Math.Min(WidestFall, (float)Math.Sqrt(Math.Max(water, Math.Max(over, under))))) * s;
         float bottom = (at.Y - (gapUnder ? 1 : 0)) * s, top = (at.Y + 1) * s;
         float foam = 0.6f + (0.4f * Clamp(-at.VY / FoamFall));
         foreach ((int side, int dx, int dz) in FallSides)
@@ -256,7 +265,10 @@ internal sealed class VoxelShell
     }
 
     // A voxel a fall may run through though it is dry: no water in it and no ground (a fall never draws into the rock).
-    private static bool Gap(VoxelField field, int x, int y, int z) => !field.IsWet(x, y, z) && Solid(field, x, y, z) < BrickData.HoldsGround;
+    // A dry voxel's ground is not sent: the voxel over it says it holds some (BrickData.GroundUnder).
+    private static bool Gap(VoxelField field, int x, int y, int z) =>
+        !field.IsWet(x, y, z) && Solid(field, x, y, z) < BrickData.HoldsGround
+        && !(field.Voxel(x, y + 1, z, out BrickView over, out int i) && (over.Open[i] & BrickData.GroundUnder) != 0);
 
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
 

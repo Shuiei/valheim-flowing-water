@@ -93,10 +93,22 @@ public static class BuildBundles
         AssetDatabase.Refresh();
         // Every shader imported again: a change to an include reached only the shaders that include it themselves, not
         // those that take it through another include (FlowingWaterSimMask.cginc through FlowingWaterLook.cginc: the
-        // bricks' shader was built from the mask as it was before, and hid the water the mask left to it).
-        foreach (string guid in AssetDatabase.FindAssets("t:Shader t:ComputeShader", new[] { "Assets/FlowingWater/Shaders" }))
+        // bricks' shader was built from the mask as it was before, and hid the water the mask left to it). Each type
+        // looked for on its own, so neither depends on how a search of two types combines them; none of one, failed.
+        foreach (string type in new[] { "t:Shader", "t:ComputeShader" })
         {
-            AssetDatabase.ImportAsset(AssetDatabase.GUIDToAssetPath(guid), ImportAssetOptions.ForceUpdate);
+            string[] found = AssetDatabase.FindAssets(type, new[] { "Assets/FlowingWater/Shaders" });
+            if (found.Length == 0)
+            {
+                throw new InvalidOperationException($"no {type} found in Assets/FlowingWater/Shaders to import again");
+            }
+
+            foreach (string guid in found)
+            {
+                AssetDatabase.ImportAsset(AssetDatabase.GUIDToAssetPath(guid), ImportAssetOptions.ForceUpdate);
+            }
+
+            Debug.Log($"FlowingWater: {found.Length} assets of {type} imported again");
         }
 
         Import(NormalPath, TextureImporterType.NormalMap, true);

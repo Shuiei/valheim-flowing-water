@@ -54,8 +54,7 @@ internal static class Commands
             });
             rpc.Register<string>(WipedRpc, (_, answer) =>
             {
-                Console.instance?.AddString(answer);
-                Reply.Logged(answer);
+                ReplyOn(Console.instance).Say(answer);
             });
             return;
         }
@@ -114,21 +113,28 @@ internal static class Commands
     // crashed the game outright; it is logged here instead, with its message on the console.
     private static void Run(Terminal.ConsoleEventArgs args)
     {
+        CommandReply terminal = ReplyOn(args.Context);
         try
         {
-            RunUnguarded(args);
+            RunUnguarded(terminal, args);
         }
         catch (Exception e)
         {
-            FlowingWaterPlugin.Log.LogError($"flowingwater {args.ArgsAll}: {e}");
-            args.Context.AddString($"flowingwater: failed, {e.GetType().Name}: {e.Message} (see BepInEx/LogOutput.log)");
+            terminal.Failed(args.ArgsAll, e);
         }
     }
 
-    private static void RunUnguarded(Terminal.ConsoleEventArgs args)
+    // What a command says on a console (none: only the log), logged with General.Debug as it is when said.
+    private static CommandReply ReplyOn(Terminal console) =>
+        new(
+            line => console?.AddString(line),
+            FlowingWaterPlugin.Log.LogInfo,
+            FlowingWaterPlugin.Log.LogError,
+            () => FlowingWaterPlugin.Settings.Debug.Value);
+
+    private static void RunUnguarded(CommandReply terminal, Terminal.ConsoleEventArgs args)
     {
-        var terminal = new Reply(args.Context);
-        Reply.Logged($"flowingwater {args.ArgsAll}".TrimEnd() + " (asked)");
+        terminal.Asked(args.ArgsAll);
         Player player = Player.m_localPlayer;
         if (player == null || ZNet.instance == null)
         {
@@ -276,7 +282,7 @@ internal static class Commands
     // The number at that place after the command, or the fallback (a setting's) when there is none. A word that is
     // not a number, or a number out of range (below 0, or 0 when zero is not allowed), is refused with the reason on
     // the console, and the command does nothing; so is a fallback out of range (a setting written by hand).
-    private static bool Number(Reply terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
+    private static bool Number(CommandReply terminal, Terminal.ConsoleEventArgs args, int place, float fallback, bool zeroAllowed, string what, out float value)
     {
         bool given = args.Length > place;
         string text = given ? args.Args[place] : null;
@@ -296,7 +302,7 @@ internal static class Commands
     private static bool Parse(string text, out float value) => float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
     // A source (radius 0) or a drain, under the player.
-    private static void Place(Reply terminal, Player player, string prefabName, float rate, float radius)
+    private static void Place(CommandReply terminal, Player player, string prefabName, float rate, float radius)
     {
         bool drain = radius > 0f;
         string kind = drain ? "drain" : "source";
@@ -328,7 +334,7 @@ internal static class Commands
 
     // All the mod's water and every placed source and drain gone: done here where this game is the server (alone or
     // hosting: the host may), else asked of the server, which answers when it is done.
-    private static void WipeAll(Reply terminal)
+    private static void WipeAll(CommandReply terminal)
     {
         if (ZNet.instance.IsServer())
         {
@@ -356,7 +362,7 @@ internal static class Commands
     // How far from the player the command's remove looks for a source or drain, metres.
     private const float RemoveReach = 5f;
 
-    private static void Remove(Reply terminal, Player player)
+    private static void Remove(CommandReply terminal, Player player)
     {
         var marker = Marker.Nearest(player.transform.position, RemoveReach);
         if (marker == null)
@@ -368,39 +374,5 @@ internal static class Commands
         string kind = marker.IsDrain ? "drain" : "source";
         marker.Remove();
         terminal.Say($"flowingwater: {kind} removed");
-    }
-
-    /// <summary>
-    /// What a command says on the console, line by line; with General.Debug on, each line is written to
-    /// BepInEx/LogOutput.log too, so a session's commands and their answers can be read back.
-    /// </summary>
-    private sealed class Reply
-    {
-        private readonly Terminal _terminal;
-
-        public Reply(Terminal terminal) => _terminal = terminal;
-
-        /// <summary>A line written to the log with General.Debug on.</summary>
-        public static void Logged(string line)
-        {
-            if (FlowingWaterPlugin.Settings.Debug.Value)
-            {
-                FlowingWaterPlugin.Log.LogInfo(line);
-            }
-        }
-
-        /// <summary>A line on the console (and in the log with General.Debug on).</summary>
-        public void Say(string line)
-        {
-            _terminal.AddString(line);
-            Logged(line);
-        }
-
-        /// <summary>A line on the console and always in the log (reports long enough to want reading back there).</summary>
-        public void SayLogged(string line)
-        {
-            _terminal.AddString(line);
-            FlowingWaterPlugin.Log.LogInfo(line);
-        }
     }
 }

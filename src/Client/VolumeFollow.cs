@@ -80,6 +80,29 @@ internal static class VolumeFollow
     /// </summary>
     public static int Reseed(int dx, int dz, int perVoxel) => Math.Max(Math.Abs(dx), Math.Abs(dz)) * perVoxel;
 
+    /// <summary>
+    /// Cells of the square's sides to seed once it moved again before the last strip was poured: that strip and the
+    /// new one (<see cref="Reseed"/>), half the square's <paramref name="cells"/> at most (past that, all of it is new).
+    /// </summary>
+    public static int MoreReseed(int pending, int dx, int dz, int perVoxel, int cells) => Math.Min(cells / 2, pending + Reseed(dx, dz, perVoxel));
+
+    /// <summary>
+    /// What of the square holds the volume's water once it moved (world x, z of the south-west and north-east corners):
+    /// what was filled before, within the moved square; the strip it took in is drawn by the bricks till it is poured.
+    /// </summary>
+    public static (float X0, float Z0, float X1, float Z1) StillFilled((float X0, float Z0, float X1, float Z1) filled, (float X0, float Z0, float X1, float Z1) square) =>
+        (Math.Max(filled.X0, square.X0), Math.Max(filled.Z0, square.Z0), Math.Min(filled.X1, square.X1), Math.Min(filled.Z1, square.Z1));
+
+    /// <summary>
+    /// Whether a moved square's strip may be poured: its water built for the square as it is (<paramref name="castsSinceMove"/>
+    /// builds taken since the move), from the ground as it is now (<paramref name="builtGround"/> the version it was
+    /// built from, <paramref name="groundVersion"/> the ground's) and cast (<paramref name="groundCast"/>), and no row
+    /// with water still waiting for its ground (<paramref name="rowsWaiting"/>). The first build after a move knew no
+    /// ground under the strip: its water was dry there, and the strip poured nothing.
+    /// </summary>
+    public static bool ReseedReady(bool groundCast, int castsSinceMove, int builtGround, int groundVersion, bool[] rowsWaiting) =>
+        groundCast && castsSinceMove > 0 && builtGround == groundVersion && Array.IndexOf(rowsWaiting, true) < 0;
+
     /// <summary>Of the room for particles, the share the server's water may take (the rest for what sources pour, falls, waves).</summary>
     public const float DeepShare = 0.75f;
 

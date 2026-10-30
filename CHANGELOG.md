@@ -2,6 +2,21 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.4 — 2026-10-30
+
+### Fixed
+- A wide jet's water lands all along its width: past the first metre of its outlet, it flew from where the first
+  metre's water had come down, not from the source, and poured short or at the source's foot.
+- A fall seen from afar runs through a voxel it leaves dry only into water that is drawn there, and never into
+  ground: it ran into a ledge's lip and into water too thin to draw, left open at the bottom. Through that voxel it
+  keeps the width of the water past it.
+- The water's surface down a slope dropping steeply both ways at once is drawn again: it was cut as too steep while
+  each way was within what the surface joins, and no side drew it either.
+- A jet looks at the ground it flies over only once the server can read it without waiting (it pours at its outlet
+  for that moment), and keeps the blocks it flies through while it pours instead of making them again every few
+  seconds.
+- A flowingwater command that fails writes its console line to the log beside its error, Debug on or off.
+
 ## v0.49.3 — 2026-10-30
 
 ### Fixed

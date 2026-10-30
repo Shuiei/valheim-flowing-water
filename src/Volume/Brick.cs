@@ -263,7 +263,8 @@ internal sealed class Brick
 
     /// <summary>
     /// Whether water came into it since last looked at (<see cref="VoxelGrid.ForgetDry"/>), the sea's or not: a brick
-    /// the sea takes every drop from holds none at a frame's end, yet is not dry.
+    /// the sea takes every drop from holds none at a frame's end, yet is not dry. A jet flying through it feeds it too
+    /// (<see cref="VoxelGrid.Lands"/>).
     /// </summary>
     public bool Fed { get; set; }
 

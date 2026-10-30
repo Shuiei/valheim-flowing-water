@@ -97,7 +97,7 @@ public sealed partial class Recorder
             foreach (string item in given.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string[] parts = item.Split(',');
-                if (parts.Length != 3 || !Numbers(parts[0] + "," + parts[1], out float[] xz) || parts[2].Trim() is not ("stream" or "fountain" or "cascade" or "lake"))
+                if (parts.Length != 3 || !StepWords.Numbers(parts[0] + "," + parts[1], out float[] xz) || parts[2].Trim() is not ("stream" or "fountain" or "cascade" or "lake"))
                 {
                     Note("perf place left out (not x,z,stream|fountain|cascade|lake): " + item);
                     continue;

@@ -15,6 +15,7 @@
     <Compile Include="../../src/ErosionGround.cs" Link="Mod/ErosionGround.cs" />
     <Compile Include="../../tools/Recorder/Wav.cs" Link="Recorder/Wav.cs" />
     <Compile Include="../../tools/Recorder/ForSteps.cs" Link="Recorder/ForSteps.cs" />
+    <Compile Include="../../tools/Recorder/StepWords.cs" Link="Recorder/StepWords.cs" />
     <Compile Include="../../src/Client/BackgroundBuild.cs" Link="Mod/BackgroundBuild.cs" />
     <Compile Include="../../src/Client/LatestRead.cs" Link="Mod/LatestRead.cs" />
     <Compile Include="../../src/Server/ZoneScan.cs" Link="Mod/ZoneScan.cs" />
@@ -34,6 +35,7 @@
     <Compile Include="../../src/Server/LateDestroys.cs" Link="Mod/LateDestroys.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
     <Compile Include="../../src/CommandRights.cs" Link="Mod/CommandRights.cs" />
+    <Compile Include="../../src/CommandReply.cs" Link="Mod/CommandReply.cs" />
     <Compile Include="../../src/MarkerKnowledge.cs" Link="Mod/MarkerKnowledge.cs" />
     <Compile Include="../../src/HoeRemoval.cs" Link="Mod/HoeRemoval.cs" />
     <Compile Include="../../src/FileWatch.cs" Link="Mod/FileWatch.cs" />

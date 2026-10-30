@@ -153,6 +153,40 @@ public class VolumeFollowTests
     {
         Assert.Equal(cells, VolumeFollow.Reseed(dx, dz, per));
     }
+
+    [Theory]
+    [InlineData(0, 16, 0, 4, 1024, 64)]
+    [InlineData(64, 0, 16, 4, 1024, 128)]
+    [InlineData(480, 16, 16, 4, 1024, 512)]
+    public void AMoveBeforeTheLastStripWasPouredPoursBothHalfTheSquareAtMost(int pending, int dx, int dz, int per, int cells, int reseed)
+    {
+        Assert.Equal(reseed, VolumeFollow.MoreReseed(pending, dx, dz, per, cells));
+    }
+
+    [Fact]
+    public void AMovedSquareHoldsTheVolumesWaterOnlyWhereItWasFilledBefore()
+    {
+        // Filled 0..32 by 0..32; moved 16 m east: the strip 32..48 it took in waits for its water, the bricks drawing it.
+        (float X0, float Z0, float X1, float Z1) filled = VolumeFollow.StillFilled((0f, 0f, 32f, 32f), (16f, 0f, 48f, 32f));
+        Assert.Equal((16f, 0f, 32f, 32f), filled);
+
+        // Moved again, 16 m north, before that strip was poured: filled only where both were.
+        Assert.Equal((16f, 16f, 32f, 32f), VolumeFollow.StillFilled(filled, (16f, 16f, 48f, 48f)));
+    }
+
+    [Fact]
+    public void AStripIsPouredOnlyOnceItsWaterIsBuiltFromTheGroundAsItIsNow()
+    {
+        bool[] none = new bool[8], waiting = new bool[8];
+        waiting[3] = true;
+
+        Assert.True(VolumeFollow.ReseedReady(groundCast: true, castsSinceMove: 1, builtGround: 4, groundVersion: 4, none));
+        Assert.False(VolumeFollow.ReseedReady(groundCast: false, castsSinceMove: 1, builtGround: 4, groundVersion: 4, none));
+        Assert.False(VolumeFollow.ReseedReady(groundCast: true, castsSinceMove: 0, builtGround: 4, groundVersion: 4, none));
+        Assert.False(VolumeFollow.ReseedReady(groundCast: true, castsSinceMove: 1, builtGround: 3, groundVersion: 4, none));
+        Assert.False(VolumeFollow.ReseedReady(groundCast: true, castsSinceMove: 1, builtGround: 4, groundVersion: 4, waiting));
+    }
+
     [Fact]
     public void WaterThatFitsNeedsNoFloorUnderIt()
     {

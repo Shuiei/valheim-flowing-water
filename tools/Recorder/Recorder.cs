@@ -1094,12 +1094,11 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note(FormattableString.Invariant($"gliding to {to.x:0.#}, {to.y:0.#} at {speed:0.#} m/s"));
         while (player != null && player == Player.m_localPlayer)
         {
-            var at = new Vector2(player.transform.position.x, player.transform.position.z);
-            Vector2 next = Vector2.MoveTowards(at, to, speed * Time.deltaTime);
-            var place = new Vector3(next.x, player.transform.position.y, next.y);
+            (float x, float z, bool there) = StepWords.GlideStep(player.transform.position.x, player.transform.position.z, to.x, to.y, speed * Time.deltaTime);
+            var place = new Vector3(x, player.transform.position.y, z);
             if (ZoneSystem.instance.GetGroundHeight(place, out float ground))
             {
-                place.y = ground + 0.05f;
+                place.y = ground + StepWords.OverGround;
             }
 
             player.transform.position = place;
@@ -1109,7 +1108,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 body.linearVelocity = Vector3.zero;
             }
 
-            if (next == to)
+            if (there)
             {
                 Note(FormattableString.Invariant($"glided to {player.transform.position}"));
                 yield break;
@@ -1227,7 +1226,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             string[] parts = step.Split(new[] { '|' }, 2);
             bool here = parts[0].Trim() == "~";
             float[] where = null;
-            if (!here && (!Numbers(parts[0], out where) || where.Length < 2))
+            if (!here && (!StepWords.Numbers(parts[0], out where) || where.Length < 2))
             {
                 Note("recorder step with a bad place: " + step);
                 continue;
@@ -1242,7 +1241,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
             if (command.StartsWith("!wait ", StringComparison.Ordinal))
             {
-                if (Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
+                if (StepWords.Numbers(command.Substring(6), out float[] wait) && wait.Length == 1)
                 {
                     yield return new WaitForSeconds(wait[0]);
                 }
@@ -1256,7 +1255,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 // "!shot fx,fy,fz,ax,ay,az,name" or "!film fx,fy,fz,ax,ay,az,name,seconds,fps": from a point, at a point.
                 bool film = command[1] == 'f';
                 string[] v = command.Substring(6).Split(',');
-                if (v.Length != (film ? 9 : 7) || !Numbers(string.Join(",", v, 0, 6), out float[] p))
+                if (v.Length != (film ? 9 : 7) || !StepWords.Numbers(string.Join(",", v, 0, 6), out float[] p))
                 {
                     Note("recorder command with missing or bad numbers: " + command);
                 }
@@ -1273,7 +1272,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
                 {
                     yield return Shot(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6]);
                 }
-                else if (Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
+                else if (StepWords.Numbers(v[7], out float[] seconds) && int.TryParse(v[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fps)
                     && fps is >= 1 and <= MaxFps && seconds[0] <= MaxSeconds && seconds[0] * fps is >= 1f and <= MaxFrames)
                 {
                     yield return Film(new Vector3(p[0], p[1], p[2]), new Vector3(p[3], p[4], p[5]), v[6], seconds[0], fps);
@@ -1312,22 +1311,6 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
     // Whether Windows takes a file of this name (with any extension after it) for a device, not a file.
     private static bool Device(string name) => Devices.Contains(name.Split('.')[0].TrimEnd(' '));
 
-    // Numbers given as "a,b,c": false when one is not a finite number.
-    private static bool Numbers(string text, out float[] values)
-    {
-        string[] parts = text.Split(',');
-        values = new float[parts.Length];
-        for (int i = 0; i < parts.Length; i++)
-        {
-            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || float.IsNaN(values[i]) || float.IsInfinity(values[i]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     // The recorder's own commands of At.
     private void Own(string command)
     {
@@ -1352,13 +1335,13 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
         if (words[0] == "!glide")
         {
-            if (words.Length < 2 || !Numbers(words[1], out float[] g) || g.Length != 3 || g[2] <= 0f)
+            if (words.Length < 2 || !StepWords.Glide(words[1], out (float X, float Z, float Speed) glide))
             {
                 Note("recorder !glide needs x,z,speed: " + command);
                 return;
             }
 
-            StartCoroutine(Glide(new Vector2(g[0], g[1]), g[2]));
+            StartCoroutine(Glide(new Vector2(glide.X, glide.Z), glide.Speed));
             return;
         }
 
@@ -1368,7 +1351,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
-        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length < (words[0] == "!source" ? 4 : 3))
+        if (words.Length < 2 || !StepWords.Numbers(words[1], out float[] v) || v.Length < (words[0] == "!source" ? 4 : 3))
         {
             Note("recorder command with missing or bad numbers: " + command);
             return;
@@ -1383,11 +1366,8 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
 
         var point = new Vector3(v[0], v[1], v[2]);
 
-        // A height of -9999 or lower: on the ground there (a place whose height is not known before the run).
-        if (point.y <= -9999f && ZoneSystem.instance.GetGroundHeight(point, out float ground))
-        {
-            point.y = ground + 0.05f;
-        }
+        // A height of StepWords.OnTheGround or lower: on the ground there.
+        point.y = StepWords.Height(point.y, point.y <= StepWords.OnTheGround && ZoneSystem.instance.GetGroundHeight(point, out float ground) ? ground : null);
 
         switch (words[0])
         {
@@ -1477,7 +1457,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
-        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length != 4)
+        if (words.Length < 2 || !StepWords.Numbers(words[1], out float[] v) || v.Length != 4)
         {
             Note("recorder !piece needs a name and x,y,z,yaw: " + text);
             return;
@@ -1520,7 +1500,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             return;
         }
 
-        if (words.Length < 2 || !Numbers(words[1], out float[] v) || v.Length != 3)
+        if (words.Length < 2 || !StepWords.Numbers(words[1], out float[] v) || v.Length != 3)
         {
             Note("recorder !drop needs a name and x,y,z: " + text);
             return;
