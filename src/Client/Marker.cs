@@ -208,6 +208,12 @@ internal sealed class Marker : MonoBehaviour, Hoverable, Interactable, IPlaced, 
         if (ghost)
         {
             enabled = false;
+
+            // A source's ghost shows the way its water goes, as the panel's values for the next one have it.
+            if (!IsDrain && (ZNet.instance == null || !ZNet.instance.IsDedicated()))
+            {
+                gameObject.AddComponent<MarkerGhost>();
+            }
         }
         else
         {

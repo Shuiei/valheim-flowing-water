@@ -226,7 +226,7 @@ internal static class MarkerValues
     /// <param name="drain">A drain's, else a source's.</param>
     public static string SliderHint(bool drain) => drain
         ? "Power at its left end takes everything that reaches it."
-        : "It faces the way it is turned as you place it. Throw 0° runs along the ground; up to 60° arches it into the air.";
+        : "It faces the way you turn it (the mouse wheel) as you place it, shown on the ground. Throw 0° runs along the ground; up to 60° arches it into the air.";
 
     /// <summary>A rate beside its slider: a drain's 0 is "all", the others in m³/s.</summary>
     public static string RateText(float rate, bool drain) => drain && !(rate > 0f) ? "all" : Format(rate) + " m³/s";
