@@ -511,6 +511,21 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void WaterOnGroundOverRockTooSteepForTheSurfaceIsAFall()
+    {
+        // Water on ground over a dry voxel (the server says so), no water falling into it, open east toward a column
+        // whose water is four rows lower: past the surface's reach, so the surface does not draw it, and the shell does
+        // (a step of a sheet down a slope, it was left to the surface, and drawn by nothing).
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 5, 5, 5, 0.3f, BrickData.AllOpen | BrickData.GroundUnder);
+        view.VelocityY[Brick.Index(5, 5, 5)] = -2f;
+        view.Solid[Brick.Index(6, 0, 5)] = 0.5f;
+        Wet(view, 6, 1, 5, 0.3f, Up);
+
+        Assert.True(Corners(VoxelShell.Build(Field(view), 0, 0, 0)).Any(c => c.Y > -3.001f), "no shell for the water at row 5");
+    }
+
+    [Fact]
     public void ASheetCrossingARowOverGroundWithWaterOnItIsNoFall()
     {
         // A sheet down a slope crossing from row 0 into row 1: ground 0.6 and water 0.3 in row 0, the sheet's top 0.2

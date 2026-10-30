@@ -106,7 +106,7 @@ internal sealed class VoxelShell
             int open = view.Open[i];
             if (Falling(field, view, i, x, y, z, open))
             {
-                if (!Steps(field, x, y, z, open))
+                if (!SurfaceTakes(field, x, y, z, open))
                 {
                     shell.Fall(field, at, water, open);
                 }
@@ -137,11 +137,43 @@ internal sealed class VoxelShell
         return ((open & BrickData.GroundUnder) != 0 || groundUnder) && (!field.IsWet(x, y - 1, z) || groundUnder) && !FallsInto(field, x, y, z);
     }
 
-    // Whether voxel (x, y, z) is drawn as a fall, as Build draws it: water enough to show, out of the rock, falling, no
-    // sheet's step down a slope.
+    // Whether the surface draws falling water in voxel (x, y, z) (its open faces so): a sheet's step down a slope (Steps)
+    // standing on water under it, or with water beside it, up or down the slope, near enough for the surface to join
+    // (VoxelSurface.MaxStep rows). A
+    // step on rock steeper than the surface joins is a fall's: the surface is not drawn there, and left to it the water
+    // there was drawn by nothing.
+    private static bool SurfaceTakes(VoxelField field, int x, int y, int z, int open)
+    {
+        if (!Steps(field, x, y, z, open))
+        {
+            return false;
+        }
+
+        // Standing on water on the ground under it, it is that water's top.
+        if (field.IsWet(x, y - 1, z))
+        {
+            return true;
+        }
+
+        foreach ((_, int dx, int dz) in FallSides)
+        {
+            for (int row = y - VoxelSurface.MaxStep; row <= y + VoxelSurface.MaxStep; row++)
+            {
+                if (field.IsWet(x + dx, row, z + dz) && !field.GoesUp(x + dx, row, z + dz))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Whether voxel (x, y, z) is drawn as a fall, as Build draws it: water enough to show, out of the rock, falling, not
+    // the surface's (SurfaceTakes).
     private static bool DrawnFall(VoxelField field, int x, int y, int z) =>
         field.Voxel(x, y, z, out BrickView view, out int i) && view.Water[i] * view.VoxelSize > Drawing.HideDepth && view.Solid[i] < 1f
-        && Falling(field, view, i, x, y, z, view.Open[i]) && !Steps(field, x, y, z, view.Open[i]);
+        && Falling(field, view, i, x, y, z, view.Open[i]) && !SurfaceTakes(field, x, y, z, view.Open[i]);
 
     // Whether the voxel over (x, y, z) holds water falling into it.
     private static bool FallsInto(VoxelField field, int x, int y, int z) => FallingWater(field, x, y + 1, z) > 0f;
