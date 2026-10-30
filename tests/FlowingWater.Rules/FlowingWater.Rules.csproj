@@ -47,6 +47,7 @@
     <Compile Include="../../src/Client/TakeTurns.cs" Link="Mod/TakeTurns.cs" />
     <Compile Include="../../src/Client/BrickPick.cs" Link="Mod/BrickPick.cs" />
     <Compile Include="../../src/Client/VolumeFollow.cs" Link="Mod/VolumeFollow.cs" />
+    <Compile Include="../../src/Client/ProbePick.cs" Link="Mod/ProbePick.cs" />
     <Compile Include="../../src/Client/SpringShape.cs" Link="Mod/SpringShape.cs" />
     <Compile Include="../../src/Client/SolidsLayout.cs" Link="Mod/SolidsLayout.cs" />
     <Compile Include="../../src/Client/BuiltVoxels.cs" Link="Mod/BuiltVoxels.cs" />

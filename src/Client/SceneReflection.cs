@@ -29,7 +29,7 @@ internal static class SceneReflection
 
     private static float _lookedAt = float.NegativeInfinity;
 
-    /// <summary>The probe about a place set into the properties a draw is given; none there, they are left as they are.</summary>
+    /// <summary>The probe about a place set into the properties a draw is given (ProbePick); none there, Unity's default.</summary>
     public static void Into(MaterialPropertyBlock properties, Vector3 at)
     {
         if (Time.time - _lookedAt > LookEvery)
@@ -38,32 +38,19 @@ internal static class SceneReflection
             _lookedAt = Time.time;
         }
 
-        ReflectionProbe widest = null;
-        float most = 0f;
-        foreach (ReflectionProbe probe in _probes)
-        {
-            // Unity's own null test: a probe gone with its world is null to it.
-            if (probe == null || !probe.isActiveAndEnabled || probe.texture == null || !probe.bounds.Contains(at))
-            {
-                continue;
-            }
+        // Unity's own null test: a probe gone with its world is null to it.
+        int pick = ProbePick.Widest(_probes.Length, k => _probes[k] != null && _probes[k].isActiveAndEnabled && _probes[k].texture != null && _probes[k].bounds.Contains(at), k => _probes[k].size.x * _probes[k].size.z);
 
-            float size = probe.size.x * probe.size.z;
-            if (size > most)
-            {
-                most = size;
-                widest = probe;
-            }
-        }
-
-        if (widest != null)
-        {
-            properties.SetTexture(CubeId, widest.texture);
-            properties.SetVector(CubeHdrId, widest.textureHDRDecodeValues);
-            Bounds box = widest.bounds;
-            properties.SetVector(BoxMinId, new Vector4(box.min.x, box.min.y, box.min.z, 1f));
-            properties.SetVector(BoxMaxId, new Vector4(box.max.x, box.max.y, box.max.z, 1f));
-            properties.SetVector(ProbePositionId, new Vector4(widest.transform.position.x, widest.transform.position.y, widest.transform.position.z, widest.boxProjection ? 1f : 0f));
-        }
+        // None about the place: Unity's default, as the draw would have with no properties (a block given a probe once
+        // keeps it, and would mirror that probe's scene wherever the camera went).
+        Texture cube = pick < 0 ? ReflectionProbe.defaultTexture : _probes[pick].texture;
+        Vector4 hdr = pick < 0 ? ReflectionProbe.defaultTextureHDRDecodeValues : _probes[pick].textureHDRDecodeValues;
+        Bounds box = pick < 0 ? new Bounds(at, Vector3.zero) : _probes[pick].bounds;
+        Vector3 middle = pick < 0 ? at : _probes[pick].transform.position;
+        properties.SetTexture(CubeId, cube);
+        properties.SetVector(CubeHdrId, hdr);
+        properties.SetVector(BoxMinId, new Vector4(box.min.x, box.min.y, box.min.z, 1f));
+        properties.SetVector(BoxMaxId, new Vector4(box.max.x, box.max.y, box.max.z, 1f));
+        properties.SetVector(ProbePositionId, new Vector4(middle.x, middle.y, middle.z, pick >= 0 && _probes[pick].boxProjection ? 1f : 0f));
     }
 }
