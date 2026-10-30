@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.7 — 2026-10-30
+
+### Fixed
+- The water near you is smooth where you look along it: flat water seen at a low angle was terraced in fine stripes,
+  like a contour map, its surface read from distances kept too coarsely.
+
 ## v0.49.6 — 2026-10-30
 
 ### Fixed
