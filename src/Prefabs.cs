@@ -136,7 +136,8 @@ internal static class Prefabs
 
     // A source or drain: a piece the hoe places exactly where the player aims, on the ground or on what was built
     // (clipping everything: no collider of its own moves it off the point), free, removed as any piece; with a small
-    // sphere for the game's aiming, which nothing bumps into.
+    // sphere for the game's aiming, which nothing bumps into. A source turns with the mouse wheel as it is placed, as any
+    // piece the hammer builds does: it faces the way it is turned (MarkerShape.HeadingOf). A drain takes from all round.
     private static void MarkerPiece(GameObject marker, bool drain)
     {
         marker.AddComponent<Marker>().IsDrain = drain;
@@ -145,7 +146,7 @@ internal static class Prefabs
         piece.m_description = MarkerValues.Description(drain);
         piece.m_clipEverything = true;
         piece.m_canBeRemoved = true;
-        piece.m_canRotate = false;
+        piece.m_canRotate = !drain;
 
         var aim = new GameObject(AimName);
         aim.transform.SetParent(marker.transform, false);

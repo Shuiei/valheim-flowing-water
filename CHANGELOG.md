@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.15 — 2026-10-30
+
+### Fixed
+- A source turns with the mouse wheel as you place it with the hoe, as any piece the hammer builds does, and faces the
+  way it was turned: the wheel did nothing to its ghost, though the source has faced the way its piece is turned since
+  0.46.0. A drain, taking from all round, does not turn.
+
 ## v0.49.14 — 2026-10-30
 
 ### Fixed
