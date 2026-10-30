@@ -59,7 +59,7 @@ internal sealed class MarkerGhost : MonoBehaviour
         NextPlacement next = HoePieces.Next;
         SourceShape shape = next.Shape;
         float rate = next.Rate(false);
-        if (shape == _drawn && rate == _drawnRate)
+        if (shape == _drawn && rate.Equals(_drawnRate))
         {
             return;
         }
