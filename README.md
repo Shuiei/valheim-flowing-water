@@ -714,7 +714,8 @@ dug once). `hoe` places a source and a drain with the hoe on the gentle slope ne
 the source through **E**, checks a placed one is hidden with the hoe put away, removes the drain with the hoe's
 remover (and not the floor under it), checks the hammer shows a second source red where it aims, and removes that
 one with its panel's **Remove** button,
-and logs each check as a `PASS` or `FAIL` line with shots of each step.
+and logs each check as a `PASS` or `FAIL` line with shots of each step. `turn` turns a source's ghost with the mouse
+wheel as it is placed with the hoe (two notches) and checks the placed source faces the way the ghost was turned.
 `perf` measures the water's cost to the game: frame rate, 1 % low, worst frame, the water's own time in the frame,
 its bricks and vertices, garbage collections and memory, with no water, then a stream, a fountain, a cascade and a
 lake filling (each added in turn), then all of them in view; a table in `log.txt` and `perf.csv`. Its places are

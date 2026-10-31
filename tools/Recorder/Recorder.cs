@@ -292,6 +292,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
             "pools" => Pools(),
             "at" => At(),
             "hoe" => Hoe(gentle),
+            "turn" => Turn(gentle),
             "perf" => Perf(spawn, steep, gentle),
             "grid" => Grid(steep, gentle, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),
             "erosion" => Erosion(steep, Environment.GetEnvironmentVariable("FW_REC_PLACE") != "0"),

@@ -33,6 +33,48 @@ public sealed partial class Recorder
 
     private int _failed;
 
+    // The turn scenario (FW_REC_SCENARIO=turn): a source turned with the mouse wheel as it is placed with the hoe, as a
+    // player turns any piece the hammer builds, faces the way its ghost was turned.
+    private IEnumerator Turn(Site site)
+    {
+        Player player = Player.m_localPlayer;
+        player.SetGodMode(true);
+        Hud.instance.m_userHidden = false;
+        yield return Go(site.At(0f));
+        player.EquipItem(Tool(player, "Hoe"));
+        yield return new WaitForSeconds(1f);
+        Piece sourcePiece = ZNetScene.instance.GetPrefab(SourceName).GetComponent<Piece>();
+        Check(player.InPlaceMode() && player.SetSelectedPiece(sourcePiece), "the source is chosen in the hoe in hand");
+        Vector3 target = OnGround(site.At(3f));
+        Aim(target);
+        yield return new WaitForSeconds(1f);
+
+        float notch = (float)AccessTools.Field(typeof(Player), "m_placeRotationDegrees").GetValue(player);
+        float unturned = GhostYaw(player);
+        yield return Scroll(1f);
+        float turned = Mathf.DeltaAngle(unturned, GhostYaw(player));
+        Check(Mathf.Abs(Mathf.Abs(turned) - notch) < 0.5f, $"the mouse wheel turns the source's ghost a notch (turned {turned:0.#} degrees, a notch {notch:0.#})");
+        yield return Scroll(1f);
+        turned = Mathf.DeltaAngle(unturned, GhostYaw(player));
+        Check(Mathf.Abs(Mathf.Abs(turned) - (2f * notch)) < 0.5f, $"a second notch turns it as far again (turned {turned:0.#} degrees)");
+
+        float ghostYaw = GhostYaw(player);
+        bool placed = player.TryPlacePiece(sourcePiece);
+        Vector3 ghostAt = Ghost(player);
+        Check(placed, $"the source is placed (placement {player.GetPlacementStatus()})");
+        yield return new WaitForSeconds(0.5f);
+        ZNetView source = NearestMarker(SourceName, ghostAt, 1f);
+        Check(source != null, $"a source stands where the ghost was ({ghostAt.ToString("F2")})");
+        if (source != null)
+        {
+            float placedYaw = source.GetZDO().GetRotation().eulerAngles.y;
+            Check(Mathf.Abs(Mathf.DeltaAngle(placedYaw, ghostYaw)) < 0.5f && Mathf.Abs(Mathf.DeltaAngle(placedYaw, unturned)) > 1f, $"the placed source faces the way its ghost was turned ({placedYaw:0.#} degrees, the ghost {ghostYaw:0.#}, unturned {unturned:0.#})");
+        }
+
+        yield return Snap("turn-source-placed");
+        Note($"turn: {_passed} passed, {_failed} failed");
+    }
+
     private IEnumerator Hoe(Site site)
     {
         Player player = Player.m_localPlayer;
@@ -354,6 +396,20 @@ public sealed partial class Recorder
 
     // The placement ghost where the game last put it.
     private static Vector3 Ghost(Player player) => ((GameObject)AccessTools.Field(typeof(Player), "m_placementGhost").GetValue(player))?.transform.position ?? Vector3.zero;
+
+    // The way the placing ghost is turned round the vertical, degrees (0 with none).
+    private static float GhostYaw(Player player) => ((GameObject)AccessTools.Field(typeof(Player), "m_placementGhost").GetValue(player))?.transform.eulerAngles.y ?? 0f;
+
+    // The mouse wheel turned so many notches up (a mouse added when the game has none), as a player turns a piece.
+    private static IEnumerator Scroll(float notches)
+    {
+        Mouse mouse = Mouse.current ?? InputSystem.AddDevice<Mouse>();
+        InputSystem.QueueStateEvent(mouse, new MouseState { scroll = new Vector2(0f, 120f * notches) });
+        yield return null;
+        yield return null;
+        InputSystem.QueueStateEvent(mouse, new MouseState());
+        yield return new WaitForSeconds(0.5f);
+    }
 
     private static Vector3 OnGround(Vector3 point)
     {
