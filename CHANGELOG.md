@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.11 — 2026-10-30
+
+### Fixed
+- A jet seen head on, flying at you against the sun, is a white column of water: it was a faint veil, drawn as thin as
+  a fall's glassy start, frayed on its near half, and lit dark from behind. A jet is now drawn whole till near where it
+  lands, and the sun shines through it as you look toward it.
+
 ## v0.49.10 — 2026-10-30
 
 ### Fixed

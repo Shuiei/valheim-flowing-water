@@ -60,6 +60,14 @@ Shader "FlowingWater/Fall"
             // An open end spreads this much each way for each second fallen (m).
             #define SPREAD 0.15
 
+            // A jet carries its water whole: at least this opaque, fraying into streaks only from this share of its
+            // flight on (the share nearest the eye when it flies at it), and glowing by this much of the sun's light
+            // where the eye looks through it toward the sun, as falling water does. Seen head on against the sun, a
+            // jet drawn as a fall's curtain was a faint veil: glassy, frayed on its near half, lit dark from behind.
+            #define JET_CORE 0.7
+            #define JET_FRAY 0.85
+            #define JET_GLOW 1.2
+
             StructuredBuffer<Curtain> _Curtains;
             uint _MostCurtains;
             sampler2D _FoamTex;
@@ -126,6 +134,8 @@ Shader "FlowingWater/Fall"
                 float3 normal = normalize(cross(across, down));
                 normal *= dot(normal, _WorldSpaceCameraPos - place) < 0.0 ? -1.0 : 1.0;
                 o.light = ShadeSH9(float4(normal, 1.0)) + (_LightColor0.rgb * (0.35 + (0.65 * saturate(dot(normal, _WorldSpaceLightPos0.xyz)))));
+                float through = saturate(dot(normalize(place - _WorldSpaceCameraPos), _WorldSpaceLightPos0.xyz));
+                o.light += _FaceCamera > 0.5 ? _LightColor0.rgb * (JET_GLOW * pow(through, 6.0)) : 0.0;
 
                 float lip = dot(c.start.xz, c.across.xy);
                 o.strip = float4(q.x, t, share, lip + (q.x * 0.5 * width));
@@ -149,9 +159,13 @@ Shader "FlowingWater/Fall"
                 fixed3 colour = lerp(_FallColor.rgb, _FoamColor.rgb, saturate(white * (0.6 + streak))) * i.light;
                 float alpha = lerp(_GlassAlpha, _WhiteAlpha, white) * (0.65 + (0.35 * streak));
 
-                // Thin water over a lip is a thin curtain; a long fall frays into streaks towards its foot.
+                // Thin water over a lip is a thin curtain; a long fall frays into streaks towards its foot. A jet is
+                // whole till near where it lands.
+                bool jet = _FaceCamera > 0.5;
                 alpha *= lerp(0.35, 1.0, i.water.x);
-                float fray = saturate((share - _Fray) / max(1.0 - _Fray, 0.01));
+                alpha = jet ? max(alpha, JET_CORE * (0.75 + (0.25 * streak))) : alpha;
+                float frayFrom = jet ? JET_FRAY : _Fray;
+                float fray = saturate((share - frayFrom) / max(1.0 - frayFrom, 0.01));
                 alpha *= saturate((streak * 2.0) - (fray * 1.2));
 
                 // Its open ends fade out; where it lands, it goes into the pool's churn.
