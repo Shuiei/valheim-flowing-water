@@ -31,6 +31,12 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private const float TerrainRefreshSeconds = 2f;
 
+    /// <summary>What the server's jets are sent to the players' games as (<see cref="JetNews"/>, in a ZPackage).</summary>
+    public const string JetsRpc = "FlowingWater_Jets";
+
+    // The jets are looked at for sending this often (s).
+    private const float JetSeconds = 1f;
+
     // The most of a frame packing bricks to send may take, milliseconds (a brick at least).
     private const double SendBudget = 2.0;
 
@@ -91,6 +97,18 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private WorldLoad _load;
 
     private float _sendTimer;
+
+    // The jets as the sources last poured them, the ones poured in the pass under way, the last ones sent to the players'
+    // games, and when they were last looked at for sending.
+    private List<ServerJet> _jets = [];
+
+    private List<ServerJet> _jetsPouring = [];
+
+    private List<ServerJet> _jetsSent = [];
+
+    private float _jetTimer;
+
+    private bool _jetsTold;
 
     private float _terrainTimer;
 
@@ -183,6 +201,8 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         WarnCapped();
         WarnNotNumbers();
 
+        SendJets(dt);
+
         // A send is spread over frames, a few bricks packed in each, and may go on while a step is under way (a brick
         // whose water the step changes after it was packed counts a change, and is sent again next time).
         _sendTimer += dt;
@@ -220,6 +240,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     private bool Markers(float dt)
     {
         bool acted = false;
+        _jetsPouring.Clear();
         foreach (Source marker in _markers.Markers)
         {
             WaterPart was = _parts.Into(marker.Drain ? WaterPart.Drain : WaterPart.Pour);
@@ -227,7 +248,40 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
             _parts.Into(was);
         }
 
+        (_jets, _jetsPouring) = (_jetsPouring, _jets);
         return acted;
+    }
+
+    /// <summary>
+    /// The jets as the sources last poured them: each flying source's foot, shape, rate and where each place across its
+    /// outlet lands (to <see cref="JetNews.Grain"/>). A game hosting the world draws its far jets from these.
+    /// </summary>
+    public IReadOnlyList<ServerJet> Jets => _jets;
+
+    /// <summary>A player's game joined: the jets are told to every player's game at the next look, changed or not.</summary>
+    public void TellJetsAgain() => _jetsTold = false;
+
+    // Once a second, the jets told to every player's game when they changed since last told (a source placed, turned or
+    // removed, or where its water lands moved a quarter metre).
+    private void SendJets(float dt)
+    {
+        _jetTimer += dt;
+        if (_jetTimer < JetSeconds || (_jetsTold && JetNews.Same(_jets, _jetsSent)) || ZNet.instance == null)
+        {
+            return;
+        }
+
+        _jetTimer = 0f;
+        _jetsTold = true;
+        _jetsSent = [.. _jets];
+        byte[] packed = JetNews.Write(_jets);
+        foreach (ZNetPeer peer in ZNet.instance.GetPeers())
+        {
+            if (peer.IsReady())
+            {
+                peer.m_rpc.Invoke(JetsRpc, new ZPackage(packed));
+            }
+        }
     }
 
     private bool TimeLeft() => _pacer.Left((float)_frameWatch.Elapsed.TotalMilliseconds) > 0f;
@@ -656,6 +710,11 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     {
         Vector3 middle = PourPoint(source);
         bool poured = _grid.PourOutlet(middle.x, middle.y, middle.z, source.Shape, source.Rate, dt);
+        if (source.Shape.Flies)
+        {
+            _jetsPouring.Add(new ServerJet(new Vec3(source.Point.x, source.Point.y, source.Point.z), source.Shape, source.Rate, [.. _grid.Landed.Select(JetNews.Rounded)]));
+        }
+
         if (poured)
         {
             _noRoom.Room(middle);

@@ -34,6 +34,7 @@
     <Compile Include="../../src/Server/BrickObjects.cs" Link="Mod/BrickObjects.cs" />
     <Compile Include="../../src/Server/LateDestroys.cs" Link="Mod/LateDestroys.cs" />
     <Compile Include="../../src/Packed.cs" Link="Mod/Packed.cs" />
+    <Compile Include="../../src/JetNews.cs" Link="Mod/JetNews.cs" />
     <Compile Include="../../src/CommandRights.cs" Link="Mod/CommandRights.cs" />
     <Compile Include="../../src/CommandReply.cs" Link="Mod/CommandReply.cs" />
     <Compile Include="../../src/MarkerKnowledge.cs" Link="Mod/MarkerKnowledge.cs" />

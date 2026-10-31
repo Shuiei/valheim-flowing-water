@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.13 — 2026-10-30
+
+### Fixed
+- A jet far off is drawn too, out to your draw distance: one whose source your game had not loaded (a few hundred
+  metres away) was not drawn at all. The server now tells every player's game its jets, and where each lands; your game
+  draws a far one from that, the ground under it not being loaded either.
+
 ## v0.49.12 — 2026-10-30
 
 ### Fixed

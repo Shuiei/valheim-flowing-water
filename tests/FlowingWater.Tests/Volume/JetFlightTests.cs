@@ -75,6 +75,19 @@ public class JetFlightTests
     }
 
     [Fact]
+    public void AStripFliesToWhereTheServerLandsItAsLongAsItsWayAlongTheGroundTakes()
+    {
+        var strip = new JetFlight.Strip(Outlet, new Vec3(3f, 5f, 4f), 1f, 0f, 1f);
+
+        // 5 m/s along the ground: 20 m out takes 4 s, wherever across the way it lands.
+        Assert.Equal(4f, JetFlight.FlightTo(strip, new Vec3(12f, 80f, 16f)), 3);
+        Assert.Equal(4f, JetFlight.FlightTo(strip, new Vec3(12f + 0.4f, 80f, 16f - 0.3f)), 3);
+        // Behind the outlet, nothing; far past the longest flight, the longest.
+        Assert.Equal(0f, JetFlight.FlightTo(strip, new Vec3(-3f, 80f, -4f)));
+        Assert.Equal(JetFlight.Longest, JetFlight.FlightTo(strip, new Vec3(300f, 80f, 400f)));
+    }
+
+    [Fact]
     public void StripsAreTheSameByEveryValue()
     {
         var strip = new JetFlight.Strip(Outlet, new Vec3(5f, 5f, 0f), 1f, 0.2f, 2f);
