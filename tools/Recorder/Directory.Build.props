@@ -1,2 +1,8 @@
-<!-- A test tool: not held to the mod's analyzer rules (this file stops the repo's Directory.Build.props). -->
-<Project />
+<!-- A test tool: not held to the mod's analyzer rules (this file stops the repo's Directory.Build.props).
+     Its NuGet packages pinned as the mod's are: packages.lock.json, which a restore on CI (CI=true) must match. -->
+<Project>
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+</Project>

@@ -1,6 +1,7 @@
 <!-- One version for the plugin and its packages: the VERSION file, read into BuildInfo.Version at build time.
      Code analysis as the Valheim world editor has it: the .NET analyzers' recommended rules, the code style
-     of .editorconfig checked by the build, Roslynator, and no warning left (each one fails the build). -->
+     of .editorconfig checked by the build, Roslynator, and no warning left (each one fails the build).
+     NuGet packages pinned: each project's packages.lock.json, which a restore on CI (CI=true) must match. -->
 <Project>
   <PropertyGroup>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
@@ -8,6 +9,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Roslynator.Analyzers" Version="5.0.1" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />

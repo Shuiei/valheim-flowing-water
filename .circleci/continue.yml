@@ -96,9 +96,14 @@ commands:
     steps:
       - attach_workspace:
           at: /tmp
+      # The cache's key: every project's packages.lock.json (its path and checksum), so a package any of them
+      # adds or changes makes a new cache.
+      - run:
+          name: NuGet lock files
+          command: find . -name packages.lock.json -not -path '*/obj/*' | LC_ALL=C sort | xargs sha256sum > /tmp/nuget-locks
       - restore_cache:
           keys:
-            - nuget-v1-{{ checksum "Directory.Build.props" }}-{{ checksum "FlowingWater.csproj" }}-{{ checksum "tools/Recorder/Recorder.csproj" }}
+            - nuget-v1-{{ checksum "/tmp/nuget-locks" }}
             # Else main's latest (a branch whose packages changed restores only what it adds).
             - nuget-v1-
 
@@ -145,7 +150,7 @@ jobs:
             equal: [main, << pipeline.git.branch >>]
           steps:
             - save_cache:
-                key: nuget-v1-{{ checksum "Directory.Build.props" }}-{{ checksum "FlowingWater.csproj" }}-{{ checksum "tools/Recorder/Recorder.csproj" }}
+                key: nuget-v1-{{ checksum "/tmp/nuget-locks" }}
                 paths:
                   - ~/.nuget/packages
 
