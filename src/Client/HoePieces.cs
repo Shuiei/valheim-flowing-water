@@ -203,6 +203,20 @@ internal static class HoePieces
         removing: player == Player.m_localPlayer && Removing && Tool(player) == _table,
         aimedIsMarker: aimed != null && aimed.GetComponent<Marker>() != null);
 
+    /// <summary>
+    /// The placed source or drain the player aims at while a water piece is chosen (<see cref="HoeRemoval.AimedHovered"/>),
+    /// null when none: its hover text and [E] are the HUD patch's and the panel's, the game hovering nothing in build mode.
+    /// </summary>
+    public static Marker AimedMarker(Player player)
+    {
+        // Unity's own null check (its == on objects), not C#'s ?., which takes a destroyed piece for one still there.
+        Piece aimed = player.GetHoveringPiece();
+#pragma warning disable IDE0031 // Use null propagation: not on Unity objects.
+        Marker marker = aimed != null ? aimed.GetComponent<Marker>() : null;
+#pragma warning restore IDE0031
+        return HoeRemoval.AimedHovered(SelectedMarker != null, marker != null && marker.IsValid, player.GetHoverObject() != null) ? marker : null;
+    }
+
     /// <summary>A click with the remover: the game's remove at what the player aims at (only a source or drain goes).</summary>
     /// <returns>Whether one was removed.</returns>
     public static bool RemoveAimed(Player player) => RemovePiece(player);

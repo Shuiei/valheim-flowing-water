@@ -213,10 +213,12 @@ public sealed partial class Recorder
         Aim(sourceAt + (Vector3.up * 0.3f));
         yield return new WaitForSeconds(1f);
         Check(Drawn(source), "the hoe in hand with the source chosen, the placed source shows");
-        GameObject hover = player.GetHoverObject();
-        Check(hover != null && hover.GetComponentInParent<ZNetView>() == source, $"aiming at the source hovers it ({(hover == null ? "nothing" : hover.name)})");
-        string hoverText = hover?.GetComponentInParent<Hoverable>()?.GetHoverText() ?? string.Empty;
-        Check(hoverText.Contains("7.5 m³/s") && hoverText.Contains("Settings"), $"its hover text says its rate and the key for its settings (\"{hoverText.Replace("\n", " | ")}\")");
+        // In build mode the game hovers nothing: the hoe aims at the source, and its text shows under the crosshair.
+        Piece aimedPiece = player.GetHoveringPiece();
+        GameObject hover = aimedPiece == null ? null : aimedPiece.gameObject;
+        Check(hover != null && hover.GetComponent<ZNetView>() == source, $"aiming at the source aims the hoe at it ({(hover == null ? "nothing" : hover.name)})");
+        string hoverText = Hud.instance.m_hoverName.text;
+        Check(hoverText.Contains("7.5 m³/s") && hoverText.Contains("Settings"), $"the text under the crosshair says its rate and the key for its settings (\"{hoverText.Replace("\n", " | ")}\")");
         StartCoroutine(Frames("hoe-film", 6f, 10));
         yield return Press(Key.E);
         yield return new WaitForSeconds(0.3f);
@@ -230,7 +232,7 @@ public sealed partial class Recorder
         }
         else
         {
-            Check(panel != null, "[E] on the source opens the panel");
+            Check(panel != null && Label(panel, "Title") == "This source", $"[E] on the source opens its panel, not the next one's (\"{(panel == null ? "none" : Label(panel, "Title"))}\")");
         }
 
         if (panel != null)
@@ -242,7 +244,7 @@ public sealed partial class Recorder
             yield return Snap("hoe-5-panel-placed");
             yield return Press(Key.Escape);
             yield return new WaitForSeconds(0.5f);
-            Check(GameObject.Find(PanelName) == null, "[Esc] closes the panel");
+            Check(BackToNext(), $"[Esc] closes this source's panel: the next one's shows again, only showing ({PanelState()})");
             Check(!Menu.IsVisible(), "the [Esc] that closed the panel did not open the game's menu");
         }
 
@@ -357,7 +359,7 @@ public sealed partial class Recorder
                 removeButton.GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
                 yield return new WaitForSeconds(1f);
                 Check((more == null || !more.IsValid()) && NearestMarker(SourceName, moreAt, 0.5f) == null, "the Remove button takes the source away");
-                Check(GameObject.Find(PanelName) == null && !TextInput.IsVisible(), "the panel closes with it and gives the keys back to the game");
+                Check(BackToNext() && !TextInput.IsVisible(), $"its panel closes with it and gives the keys back to the game, the next one's showing ({PanelState()})");
             }
         }
 
@@ -438,6 +440,12 @@ public sealed partial class Recorder
         .OrderBy(n => Vector3.Distance(n.transform.position, point)).FirstOrDefault();
 
     private static string Label(GameObject panel, string name) => panel.transform.Find(name).GetComponent<TMP_Text>().text;
+
+    // Whether the panel of a placed one closed, the source still the hoe's piece: the next one's panel shows in its
+    // place, its sliders only showing.
+    private static bool BackToNext() => GameObject.Find(PanelName) is { } panel && Label(panel, "Title") == "Next source" && !Bar(panel, "Power").interactable;
+
+    private static string PanelState() => GameObject.Find(PanelName) is { } panel ? $"\"{Label(panel, "Title")}\", sliders {(Bar(panel, "Power").interactable ? "taking the mouse" : "only showing")}" : "no panel";
 
     // A slider's row in the panel (its label, the slider and the value beside it).
     private static GameObject Row(GameObject panel, string name) => panel.transform.Find(name + " row").gameObject;

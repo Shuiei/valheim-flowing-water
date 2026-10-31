@@ -223,9 +223,24 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        // [E] aimed at something the game uses (a door, a chest, a placed source or drain, which opens the panel for
-        // it) is the game's: one press must not both use it and open the panel, whichever of the two is asked first.
-        if (ZInput.GetButtonDown("Use") && !Hud.IsPieceSelectionVisible() && !ClosedThisFrame && !AimedAtUsable())
+        if (!ZInput.GetButtonDown("Use") || Hud.IsPieceSelectionVisible() || ClosedThisFrame)
+        {
+            return;
+        }
+
+        // [E] aimed at a placed source or drain opens the panel for it: in build mode, where alone they show, the game
+        // hovers nothing, and its own [E] never reaches them.
+        Player player = Player.m_localPlayer;
+        if (HoePieces.AimedMarker(player) is { } aimed)
+        {
+            ZInput.ResetButtonStatus("Use");
+            aimed.Interact(player, false, false);
+            return;
+        }
+
+        // [E] aimed at something the game uses (a door, a chest) is the game's: one press must not both use it and open
+        // the panel, whichever of the two is asked first.
+        if (!AimedAtUsable())
         {
             ZInput.ResetButtonStatus("Use");
             Edit();
