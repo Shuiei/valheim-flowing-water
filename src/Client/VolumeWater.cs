@@ -201,6 +201,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
     private readonly List<Spring> _springList = new(MostSprings);
 
+    // The last step's length (s), for what a source gave in it.
+    private float _lastDt;
+
     private readonly Counter _counted;
 
     private readonly Counter _frothCounted;
@@ -573,6 +576,7 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
 
         int steps = Mathf.Max(1, Mathf.CeilToInt(seconds / Substep));
         float dt = seconds / steps;
+        _lastDt = dt;
         for (int k = 0; k < steps; k++)
         {
             Common(dt);
@@ -680,6 +684,26 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// What each source in the square gave in the last step, for the console ("flowingwater gpu"; a wait for the card):
+    /// as a rate (m³/s) beside the rate it gives, with its scale as Regulate left it.
+    /// </summary>
+    public string DescribeSources()
+    {
+        (float[] scales, uint[] given) = ReadSources();
+        var parts = new List<string>();
+        for (int k = 0; k < _springList.Count; k++)
+        {
+            Spring s = _springList[k];
+            if (s.Flow.z < 0.5f)
+            {
+                parts.Add(FormattableString.Invariant($"source at {s.Ring.x:0.0},{s.Ring.y:0.0},{s.Ring.z:0.0} gave {given[k] * Litre / Mathf.Max(_lastDt, 1e-6f):0.00} of {s.Flow.y:0.##} m³/s (scale {scales[k]:0.00})"));
+            }
+        }
+
+        return parts.Count == 0 ? "no source in it" : string.Join(", ", parts);
     }
 
     /// <summary>Each source's speed scale as Regulate last left it, and the particles it gave in the last step: for previews and tests (a wait for the card).</summary>

@@ -6,19 +6,23 @@ namespace FlowingWater.Tests.Volume;
 
 /// <summary>
 /// The voxels a facing source's outlet spans in the volume water, opened in the card's solids: a point's two cells
-/// across within its voxel; a wide outlet across every voxel it spans; up as high as twice the slot its rate needs.
+/// across within its voxel; a wide outlet across every voxel it spans; up as high as twice the slot its rate needs and
+/// as the ground under its cells may rise.
 /// </summary>
 public class OutletVoxelsTests
 {
     private const float Voxel = 1f, Cell = 0.25f;
 
     [Fact]
-    public void APointsOutletIsTheVoxelItStandsIn()
+    public void APointsOutletIsTheColumnItStandsIn()
     {
-        // A point facing east, 2 m³/s at 12 m/s through two cells across: a slot 0.33 m high, opened to 0.67 m.
+        // A point facing east, 2 m³/s at 12 m/s through two cells across: a slot 0.33 m high, opened to 0.67 m and the
+        // ground's rise over it, 1.5 m more: rows 5 to 7 of its own column.
         var point = new SourceShape(false, 90f, 0f, 0f, 30f);
 
-        Assert.Equal((10, 5, 10), Assert.Single(OutletVoxels.Of(new Vec3(10.5f, 5.2f, 10.5f), point, 2f, Voxel, Cell)));
+        var voxels = OutletVoxels.Of(new Vec3(10.5f, 5.2f, 10.5f), point, 2f, Voxel, Cell);
+
+        Assert.Equal([(10, 5, 10), (10, 6, 10), (10, 7, 10)], voxels.OrderBy(v => v.Y));
     }
 
     [Fact]
@@ -48,12 +52,12 @@ public class OutletVoxelsTests
     [Fact]
     public void AStrongSlimJetsSlotRisesAsItsRateNeeds()
     {
-        // 20 m³/s through a point at 12 m/s, two cells across: a slot 3.3 m high, twice that opened.
+        // 20 m³/s through a point at 12 m/s, two cells across: a slot 3.3 m high, twice that opened and the ground's rise.
         var point = new SourceShape(false, 90f, 0f, 0f, 30f);
 
         var voxels = OutletVoxels.Of(new Vec3(10.5f, 5.2f, 10.5f), point, 20f, Voxel, Cell);
 
         Assert.Equal(5, voxels.Min(v => v.Y));
-        Assert.Equal(11, voxels.Max(v => v.Y));
+        Assert.Equal(13, voxels.Max(v => v.Y));
     }
 }

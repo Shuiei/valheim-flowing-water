@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.12 — 2026-10-30
+
+### Fixed
+- The 3D water round you gives a source on a rock's top all its water: it gave a jet of 8 m³/s a sixteenth of it, as
+  its outlet's cells were taken for inside the rock where the rock's curved top rose over the source's foot. An
+  outlet now stands on the ground under each of its cells. `flowingwater gpu` says what each source gave.
+
 ## v0.49.11 — 2026-10-30
 
 ### Fixed
