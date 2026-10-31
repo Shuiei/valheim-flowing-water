@@ -25,6 +25,16 @@ internal static class HoeRemoval
     /// <param name="removerReady">The hoe has its remover: its patch applied, the game's tool in hand readable, the hoe's pieces found.</param>
     public static bool Shown(bool waterPieceChosen, bool removerReady) => waterPieceChosen || !removerReady;
 
+    /// <summary>
+    /// Whether the placed source or drain under the aim stands in for what the player hovers (its hover text shown,
+    /// [E] opening its panel): while a water piece is chosen, unless the game hovers something itself. Placed ones show
+    /// only in build mode, where the game hovers nothing, so the game's own hover and [E] never reach them.
+    /// </summary>
+    /// <param name="waterPieceChosen">The hoe's source or drain is chosen.</param>
+    /// <param name="aimedIsMarker">The piece under the game's aim (the one it would remove) is a placed source or drain.</param>
+    /// <param name="gameHovers">The game hovers something (another mod's doing in build mode).</param>
+    public static bool AimedHovered(bool waterPieceChosen, bool aimedIsMarker, bool gameHovers) => waterPieceChosen && aimedIsMarker && !gameHovers;
+
     /// <summary>Whether the game's remove goes on, at the piece aimed at.</summary>
     /// <param name="hoeInHand">The tool in hand is the hoe.</param>
     /// <param name="hoeRemovedBefore">The hoe removed pieces before the remover came (another mod let it).</param>

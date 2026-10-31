@@ -468,6 +468,29 @@ internal static class ShipPlacePatch
 }
 
 /// <summary>
+/// The placed source or drain aimed at while a water piece is chosen says what it does under the crosshair, as a
+/// hovered piece does: in build mode, where alone placed ones show, the game hovers nothing (<see cref="HoePieces.AimedMarker"/>).
+/// </summary>
+[HarmonyPatch]
+[SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "Harmony calls them by name.")]
+internal static class AimedMarkerTextPatch
+{
+    private static readonly PatchTargets Targets = GameMethods.For(nameof(AimedMarkerTextPatch), (typeof(Hud), "UpdateCrosshair"));
+
+    private static bool Prepare(MethodBase original) => Targets.Prepare(original);
+
+    private static IEnumerable<MethodBase> TargetMethods() => Targets.Found;
+
+    private static void Postfix(Hud __instance, Player player)
+    {
+        if (player != null && HoePieces.AimedMarker(player) is { } aimed)
+        {
+            __instance.m_hoverName.text = aimed.GetHoverText();
+        }
+    }
+}
+
+/// <summary>
 /// While the source and drain panel takes the keyboard, the game takes it for one of its own text boxes: the player
 /// does not move, the camera does not turn, the menu, chat and map do not open, and the mouse is free.
 /// </summary>

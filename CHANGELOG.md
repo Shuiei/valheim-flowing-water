@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.16 — 2026-10-31
+
+### Fixed
+- With a source or drain chosen in the hoe, one you placed says what it does under the crosshair when you aim at it,
+  and **E** on it opens its own panel: it showed nothing, and **E** opened the next one's panel instead. Placed ones
+  show only while you build, and the game aims at nothing to use while you build.
+
 ## v0.49.15 — 2026-10-30
 
 ### Fixed

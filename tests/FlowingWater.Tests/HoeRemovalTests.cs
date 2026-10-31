@@ -78,4 +78,19 @@ public class HoeRemovalTests
         Assert.False(HoeRemoval.MayRemove(hoeInHand: true, hoeRemovedBefore: false, removing: false, marker));
         Assert.True(HoeRemoval.MayRemove(hoeInHand: true, hoeRemovedBefore: true, removing: false, marker));
     }
+
+    [Fact]
+    public void AWaterPieceChosenThePlacedOneUnderTheAimIsHoveredInBuildMode()
+    {
+        Assert.True(HoeRemoval.AimedHovered(waterPieceChosen: true, aimedIsMarker: true, gameHovers: false));
+    }
+
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void NothingIsHoveredForItWithoutAWaterPieceOnAnythingElseOrWhereTheGameHovers(bool waterPiece, bool marker, bool gameHovers)
+    {
+        Assert.False(HoeRemoval.AimedHovered(waterPiece, marker, gameHovers));
+    }
 }
