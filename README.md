@@ -538,7 +538,8 @@ there to the new grid (same volume), at once when the file is saved.
   prefabs' colliders (a place's ruins from its location's prefab, through the proxy object that stands for it),
   on the layers the players' game casts the ground under its water on. Each block with water is written to its own object (`FlowingWater_Brick`) when it changed in a way a
   player would see, every `SendSeconds` (packed a few blocks a frame, written together once all are), and the game
-  sends it to the players near it: a voxel's water over the thinnest drawn (1 cm) changing by more than 1 % of a
+  sends it to every player out to their far simulation distance (the game's graphics setting: the blocks are distant
+  objects, as far buildings are), so water far off moves as it does near: a voxel's water over the thinnest drawn (1 cm) changing by more than 1 % of a
   voxel, its floor, or its current by a few steps. A running stream's water stirs all the time, its edges' traces
   coming and going: changes too small to show are held back until they add up, or ten sends at most, so a stream's
   blocks are sent about a third less often and still water's hardly at all. Before the world is saved every change

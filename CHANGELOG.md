@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.14 — 2026-10-30
+
+### Fixed
+- Water far off moves as it does near you, out to your far simulation distance (the game's graphics setting): it was
+  sent only to players within a couple of zones of it, so water farther off stood as you last saw it, or was not
+  there at all, till you came close. Water saved before is sent so too once the world opens.
+
 ## v0.49.13 — 2026-10-30
 
 ### Fixed

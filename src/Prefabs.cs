@@ -123,7 +123,7 @@ internal static class Prefabs
         _markers = [source, drain];
         _hoeTools = [source, drain, _remover];
         Networked(GroundName).AddComponent<GroundChanges>();
-        GameObject brick = Networked(BrickName);
+        GameObject brick = Networked(BrickName, distant: true);
         brick.AddComponent<MeshFilter>();
         MeshRenderer brickRenderer = brick.AddComponent<MeshRenderer>();
         brickRenderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -199,13 +199,15 @@ internal static class Prefabs
         trigger.AddComponent<BrickTrigger>();
     }
 
-    private static GameObject Networked(string name)
+    // A networked prefab; a distant one's objects are sent to a player out to their far simulation distance (the game's
+    // graphics setting), as far buildings are, not only within the near one.
+    private static GameObject Networked(string name, bool distant = false)
     {
         var go = new GameObject(name);
         go.transform.SetParent(_root.transform, false);
         ZNetView view = go.AddComponent<ZNetView>();
         view.m_persistent = true;
-        view.m_distant = false;
+        view.m_distant = distant;
         view.m_type = ZDO.ObjectType.Default;
         return go;
     }
