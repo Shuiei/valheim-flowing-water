@@ -878,8 +878,9 @@ internal sealed class VolumeWater : IParticleCloud, IDisposable
         _taken.SetData(new uint[MostSprings]);
         _given.SetData(new uint[MostSprings]);
 
-        // (A kernel reads the solids for the faces thin pieces close too: unbound, Unity would skip the kernel.)
-        foreach (int kernel in new[] { _clearCells, _clearFaces, _gather, _relax, _project, _move, _emit, _seed, _frothMove })
+        // (A kernel reads the solids for the faces thin pieces close too: unbound, Unity would skip the kernel. Every
+        // kernel reading a cell's type reads the ground and what is built under the grid.)
+        foreach (int kernel in new[] { _clearCells, _clearFaces, _gather, _divergence, _relax, _project, _move, _emit, _seed, _frothMove })
         {
             _shader.SetTexture(kernel, BedId, Bed);
             // (The ground reads the server's water too: under deep water its floor is the server's.)

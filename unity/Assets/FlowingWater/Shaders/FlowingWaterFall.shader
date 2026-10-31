@@ -1,10 +1,11 @@
 // FlowingWater's falls near the camera as curtains of water (FlowingWaterSpray.compute's Curtains): for each face the
 // card's water runs out of over a lip, a strip from the cell's centre over to the face, then down the arc its water is
 // thrown on to where it lands, the strips of a lip side by side one curtain (drawn straight from the curtains' buffer,
-// as many as there are this frame, never read back). Glassy where it leaves the lip, it breaks up white as it falls,
-// streaked along its fall, the streaks running down with the water; a long fall frays into streaks near its foot. Its
-// ends along the lip, where no curtain is beside, spread a little and fade out. Lit by the sky and the sun, fogged as
-// the water is. The water it carries is the spray's sheets' (drawn faint, its mist).
+// as many as there are this frame, never read back). A source's jet in the air too (JetArcs): its outlet's strips side
+// by side, fanning out as they fly, each turned about its way to face the eye (round water is as wide from any side). Glassy where it leaves the lip, it breaks up white as it
+// falls, streaked along its fall, the streaks running down with the water; a long fall frays into streaks near its foot.
+// Its ends along the lip, where no curtain is beside, spread a little and fade out. Lit by the sky and the sun, fogged
+// as the water is. The water it carries is the spray's sheets' (drawn faint, its mist).
 Shader "FlowingWater/Fall"
 {
     Properties
@@ -71,6 +72,8 @@ Shader "FlowingWater/Fall"
             float _StreakAcross;
             float _StreakAlong;
             float _Fray;
+            // 1: each strip turned about its way to face the eye (a jet in the air); 0: across along the lip (a fall).
+            float _FaceCamera;
             fixed4 _LightColor0;
 
             struct v2f
@@ -113,7 +116,9 @@ Shader "FlowingWater/Fall"
                     ? c.start.xyz - (along * (0.5 * width))
                     : c.start.xyz + (run * t) - float3(0.0, 0.5 * GRAVITY * t * t, 0.0);
                 bool openHere = (q.x > 0.0 && (open & 1u) != 0u) || (q.x < 0.0 && (open & 2u) != 0u);
-                place += across * (q.x * ((0.5 * width) + (openHere ? SPREAD * t : 0.0)));
+                float3 facing = cross(run - float3(0.0, GRAVITY * t, 0.0), _WorldSpaceCameraPos - place);
+                across = _FaceCamera > 0.5 && dot(facing, facing) > 1e-6 ? normalize(facing) : across;
+                place += across * (q.x * ((0.5 * width) + (c.ends.z * t) + (openHere ? SPREAD * t : 0.0)));
                 o.pos = UnityWorldToClipPos(place);
 
                 // Lit as a sheet facing the eye: its normal across its way down.

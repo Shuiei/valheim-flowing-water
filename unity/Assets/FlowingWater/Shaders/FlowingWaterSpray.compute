@@ -323,8 +323,9 @@ void Move(uint3 id : SV_DispatchThreadID)
 // face's middle at the water's top (world), and how long the water falls from there till it lands (s); velocity: how
 // fast it leaves (m/s, along the ground: as fast as over a brink, sqrt(g h), at least), and how much runs out (m2/s:
 // depth times speed); across: along the lip (x, z), the strip's width (m), and whether its two ends are open
-// (no curtain beside: 1 the end to the left, 2 the right one); ends: the water's depth there (m), and whether it lands
-// (1) or runs out of the square or over ground not known (0).
+// (no curtain beside: 1 the end to the left, 2 the right one); ends: the water's depth there (m), whether it lands (1)
+// or runs out of the square or over ground not known (0), and how fast each of its sides moves out as it falls (m/s: a
+// jet fanning out, JetArcs).
 struct Curtain
 {
     float4 start;

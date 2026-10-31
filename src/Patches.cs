@@ -25,6 +25,7 @@ internal static class PrefabPatch
         Materials.WorldOpened();
         WaterBrick.WorldOpened();
         GpuWater.WorldOpened();
+        JetArcs.WorldOpened();
         WaterSound.WorldOpened();
         ShipCurrent.WorldOpened();
     }

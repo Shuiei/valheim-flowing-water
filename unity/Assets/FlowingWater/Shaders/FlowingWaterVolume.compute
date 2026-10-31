@@ -615,7 +615,9 @@ float3 SourceVelocity(int s, float3 place)
     return way * spring.flow.x * _ScaleIn[s];
 }
 
-// A cell's type, out of the grid: solid under and at closed sides, air above and at open sides.
+// A cell's type, out of the grid: under it, the ground or a piece there (solid), the server's water there (beyond), else
+// air, as at its open sides (solid all under it, water falling out of the grid's bottom splashed on nothing in the
+// air, the grid's height under the camera, and the splash followed the camera down); solid at closed sides, air above.
 // The server's water in the column under a cell (SimGrid.Target's texel: the resting top, whether the sheet draws it,
 // the depth), the nearest column of the square's for a cell beyond its sides. Whether the sheet draws a column is the
 // sheet's affair (the handover clears it along the square's edge and while a column settles): the volume takes the
@@ -643,7 +645,7 @@ int TypeAt(int3 c)
 {
     if (c.y < 0)
     {
-        return SOLID;
+        return SolidAt(CentreOf(c)) ? SOLID : WetBeyond(c) ? BEYOND : AIR;
     }
 
     if (c.y >= _Ny)
@@ -1320,7 +1322,9 @@ void Move(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // Out of the square's sides: the server's water now (the band along them is poured again from it); out of the top: held.
+    // Out of the square's sides or its top: the server's water now (the band along the sides is poured again from it; a
+    // jet thrown out of the top is drawn by JetArcs, and lands as the server pours it). Held under the top,
+    // a jet thrown up out of the grid heaped there in the air, and only that heap fell back. Held in, without open sides.
     float3 lo = _Origin, hi = _Origin + (float3(_Nx, _Ny, _Nz) * _H);
     float eps = 0.01 * _H;
     if (to.x < lo.x || to.z < lo.z || to.x >= hi.x || to.z >= hi.z)
@@ -1334,6 +1338,13 @@ void Move(uint3 id : SV_DispatchThreadID)
 
         to.x = clamp(to.x, lo.x + eps, hi.x - eps);
         to.z = clamp(to.z, lo.z + eps, hi.z - eps);
+    }
+
+    if (to.y >= hi.y && _OpenSides != 0)
+    {
+        p.place.w = asfloat(GONE);
+        _Particles[i] = p;
+        return;
     }
 
     to.y = min(to.y, hi.y - eps);

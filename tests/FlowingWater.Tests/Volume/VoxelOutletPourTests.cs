@@ -186,6 +186,20 @@ public class VoxelOutletPourTests
     }
 
     [Fact]
+    public void AJetFliesOutOfItsOutletsOwnVoxelThoughItsGroundIsCountedHigher()
+    {
+        // A rock's curved top: its outlet's voxel is counted solid to 1.8 m (the rock's height at the column's middle),
+        // the outlet 1.3 m up on the rock where it stands. The jet still flies, and lands out on the floor east.
+        var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, _) => x is >= 10 and < 11 ? 1.8f : 1f));
+
+        (float X, float Y, float Z)? landing = grid.Lands(10.5f, 1.3f, 10.5f, new Vec3(6f, 3f, 0f));
+
+        Assert.NotNull(landing);
+        Assert.True(landing.Value.X > 12f, $"lands at x {landing.Value.X}");
+        Assert.InRange(landing.Value.Y, 1f, 1.2f);
+    }
+
+    [Fact]
     public void AJetWhoseWayPassesTheBrickCapPoursAtItsOutletThrownUp()
     {
         // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so it pours where it is.

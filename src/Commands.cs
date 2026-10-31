@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | sound | solids | gpu [colours|columns] | particles [m3|clear|spheres|full|look N] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | sound | solids | gpu [colours|columns] | jets | particles [m3|clear|spheres|full|look N] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
@@ -204,6 +204,13 @@ internal static class Commands
                 else
                 {
                     terminal.Say("flowingwater: " + GpuWater.Describe());
+                }
+
+                break;
+            case "jets":
+                foreach (string line in JetArcs.Describe())
+                {
+                    terminal.SayLogged(line);
                 }
 
                 break;

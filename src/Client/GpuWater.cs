@@ -170,8 +170,19 @@ internal sealed class GpuWater : IDisposable
     // last build started from; built again once the camera is 8 m from it), as the build gathers them.
     private readonly ParticleSolids _solids = new();
 
-    // The solids last taken onto the card, as laid out for it (for the console).
+    // The solids last built for the card, as laid out for it, its sources' outlets not yet opened; whether any is solid.
     private byte[] _solidsTaken;
+
+    private bool _solidsAny;
+
+    // The solids on the card: as built, the sources' outlets opened (for the console too).
+    private byte[] _solidsOnCard;
+
+    // The facing sources' outlets as last opened in the card's solids (their markers' feet, shapes and rates), and as
+    // they are now: a source placed, changed or removed has them opened again, without waiting for a build.
+    private readonly List<(Vector3 At, SourceShape Shape, float Rate)> _outletsOpened = [];
+
+    private readonly List<(Vector3 At, SourceShape Shape, float Rate)> _outletsNow = [];
 
     private readonly List<ParticleWater.Body> _bodies = new(ParticleWater.MostBodies);
 
@@ -584,6 +595,7 @@ internal sealed class GpuWater : IDisposable
 
         StartBuild(near);
         StartCast();
+        OpenOutlets(again: false);
         if (!_seeded)
         {
             return;
@@ -887,6 +899,46 @@ internal sealed class GpuWater : IDisposable
         return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, height, speed, shape.Spread * 0.5f * Mathf.Deg2Rad);
     }
 
+    // The solids as built, the facing sources' outlets opened in them, onto the card: when built (again), or when the
+    // outlets changed since they were last opened.
+    private void OpenOutlets(bool again)
+    {
+        if (_solidsTaken == null)
+        {
+            return;
+        }
+
+        Marker.Markers(_markers);
+        _outletsNow.Clear();
+        foreach ((Vector3 at, float rate, bool drain, _, SourceShape shape) in _markers)
+        {
+            if (!drain && !shape.AllRound)
+            {
+                _outletsNow.Add((at, shape, rate));
+            }
+        }
+
+        if (!again && _outletsNow.SequenceEqual(_outletsOpened))
+        {
+            return;
+        }
+
+        _outletsOpened.Clear();
+        _outletsOpened.AddRange(_outletsNow);
+        _solidsOnCard = (byte[])_solidsTaken.Clone();
+        // An outlet stands in the open over what its marker stands on (OutletVoxels): a rock's curved top, counted by its
+        // height at a column's middle, filled its voxels, and the volume water gave a jet off a rock's top no water.
+        foreach ((Vector3 at, SourceShape shape, float rate) in _outletsNow)
+        {
+            foreach ((int x, int y, int z) in OutletVoxels.Of(new Vec3(at.x, at.y, at.z), shape, rate, _solidsWindow.VoxelSize, _solidsWindow.CellSize))
+            {
+                SolidsLayout.Open(_solidsOnCard, _solidsWindow.Columns, x - _solidsWindow.X0, y - _builtBase, z - _solidsWindow.Z0);
+            }
+        }
+
+        _solids.Take(_solidsOnCard, _solidsWindow.Columns, _solidsWindow.VoxelSize, _builtBase, _solidsAny);
+    }
+
     // The placed sources in the square, their water to come out of them (the server's fixed sources have no marker to
     // see: their water comes as the square's other water does).
     private List<ParticleWater.Spout> Spouts(Vector2 origin)
@@ -944,11 +996,12 @@ internal sealed class GpuWater : IDisposable
         _builtFalls = _buildingFalls;
         if (build.Result.Solids != null)
         {
-            _solids.Take(build.Result.Solids, _window.Columns, _window.VoxelSize, _buildingBase, build.Result.AnySolid);
             _solidsTaken = build.Result.Solids;
+            _solidsAny = build.Result.AnySolid;
             _builtBase = _buildingBase;
             _builtBuilt = _buildingBuilt;
             _solidsWindow = _buildingWindow;
+            OpenOutlets(again: true);
         }
         if (!_seeded)
         {
@@ -1347,7 +1400,7 @@ internal sealed class GpuWater : IDisposable
     // letters (S solid; faces closed: E east, W west, U up, D down, N north, s south); null with none taken there.
     private string SolidsColumn(Vector3 point)
     {
-        if (_solidsTaken == null || !_solidsWindow.Equals(_window))
+        if (_solidsOnCard == null || !_solidsWindow.Equals(_window))
         {
             return null;
         }
@@ -1362,7 +1415,7 @@ internal sealed class GpuWater : IDisposable
         var rows = new System.Text.StringBuilder();
         for (int y = 0; y < SolidsLayout.Rows; y++)
         {
-            byte b = _solidsTaken[SolidsLayout.Index(w.Columns, x, y, z)];
+            byte b = _solidsOnCard[SolidsLayout.Index(w.Columns, x, y, z)];
             if (b == 0)
             {
                 continue;
