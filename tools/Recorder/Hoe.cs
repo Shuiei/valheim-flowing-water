@@ -12,7 +12,7 @@ namespace FlowingWater.Recorder;
 
 // The hoe scenario (FW_REC_SCENARIO=hoe): sources and drains placed with the game's hoe and set in the mod's panel, as
 // a player would, each check a PASS or FAIL line in the log. Keys are pressed through the game's input system (a
-// keyboard added when the game has none); values are typed into the panel's fields as the panel takes a typed value.
+// keyboard added when the game has none); the panel's sliders are moved to a notch as a player drags them.
 public sealed partial class Recorder
 {
     private const string SourceName = "FlowingWater_Source";
@@ -28,6 +28,16 @@ public sealed partial class Recorder
     private static readonly int RateKey = "FW_Rate".GetStableHashCode();
 
     private static readonly int RadiusKey = "FW_Radius".GetStableHashCode();
+
+    // The power slider's notches run even on a logarithm from 0.1 m³/s (a drain's first: everything) to the most,
+    // 100, at notch 120: notch 75 gives 7.5 and 52 gives 2. The reach slider's are quarter metres: notch 12 is 3 m.
+    private const int MostRateNotch = 120;
+
+    private const int SevenAndAHalfNotch = 75;
+
+    private const int TwoNotch = 52;
+
+    private const int ThreeMetresNotch = 12;
 
     private int _passed;
 
@@ -109,24 +119,26 @@ public sealed partial class Recorder
         }
 
         Check(Label(panel, "Title") == "Next source", $"the panel is the next source's (title \"{Label(panel, "Title")}\")");
-        Note($"panel: rate {Field(panel, "Rate").text}, \"{Label(panel, "Rate hint")}\", keys \"{Label(panel, "Keys")}\"");
+        Note($"panel: power {Shown(panel, "Power")}, \"{Label(panel, "Hint")}\", keys \"{Label(panel, "Keys")}\"");
+        Check(Row(panel, "Width").activeInHierarchy && !Row(panel, "Reach").activeInHierarchy, "the source's panel shows its shape's sliders, not a drain's reach");
+        Check(!Bar(panel, "Power").interactable, "before [E] the sliders only show the next source's values");
 
-        // 2 and 8. [E] gives the panel the keys; W held then moves nothing; a rate typed is taken.
+        // 2 and 8. [E] gives the panel the keys and the mouse; W held then moves nothing; the power slider moved is
+        // taken, from a source's least to the most.
         Vector3 standing = player.transform.position;
         yield return Press(Key.E);
-        Check(TextInput.IsVisible(), "[E] opens the panel's fields: the game takes the keys for them as for its own text box");
+        Check(TextInput.IsVisible() && Bar(panel, "Power").interactable, "[E] gives the sliders the mouse: the game takes the keys for them as for its own text box");
         yield return Hold(Key.W, 1f);
         Check(Vector3.Distance(standing, player.transform.position) < 0.05f, $"W held while the panel has the keys does not move the player (moved {Vector3.Distance(standing, player.transform.position):0.00} m)");
-        TypeInto(panel, "Rate", "7.5");
-        Check(Field(panel, "Rate").text == "7.5", $"the rate typed shows 7.5 (shows \"{Field(panel, "Rate").text}\")");
-        TypeInto(panel, "Rate", "250");
-        Check(Field(panel, "Rate").text == "100" && Label(panel, "Status").Contains("Held to 100"), $"a rate over the most is held to 100 and says so (\"{Field(panel, "Rate").text}\", \"{Label(panel, "Status")}\")");
-        TypeInto(panel, "Rate", "0");
-        Check(Field(panel, "Rate").text == "100" && Label(panel, "Status").Contains("above 0"), $"a source's rate of 0 is refused, the rate kept (\"{Field(panel, "Rate").text}\", \"{Label(panel, "Status")}\")");
-        TypeInto(panel, "Rate", "7.5");
+        Slide(panel, "Power", MostRateNotch);
+        Check(Shown(panel, "Power") == "100 m³/s", $"the power slider's last notch is the most, 100 m³/s (shows \"{Shown(panel, "Power")}\")");
+        Slide(panel, "Power", 0);
+        Check(Shown(panel, "Power") == "0.1 m³/s", $"its first notch is a source's least, 0.1 m³/s: a source always gives water (shows \"{Shown(panel, "Power")}\")");
+        Slide(panel, "Power", SevenAndAHalfNotch);
+        Check(Shown(panel, "Power") == "7.5 m³/s", $"the power slid to 7.5 m³/s shows it (shows \"{Shown(panel, "Power")}\")");
         yield return Snap("hoe-1-panel-source");
         yield return Press(Key.E);
-        Check(!TextInput.IsVisible(), "[E] again gives the keys back to the game");
+        Check(!TextInput.IsVisible() && !Bar(panel, "Power").interactable, "[E] again gives the keys back to the game, the sliders only showing");
         Check(panel.activeInHierarchy && Label(panel, "Title") == "Next source", "the panel still shows the next source's values");
 
         // 3. Placed where the camera aims, with the panel's rate.
@@ -164,11 +176,11 @@ public sealed partial class Recorder
         float top = onFloor ? hit.point.y : floorSpot.y + 1f;
         Check(player.SetSelectedPiece(drainPiece), "the drain is chosen in the hoe");
         yield return new WaitForSeconds(0.5f);
-        Check(Label(panel, "Title") == "Next drain" && Field(panel, "Radius").gameObject.activeInHierarchy, "the panel shows the next drain's values, its radius too");
+        Check(Label(panel, "Title") == "Next drain" && Row(panel, "Reach").activeInHierarchy && !Row(panel, "Width").activeInHierarchy, "the panel shows the next drain's values, its reach and no shape");
         yield return Press(Key.E);
-        TypeInto(panel, "Rate", "0");
-        TypeInto(panel, "Radius", "3");
-        Check(Field(panel, "Rate").text == "0" && Field(panel, "Radius").text == "3", $"the drain's rate 0 and radius 3 are taken (\"{Field(panel, "Rate").text}\", \"{Field(panel, "Radius").text}\")");
+        Slide(panel, "Power", 0);
+        Slide(panel, "Reach", ThreeMetresNotch);
+        Check(Shown(panel, "Power") == "all" && Shown(panel, "Reach") == "3 m", $"the drain's power at its left end takes all, its reach 3 m (\"{Shown(panel, "Power")}\", \"{Shown(panel, "Reach")}\")");
         yield return Press(Key.E);
         Vector3 floorTarget = new(floorSpot.x, top, floorSpot.z);
         Aim(floorTarget);
@@ -223,8 +235,8 @@ public sealed partial class Recorder
 
         if (panel != null)
         {
-            Check(Label(panel, "Title") == "This source" && Field(panel, "Rate").text == "7.5", $"the panel is this source's, rate 7.5 (\"{Label(panel, "Title")}\", \"{Field(panel, "Rate").text}\")");
-            TypeInto(panel, "Rate", "2");
+            Check(Label(panel, "Title") == "This source" && Shown(panel, "Power") == "7.5 m³/s", $"the panel is this source's, 7.5 m³/s (\"{Label(panel, "Title")}\", \"{Shown(panel, "Power")}\")");
+            Slide(panel, "Power", TwoNotch);
             yield return new WaitForSeconds(0.5f);
             Check(Mathf.Approximately(source.GetZDO().GetFloat(RateKey, -1f), 2f), $"the source's object now says 2 m³/s ({source.GetZDO().GetFloat(RateKey, -1f)})");
             yield return Snap("hoe-5-panel-placed");
@@ -425,17 +437,21 @@ public sealed partial class Recorder
         .Where(n => n.IsValid() && n.GetZDO().GetPrefab() == prefab.GetStableHashCode() && Vector3.Distance(n.transform.position, point) <= within)
         .OrderBy(n => Vector3.Distance(n.transform.position, point)).FirstOrDefault();
 
-    private static TMP_InputField Field(GameObject panel, string name) => panel.transform.Find(name).GetComponent<TMP_InputField>();
-
     private static string Label(GameObject panel, string name) => panel.transform.Find(name).GetComponent<TMP_Text>().text;
 
-    // A value typed into a panel field and entered, as the panel takes what a player types.
-    private void TypeInto(GameObject panel, string name, string value)
+    // A slider's row in the panel (its label, the slider and the value beside it).
+    private static GameObject Row(GameObject panel, string name) => panel.transform.Find(name + " row").gameObject;
+
+    private static UnityEngine.UI.Slider Bar(GameObject panel, string name) => Row(panel, name).transform.Find("Slider").GetComponent<UnityEngine.UI.Slider>();
+
+    // The value shown beside a slider.
+    private static string Shown(GameObject panel, string name) => Row(panel, name).transform.Find("Value").GetComponent<TMP_Text>().text;
+
+    // A slider moved to a notch, as a player drags it: the panel takes what it stands at as it moves.
+    private void Slide(GameObject panel, string name, int notch)
     {
-        TMP_InputField field = Field(panel, name);
-        field.text = value;
-        field.onSubmit.Invoke(value);
-        Note($"typed {value} into {name}: shows \"{field.text}\", \"{Label(panel, "Status")}\"");
+        Bar(panel, name).value = notch;
+        Note($"slid {name} to notch {notch}: shows \"{Shown(panel, name)}\", \"{Label(panel, "Status")}\"");
     }
 
     // The view as it is (the camera held where it is).

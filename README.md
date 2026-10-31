@@ -710,8 +710,8 @@ shots) and shoots it from several places as it looks and in the debug colours, w
 `pools` fills and films the pools of a test world (`FW_REC_POOLS`, `x,z,radius,depth;...`) in each look of
 `FW_REC_LOOKS`; `prep` readies a world for the World Editor (`FW_REC_DIG`: the zones there generated, the ground
 dug once). `hoe` places a source and a drain with the hoe on the gentle slope near the spawn, as a player would
-(keys pressed through the game's input system, values typed into the panel), a drain on a floor it builds, changes
-the source through **E**, checks a placed one is hidden with the hoe put away, removes the drain with the hoe's
+(keys pressed through the game's input system, the panel's sliders moved to a notch), a drain on a floor it builds,
+changes the source through **E**, checks a placed one is hidden with the hoe put away, removes the drain with the hoe's
 remover (and not the floor under it), checks the hammer shows a second source red where it aims, and removes that
 one with its panel's **Remove** button,
 and logs each check as a `PASS` or `FAIL` line with shots of each step. `turn` turns a source's ghost with the mouse
