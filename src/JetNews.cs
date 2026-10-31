@@ -95,7 +95,10 @@ internal static class JetNews
         }
     });
 
-    /// <summary>The jets <see cref="Write"/> packed.</summary>
+    /// <summary>
+    /// The jets <see cref="Write"/> packed. Nothing is sized from a count the bytes give before what it counts is read:
+    /// a count too large for them ends with the bytes (cut short), not with a huge allocation.
+    /// </summary>
     /// <exception cref="InvalidDataException">They are not that, or of another version.</exception>
     public static List<ServerJet> Read(byte[] data) => Packed.Read(data, "the server's jets", reader =>
     {
@@ -111,7 +114,7 @@ internal static class JetNews
             throw new InvalidDataException($"the server's jets number {count}");
         }
 
-        var jets = new List<ServerJet>(count);
+        var jets = new List<ServerJet>();
         for (int j = 0; j < count; j++)
         {
             Vec3 foot = ReadVec(reader);
@@ -123,13 +126,13 @@ internal static class JetNews
                 throw new InvalidDataException($"a jet of the server's has {places} places");
             }
 
-            var landings = new Vec3?[places];
+            var landings = new List<Vec3?>();
             for (int k = 0; k < places; k++)
             {
-                landings[k] = reader.ReadBoolean() ? ReadVec(reader) : null;
+                landings.Add(reader.ReadBoolean() ? ReadVec(reader) : null);
             }
 
-            jets.Add(new ServerJet(foot, shape, rate, landings));
+            jets.Add(new ServerJet(foot, shape, rate, [.. landings]));
         }
 
         return jets;

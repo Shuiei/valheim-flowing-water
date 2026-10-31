@@ -65,4 +65,41 @@ public class JetNewsTests
         });
         Assert.Throws<InvalidDataException>(() => JetNews.Read(later));
     }
+
+    [Fact]
+    public void ACountOfJetsLargerThanTheBytesIsRefusedAsCutShortNotAllocated()
+    {
+        byte[] lying = Packed.Write(writer =>
+        {
+            writer.Write(1);
+            writer.Write(int.MaxValue);
+        });
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(lying));
+        Assert.Contains("cut short", refused.Message);
+    }
+
+    [Fact]
+    public void ACountOfLandingsLargerThanTheBytesIsRefusedAsCutShortNotAllocated()
+    {
+        byte[] lying = Packed.Write(writer =>
+        {
+            writer.Write(1);
+            writer.Write(1);
+            for (int k = 0; k < 3; k++)
+            {
+                writer.Write(0f);
+            }
+
+            writer.Write(false);
+            for (int k = 0; k < 5; k++)
+            {
+                writer.Write(0f);
+            }
+
+            writer.Write(int.MaxValue);
+            writer.Write(false);
+        });
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(lying));
+        Assert.Contains("cut short", refused.Message);
+    }
 }
