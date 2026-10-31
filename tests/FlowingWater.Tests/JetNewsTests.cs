@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using FlowingWater.Volume;
@@ -65,4 +66,74 @@ public class JetNewsTests
         });
         Assert.Throws<InvalidDataException>(() => JetNews.Read(later));
     }
+
+    [Theory]
+    [InlineData(JetNews.MostJets + 1)]
+    [InlineData(int.MaxValue)]
+    public void MoreJetsThanTheMostAreRefusedBeforeAnyIsRead(int count)
+    {
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(Jets(count, 0)));
+        Assert.Contains("at most", refused.Message);
+    }
+
+    [Fact]
+    public void ACountOfJetsWithinTheMostButLargerThanTheBytesIsCutShort()
+    {
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(Jets(JetNews.MostJets, 0, written: 1)));
+        Assert.Contains("cut short", refused.Message);
+    }
+
+    [Theory]
+    [InlineData(JetNews.MostPlaces + 1)]
+    [InlineData(int.MaxValue)]
+    public void MoreLandingsInAJetThanTheMostAreRefusedBeforeAnyIsRead(int places)
+    {
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(Jets(1, places)));
+        Assert.Contains("at most", refused.Message);
+    }
+
+    [Fact]
+    public void MoreLandingsInAllThanTheMostAreRefusedThoughEachJetIsWithinIt()
+    {
+        // A few bytes of gzip unpack to a million empty landings: the jet past the most is refused.
+        int jets = (JetNews.MostLandings / JetNews.MostPlaces) + 1;
+        InvalidDataException refused = Assert.Throws<InvalidDataException>(() => JetNews.Read(Jets(jets, JetNews.MostPlaces)));
+        Assert.Contains("in all", refused.Message);
+    }
+
+    [Fact]
+    public void AsManyLandingsAsTheMostAreRead()
+    {
+        int jets = JetNews.MostLandings / JetNews.MostPlaces;
+        List<ServerJet> read = JetNews.Read(Jets(jets, JetNews.MostPlaces));
+        Assert.Equal(jets, read.Count);
+        Assert.All(read, jet => Assert.Equal(JetNews.MostPlaces, jet.Landings.Length));
+    }
+
+    // A message saying it holds so many jets of so many landings each (each pouring at its outlet), written whole or
+    // only its first jets.
+    private static byte[] Jets(int count, int places, int written = -1) => Packed.Write(writer =>
+    {
+        writer.Write(1);
+        writer.Write(count);
+        for (int j = 0; j < (written < 0 ? Math.Min(count, JetNews.MostJets) : written); j++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                writer.Write(0f);
+            }
+
+            writer.Write(false);
+            for (int k = 0; k < 5; k++)
+            {
+                writer.Write(0f);
+            }
+
+            writer.Write(places);
+            for (int k = 0; k < Math.Min(places, JetNews.MostPlaces); k++)
+            {
+                writer.Write(false);
+            }
+        }
+    });
 }

@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.17 — 2026-10-31
+
+### Fixed
+- A broken jets message from a server (a far jet's drawing, since 0.49.13) is refused and logged, the jets you knew
+  kept: a count in it could make your game try to set aside more memory than it has, and the error was not caught.
+  A message now holds at most 16384 jets, 1024 landings each and about a million in all, far over any world's.
+
 ## v0.49.16 — 2026-10-31
 
 ### Fixed

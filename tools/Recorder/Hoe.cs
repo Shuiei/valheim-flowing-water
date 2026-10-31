@@ -41,6 +41,11 @@ public sealed partial class Recorder
 
     private int _passed;
 
+    // What the last Place put down: the source or drain standing where its ghost was (null when none), and where.
+    private ZNetView _placed;
+
+    private Vector3 _placedAt;
+
     private int _failed;
 
     // The turn scenario (FW_REC_SCENARIO=turn): a source turned with the mouse wheel as it is placed with the hoe, as a
@@ -48,9 +53,7 @@ public sealed partial class Recorder
     private IEnumerator Turn(Site site)
     {
         Player player = Player.m_localPlayer;
-        player.SetGodMode(true);
-        Hud.instance.m_userHidden = false;
-        yield return Go(site.At(0f));
+        yield return Begin(player, site);
         player.EquipItem(Tool(player, "Hoe"));
         yield return new WaitForSeconds(1f);
         Piece sourcePiece = ZNetScene.instance.GetPrefab(SourceName).GetComponent<Piece>();
@@ -69,12 +72,8 @@ public sealed partial class Recorder
         Check(Mathf.Abs(Mathf.Abs(turned) - (2f * notch)) < 0.5f, $"a second notch turns it as far again (turned {turned:0.#} degrees)");
 
         float ghostYaw = GhostYaw(player);
-        bool placed = player.TryPlacePiece(sourcePiece);
-        Vector3 ghostAt = Ghost(player);
-        Check(placed, $"the source is placed (placement {player.GetPlacementStatus()})");
-        yield return new WaitForSeconds(0.5f);
-        ZNetView source = NearestMarker(SourceName, ghostAt, 1f);
-        Check(source != null, $"a source stands where the ghost was ({ghostAt.ToString("F2")})");
+        yield return Place(player, sourcePiece);
+        ZNetView source = _placed;
         if (source != null)
         {
             float placedYaw = source.GetZDO().GetRotation().eulerAngles.y;
@@ -88,14 +87,7 @@ public sealed partial class Recorder
     private IEnumerator Hoe(Site site)
     {
         Player player = Player.m_localPlayer;
-
-        // Standing on the source, the player swims in its water and drowns once out of stamina, as the game wants:
-        // not what is tested here.
-        player.SetGodMode(true);
-
-        // The panel stays hidden with the game's interface.
-        Hud.instance.m_userHidden = false;
-        yield return Go(site.At(0f));
+        yield return Begin(player, site);
 
         // 1. The hoe in hand, in build mode, the source chosen in it.
         GameObject hoePrefab = ObjectDB.instance.GetItemPrefab("Hoe");
@@ -130,11 +122,11 @@ public sealed partial class Recorder
         Check(TextInput.IsVisible() && Bar(panel, "Power").interactable, "[E] gives the sliders the mouse: the game takes the keys for them as for its own text box");
         yield return Hold(Key.W, 1f);
         Check(Vector3.Distance(standing, player.transform.position) < 0.05f, $"W held while the panel has the keys does not move the player (moved {Vector3.Distance(standing, player.transform.position):0.00} m)");
-        Slide(panel, "Power", MostRateNotch);
+        yield return Slide(panel, "Power", MostRateNotch);
         Check(Shown(panel, "Power") == "100 m³/s", $"the power slider's last notch is the most, 100 m³/s (shows \"{Shown(panel, "Power")}\")");
-        Slide(panel, "Power", 0);
+        yield return Slide(panel, "Power", 0);
         Check(Shown(panel, "Power") == "0.1 m³/s", $"its first notch is a source's least, 0.1 m³/s: a source always gives water (shows \"{Shown(panel, "Power")}\")");
-        Slide(panel, "Power", SevenAndAHalfNotch);
+        yield return Slide(panel, "Power", SevenAndAHalfNotch);
         Check(Shown(panel, "Power") == "7.5 m³/s", $"the power slid to 7.5 m³/s shows it (shows \"{Shown(panel, "Power")}\")");
         yield return Snap("hoe-1-panel-source");
         yield return Press(Key.E);
@@ -142,19 +134,15 @@ public sealed partial class Recorder
         Check(panel.activeInHierarchy && Label(panel, "Title") == "Next source", "the panel still shows the next source's values");
 
         // 3. Placed where the camera aims, with the panel's rate.
-        bool placed = player.TryPlacePiece(sourcePiece);
-        Vector3 ghostAt = Ghost(player);
-        Check(placed, $"the source is placed (placement {player.GetPlacementStatus()})");
-        yield return new WaitForSeconds(0.5f);
-        ZNetView source = NearestMarker(SourceName, ghostAt, 1f);
-        Check(source != null, $"a source stands where the ghost was ({ghostAt.ToString("F2")})");
+        yield return Place(player, sourcePiece);
+        ZNetView source = _placed;
         if (source == null)
         {
             yield break;
         }
 
         Vector3 sourceAt = source.transform.position;
-        Check(Vector3.Distance(sourceAt, ghostAt) < 0.01f && Vector3.Distance(sourceAt, target) < 0.3f, $"the source is where the ghost was and the camera aimed ({sourceAt.ToString("F2")}, aimed at {target.ToString("F2")})");
+        Check(Vector3.Distance(sourceAt, _placedAt) < 0.01f && Vector3.Distance(sourceAt, target) < 0.3f, $"the source is where the ghost was and the camera aimed ({sourceAt.ToString("F2")}, aimed at {target.ToString("F2")})");
         Check(Mathf.Approximately(source.GetZDO().GetFloat(RateKey, -1f), 7.5f), $"the placed source's object says 7.5 m³/s ({source.GetZDO().GetFloat(RateKey, -1f)})");
         yield return Snap("hoe-2-source-placed");
 
@@ -178,20 +166,16 @@ public sealed partial class Recorder
         yield return new WaitForSeconds(0.5f);
         Check(Label(panel, "Title") == "Next drain" && Row(panel, "Reach").activeInHierarchy && !Row(panel, "Width").activeInHierarchy, "the panel shows the next drain's values, its reach and no shape");
         yield return Press(Key.E);
-        Slide(panel, "Power", 0);
-        Slide(panel, "Reach", ThreeMetresNotch);
+        yield return Slide(panel, "Power", 0);
+        yield return Slide(panel, "Reach", ThreeMetresNotch);
         Check(Shown(panel, "Power") == "all" && Shown(panel, "Reach") == "3 m", $"the drain's power at its left end takes all, its reach 3 m (\"{Shown(panel, "Power")}\", \"{Shown(panel, "Reach")}\")");
         yield return Press(Key.E);
         Vector3 floorTarget = new(floorSpot.x, top, floorSpot.z);
         Aim(floorTarget);
         yield return new WaitForSeconds(1f);
         yield return Snap("hoe-3-panel-drain");
-        placed = player.TryPlacePiece(drainPiece);
-        ghostAt = Ghost(player);
-        Check(placed, $"the drain is placed (placement {player.GetPlacementStatus()})");
-        yield return new WaitForSeconds(0.5f);
-        ZNetView drain = NearestMarker(DrainName, ghostAt, 1f);
-        Check(drain != null, $"a drain stands where the ghost was ({ghostAt.ToString("F2")})");
+        yield return Place(player, drainPiece);
+        ZNetView drain = _placed;
         if (drain != null)
         {
             float y = drain.transform.position.y;
@@ -238,7 +222,7 @@ public sealed partial class Recorder
         if (panel != null)
         {
             Check(Label(panel, "Title") == "This source" && Shown(panel, "Power") == "7.5 m³/s", $"the panel is this source's, 7.5 m³/s (\"{Label(panel, "Title")}\", \"{Shown(panel, "Power")}\")");
-            Slide(panel, "Power", TwoNotch);
+            yield return Slide(panel, "Power", TwoNotch);
             yield return new WaitForSeconds(0.5f);
             Check(Mathf.Approximately(source.GetZDO().GetFloat(RateKey, -1f), 2f), $"the source's object now says 2 m³/s ({source.GetZDO().GetFloat(RateKey, -1f)})");
             yield return Snap("hoe-5-panel-placed");
@@ -317,8 +301,8 @@ public sealed partial class Recorder
             Check(player.SetSelectedPiece(sourcePiece), $"the source is chosen in the hoe again for {which}");
             Aim(spot);
             yield return new WaitForSeconds(1f);
-            placed = player.TryPlacePiece(sourcePiece);
-            ghostAt = Ghost(player);
+            bool placed = player.TryPlacePiece(sourcePiece);
+            Vector3 ghostAt = Ghost(player);
             yield return new WaitForSeconds(0.5f);
             ZNetView more = NearestMarker(SourceName, ghostAt, 1f);
             Check(placed && more != null, $"{which} is placed ({player.GetPlacementStatus()}, at {ghostAt.ToString("F2")})");
@@ -367,6 +351,29 @@ public sealed partial class Recorder
 
         _cameraAt = null;
         Note($"hoe: {_passed} checks passed, {_failed} failed");
+    }
+
+    // The start of a hoe scenario: the player at the site, unhurt (standing on a source, they swim in its water and
+    // drown once out of stamina, as the game wants: not what is tested here), with the game's interface shown (the
+    // panel stays hidden with it).
+    private IEnumerator Begin(Player player, Site site)
+    {
+        player.SetGodMode(true);
+        Hud.instance.m_userHidden = false;
+        yield return Go(site.At(0f));
+    }
+
+    // A source or drain placed with the hoe where its ghost stands, as a click places it, and found standing there
+    // (_placed, _placedAt): each a check.
+    private IEnumerator Place(Player player, Piece piece)
+    {
+        string what = piece.name == DrainName ? "drain" : "source";
+        bool placed = player.TryPlacePiece(piece);
+        _placedAt = Ghost(player);
+        Check(placed, $"the {what} is placed (placement {player.GetPlacementStatus()})");
+        yield return new WaitForSeconds(0.5f);
+        _placed = NearestMarker(piece.name, _placedAt, 1f);
+        Check(_placed != null, $"a {what} stands where the ghost was ({_placedAt.ToString("F2")})");
     }
 
     private void Check(bool passed, string what)
@@ -455,11 +462,40 @@ public sealed partial class Recorder
     // The value shown beside a slider.
     private static string Shown(GameObject panel, string name) => Row(panel, name).transform.Find("Value").GetComponent<TMP_Text>().text;
 
-    // A slider moved to a notch, as a player drags it: the panel takes what it stands at as it moves.
-    private void Slide(GameObject panel, string name, int notch)
+    // A slider dragged to a notch with the mouse, as a player drags it, through the game's input system (a mouse added
+    // when the game has none): pressed on its handle, moved along it in a few steps to the notch's place and let go.
+    // The panel takes each notch the handle passes, as it does a player's drag.
+    private IEnumerator Slide(GameObject panel, string name, int notch)
     {
-        Bar(panel, name).value = notch;
-        Note($"slid {name} to notch {notch}: shows \"{Shown(panel, name)}\", \"{Label(panel, "Status")}\"");
+        UnityEngine.UI.Slider bar = Bar(panel, name);
+        Canvas canvas = bar.GetComponentInParent<Canvas>().rootCanvas;
+        Camera camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+        Vector2 from = Along(camera, bar.handleRect, 0.5f);
+        Vector2 to = Along(camera, (RectTransform)bar.handleRect.parent, (notch - bar.minValue) / (bar.maxValue - bar.minValue));
+        Mouse mouse = Mouse.current ?? InputSystem.AddDevice<Mouse>();
+        InputSystem.QueueStateEvent(mouse, new MouseState { position = from });
+        yield return null;
+        const int steps = 5;
+        for (int k = 0; k <= steps; k++)
+        {
+            InputSystem.QueueStateEvent(mouse, new MouseState { position = Vector2.Lerp(from, to, k / (float)steps) }.WithButton(MouseButton.Left));
+            yield return null;
+        }
+
+        InputSystem.QueueStateEvent(mouse, new MouseState { position = to });
+        yield return null;
+        yield return null;
+        Note($"dragged {name} to notch {notch}: stands at {bar.value}, shows \"{Shown(panel, name)}\", \"{Label(panel, "Status")}\"");
+    }
+
+    // A point on the screen along a rectangle's middle line, a share of the way from its left end.
+    private static Vector2 Along(Camera camera, RectTransform rect, float share)
+    {
+        var corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+        Vector3 left = (corners[0] + corners[1]) / 2f;
+        Vector3 right = (corners[2] + corners[3]) / 2f;
+        return RectTransformUtility.WorldToScreenPoint(camera, Vector3.Lerp(left, right, share));
     }
 
     // The view as it is (the camera held where it is).

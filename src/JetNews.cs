@@ -64,6 +64,19 @@ internal static class JetNews
     /// <summary>Landings are sent to this, metres.</summary>
     public const float Grain = 0.25f;
 
+    /// <summary>
+    /// The most jets a message holds, far over any world's: a reader refuses more before reading on, so that a broken
+    /// or hostile message cannot make it set aside more memory than a game has (the bytes are gzip's: a few may stand
+    /// for millions of empty landings).
+    /// </summary>
+    public const int MostJets = 1 << 14;
+
+    /// <summary>The most landings a jet has: its outlet's places (a 10 m outlet over voxels of an eighth of a metre has 80).</summary>
+    public const int MostPlaces = 1 << 10;
+
+    /// <summary>The most landings a message holds, all its jets' together.</summary>
+    public const int MostLandings = 1 << 20;
+
     private const int Version = 1;
 
     /// <summary>A landing as it is sent: to <see cref="Grain"/>.</summary>
@@ -95,8 +108,12 @@ internal static class JetNews
         }
     });
 
-    /// <summary>The jets <see cref="Write"/> packed.</summary>
-    /// <exception cref="InvalidDataException">They are not that, or of another version.</exception>
+    /// <summary>
+    /// The jets <see cref="Write"/> packed. A count over the format's most (<see cref="MostJets"/>,
+    /// <see cref="MostPlaces"/>, <see cref="MostLandings"/>) is refused as it is read, before anything is made for it;
+    /// one larger than the bytes ends with them (cut short).
+    /// </summary>
+    /// <exception cref="InvalidDataException">They are not that, or of another version, or count more than the most.</exception>
     public static List<ServerJet> Read(byte[] data) => Packed.Read(data, "the server's jets", reader =>
     {
         int version = reader.ReadInt32();
@@ -106,23 +123,25 @@ internal static class JetNews
         }
 
         int count = reader.ReadInt32();
-        if (count < 0)
+        if (count is < 0 or > MostJets)
         {
-            throw new InvalidDataException($"the server's jets number {count}");
+            throw new InvalidDataException($"the server's jets number {count} (at most {MostJets})");
         }
 
         var jets = new List<ServerJet>(count);
+        int landingsLeft = MostLandings;
         for (int j = 0; j < count; j++)
         {
             Vec3 foot = ReadVec(reader);
             var shape = new SourceShape(reader.ReadBoolean(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
             float rate = reader.ReadSingle();
             int places = reader.ReadInt32();
-            if (places < 0)
+            if (places < 0 || places > MostPlaces || places > landingsLeft)
             {
-                throw new InvalidDataException($"a jet of the server's has {places} places");
+                throw new InvalidDataException($"a jet of the server's has {places} places (at most {MostPlaces} each, {MostLandings} in all)");
             }
 
+            landingsLeft -= places;
             var landings = new Vec3?[places];
             for (int k = 0; k < places; k++)
             {
