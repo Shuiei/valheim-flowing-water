@@ -238,17 +238,25 @@ public sealed partial class Recorder
         // 6. The source's water.
         yield return new WaitForSeconds(15f);
         yield return Shot(sourceAt + (site.Across * 8f) + new Vector3(0f, 6f, 0f) - (site.Down * 4f), sourceAt + (site.Down * 4f), "hoe-6-water");
+        // Out to 24 m: the source throws its water up and out (7.5 m³/s lands 13 m out) and it runs on downhill; only a
+        // thin edge of it may run within a few metres of the source.
         float deepest = 0f;
-        for (float dz = -4f; dz <= 4f; dz += 1f)
+        float deepestOut = 0f;
+        for (float dz = -24f; dz <= 24f; dz += 1f)
         {
-            for (float dx = -4f; dx <= 4f; dx += 1f)
+            for (float dx = -24f; dx <= 24f; dx += 1f)
             {
                 Vector3 p = OnGround(sourceAt + new Vector3(dx, 0f, dz));
-                deepest = Mathf.Max(deepest, Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y);
+                float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y;
+                if (depth > deepest)
+                {
+                    deepest = depth;
+                    deepestOut = new Vector2(dx, dz).magnitude;
+                }
             }
         }
 
-        Check(deepest > 0.02f, $"water runs from the source after 15 s (deepest within 4 m: {deepest:0.00} m)");
+        Check(deepest > 0.02f, $"water runs from the source after 15 s (deepest within 24 m: {deepest:0.00} m, {deepestOut:0} m out)");
 
         // 7. The drain removed with the hoe's remover: chosen, it shows the drain, red when aimed at; the floor it stood
         // on is not the hoe's to remove.
