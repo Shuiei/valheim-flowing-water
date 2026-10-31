@@ -25,6 +25,8 @@ public class NearFarLookTests
         string frag = ShaderSource.Function(near, "fixed4 frag(");
         Assert.Contains("LightingStandard_GI(so, lighting, gi);", frag, StringComparison.Ordinal);
         Assert.Contains("LightingStandard(so, toCamera, gi);", frag, StringComparison.Ordinal);
+        // What is seen through it, premultiplied as the albedo is (in full, thin edges and drops were a bright rim).
+        Assert.Contains("colour.rgb += so.Emission * so.Alpha;", frag, StringComparison.Ordinal);
     }
 
     [Fact]

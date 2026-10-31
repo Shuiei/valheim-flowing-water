@@ -102,11 +102,13 @@ Shader "FlowingWater/Water"
 
         // Columns along a side of a brick's textures.
         #define GRID_SIDE 17.0
-        // The steepest the surface is drawn, rise a run along either axis (about 63 degrees): the reach of the CPU's
-        // surface, VoxelSurface.MaxStep rows a column, so where it joins two columns as one sheet (and the shell draws
-        // no side between them) this draws it, down a slope that drops as much both ways too. Water on steeper rock is
-        // the shell's falls'.
-        #define STEEP_GONE 2.0
+        // Where the surface is drawn: between columns the CPU's surface joins, at most JOIN_ROWS (VoxelSurface.MaxStep)
+        // rows apart along either axis, as it counts them (their tops' rows, not their levels: two rows apart, levels can
+        // differ by nearly three); where it does not, the shell draws a side, and water on rock so steep is the falls'.
+        // And never rising more than STEEP_GONE a run between the tops it is drawn through (a dry column's too): rows
+        // that far apart are never joined.
+        #define JOIN_ROWS 2.0
+        #define STEEP_GONE 3.0
 
         float2 GridUv(float2 cell)
         {
@@ -192,6 +194,35 @@ Shader "FlowingWater/Water"
             return a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : (d.z > 0.0 ? d.w : -1.0)));
         }
 
+        // A column as the next state has it: its surface's values (x level, z shown) and its top row over the brick's
+        // floor in w (SurfaceGrid.Row, from the current's texture: the voxel its top is in, as the shell counts it; its
+        // level, laid flat, may lie a row under it, and taken from the level the shell kept a side the surface joined).
+        float4 ColumnAt(float2 corner)
+        {
+            float4 surface = tex2Dlod(_SurfaceNext, float4(GridUv(corner), 0.0, 0.0));
+            return float4(surface.x, surface.y, surface.z, tex2Dlod(_FlowNext, float4(GridUv(corner), 0.0, 0.0)).w);
+        }
+
+        // Whether two columns, both with water, are further apart than the surface joins.
+        bool Apart(float4 a, float4 b)
+        {
+            return a.z > 0.0 && b.z > 0.0 && abs(a.w - b.w) > JOIN_ROWS + 0.5;
+        }
+
+        // Whether the square a point is in spans two columns the surface does not join, as the next state has them: the
+        // shell draws the water there. Across its diagonal too where only opposite corners have water (the corners
+        // between them dry, raised to the mean of their wet neighbours, would carry a sheet between the two).
+        bool Unjoined(float2 cell)
+        {
+            float2 corner = min(floor(cell), GRID_SIDE - 2.0);
+            float4 a = ColumnAt(corner);
+            float4 b = ColumnAt(corner + float2(1.0, 0.0));
+            float4 c = ColumnAt(corner + float2(0.0, 1.0));
+            float4 d = ColumnAt(corner + float2(1.0, 1.0));
+            bool crossed = (b.z <= 0.0 && c.z <= 0.0 && Apart(a, d)) || (a.z <= 0.0 && d.z <= 0.0 && Apart(b, c));
+            return Apart(a, b) || Apart(c, d) || Apart(a, c) || Apart(b, d) || crossed;
+        }
+
         // Whether this brick draws the square a point is in: as the next state has it, or where the next shows no
         // water there, as the previous did (water drying up fades out instead of going at once).
         bool Draws(float2 cell)
@@ -212,7 +243,7 @@ Shader "FlowingWater/Water"
             // (STEEP_GONE rise a run between the tops it is drawn through, a dry column's beside the water too):
             // stretched from a column's top to one many metres under it, down a fall or a high face, it was a tall
             // spiked sheet; the shell's falls and sides draw that water.
-            if (!Draws(i.cell) || SimDraws(i.worldPos) || i.rise > STEEP_GONE)
+            if (!Draws(i.cell) || SimDraws(i.worldPos) || i.rise > STEEP_GONE || Unjoined(i.cell))
             {
                 discard;
             }

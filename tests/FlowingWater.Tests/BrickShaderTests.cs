@@ -7,24 +7,43 @@ using Xunit;
 namespace FlowingWater.Tests;
 
 /// <summary>
-/// Where the bricks' surface (FlowingWater.shader) draws, read from its source: not where it stands steeper than the
-/// CPU's surface joins two columns (VoxelSurface.MaxStep rows a column, along either axis, so a slope dropping that much
-/// both ways is still drawn: the shell draws no side there, VoxelShellTests'
-/// ASheetDownADiagonalSlopeTwoVoxelsAColumnBothWaysShowsNoSide; its length, 2.8, was cut, and nothing drew it; steeper rock is left to the falls), and not where the volume water near the camera has
-/// filled its square (FlowingWaterSimMask.cginc), the strip a move took in left to the bricks till it is poured.
+/// Where the bricks' surface (FlowingWater.shader) draws, read from its source: between columns the CPU's surface joins
+/// (at most VoxelSurface.MaxStep rows apart, counted by their tops' rows as the shell counts them: where it does not, the
+/// shell draws a side and water on rock so steep is the falls'), never rising more than one row more a run (rows that far
+/// apart are never joined), and not where the volume water near the camera has filled its square
+/// (FlowingWaterSimMask.cginc), the strip a move took in left to the bricks till it is poured.
 /// </summary>
 public class BrickShaderTests
 {
     [Fact]
-    public void TheSurfaceIsCutWhereItRisesMoreThanTheCpuSurfaceJoinsAlongEitherAxis()
+    public void TheSurfaceIsCutBetweenColumnsTheShellCountsUnjoinedAndOnlyThere()
     {
         string source = ShaderSource.Read("FlowingWater.shader");
 
-        Match steep = Regex.Match(source, @"#define STEEP_GONE ([0-9.]+)", RegexOptions.None, ShaderSource.Patience);
-        Assert.True(steep.Success, "no STEEP_GONE");
-        Assert.Equal(VoxelSurface.MaxStep, float.Parse(steep.Groups[1].Value, CultureInfo.InvariantCulture));
+        Assert.Equal(VoxelSurface.MaxStep, Define(source, "JOIN_ROWS"));
+        Assert.Equal(VoxelSurface.MaxStep + 1, Define(source, "STEEP_GONE"));
         Assert.Contains("o.rise = max(abs(east), abs(north)) / max(_VoxelSize, 0.001);", ShaderSource.Function(source, "void vert("), StringComparison.Ordinal);
-        Assert.Matches(new Regex(@"i\.rise > STEEP_GONE\)", RegexOptions.None, ShaderSource.Patience), ShaderSource.Function(source, "void surf("));
+        Assert.Contains("i.rise > STEEP_GONE || Unjoined(i.cell))", ShaderSource.Function(source, "void surf("), StringComparison.Ordinal);
+        Assert.Contains("tex2Dlod(_FlowNext, float4(GridUv(corner), 0.0, 0.0)).w", ShaderSource.Function(source, "float4 ColumnAt("), StringComparison.Ordinal);
+        Assert.Contains("abs(a.w - b.w) > JOIN_ROWS + 0.5", ShaderSource.Function(source, "bool Apart("), StringComparison.Ordinal);
+        Assert.Contains("(b.z <= 0.0 && c.z <= 0.0 && Apart(a, d)) || (a.z <= 0.0 && d.z <= 0.0 && Apart(b, c))", ShaderSource.Function(source, "bool Unjoined("), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EachColumnsTopRowIsInTheCurrentsSpareChannel()
+    {
+        // The shader's rows (above) are SurfaceGrid.Row, the voxel each top is in, not rebuilt from the level laid flat.
+        string pack = System.IO.File.ReadAllText(Repository.File("src/Client/GpuSurface.cs"));
+
+        Assert.Contains("_pixels[(k * 4) + 3] = grid.Row[k];", pack, StringComparison.Ordinal);
+    }
+
+    // A #define's number in a shader's source.
+    private static float Define(string source, string name)
+    {
+        Match found = Regex.Match(source, $@"#define {name} ([0-9.]+)", RegexOptions.None, ShaderSource.Patience);
+        Assert.True(found.Success, $"no {name}");
+        return float.Parse(found.Groups[1].Value, CultureInfo.InvariantCulture);
     }
 
     [Fact]

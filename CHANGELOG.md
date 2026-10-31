@@ -2,6 +2,16 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.49.9 — 2026-10-30
+
+### Fixed
+- Beyond the 3D water round you, water stepping down rock is drawn once: the surface was cut by how steep the water's
+  levels were, the sides and falls by how many voxel rows apart they were, so a step could be drawn by both (a sheet
+  through a side) or by neither (a gap in a stream down a rock). Both now go by the rows, and a step the surface does
+  not join is drawn as a fall, on the ground too.
+- The 3D water round you fades out at its thin edges and a splash's drops: they were a bright rim, the scene behind
+  them added to itself.
+
 ## v0.49.8 — 2026-10-30
 
 ### Fixed
