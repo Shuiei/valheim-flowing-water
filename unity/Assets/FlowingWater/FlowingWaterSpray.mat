@@ -29,10 +29,17 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BubbleAlpha: 0.25
     - _CarrierAlpha: 0.3
     - _FallAlpha: 0.2
     - _FallStretch: 0.12
     - _FoamAlpha: 0.35
+    - _FoamPatchAlpha: 0.55
+    - _FoamPatchScale: 1.5
+    - _MistAlpha: 0.3
+    - _MistFrom: 4
+    - _MistFull: 12
+    - _MistGrow: 4
     - _MostStretch: 0.5
     - _Stretch: 0.015
     m_Colors:
