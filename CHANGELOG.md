@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.54.4 — 2026-11-03
+
+### Fixed
+- A source sent straight along the ground shoots its water out ahead, as a thrown-up jet does, instead of piling it up
+  at the outlet where it spread sideways and back round the source. Off a cliff's edge it now shoots out over it.
+- A strong jet no longer floods the ground round its source while the ground it flies over loads, and shallow water
+  round the source no longer makes it pour at its foot.
+
 ## v0.54.3 — 2026-11-03
 
 ### Fixed

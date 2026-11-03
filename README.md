@@ -49,7 +49,11 @@ degrees across it (0: straight on, a river; more, a jet spraying out) and thrown
 along it). So a point fanned out a little and thrown up is a slim jet, a wide outlet sent straight along the ground a
 wide river. Its water leaves as fast as it must to pass the rate through a slot as high as its thickness (0.05 to 2 m,
 0.75 m unless set), 12 m/s at most (the slot standing higher then): a slim strong jet runs fast, a wide river slow, a
-thick one slower and fuller for the same power. Every source placed before 0.53.0 pours 0.75 m thick (its slot was
+thick one slower and fuller for the same power. Facing a way, its water shoots out of the outlet at that speed and
+comes down where it meets the ground or water, thrown up or straight along the ground (from 0.3 m over its foot), and
+spreads as water does from there: none of it spreads round the outlet first, and off a cliff's edge it shoots straight
+out over it. Till the ground it flies over is read, or where its way passes the bricks the server may hold, its water
+waits; under water (its outlet's voxel nine tenths full) it pours at the outlet. Every source placed before 0.53.0 pours 0.75 m thick (its slot was
 0.25 m, three times as thin, its water hardly seen); every source placed before 0.46.0, and the config's fixed ones,
 pour all round.
 

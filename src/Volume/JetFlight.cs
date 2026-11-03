@@ -67,13 +67,13 @@ internal static class JetFlight
 
     /// <summary>
     /// The strips of a source's jet, its outlet's middle at a point, giving a rate (m³/s) through a shape, cut a voxel
-    /// wide; none for a source whose water does not fly (<see cref="SourceShape.Flies"/>).
+    /// wide; none for a source whose water does not fly (<see cref="SourceShape.Shoots"/>).
     /// </summary>
     public static void Strips(Vec3 outlet, SourceShape shape, float rate, float voxel, List<Strip> into)
     {
         into.Clear();
         float speed = shape.Speed(rate);
-        if (!shape.Flies || !(speed > 0f))
+        if (!shape.Shoots || !(speed > 0f))
         {
             return;
         }
