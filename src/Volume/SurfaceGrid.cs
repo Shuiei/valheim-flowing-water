@@ -82,6 +82,13 @@ internal sealed class SurfaceGrid
     public float[] Own { get; } = new float[Side * Side];
 
     /// <summary>
+    /// 1 where the column's top is on a face (<see cref="OnFace"/>): rock beside it in its row on one side, the ground
+    /// falling away under its row on the other; else 0. A lone corner of thin water there is not drawn
+    /// (<see cref="LoneDeepest"/>).
+    /// </summary>
+    public float[] Face { get; } = new float[Side * Side];
+
+    /// <summary>
     /// Each column's top row over the brick's floor: the voxel its top is in, as the CPU's surface and the shell count
     /// it (its level, laid flat, may lie a row under it: a film over a voxel not full); 0 where there is none.
     /// </summary>
@@ -133,6 +140,7 @@ internal sealed class SurfaceGrid
                 grid.Shown[k] = Clamp((depth - Drawing.HideDepth) / (Drawing.ShowDepth - Drawing.HideDepth));
                 grid.Own[k] = own ? 1f : 0f;
                 grid.Row[k] = top - floor;
+                grid.Face[k] = OnFace(field, vx, top, vz) ? 1f : 0f;
                 if (column.Voxel(top, out BrickView view, out int v))
                 {
                     grid.CurrentX[k] = view.VelocityX[v];
@@ -211,6 +219,7 @@ internal sealed class SurfaceGrid
         for (int k = 0; k < blend.Own.Length; k++)
         {
             blend.Own[k] = to.Shown[k] > 0f ? to.Own[k] : from.Own[k];
+            blend.Face[k] = to.Shown[k] > 0f ? to.Face[k] : from.Face[k];
             blend.Row[k] = to.Row[k];
         }
 
@@ -227,9 +236,34 @@ internal sealed class SurfaceGrid
 
     private static readonly (int I, int J)[] Corners = [(0, 0), (1, 0), (0, 1), (1, 1)];
 
-    // The brick's say on a square: whether it draws it, by its first corner shown; none shown, none.
+    /// <summary>
+    /// A square with a single corner showing water this deep or less, metres, on a face (<see cref="Face"/>), is not
+    /// drawn (none shown, as far as it goes): the dry columns round that corner take its height (<see cref="Spread"/>),
+    /// and a pocket of film on a steep face, with no water beside it, stood out of the rock as a flat wedge. On level
+    /// ground such a corner (a puddle, a stream's tip) is drawn. The graphics card asks the same.
+    /// </summary>
+    public const float LoneDeepest = 0.3f;
+
+    // The brick's say on a square: whether it draws it, by its first corner shown; none shown, or one alone of thin
+    // water on a face (LoneDeepest), none.
     private bool? Owns(int i, int j)
     {
+        int shown = 0, first = -1;
+        foreach ((int di, int dj) in Corners)
+        {
+            int k = Index(i + di, j + dj);
+            if (Shown[k] > 0f)
+            {
+                shown++;
+                first = first < 0 ? k : first;
+            }
+        }
+
+        if (shown == 0 || (shown == 1 && Depth[first] <= LoneDeepest && Face[first] > 0f))
+        {
+            return null;
+        }
+
         foreach ((int di, int dj) in Corners)
         {
             int k = Index(i + di, j + dj);
@@ -243,6 +277,21 @@ internal sealed class SurfaceGrid
     }
 
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
+
+    /// <summary>
+    /// Whether a column's top in row <paramref name="top"/> is on a face: on one side the voxel beside it in that row
+    /// half rock or more, and on the other side the voxel beside it under that row holding no ground
+    /// (<see cref="BrickData.HoldsGround"/>), the ground rising on one hand and falling away on the other.
+    /// </summary>
+    public static bool OnFace(VoxelField field, int x, int top, int z) =>
+        Faces(field, x, top, z, 1, 0) || Faces(field, x, top, z, -1, 0) || Faces(field, x, top, z, 0, 1) || Faces(field, x, top, z, 0, -1);
+
+    // Rock rising beside the column on the side away from (dx, dz), the ground falling away toward it.
+    private static bool Faces(VoxelField field, int x, int top, int z, int dx, int dz) =>
+        field.Solid(x - dx, top, z - dz) >= FaceRock && field.Solid(x + dx, top - 1, z + dz) < BrickData.HoldsGround;
+
+    // How much of the voxel beside a column's top in its row is rock for the ground to rise there (OnFace).
+    private const float FaceRock = 0.5f;
 
     // The column's top: the highest in the brick's rows, else the nearest within Window rows over or under them.
     private static bool Top(Column column, int floor, out int top, out bool own)

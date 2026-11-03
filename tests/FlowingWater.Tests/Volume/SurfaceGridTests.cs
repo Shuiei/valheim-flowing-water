@@ -196,14 +196,17 @@ public class SurfaceGridTests
     [Fact]
     public void ASheetRunningDownIntoTheBrickUnderIsJoinedAndEachSquareDrawnOnce()
     {
-        // A thin sheet on a slope: column x 5 tops at row 16 (the upper brick's floor row), x 6 at row 15 (the lower
-        // brick's top row).
+        // A thin sheet on a slope: column x 5 tops at row 16 (the upper brick's floor row), x 6 and x 7 at row 15 (the
+        // lower brick's top row).
         var upper = new BrickView(0, 1, 0, 1f);
         var lower = new BrickView(0, 0, 0, 1f);
         upper.Water[Brick.Index(5, 0, 5)] = 0.1f;
         upper.Solid[Brick.Index(5, 0, 5)] = 0.3f;
-        lower.Water[Brick.Index(6, 15, 5)] = 0.1f;
-        lower.Solid[Brick.Index(6, 15, 5)] = 0.3f;
+        foreach (int x in new[] { 6, 7 })
+        {
+            lower.Water[Brick.Index(x, 15, 5)] = 0.1f;
+            lower.Solid[Brick.Index(x, 15, 5)] = 0.3f;
+        }
         var field = Field(upper, lower);
 
         var high = SurfaceGrid.Build(field, 0, 1, 0);
@@ -221,6 +224,52 @@ public class SurfaceGridTests
         Assert.False(low.DrawsSquare(5, 5));
         Assert.False(high.DrawsSquare(6, 5));
         Assert.True(low.DrawsSquare(6, 5));
+    }
+
+    [Fact]
+    public void ALoneCornerOfThinWaterOnAFaceDrawsNoSquare()
+    {
+        // A pocket of 0.1 of water alone on a face (rock rising west of it in its row, nothing under its row east of
+        // it, no water in any column beside it): no square round it is drawn (the dry columns round it take its
+        // height, and it stood out of the face as a flat wedge). Deeper, 0.6, a lone column is drawn.
+        var thin = new BrickView(0, 0, 0, 1f);
+        thin.Water[Brick.Index(5, 5, 5)] = 0.1f;
+        thin.Solid[Brick.Index(5, 5, 5)] = 0.3f;
+        thin.Solid[Brick.Index(4, 5, 5)] = 1f;
+        var deep = new BrickView(0, 0, 0, 1f);
+        deep.Water[Brick.Index(5, 5, 5)] = 0.6f;
+        deep.Solid[Brick.Index(4, 5, 5)] = 1f;
+
+        var lone = SurfaceGrid.Build(Field(thin), 0, 0, 0);
+        var pool = SurfaceGrid.Build(Field(deep), 0, 0, 0);
+
+        Assert.True(lone.Shown[SurfaceGrid.Index(5, 5)] > 0f);
+        Assert.Equal(1f, lone.Face[SurfaceGrid.Index(5, 5)]);
+        Assert.False(lone.Draws);
+        Assert.True(pool.DrawsSquare(5, 5));
+    }
+
+    [Fact]
+    public void ALoneCornerOfThinWaterOnLevelGroundIsDrawn()
+    {
+        // A puddle of 0.1 alone on level ground (row 4 under it and round it all rock, nothing rising beside it in its
+        // row): not on a face, its squares drawn.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 3; x <= 7; x++)
+        {
+            for (int z = 3; z <= 7; z++)
+            {
+                view.Solid[Brick.Index(x, 4, z)] = 1f;
+            }
+        }
+
+        view.Water[Brick.Index(5, 5, 5)] = 0.1f;
+
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(0f, grid.Face[SurfaceGrid.Index(5, 5)]);
+        Assert.True(grid.DrawsSquare(5, 5));
+        Assert.True(grid.DrawsSquare(4, 4));
     }
 
     [Fact]
@@ -288,8 +337,10 @@ public class SurfaceGridTests
     [Fact]
     public void WaterDryingUpIsDrawnAsBeforeUntilItHasFadedOut()
     {
+        // A lone column 0.8 deep (half way dried, 0.4: still deeper than a lone corner of thin water, which draws no
+        // square).
         var wet = new BrickView(0, 0, 0, 1f);
-        wet.Water[Brick.Index(2, 1, 2)] = 0.6f;
+        wet.Water[Brick.Index(2, 1, 2)] = 0.8f;
         var from = SurfaceGrid.Build(Field(wet), 0, 0, 0);
         var to = SurfaceGrid.Build(Field(new BrickView(0, 0, 0, 1f)), 0, 0, 0);
 

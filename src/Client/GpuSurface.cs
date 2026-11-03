@@ -178,7 +178,7 @@ internal sealed class GpuSurface : IDisposable
             _pixels[(k * 4) + 0] = grid.Height[k];
             _pixels[(k * 4) + 1] = grid.Depth[k];
             _pixels[(k * 4) + 2] = grid.Shown[k];
-            _pixels[(k * 4) + 3] = grid.Own[k];
+            _pixels[(k * 4) + 3] = grid.Own[k] + (2f * grid.Face[k]);
         }
 
         surface.SetPixelData(_pixels, 0);
