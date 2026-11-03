@@ -81,6 +81,20 @@ internal sealed class VoxelShell
     /// <summary>Each corner's current along its face, metres a second, in its place's two directions.</summary>
     public List<float> Flow { get; } = [];
 
+    /// <summary>
+    /// Each corner's distance, in voxels, to four edges of its face that stand open to the air (<see cref="NoEdge"/> for
+    /// one that does not): a film's or a fall's end no column beside it joins, its top where nothing is over it, its
+    /// foot where it lands. Laid out four a corner, each linear across the face, so the shader fades the water out
+    /// toward the nearest; a column of white water with hard edges up close was a plank, and a cliff of them a stair.
+    /// </summary>
+    public List<float> Edges { get; } = [];
+
+    /// <summary>The distance <see cref="Edges"/> gives an edge that is not open: far past any fade.</summary>
+    public const float NoEdge = 1000f;
+
+    /// <summary>How far up a film's sheet faces for each of its way out from the rock (SheetNormal): half, some 27 degrees.</summary>
+    public const float SheetTilt = 0.5f;
+
     /// <summary>The triangles, three corners each, wound clockwise seen from outside the water (Unity's front faces).</summary>
     public List<int> Triangles { get; } = [];
 
@@ -221,6 +235,7 @@ internal sealed class VoxelShell
 
         float bottom = part.Low == run.Bottom ? field.Floor(x, run.Bottom, z) : part.Low * s;
         float top = (part.High + 1) * s;
+        (float X, float Y, float Z)? sheet = SheetNormal(field, x, z, part);
         float speed = (float)Math.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
         float foam = FilmFoam + ((1f - FilmFoam) * Clamp(speed / FoamFall));
         var at = new Voxel(x, part.Low, z, s, middle, velocity.X, velocity.Y, velocity.Z);
@@ -235,33 +250,67 @@ internal sealed class VoxelShell
             reach[k] = shared[k].High >= shared[k].Low ? 0.5f * s : WidestFall * 0.5f * s;
         }
 
+        // Its top is open where its run ends here with nothing over it: the sides fade out up to it, and it has no cap
+        // (each column's flat cap, a step lower than the one up the face, drew the face a stair).
+        bool open = part.High == run.Top && !field.IsWet(x, run.Top + 1, z);
+        Open whole = Open.Ends | (open ? Open.Top : Open.None);
         for (int k = 0; k < FallSides.Length; k++)
         {
             (_, int dx, int dz) = FallSides[k];
             float left = reach[Toward(dz, -dx)], right = reach[Toward(-dz, dx)];
             if (shared[k].High < shared[k].Low)
             {
-                at.Side(this, dx, dz, reach[k], left, right, bottom, top, foam, shown);
+                at.Side(this, dx, dz, reach[k], left, right, bottom, top, foam, shown, whole, sheet);
                 continue;
             }
 
-            // Over and under the rows shared only.
+            // Over and under the rows shared only (the part under them ends at them, not open).
             float under = shared[k].Low * s, over = (shared[k].High + 1) * s;
             if (under - bottom > Drawing.HideDepth)
             {
-                at.Side(this, dx, dz, reach[k], left, right, bottom, under, foam, shown);
+                at.Side(this, dx, dz, reach[k], left, right, bottom, under, foam, shown, Open.Ends, sheet);
             }
 
             if (top - over > Drawing.HideDepth)
             {
-                at.Side(this, dx, dz, reach[k], left, right, over, top, foam, shown);
+                at.Side(this, dx, dz, reach[k], left, right, over, top, foam, shown, whole, sheet);
+            }
+        }
+    }
+
+    // The way a film's water faces, lit as one sheet down the rock: out from the faces the rock closes in its rows
+    // (low to high), tilted up as much again as the face is steep; null where the rock closes none, or as many each way
+    // (its sides lit each its own way). Each column's four sides lit each its own way, a film down a face was a stair
+    // of lit and shaded prisms.
+    private static (float X, float Y, float Z)? SheetNormal(VoxelField field, int x, int z, (int Low, int High) part)
+    {
+        float outX = 0f, outZ = 0f;
+        for (int row = part.Low; row <= part.High; row++)
+        {
+            if (!field.Voxel(x, row, z, out BrickView view, out int i))
+            {
+                continue;
+            }
+
+            foreach ((int side, int dx, int dz) in FallSides)
+            {
+                if ((view.Open[i] & (1 << side)) == 0)
+                {
+                    outX -= dx;
+                    outZ -= dz;
+                }
             }
         }
 
-        if (part.High == run.Top && !field.IsWet(x, run.Top + 1, z))
+        float flat = (float)Math.Sqrt((outX * outX) + (outZ * outZ));
+        if (!(flat > 0f))
         {
-            at.Horizontal(this, top, true, reach, foam, shown);
+            return null;
         }
+
+        // Out from the rock, and up by SheetTilt of that.
+        float up = SheetTilt, length = (float)Math.Sqrt(1f + (up * up));
+        return (outX / flat / length, up / length, outZ / flat / length);
     }
 
     // The rows of a part of a film (column (x, z), rows low to high) the film of the column beside it (dx, dz) runs
@@ -486,24 +535,29 @@ internal sealed class VoxelShell
             reach[k] = (open & (1 << side)) != 0 && joins ? 0.5f * s : half;
         }
 
+        // Where the fall starts and ends, open to the air: its sides fade out toward its top and foot, and its caps
+        // toward their open edges.
+        bool starts = (open & (1 << 2)) != 0 && !field.IsWet(at.X, at.Y + 1, at.Z) && gapOver == 0;
+        bool ends = !field.IsWet(at.X, at.Y - 1, at.Z) && gapUnder == 0;
+        Open edges = Open.Ends | (starts ? Open.Top : Open.None) | (ends ? Open.Foot : Open.None);
         for (int k = 0; k < FallSides.Length; k++)
         {
             (int side, int dx, int dz) = FallSides[k];
             if ((open & (1 << side)) != 0 && reach[k] < 0.5f * s)
             {
                 // Across the face, to the right seen from outside: the reach toward the side the other way, and this one.
-                at.Side(this, dx, dz, reach[k], reach[Toward(dz, -dx)], reach[Toward(-dz, dx)], bottom, top, foam, 0.85f);
+                at.Side(this, dx, dz, reach[k], reach[Toward(dz, -dx)], reach[Toward(-dz, dx)], bottom, top, foam, 0.85f, edges);
             }
         }
 
-        if ((open & (1 << 2)) != 0 && !field.IsWet(at.X, at.Y + 1, at.Z) && gapOver == 0)
+        if (starts)
         {
-            at.Horizontal(this, top, true, reach, foam, 0.85f);
+            at.Horizontal(this, top, true, reach, foam, 0.85f, soft: true);
         }
 
-        if (!field.IsWet(at.X, at.Y - 1, at.Z) && gapUnder == 0)
+        if (ends)
         {
-            at.Horizontal(this, bottom, false, reach, foam, 0.85f);
+            at.Horizontal(this, bottom, false, reach, foam, 0.85f, soft: true);
         }
     }
 
@@ -539,8 +593,12 @@ internal sealed class VoxelShell
 
     private static float Clamp(float value) => Math.Max(0f, Math.Min(1f, value));
 
-    private void Corner(float x, float y, float z, (float X, float Y, float Z) normal, float u, float v, float foam, float shown, float fu, float fv)
+    private void Corner(float x, float y, float z, (float X, float Y, float Z) normal, float u, float v, float foam, float shown, float fu, float fv, (float A, float B, float C, float D) edges)
     {
+        Edges.Add(edges.A);
+        Edges.Add(edges.B);
+        Edges.Add(edges.C);
+        Edges.Add(edges.D);
         Positions.Add(x);
         Positions.Add(y);
         Positions.Add(z);
@@ -565,6 +623,17 @@ internal sealed class VoxelShell
         Triangles.Add(a);
         Triangles.Add(a + 2);
         Triangles.Add(a + 3);
+    }
+
+    // Which edges of a side stand open to the air, faded out by the shader (Edges): its ends where nothing beside joins
+    // them (soft), its top, its foot. None: a side of water standing, drawn whole to its edges.
+    [Flags]
+    private enum Open
+    {
+        None = 0,
+        Ends = 1,
+        Top = 2,
+        Foot = 4,
     }
 
     // A voxel being drawn: where it is, its size, the brick's middle (where the corners are measured from), its current.
@@ -605,18 +674,22 @@ internal sealed class VoxelShell
         private float MZ => (Z + 0.5f) * Size;
 
         // A side facing (dx, dz), reach metres from the voxel's middle, as wide each way, from bottom to top (world
-        // heights).
+        // heights); no edge of it open (water standing: its edges meet the ground, or the surface).
         public void Side(VoxelShell shell, int dx, int dz, float reach, float bottom, float top, float foam, float shown) =>
-            Side(shell, dx, dz, reach, reach, reach, bottom, top, foam, shown);
+            Side(shell, dx, dz, reach, reach, reach, bottom, top, foam, shown, Open.None);
 
         // A side facing (dx, dz), reach metres from the voxel's middle, from left metres to its left to right to its right
-        // (seen from outside), from bottom to top (world heights).
-        public void Side(VoxelShell shell, int dx, int dz, float reach, float left, float right, float bottom, float top, float foam, float shown)
+        // (seen from outside), from bottom to top (world heights); its ends open where they reach short of the voxel's
+        // face (nothing beside joins them), its top and foot where open says.
+        public void Side(VoxelShell shell, int dx, int dz, float reach, float left, float right, float bottom, float top, float foam, float shown, Open open, (float X, float Y, float Z)? normal = null)
         {
+            bool soft = open != Open.None;
+            float width = (left + right) / Size, height = (top - bottom) / Size;
             // Across the face, to the right seen from outside (for the east face, north).
             float ax = -dz, az = dx;
             float fx = MX + (dx * reach), fz = MZ + (dz * reach);
-            (float X, float Y, float Z) n = (dx, 0f, dz);
+            // Facing its way, or lit as the sheet it is part of.
+            (float X, float Y, float Z) n = normal ?? (dx, 0f, dz);
             float along = (VX * ax) + (VZ * az);
             float uA = (fx * ax) + (fz * az);
             for (int k = 0; k < 4; k++)
@@ -625,24 +698,40 @@ internal sealed class VoxelShell
                 float side = k < 2 ? -left : right;
                 float h = k is 0 or 3 ? bottom : top;
                 float px = fx + (ax * side), pz = fz + (az * side);
-                shell.Corner(px - Middle.X, h - Middle.Y, pz - Middle.Z, n, uA + side, h, foam, shown, along, VY);
+                bool atLeft = k < 2, atTop = k is 1 or 2;
+                (float, float, float, float) edges = (
+                    soft && Short(left) ? (atLeft ? 0f : width) : NoEdge,
+                    soft && Short(right) ? (atLeft ? width : 0f) : NoEdge,
+                    (open & Open.Top) != 0 ? (atTop ? 0f : height) : NoEdge,
+                    (open & Open.Foot) != 0 ? (atTop ? height : 0f) : NoEdge);
+                shell.Corner(px - Middle.X, h - Middle.Y, pz - Middle.Z, n, uA + side, h, foam, shown, along, VY, edges);
             }
 
             shell.Quad();
         }
 
         // A face across the voxel at a height, up or down, reach metres from its middle each way (east, west, north,
-        // south: FallSides' order).
-        public void Horizontal(VoxelShell shell, float height, bool up, float[] reach, float foam, float shown)
+        // south: FallSides' order); soft, its edges open where they reach short of the voxel's faces (a film's or a
+        // fall's cap: nothing beside joins it there).
+        public void Horizontal(VoxelShell shell, float height, bool up, float[] reach, float foam, float shown, bool soft = false)
         {
             (float X, float Y, float Z) n = (0f, up ? 1f : -1f, 0f);
+            float across = (reach[0] + reach[1]) / Size, along = (reach[2] + reach[3]) / Size;
             foreach ((int a, int b) in up ? UpCorners : DownCorners)
             {
                 float ra = a > 0 ? reach[0] : -reach[1], rb = b > 0 ? reach[2] : -reach[3];
-                shell.Corner(MX + ra - Middle.X, height - Middle.Y, MZ + rb - Middle.Z, n, MX + ra, MZ + rb, foam, shown, VX, VZ);
+                (float, float, float, float) edges = (
+                    soft && Short(reach[0]) ? (a > 0 ? 0f : across) : NoEdge,
+                    soft && Short(reach[1]) ? (a > 0 ? across : 0f) : NoEdge,
+                    soft && Short(reach[2]) ? (b > 0 ? 0f : along) : NoEdge,
+                    soft && Short(reach[3]) ? (b > 0 ? along : 0f) : NoEdge);
+                shell.Corner(MX + ra - Middle.X, height - Middle.Y, MZ + rb - Middle.Z, n, MX + ra, MZ + rb, foam, shown, VX, VZ, edges);
             }
 
             shell.Quad();
         }
+
+        // Whether a reach stops short of the voxel's face: nothing beside joins the face there, its edge is open.
+        private bool Short(float reach) => reach < 0.5f * Size * 0.999f;
     }
 }

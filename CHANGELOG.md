@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.55.1 — 2026-11-03
+
+### Fixed
+- Far away, water running down a cliff is a softer white sheet: each column's top and loose ends fade out along its
+  streaks instead of ending in a hard white box, and the rock shows through between the streaks.
+
 ## v0.55.0 — 2026-11-03
 
 ### Changed
