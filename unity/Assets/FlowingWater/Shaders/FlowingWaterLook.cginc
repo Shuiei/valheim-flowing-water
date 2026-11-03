@@ -344,9 +344,11 @@ void Look(Input i, inout SurfaceOutputStandard o)
     // Under the foam, the air it was churned from (as Crest's sea's bubbles): the foam texture blurred (a coarse mip),
     // seen a little under the surface (shifted by the view, so it moves apart from the foam on top as the eye moves),
     // running with the water, paling the water's body where the water carries foam (its churn: falls landing, the
-    // foam carried on downstream).
+    // foam carried on downstream). From above, the view meets them past the surface, beyond where it meets it; from
+    // under the water, before it: shifted the other way.
     float3 eyeDir = normalize(_WorldSpaceCameraPos - i.worldPos);
-    float2 under = -_FoamBubbleDepth * eyeDir.xz / max(eyeDir.y, 0.2);
+    float above = i.facing > 0.0 ? 1.0 : -1.0;
+    float2 under = -above * _FoamBubbleDepth * eyeDir.xz / max(abs(eyeDir.y), 0.2);
     float2 bubbleUv = (i.world + under) * _RapidsTiling * 0.74;
     float bubbles = (tex2Dlod(_FoamTex, float4(FlowPhase(bubbleUv, foamRun * 0.74, 0.4, fa), 0.0, 3.0)).r * fa) + (tex2Dlod(_FoamTex, float4(FlowPhase(bubbleUv, foamRun * 0.74, 0.9, fb), 0.0, 3.0)).r * fb);
     colour = lerp(colour, _FoamColor.rgb * lerp(_ColorTop.rgb, 1.0, 0.5), saturate(_FoamBubbles * bubbles * saturate(2.0 * i.water.w)));

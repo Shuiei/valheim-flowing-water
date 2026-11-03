@@ -34,33 +34,21 @@ internal sealed class SimGrid : IDisposable
     /// <summary>The units of <see cref="FoamAdded"/> in a cell wholly covered (the compute shaders' FOAM_SCALE).</summary>
     public const float FoamScale = 1000000f;
 
-    // The foam (Crest's foam simulation, over the card's water): it fades by this much a second (as Crest's sea's);
-    // water running into slower water beside it by FoamTrappedFrom (m/s, summed over its
-    // four sides) makes none, from FoamTrappedFull as much as FoamTrapped a second, water slower than FoamSlow (m/s)
-    // none, all it will from FoamFast.
+    // The foam (Crest's foam simulation, over the card's water): it fades by this much a second (as Crest's sea's), and
+    // where the water traps air (FlowingWaterTrapped.cginc, the spray's froth's rule too) makes as much as a whole
+    // cell's cover this many times a second, where it traps all it will.
     private const float FoamFade = 0.8f;
 
     private const float FoamTrapped = 1f;
 
-    private const float FoamTrappedFrom = 0.5f;
-
-    private const float FoamTrappedFull = 3f;
-
-    private const float FoamSlow = 1.5f;
-
-    private const float FoamFast = 5f;
-
     // Ripples (Crest's dynamic waves over the card's water): they run as fast as waves on the water's depth, this fast at
     // most (m/s), calm over this long (s), and a body coming into a cell's surface pushes it down this fast (m/s). A step
-    // of them crosses half a cell at most (as many steps as a frame takes).
+    // of them crosses half a cell at most (as many steps as a frame takes). Bodies: ParticleWater.MostBodies at most.
     private const float RippleFastest = 1.2f;
 
     private const float RippleCalm = 1.5f;
 
     private const float RipplePush = 0.4f;
-
-    /// <summary>Bodies in the water the ripples feel at most.</summary>
-    public const int MostBodies = 32;
 
     // A step is kept stable for water this deep running this fast (m, m/s): a wave crosses at most half a cell. Deeper
     // water carries its flow as if this deep (its waves a little slower), so the step never needs to be shorter.
@@ -128,10 +116,6 @@ internal sealed class SimGrid : IDisposable
     private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
     private static readonly int FoamFadeId = Shader.PropertyToID("_FoamFade");
     private static readonly int FoamTrappedId = Shader.PropertyToID("_FoamTrapped");
-    private static readonly int FoamTrappedFromId = Shader.PropertyToID("_FoamTrappedFrom");
-    private static readonly int FoamTrappedFullId = Shader.PropertyToID("_FoamTrappedFull");
-    private static readonly int FoamSlowId = Shader.PropertyToID("_FoamSlow");
-    private static readonly int FoamFastId = Shader.PropertyToID("_FoamFast");
     private static readonly int BodiesId = Shader.PropertyToID("_Bodies");
     private static readonly int BodyCountId = Shader.PropertyToID("_BodyCount");
     private static readonly int OriginId = Shader.PropertyToID("_Origin");
@@ -259,7 +243,7 @@ internal sealed class SimGrid : IDisposable
         Zero(_rippleSpeed);
         _occupied = MakeCells("occupied", cells);
         Zero(_occupied);
-        _bodies = new ComputeBuffer(MostBodies, 16 * sizeof(float));
+        _bodies = new ComputeBuffer(ParticleWater.MostBodies, 16 * sizeof(float));
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -460,12 +444,12 @@ internal sealed class SimGrid : IDisposable
 
     /// <summary>
     /// The bodies in the water this frame (ships' hulls, players, creatures: <see cref="ParticleWater.Body"/>, <see
-    /// cref="MostBodies"/> at most), the square's south-west corner at world x, z <paramref name="origin"/>: each pushes
-    /// the ripples where it comes into the water's surface or leaves it.
+    /// cref="ParticleWater.MostBodies"/> at most), the square's south-west corner at world x, z <paramref
+    /// name="origin"/>: each pushes the ripples where it comes into the water's surface or leaves it.
     /// </summary>
     public void SetBodies(List<ParticleWater.Body> bodies, Vector2 origin)
     {
-        _bodyCount = Math.Min(bodies.Count, MostBodies);
+        _bodyCount = Math.Min(bodies.Count, ParticleWater.MostBodies);
         if (_bodyCount > 0)
         {
             _bodies.SetData(bodies, 0, 0, _bodyCount);
@@ -700,10 +684,6 @@ internal sealed class SimGrid : IDisposable
         _shader.SetFloat(FrameId, seconds);
         _shader.SetFloat(FoamFadeId, FoamFade);
         _shader.SetFloat(FoamTrappedId, FoamTrapped);
-        _shader.SetFloat(FoamTrappedFromId, FoamTrappedFrom);
-        _shader.SetFloat(FoamTrappedFullId, FoamTrappedFull);
-        _shader.SetFloat(FoamSlowId, FoamSlow);
-        _shader.SetFloat(FoamFastId, FoamFast);
         Dispatch(_carryFoam, Cells);
         _foamCurrent = 1 - _foamCurrent;
     }
