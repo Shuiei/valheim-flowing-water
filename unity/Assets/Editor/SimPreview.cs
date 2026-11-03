@@ -770,10 +770,9 @@ public static class SimPreview
 
         float stillMost = Read(scene.Grid.Ripple).Max(Mathf.Abs);
         float most = 0f, behind = 0f, ahead = 0f, dry = 0f;
-        float x = 12f;
         for (int k = 1; k <= 180; k++)
         {
-            x = 12f + (3f * k * Frame);
+            float x = 12f + (3f * k * Frame);
             bodies.Clear();
             bodies.Add(ParticleWater.Body.Sphere(new Vector3(x, 1f, 20f), 0.4f));
             scene.Grid.SetBodies(bodies, Vector2.zero);
