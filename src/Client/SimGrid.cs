@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FlowingWater.Client;
@@ -39,6 +40,15 @@ internal sealed class SimGrid : IDisposable
     private const float FoamFade = 0.8f;
 
     private const float FoamTrapped = 1f;
+
+    // Ripples (Crest's dynamic waves over the card's water): they run as fast as waves on the water's depth, this fast at
+    // most (m/s), calm over this long (s), and a body coming into a cell's surface pushes it down this fast (m/s). A step
+    // of them crosses half a cell at most (as many steps as a frame takes). Bodies: ParticleWater.MostBodies at most.
+    private const float RippleFastest = 1.2f;
+
+    private const float RippleCalm = 1.5f;
+
+    private const float RipplePush = 0.4f;
 
     // A step is kept stable for water this deep running this fast (m, m/s): a wave crosses at most half a cell. Deeper
     // water carries its flow as if this deep (its waves a little slower), so the step never needs to be shorter.
@@ -106,6 +116,16 @@ internal sealed class SimGrid : IDisposable
     private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
     private static readonly int FoamFadeId = Shader.PropertyToID("_FoamFade");
     private static readonly int FoamTrappedId = Shader.PropertyToID("_FoamTrapped");
+    private static readonly int BodiesId = Shader.PropertyToID("_Bodies");
+    private static readonly int BodyCountId = Shader.PropertyToID("_BodyCount");
+    private static readonly int OriginId = Shader.PropertyToID("_Origin");
+    private static readonly int RippleInId = Shader.PropertyToID("_RippleIn");
+    private static readonly int RippleOutId = Shader.PropertyToID("_RippleOut");
+    private static readonly int RippleSpeedId = Shader.PropertyToID("_RippleSpeed");
+    private static readonly int OccupiedId = Shader.PropertyToID("_Occupied");
+    private static readonly int RippleFastestId = Shader.PropertyToID("_RippleFastest");
+    private static readonly int RippleCalmId = Shader.PropertyToID("_RippleCalm");
+    private static readonly int RipplePushId = Shader.PropertyToID("_RipplePush");
 
     private readonly ComputeShader _shader;
 
@@ -123,6 +143,8 @@ internal sealed class SimGrid : IDisposable
     private readonly int _shiftCells;
     private readonly int _shape;
     private readonly int _carryFoam;
+    private readonly int _rippleBodies;
+    private readonly int _ripples;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -138,6 +160,16 @@ internal sealed class SimGrid : IDisposable
     private readonly RenderTexture[] _foam = new RenderTexture[2];
 
     private int _foamCurrent;
+
+    // The ripples' height in two (a step reads one and writes the other), their speed up, the bodies' share of each
+    // cell's surface last frame; the bodies (ParticleWater.Body's layout) and how many, and the square's corner (world).
+    private readonly RenderTexture[] _ripple = new RenderTexture[2];
+    private readonly RenderTexture _rippleSpeed;
+    private readonly RenderTexture _occupied;
+    private readonly ComputeBuffer _bodies;
+    private int _rippleCurrent;
+    private int _bodyCount;
+    private Vector2 _origin;
     private readonly float[] _targetPixels;
     private readonly float[] _noLayers;
 
@@ -199,6 +231,19 @@ internal sealed class SimGrid : IDisposable
         }
 
         FoamAdded = MakeCells("foam added", cells, RenderTextureFormat.RInt);
+        _rippleBodies = shader.FindKernel("RippleBodies");
+        _ripples = shader.FindKernel("Ripples");
+        for (int k = 0; k < 2; k++)
+        {
+            _ripple[k] = MakeCells("ripples " + k, cells);
+            Zero(_ripple[k]);
+        }
+
+        _rippleSpeed = MakeCells("ripple speed", cells);
+        Zero(_rippleSpeed);
+        _occupied = MakeCells("occupied", cells);
+        Zero(_occupied);
+        _bodies = new ComputeBuffer(ParticleWater.MostBodies, 16 * sizeof(float));
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -254,6 +299,9 @@ internal sealed class SimGrid : IDisposable
     /// where falling water lands, where water runs into slower water and where the spray leaves foam (<see cref="FoamAdded"/>).
     /// </summary>
     public RenderTexture Foam => _foam[_foamCurrent];
+
+    /// <summary>The ripples' height over the water's level in each cell (m), as the bodies in the water push them.</summary>
+    public RenderTexture Ripple => _ripple[_rippleCurrent];
 
     /// <summary>The foam the spray left on each cell since the last frame (<see cref="FoamScale"/> times the share covered), taken in by <see cref="Step"/>.</summary>
     public RenderTexture FoamAdded { get; }
@@ -394,6 +442,22 @@ internal sealed class SimGrid : IDisposable
         Free(texture);
     }
 
+    /// <summary>
+    /// The bodies in the water this frame (ships' hulls, players, creatures: <see cref="ParticleWater.Body"/>, <see
+    /// cref="ParticleWater.MostBodies"/> at most), the square's south-west corner at world x, z <paramref
+    /// name="origin"/>: each pushes the ripples where it comes into the water's surface or leaves it.
+    /// </summary>
+    public void SetBodies(List<ParticleWater.Body> bodies, Vector2 origin)
+    {
+        _bodyCount = Math.Min(bodies.Count, ParticleWater.MostBodies);
+        if (_bodyCount > 0)
+        {
+            _bodies.SetData(bodies, 0, 0, _bodyCount);
+        }
+
+        _origin = origin;
+    }
+
     /// <summary>Sets every cell's foam (0 to 1, a row after another): for previews and tests.</summary>
     public void SetFoam(float[] foam)
     {
@@ -452,6 +516,7 @@ internal sealed class SimGrid : IDisposable
 
         Substeps = steps;
         CarryFoam(seconds);
+        MoveRipples(seconds);
         if (!Pulled)
         {
             return;
@@ -493,6 +558,12 @@ internal sealed class SimGrid : IDisposable
         Graphics.CopyTexture(_scale, Churn);
         ShiftInto(_foam[_foamCurrent], _foam[1 - _foamCurrent], 0f);
         _foamCurrent = 1 - _foamCurrent;
+        ShiftInto(_ripple[_rippleCurrent], _ripple[1 - _rippleCurrent], 0f);
+        _rippleCurrent = 1 - _rippleCurrent;
+        ShiftInto(_rippleSpeed, _scale, 0f);
+        Graphics.CopyTexture(_scale, _rippleSpeed);
+        ShiftInto(_occupied, _scale, 0f);
+        Graphics.CopyTexture(_scale, _occupied);
         ClearThrown();
     }
 
@@ -518,12 +589,13 @@ internal sealed class SimGrid : IDisposable
 
     public void Dispose()
     {
-        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn, Churn, _foam[0], _foam[1], FoamAdded })
+        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn, Churn, _foam[0], _foam[1], FoamAdded, _ripple[0], _ripple[1], _rippleSpeed, _occupied })
         {
             texture.Release();
             Free(texture);
         }
 
+        _bodies.Release();
         Free(Target);
         Free(Layers);
         _bedRows?.Release();
@@ -614,6 +686,36 @@ internal sealed class SimGrid : IDisposable
         _shader.SetFloat(FoamTrappedId, FoamTrapped);
         Dispatch(_carryFoam, Cells);
         _foamCurrent = 1 - _foamCurrent;
+    }
+
+    // The ripples over a frame of this many seconds: the bodies' push, then as many steps as crossing half a cell at most
+    // takes.
+    private void MoveRipples(float seconds)
+    {
+        foreach (int kernel in new[] { _rippleBodies, _ripples })
+        {
+            Bind(kernel, HId, _h[_current]);
+            Bind(kernel, BedId, Bed);
+            Bind(kernel, RippleSpeedId, _rippleSpeed);
+            Bind(kernel, OccupiedId, _occupied);
+        }
+
+        _shader.SetBuffer(_rippleBodies, BodiesId, _bodies);
+        _shader.SetInt(BodyCountId, _bodyCount);
+        _shader.SetVector(OriginId, _origin);
+        _shader.SetFloat(RippleFastestId, RippleFastest);
+        _shader.SetFloat(RippleCalmId, RippleCalm);
+        _shader.SetFloat(RipplePushId, RipplePush);
+        Dispatch(_rippleBodies, Cells);
+        int steps = Math.Max(1, (int)Math.Ceiling(RippleFastest * seconds / (0.5f * CellSize)));
+        _shader.SetFloat(DtId, seconds / steps);
+        for (int k = 0; k < steps; k++)
+        {
+            _shader.SetTexture(_ripples, RippleInId, _ripple[_rippleCurrent]);
+            Bind(_ripples, RippleOutId, _ripple[1 - _rippleCurrent]);
+            Dispatch(_ripples, Cells);
+            _rippleCurrent = 1 - _rippleCurrent;
+        }
     }
 
     private void BindLanded(int kernel)

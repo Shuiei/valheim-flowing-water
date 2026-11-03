@@ -105,6 +105,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
     private static readonly int FrothCrowdId = Shader.PropertyToID("_FrothCrowd");
     private static readonly int WaterDepthId = Shader.PropertyToID("_SprayWaterDepth");
+    private static readonly int WaterRippleId = Shader.PropertyToID("_SprayWaterRipple");
     private static readonly int WaterOriginId = Shader.PropertyToID("_SprayWaterOrigin");
     private static readonly int WaterCellId = Shader.PropertyToID("_SprayWaterCell");
     private static readonly int WaterCellsId = Shader.PropertyToID("_SprayWaterCells");
@@ -250,6 +251,7 @@ internal sealed class SprayParticles : IDisposable
 
         // What the shader raises foam on: the water's depth, its cells and where they start (the long waves stand on it).
         Properties.SetTexture(WaterDepthId, grid.Depth);
+        Properties.SetTexture(WaterRippleId, grid.Ripple);
         Properties.SetVector(WaterOriginId, origin);
         Properties.SetFloat(WaterCellId, grid.CellSize);
         Properties.SetInt(WaterCellsId, grid.Cells);

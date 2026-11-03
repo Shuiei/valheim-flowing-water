@@ -2,6 +2,11 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.52.0 — 2026-11-02
+
+### Added
+- Swimmers, creatures and boats moving through the water near you leave a wake and rings behind them.
+
 ## v0.51.0 — 2026-11-02
 
 ### Added

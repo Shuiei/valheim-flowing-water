@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -59,6 +60,7 @@ public static class SimPreview
                 ("froth", () => Froth(true)),
                 ("froth-off", () => Froth(false)),
                 ("foam", Foam),
+                ("ripples", Ripples),
                 ("look", LookOnly),
                 ("edge", Edge),
                 ("bumps", Bumps),
@@ -309,6 +311,24 @@ public static class SimPreview
         }
 
         scene.Spray = null;
+    }
+
+    // A field of the square's cells written as a picture (a pixel a cell, north up): grey where it is 0, white at +most,
+    // black at -most.
+    private static void Field(string file, float[] values, float most)
+    {
+        var picture = new Texture2D(Cells, Cells, TextureFormat.RGB24, false);
+        var pixels = new Color32[Cells * Cells];
+        for (int k = 0; k < pixels.Length; k++)
+        {
+            byte grey = (byte)Mathf.RoundToInt(255f * Mathf.Clamp01(0.5f + (0.5f * values[k] / most)));
+            pixels[k] = new Color32(grey, grey, grey, 255);
+        }
+
+        picture.SetPixels32(pixels);
+        picture.Apply(false);
+        File.WriteAllBytes(Path.Combine(_output, file + ".png"), picture.EncodeToPNG());
+        UnityEngine.Object.DestroyImmediate(picture);
     }
 
     private static int[] ReadWhole(RenderTexture texture)
@@ -728,6 +748,68 @@ public static class SimPreview
 
     // The waves' height at this speed (m/s) and depth (m), by the shaders' rule (FlowingWaterWaves.cginc).
     private static float WaveHeight(float speed, float depth) => depth > 0.005f ? Mathf.Min(0.015f * speed * speed, 0.15f, 0.25f * depth) : 0f;
+
+    // Ripples (SimGrid.Ripple, Crest's dynamic waves): a still pool 1 m deep has none; a ball 0.8 m across, half in the
+    // water, pushed across it at 3 m/s leaves a wake behind it (it outruns its own ripples, 1.2 m/s at most: none far
+    // ahead), within 30 cm; once it is taken out the pool calms; the tank's walls (no water) hold none; the water's depth
+    // is not changed.
+    private static void Ripples()
+    {
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        float[] tank = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : 0f);
+        using var scene = new Scene("ripples", tank);
+        scene.Grid.Pulled = false;
+        scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 34f && z > 12f && z < 28f ? 1f : 0f));
+        float[] before = scene.Read();
+        var bodies = new List<ParticleWater.Body>();
+        scene.Grid.SetBodies(bodies, Vector2.zero);
+        for (int k = 0; k < 60; k++)
+        {
+            scene.Step();
+        }
+
+        float stillMost = Read(scene.Grid.Ripple).Max(Mathf.Abs);
+        float most = 0f, behind = 0f, ahead = 0f, dry = 0f;
+        for (int k = 1; k <= 180; k++)
+        {
+            float x = 12f + (3f * k * Frame);
+            bodies.Clear();
+            bodies.Add(ParticleWater.Body.Sphere(new Vector3(x, 1f, 20f), 0.4f));
+            scene.Grid.SetBodies(bodies, Vector2.zero);
+            scene.Step();
+            if (k % 30 == 0)
+            {
+                float[] ripple = Read(scene.Grid.Ripple);
+                for (int c = 0; c < ripple.Length; c++)
+                {
+                    float cx = ((c % Cells) + 0.5f) * Dx;
+                    float r = Mathf.Abs(ripple[c]);
+                    most = Mathf.Max(most, r);
+                    behind = cx < x - 2f ? Mathf.Max(behind, r) : behind;
+                    ahead = cx > x + 3f ? Mathf.Max(ahead, r) : ahead;
+                    dry = cx < 6f ? Mathf.Max(dry, r) : dry;
+                }
+            }
+
+            if (k is 90 or 150)
+            {
+                scene.Shot(Inv($"ripples_{k * Frame:0.0}s"), new Vector3(x - 8f, 1.6f, 16f), new Vector3(x - 2f, 1f, 20f));
+                Field(Inv($"ripples-field_{k * Frame:0.0}s"), Read(scene.Grid.Ripple), 0.03f);
+            }
+        }
+
+        bodies.Clear();
+        scene.Grid.SetBodies(bodies, Vector2.zero);
+        for (int k = 0; k < 360; k++)
+        {
+            scene.Step();
+        }
+
+        float calmed = Read(scene.Grid.Ripple).Max(Mathf.Abs);
+        float changed = scene.Read().Zip(before, (a, b) => Mathf.Abs(a - b)).Max();
+        Log.AppendLine(Inv($"Ripples: still pool {stillMost * 100f:0.00} cm; a ball pushed across, {most * 100f:0.0} cm at most, {behind * 100f:0.0} cm behind it, {ahead * 100f:0.00} cm far ahead: {Check(stillMost <= 0f && most > 0.01f && most <= 0.3f && behind > 0.005f && ahead < 0.002f)}"));
+        Log.AppendLine(Inv($"Ripples: 6 s after it is taken out {calmed * 100f:0.00} cm; on dry ground {dry * 100f:0.00} cm; the water's depth changed by {changed:0.000000} m: {Check(calmed < 0.1f * most && dry <= 0f && changed <= 0f)}"));
+    }
 
     // The card's foam carried with the current (SimGrid.Foam, Crest's foam simulation): in a still pool a patch of foam
     // stays where it is and fades by the rate (0.8 of it a second: e^-1.6 after 2 s), and none is made; on dry ground there
@@ -1190,6 +1272,7 @@ public static class SimPreview
             _water.SetTexture("_SimBed", Grid.Bed);
             _water.SetTexture("_SimChurn", Grid.Churn);
             _water.SetTexture("_SimFoam", NoFoam ? Texture2D.blackTexture : Grid.Foam);
+            _water.SetTexture("_SimRipple", Grid.Ripple);
             _water.SetTexture("_SimU", Grid.SpeedEast);
             _water.SetTexture("_SimV", Grid.SpeedNorth);
             _water.SetFloat("_SimCells", Cells);
