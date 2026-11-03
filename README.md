@@ -139,8 +139,8 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.SprayFroth` | true | With `Client.Spray`, the spray sorted into spray, foam and bubbles by where it is against the water: droplets landing on water foam and drift with the current, a fall plunging into a pool drives bubbles that rise to foam, water slamming into slower water lets foam and bubbles go, spray in a crowd is mist (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = droplets end where they land |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
 | `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
-| `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
-| `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 128; the card's square is this at most then); more costs the card more, by the square, and a wide square of small cells is cut down in height to what the card runs at once (128 m of 0.5 m cells leaves 15.5 m; 96 m, 28 m; 64 m, 48 m) |
+| `Client.VolumeWater` | false | A prototype: the water round you as one body of fluid on the graphics card, in a box inside the sheet's square (and in place of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
+| `Client.VolumeRange` | 32 | Side of the square round you the volume water fills, metres (16 to 128; a box inside the card's square, which the sheet moves and draws round it); more costs the card more, by the square, and a wide square of small cells is cut down in height to what the card runs at once (128 m of 0.5 m cells leaves 15.5 m; 96 m, 28 m; 64 m, 48 m) |
 | `Client.VolumeHeight` | 32 | Height of the volume water's grid, metres (8 to 64), about you with seven tenths of it above you: water above or below it is the server's, and comes into the grid as it falls in (cut to what the card runs at once: 31.75 m for a 32 m square of 0.25 m cells) |
 | `Client.VolumeCapacity` | 1048576 | Particles of the volume water at most (65536 to 4194304; eight to a cell of 0.25 m: a million is 2000 m³); where the water round you would take more than three quarters of them, only the top metres of deep water move (at least 1 m), the rest staying the server's |
 | `Client.VolumeFroth` | 1 | How much spray, foam and bubbles the volume water throws where it is violent (0 none, 1 as tuned, up to 4 for a wilder water); particles of their own, a quarter of `VolumeCapacity` at most |
@@ -394,9 +394,11 @@ The console's block stays where the card's square leaves it.
 
 ### Volume water (a prototype)
 
-With `Client.VolumeWater`, the water near you is one body of fluid on the graphics card (`src/Client/VolumeWater.cs`,
-`unity/Assets/FlowingWater/Shaders/FlowingWaterVolume.compute`), in place of the sheet and of the particle prototype
-above, with a renderer of its own (below). It is a hybrid of particles and a grid (FLIP, Zhu and Bridson 2005):
+With `Client.VolumeWater`, the water round you is one body of fluid on the graphics card (`src/Client/VolumeWater.cs`,
+`unity/Assets/FlowingWater/Shaders/FlowingWaterVolume.compute`), in place of the particle prototype above, with a
+renderer of its own (below). It fills a box round you inside the card's square; the sheet moves and draws the rest of
+that square as it does without it (until 0.55.0 the card's square shrank to the box, and water beyond it, or under it
+down a cliff, was left to the coarse far drawing, a stair of white slabs), its falls and spray left out of the box. It is a hybrid of particles and a grid (FLIP, Zhu and Bridson 2005):
 the particles carry the water, each a cube of water half a cell on a side (eight to a cell of the card's 0.25 m
 cells), and move with it; each step their velocity is put on a staggered grid, gravity is added, and a pressure is
 solved over the cells that hold water so that no cell makes or loses any (with a small correction for cells that hold
@@ -440,9 +442,10 @@ high at least), its cells kept full of particles leaving the way it sends them t
 up to half its spread toward its ends and thrown up, at the outlet's speed scaled toward giving its rate. A source
 of 5 m³/s or more foams too, to show its power: its lens's top lets bubbles go, all it will from 50 m³/s (6 a second
 from each top cell, at `VolumeFroth` 1), which rise to foam over it and are carried off with its water; a drain takes its rate of particles within its reach. The server's config's fixed sources and
-drains have no marker to see: their water comes in at the edge as the server's other water does. The square is the
-card's square (round you, the player, not the camera: a free camera does not drag the water away), no wider than
-`Client.VolumeRange`; the grid is `Client.VolumeHeight` tall, with seven tenths of it above
+drains have no marker to see: their water comes in at the edge as the server's other water does. The box is
+`Client.VolumeRange` a side, round you (the player, not the camera: a free camera does not drag the water away), and
+moves on as the card's square does, once you are a quarter of it from its middle, always inside that square; what is
+built is read for the box alone. The grid is `Client.VolumeHeight` tall, with seven tenths of it above
 you (water comes to you from above more than from below: a fall is looked up at from its foot), following you up and down; water the server has above the
 grid comes in through the grid's top row as the water beyond its sides comes in through the band along them, so a
 fall from a height the grid does not reach still falls through it.

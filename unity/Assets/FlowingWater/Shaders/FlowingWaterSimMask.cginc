@@ -10,15 +10,14 @@ float _FWSimOn;
 float2 _FWSimOrigin;
 float _FWSimSize;
 sampler2D _FWSimTarget;
-// The volume water: it draws the whole square itself (the texels say nothing of what it holds), but for a band
-// _FWSimEdge metres wide along the square's sides, where it fades out and the bricks draw as the texels say; and only
-// between _FWSimBottom and _FWSimTop (world y), the grid's height, which follows the camera: water in the square above
-// or below the grid is the bricks' to draw.
+// The volume water: a box inside the square, round the camera, that it draws itself (the texels say nothing of what
+// it holds), but for a band _FWSimEdge metres wide along its sides, top and bottom, where it fades out and the card's
+// water draws as the texels say. _FWSimFilled is the part of its box it has filled (world x, z of its south-west
+// corner, then of its north-east one): the box, but for the strip a move of it uncovered until that strip has taken the
+// server's water (left to the volume, it stood empty until its water ran in from the side). _FWSimBottom and _FWSimTop
+// are its grid's height (world y), which follows the camera: water above or below it is the card's, or the bricks'.
 float _FWSimWhole;
 float _FWSimEdge;
-// The part of the square the volume has filled (world x, z of its south-west corner, then of its north-east one):
-// the square, but for the strip a move of it uncovered until that strip has taken the server's water (the bricks
-// draw it meanwhile: left to the volume, it stood empty until its water ran in from the side).
 float4 _FWSimFilled;
 float _FWSimBottom;
 float _FWSimTop;
@@ -27,6 +26,9 @@ float _FWSimTop;
 // draws where (the card's water blue, a brick's surface red, the sides and falls yellow).
 float _FWDebugColours;
 
+// (A shader drawn without the surface lighting, the spray's and the falls', defines FLOWINGWATER_SIM_MASK_PLAIN before
+// including this: it has no SurfaceOutputStandard.)
+#ifndef FLOWINGWATER_SIM_MASK_PLAIN
 void DebugColour(inout SurfaceOutputStandard o, float3 colour)
 {
     if (_FWDebugColours > 0.5)
@@ -36,11 +38,27 @@ void DebugColour(inout SurfaceOutputStandard o, float3 colour)
         o.Alpha = max(o.Alpha, 0.7);
     }
 }
+#endif
 
-// Whether the water moved on the card draws the water at this world place (y the water's height there).
-bool SimDraws(float3 world)
+// Whether the volume water draws the water at this world place (y the water's height there): inside the part of its box
+// it filled, but for the band along its sides, top and bottom (a stream down a hill taller than the grid blends from
+// one into the other, not a seam across it).
+bool VolumeDraws(float3 world)
 {
-    if (_FWSimOn < 0.5)
+    if (_FWSimOn < 0.5 || _FWSimWhole < 0.5)
+    {
+        return false;
+    }
+
+    float2 edge = min(world.xz - _FWSimFilled.xy, _FWSimFilled.zw - world.xz);
+    return min(edge.x, edge.y) > _FWSimEdge && world.y >= _FWSimBottom + _FWSimEdge && world.y <= _FWSimTop - _FWSimEdge;
+}
+
+// Whether the card's sheet of water draws the water at this world place: in its square, where the texels give it the
+// column, and not where the volume draws it.
+bool CardDraws(float3 world)
+{
+    if (_FWSimOn < 0.5 || VolumeDraws(world))
     {
         return false;
     }
@@ -51,16 +69,14 @@ bool SimDraws(float3 world)
         return false;
     }
 
-    float2 edge = min(world.xz - _FWSimFilled.xy, _FWSimFilled.zw - world.xz);
-    if (_FWSimWhole > 0.5 && min(edge.x, edge.y) > _FWSimEdge)
-    {
-        // The volume draws within its grid's height but for a band as wide along its top and bottom, where it fades
-        // out as at the square's sides and the bricks draw the water beyond (a stream down a hill taller than the
-        // grid blends from one into the other, not a seam across it).
-        return world.y >= _FWSimBottom + _FWSimEdge && world.y <= _FWSimTop - _FWSimEdge;
-    }
-
     return tex2Dlod(_FWSimTarget, float4(uv, 0.0, 0.0)).y > 0.5;
+}
+
+// Whether the water moved on the card, the sheet or the volume, draws the water at this world place (a brick then
+// does not).
+bool SimDraws(float3 world)
+{
+    return VolumeDraws(world) || CardDraws(world);
 }
 
 #endif

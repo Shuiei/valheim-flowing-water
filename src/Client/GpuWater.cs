@@ -98,8 +98,13 @@ internal sealed class GpuWater : IDisposable
     // scene by the camera.
     private ParticleWater _particles;
 
-    // The volume water (Client.VolumeWater): the water near the camera as one body of fluid, in place of the sheet.
+    // The volume water (Client.VolumeWater): the water round the camera as one body of fluid, in a box inside the
+    // square (its own square, Client.VolumeRange, and a height that follows the camera), the sheet drawing the rest.
     private VolumeWater _volume;
+
+    // The volume's square: inside the card's, moved on with the camera as the card's is (a quarter of it from its
+    // middle), or kept in it when the card's moves.
+    private SimWindow _volumeWindow;
 
     private bool _volumeSeeded;
 
@@ -108,8 +113,8 @@ internal sealed class GpuWater : IDisposable
     // none of the server's water yet and stood empty until its water ran in from the side).
     private int _volumeReseed;
 
-    // The part of the square the volume has filled, world x, z of its south-west and north-east corners: the square,
-    // but for a strip a move uncovered until it is poured (the bricks draw it meanwhile, _FWSimFilled).
+    // The part of its square the volume has filled, world x, z of its south-west and north-east corners: its square,
+    // but for a strip a move uncovered until it is poured (the sheet draws it meanwhile, _FWSimFilled).
     private Vector4 _volumeFilled;
 
     // When the square last moved (Time.time), for the log's time to pour its strip; and the ground's casts taken in
@@ -211,11 +216,16 @@ internal sealed class GpuWater : IDisposable
 
     private int _builtBase = int.MinValue;
 
-    // The square the solids were taken for: the particles get them only while it is the square (the square moved on,
-    // they would stand the move's columns away from the pieces until the next build).
+    // The square the solids were taken for, and the one the build under way takes them for: the card's (the particles
+    // get them only while it is the card's square: it moved on, they would stand the move's columns away from the
+    // pieces until the next build), or the volume's box (it reads them by their own place, and alone feels them: the
+    // card's whole square of them, 64 times as much at the ranges set by default, built and sent for each change of
+    // the water, was for nothing).
     private SimWindow _solidsWindow;
 
-    private float _cameraY;
+    private SimWindow _buildingSolidsWindow;
+
+    private Vector3 _camera;
 
     private int _builtGround = -1;
 
@@ -383,7 +393,7 @@ internal sealed class GpuWater : IDisposable
             found += float.IsNaN(ground) || ground >= BedCast.Wall ? 0 : 1;
         }
 
-        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water from y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._cameraY:0.0}); filled from {_water._volumeFilled.x:0}, {_water._volumeFilled.y:0} to {_water._volumeFilled.z:0}, {_water._volumeFilled.w:0}{(_water._volumeReseed > 0 ? $", {_water._volumeReseed} cells of its sides to pour" : string.Empty)}; {_water._volume.DescribeSources()}");
+        string volume = _water._volume == null ? string.Empty : FormattableString.Invariant($"; the volume water in a {_water._volumeWindow.Size:0} m box from {_water._volumeWindow.X0 * _water._volumeWindow.VoxelSize:0}, {_water._volumeWindow.Z0 * _water._volumeWindow.VoxelSize:0}, y = {_water._volume.Origin.y:0.0} to {_water._volume.Origin.y + _water._volume.Size.y:0.0} ({_water._volume.LastCount} particles, {_water._volume.FrothCount} of froth, the camera at {_water._camera.y:0.0}); filled from {_water._volumeFilled.x:0}, {_water._volumeFilled.y:0} to {_water._volumeFilled.z:0}, {_water._volumeFilled.w:0}{(_water._volumeReseed > 0 ? $", {_water._volumeReseed} cells of its sides to pour" : string.Empty)}; {_water._volume.DescribeSources()}");
         string built = _built == null ? string.Empty : FormattableString.Invariant($"; what is built round it: {_built.Objects} solid objects, {_built.Bricks.Count} blocks of voxels holding some, looked over in {_built.LookMilliseconds:0.0} ms");
         return FormattableString.Invariant(
             $"water on the graphics card: {w.Size:0} m square from {w.X0 * w.VoxelSize:0}, {w.Z0 * w.VoxelSize:0}, {w.Cells} cells of {w.CellSize:0.###} m; ground found under {100f * found / _water._ground.Length:0}% of it; {_water._grid.Substeps} steps a frame; {(_water._seeded ? "drawn" : "waiting for the server's water")}{volume}{built}");
@@ -478,9 +488,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         Settings settings = FlowingWaterPlugin.Settings;
-        // With the volume water, the card's square is the volume's: no wider than its range.
-        float range = settings.VolumeWater.Value ? Math.Min(settings.GpuWaterRange.Value, settings.VolumeRange.Value) : settings.GpuWaterRange.Value;
-        var window = SimWindow.Around(camera.x, camera.z, VoxelWater.Field.VoxelSize, range, settings.GpuWaterCell.Value);
+        var window = SimWindow.Around(camera.x, camera.z, VoxelWater.Field.VoxelSize, settings.GpuWaterRange.Value, settings.GpuWaterCell.Value);
         bool reshaped = _water != null && (_water._window.VoxelSize != window.VoxelSize || _water._window.Columns != window.Columns || _water._window.PerVoxel != window.PerVoxel);
         if (_water != null && (reshaped || !_water._window.Keeps(camera.x, camera.z)))
         {
@@ -510,7 +518,7 @@ internal sealed class GpuWater : IDisposable
         }
 
         _water ??= Made(window, material, compute);
-        _water._cameraY = camera.y;
+        _water._camera = camera;
         _water.Frame(NearBricks);
     }
 
@@ -611,25 +619,27 @@ internal sealed class GpuWater : IDisposable
             return;
         }
 
-        // The volume water, or the particle water, as the water near the camera: the sheet is neither moved nor drawn
-        // then, nor its spray; the bricks still draw beyond the square and where the card draws nothing (the texels say
-        // where).
+        // The particle water as the water near the camera: the sheet is neither moved nor drawn then, nor its spray; the
+        // bricks still draw beyond the square and where the card draws nothing (the texels say where). The volume
+        // water takes only its box round the camera: the sheet moves and draws the rest of the square, as it does
+        // without it (a stream running out of the box, or down a cliff under it, is the sheet's, not the bricks').
         if (!FlowingWaterPlugin.Settings.VolumeWater.Value && _volume != null)
         {
             // Switched off: its memory given back, and its last drawing taken off the camera (the particle water, if
             // any, makes the surface again as it needs).
-            _volume.Dispose();
-            _volume = null;
-            _volumeSurface?.Dispose();
-            _volumeSurface = null;
-            if (_particles == null)
-            {
-                _surface?.Dispose();
-                _surface = null;
-            }
+            DropVolume();
         }
 
-        bool own = FlowingWaterPlugin.Settings.VolumeWater.Value ? Volume() : Particles();
+        bool volume = false, own = false;
+        if (FlowingWaterPlugin.Settings.VolumeWater.Value)
+        {
+            volume = Volume();
+        }
+        else
+        {
+            own = Particles();
+        }
+
         if (own)
         {
             if (_spray != null)
@@ -643,15 +653,7 @@ internal sealed class GpuWater : IDisposable
             Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
             Shader.SetGlobalFloat(SizeId, _window.Size);
             Shader.SetGlobalTexture(TargetId, _grid.Target);
-            // The volume draws the whole square itself (its water is its own, whatever the server's columns say), but
-            // for the band along its sides where it fades into the bricks.
-            Shader.SetGlobalFloat(WholeId, _volume != null ? 1f : 0f);
-            Shader.SetGlobalFloat(EdgeId, VolumeFollow.BandMetres);
-            Shader.SetGlobalVector(FilledId, _volume != null ? _volumeFilled : Square());
-            // Within the grid's height only (it follows the camera): water in the square above or below it is the
-            // bricks' to draw, as the water beyond the square is.
-            Shader.SetGlobalFloat(BottomId, _volume != null ? _volume.Origin.y : 0f);
-            Shader.SetGlobalFloat(TopId, _volume != null ? _volume.Origin.y + _volume.Size.y : 0f);
+            Shader.SetGlobalFloat(WholeId, 0f);
             _renderer.enabled = false;
             return;
         }
@@ -663,7 +665,14 @@ internal sealed class GpuWater : IDisposable
         _grid.Step(Time.deltaTime);
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);
-        Shader.SetGlobalFloat(WholeId, 0f);
+        // The volume draws its box itself (its water is its own, whatever the server's columns say), but for the band
+        // along its sides, top and bottom where it fades into the sheet; and only within its grid's height (it follows
+        // the camera): water in the box above or below it is the sheet's to draw, as the water beyond the box is.
+        Shader.SetGlobalFloat(WholeId, volume ? 1f : 0f);
+        Shader.SetGlobalFloat(EdgeId, VolumeFollow.BandMetres);
+        Shader.SetGlobalVector(FilledId, volume ? _volumeFilled : Vector4.zero);
+        Shader.SetGlobalFloat(BottomId, volume ? _volume.Origin.y : 0f);
+        Shader.SetGlobalFloat(TopId, volume ? _volume.Origin.y + _volume.Size.y : 0f);
         Shader.SetGlobalVector(OriginId, new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize));
         Shader.SetGlobalFloat(SizeId, _window.Size);
         Shader.SetGlobalTexture(TargetId, _grid.Target);
@@ -730,7 +739,7 @@ internal sealed class GpuWater : IDisposable
         _particles.SetOwner(own ? _grid.Target : null, _window.PerVoxel, SimGrid.BorderCells, _grid.SeaLevel);
         bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
         _particles.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, _solids.BaseY);
-        _particles.SetBodies(Bodies(origin));
+        _particles.SetBodies(Bodies(origin, _window.Size));
         // The sources' water comes out as particles only where the particles are the water (not beside the sheet's own).
         _particles.SetSpouts(own ? Spouts(origin) : NoSpouts);
 
@@ -745,11 +754,33 @@ internal sealed class GpuWater : IDisposable
         return own;
     }
 
-    // The volume water as the water near the camera (made when first wanted, with the server's water poured in once it
-    // is there; the square's origin follows the window, the grid's height the camera): the ground, what is built, the
-    // bodies, the sources and drains in the square given it, moved, and drawn by the game's camera. Whether it is on.
+    // The volume water as the water round the camera, in its box inside the square (made when first wanted, with the
+    // server's water poured in once it is there; its square follows the camera as the card's does, kept inside it, its
+    // grid's height the camera): the ground, what is built, the bodies, the sources and drains in its box given it,
+    // moved, and drawn by the game's camera. Whether it is on.
     private bool Volume()
     {
+        Settings settings = FlowingWaterPlugin.Settings;
+        SimWindow wanted = SimWindow.Around(_camera.x, _camera.z, _window.VoxelSize, settings.VolumeRange.Value, settings.GpuWaterCell.Value).Within(_window);
+        if (_volume != null && (wanted.Columns != _volumeWindow.Columns || wanted.PerVoxel != _volumeWindow.PerVoxel))
+        {
+            // Its range or cells changed: made again.
+            DropVolume();
+        }
+
+        if (_volume != null && (!_volumeWindow.Keeps(_camera.x, _camera.z) || !_volumeWindow.Inside(_window)))
+        {
+            // The camera went on, or the card's square moved off it: its square follows, its water kept in the world.
+            if (wanted.ShiftedFrom(_volumeWindow, out int dx, out int dz))
+            {
+                MoveVolume(wanted, dx, dz);
+            }
+            else
+            {
+                DropVolume();
+            }
+        }
+
         if (_volume == null)
         {
             if (!Materials.Volume(out Materials.VolumeKit kit))
@@ -757,69 +788,74 @@ internal sealed class GpuWater : IDisposable
                 return false;
             }
 
-            Settings settings = FlowingWaterPlugin.Settings;
-            int rows = VolumeFollow.RowsWithin(VolumeFollow.Rows(settings.VolumeHeight.Value, _window.CellSize), _window.Cells);
+            _volumeWindow = wanted;
+            int cells = _volumeWindow.Cells;
+            int rows = VolumeFollow.RowsWithin(VolumeFollow.Rows(settings.VolumeHeight.Value, _volumeWindow.CellSize), cells);
             // And within what the solids' texture covers, with room for the grid to move before it is built again.
-            rows = VolumeFollow.RowsWithinSolids(rows, _window.CellSize, _window.VoxelSize, ParticleSolids.Rows);
+            rows = VolumeFollow.RowsWithinSolids(rows, _volumeWindow.CellSize, _volumeWindow.VoxelSize, ParticleSolids.Rows);
             if (rows < VolumeFollow.LeastRows)
             {
                 if (!_volumeTooWide)
                 {
                     _volumeTooWide = true;
-                    FlowingWaterPlugin.Log.LogError(FormattableString.Invariant($"Volume water: a square of {_window.Cells} cells a side is too wide for the card ({VolumeFollow.MostCells} cells at most): the water near you stays a sheet; lower Client.VolumeRange or raise Client.GpuWaterCell"));
+                    FlowingWaterPlugin.Log.LogError(FormattableString.Invariant($"Volume water: a square of {cells} cells a side is too wide for the card ({VolumeFollow.MostCells} cells at most): the water near you stays a sheet; lower Client.VolumeRange or raise Client.GpuWaterCell"));
                 }
 
                 return false;
             }
 
-            _volume = new VolumeWater(kit.Compute, kit.Particles, kit.Froth, settings.VolumeCapacity.Value, _window.Cells, rows, _window.Cells, _window.CellSize)
+            _volume = new VolumeWater(kit.Compute, kit.Particles, kit.Froth, settings.VolumeCapacity.Value, cells, rows, cells, _volumeWindow.CellSize)
             {
                 OpenSides = true,
-                // Two metres of the square's edge take the server's water each step, whatever the cells' size.
-                EdgeBand = VolumeFollow.Band(_window.CellSize),
-                Origin = new Vector3(_window.X0 * _window.VoxelSize, VolumeFollow.BaseY(_cameraY, rows, _window.CellSize), _window.Z0 * _window.VoxelSize),
+                // Two metres of the box's edge take the server's water each step, whatever the cells' size.
+                EdgeBand = VolumeFollow.Band(_volumeWindow.CellSize),
+                Origin = new Vector3(_volumeWindow.X0 * _volumeWindow.VoxelSize, VolumeFollow.BaseY(_camera.y, rows, _volumeWindow.CellSize), _volumeWindow.Z0 * _volumeWindow.VoxelSize),
             };
             _volumeSeeded = false;
-            FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: {_window.Cells} x {rows} x {_window.Cells} cells of {_window.CellSize} m, {settings.VolumeCapacity.Value} particles at most"));
+            FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: {cells} x {rows} x {cells} cells of {_volumeWindow.CellSize} m inside the card's {_window.Size:0} m square, {settings.VolumeCapacity.Value} particles at most"));
         }
 
+        // Its own square, and the card's: the ground, the server's water and what is built are the card's, read by
+        // world place.
+        Vector2 box = VolumeCorner();
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
-        if (VolumeFollow.Rebase(_cameraY, _volume.Origin.y, _volume.CellsY, _volume.CellSize))
+        if (VolumeFollow.Rebase(_camera.y, _volume.Origin.y, _volume.CellsY, _volume.CellSize))
         {
             // The camera climbed or fell past the grid's middle half: the grid follows (water out of it is the server's).
-            _volume.Origin = new Vector3(origin.x, VolumeFollow.BaseY(_cameraY, _volume.CellsY, _volume.CellSize), origin.y);
+            _volume.Origin = new Vector3(box.x, VolumeFollow.BaseY(_camera.y, _volume.CellsY, _volume.CellSize), box.y);
             _volumeSeeded = false;
         }
         else
         {
-            _volume.Origin = new Vector3(origin.x, _volume.Origin.y, origin.y);
+            _volume.Origin = new Vector3(box.x, _volume.Origin.y, box.y);
         }
 
         _volume.SetGround(_grid.Bed, _window.Cells, _window.CellSize, origin);
         _volume.SetServer(_grid.Target, _window.PerVoxel);
-        bool solidsFit = _solids.Any && _solidsWindow.Equals(_window);
-        _volume.SetSolids(solidsFit ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, origin, _solids.BaseY);
-        _volume.SetBodies(Bodies(origin));
-        _volume.SetSprings(Springs(origin));
+        // (What is built, as last taken, read by its own place: a moved box's new strip has none until the next build.)
+        var solidsCorner = new Vector2(_solidsWindow.X0 * _solidsWindow.VoxelSize, _solidsWindow.Z0 * _solidsWindow.VoxelSize);
+        _volume.SetSolids(_solids.Any ? _solids.Texture : null, _solids.Columns, ParticleSolids.Rows, _solids.VoxelSize, solidsCorner, _solids.BaseY);
+        _volume.SetBodies(Bodies(box, _volumeWindow.Size));
+        _volume.SetSprings(Springs(box, _volumeWindow.Size));
         if (!_volumeSeeded)
         {
             _volume.SeedFromServer();
             _volumeSeeded = true;
             _volumeReseed = 0;
-            _volumeFilled = Square();
+            _volumeFilled = VolumeSquare();
         }
         else if (_volumeReseed > 0 && ReseedReady())
         {
-            // The square moved: its new strip takes the server's water, now that the moved square's water is built
-            // and the ground under it cast.
+            // Its square moved: its new strip takes the server's water, now that the water round it is built and the
+            // ground under it cast.
             _volume.SeedFromServer(1f, _volumeReseed);
             if (FlowingWaterPlugin.Settings.Debug.Value)
             {
-                FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: the moved square's sides poured {_volumeReseed} cells wide, {Time.time - _movedAt:0.00} s after it moved"));
+                FlowingWaterPlugin.Log.LogInfo(FormattableString.Invariant($"Volume water: the moved box's sides poured {_volumeReseed} cells wide, {Time.time - _movedAt:0.00} s after it moved"));
             }
 
             _volumeReseed = 0;
-            _volumeFilled = Square();
+            _volumeFilled = VolumeSquare();
         }
 
         _volume.FrothRate = FlowingWaterPlugin.Settings.VolumeFroth.Value;
@@ -847,7 +883,7 @@ internal sealed class GpuWater : IDisposable
     }
 
     // How much of the server's deep water the volume moves (VolumeFollow.DeepKeep), from the server's columns as last
-    // built: all of it where the square's water in the grid fits the share of the particles' room it may take.
+    // built in its square: all of it where that water in the grid fits the share of the particles' room it may take.
     private float DeepKeep()
     {
         if (_texels == null)
@@ -855,17 +891,23 @@ internal sealed class GpuWater : IDisposable
             return _volume.DeepKeep;
         }
 
-        int columns = _window.Columns * _window.Columns;
+        // The columns of the volume's square only (the card's square round it is the sheet's).
+        int side = _volumeWindow.Columns, columns = side * side;
         if (_deepTops == null || _deepTops.Length != columns)
         {
             _deepTops = new float[columns];
             _deepDepths = new float[columns];
         }
 
-        for (int k = 0; k < columns; k++)
+        int west = _volumeWindow.X0 - _window.X0, south = _volumeWindow.Z0 - _window.Z0;
+        for (int z = 0; z < side; z++)
         {
-            _deepTops[k] = _texels[k * SimColumns.Texel];
-            _deepDepths[k] = _texels[(k * SimColumns.Texel) + 2];
+            for (int x = 0; x < side; x++)
+            {
+                int k = ((z + south) * _window.Columns) + x + west;
+                _deepTops[(z * side) + x] = _texels[k * SimColumns.Texel];
+                _deepDepths[(z * side) + x] = _texels[(k * SimColumns.Texel) + 2];
+            }
         }
 
         float bottom = _volume.Origin.y, top = bottom + (_volume.CellsY * _volume.CellSize);
@@ -876,20 +918,19 @@ internal sealed class GpuWater : IDisposable
         {
             _deepTold = keep;
             FlowingWaterPlugin.Log.LogInfo(keep > 0f
-                ? FormattableString.Invariant($"Volume water: the square's water does not fit {_volume.Capacity} particles; it moves the top {keep:0.0} m of deep water, the server's water holding the rest")
-                : "Volume water: the square's water fits its particles again; it moves all of it");
+                ? FormattableString.Invariant($"Volume water: the water in its box does not fit {_volume.Capacity} particles; it moves the top {keep:0.0} m of deep water, the server's water holding the rest")
+                : "Volume water: the water in its box fits its particles again; it moves all of it");
         }
 
         return keep;
     }
 
-    // The placed sources and drains in the square, for the volume water (the server's fixed ones have no marker to
-    // see: their water comes in at the square's edge as the server's other water does).
-    private List<VolumeWater.Spring> Springs(Vector2 origin)
+    // The placed sources and drains in a square (from origin, size metres a side), for the volume water (the server's
+    // fixed ones have no marker to see: their water comes in at the box's edge as the server's other water does).
+    private List<VolumeWater.Spring> Springs(Vector2 origin, float size)
     {
         Marker.Markers(_markers);
         _springs.Clear();
-        float size = _window.Cells * _window.CellSize;
         foreach ((Vector3 at, float rate, bool drain, float radius, SourceShape shape) in _markers)
         {
             if (at.x >= origin.x && at.z >= origin.y && at.x < origin.x + size && at.z < origin.y + size && _springs.Count < VolumeWater.MostSprings)
@@ -1016,7 +1057,7 @@ internal sealed class GpuWater : IDisposable
             _solidsAny = build.Result.AnySolid;
             _builtBase = _buildingBase;
             _builtBuilt = _buildingBuilt;
-            _solidsWindow = _buildingWindow;
+            _solidsWindow = _buildingSolidsWindow;
             OpenOutlets(again: true);
         }
         if (!_seeded)
@@ -1045,22 +1086,24 @@ internal sealed class GpuWater : IDisposable
         }
         else
         {
-            baseRow = (int)Math.Floor(_cameraY / _window.VoxelSize) - (ParticleSolids.Rows / 2);
+            baseRow = (int)Math.Floor(_camera.y / _window.VoxelSize) - (ParticleSolids.Rows / 2);
             rebased = solids && (_builtBase == int.MinValue || Math.Abs(baseRow - _builtBase) > 8);
         }
 
         // What is built round the square, as this game reads it: the server says it only where it has water.
         IReadOnlyDictionary<(int X, int Y, int Z), byte[]> built = null;
         int builtVersion = _builtBuilt;
+        SimWindow sw = _volume != null ? _volumeWindow : _window;
         if (solids)
         {
             BuiltSolids reader = Built();
-            reader.Update(_window.X0, _window.Z0, _window.Columns, rebased ? baseRow : _builtBase, _window.VoxelSize);
+            reader.Update(sw.X0, sw.Z0, sw.Columns, rebased ? baseRow : _builtBase, sw.VoxelSize);
             built = reader.Bricks;
             builtVersion = reader.Version;
         }
 
-        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && builtVersion == _builtBuilt && _builtBricks != null && near.SequenceEqual(_builtBricks)))
+        bool solidsKept = !solids || sw.Equals(_solidsWindow);
+        if (_build != null || Time.time - _builtAt < BuildSeconds || (_groundVersion == _builtGround && falls == _builtFalls && !rebased && solidsKept && builtVersion == _builtBuilt && _builtBricks != null && near.SequenceEqual(_builtBricks)))
         {
             return;
         }
@@ -1070,6 +1113,7 @@ internal sealed class GpuWater : IDisposable
         SimWindow w = _window;
         _buildingBricks = bricks;
         _buildingWindow = w;
+        _buildingSolidsWindow = sw;
         _buildingGround = _groundVersion;
         _buildingFalls = falls;
         _buildingBase = rebased ? baseRow : _builtBase;
@@ -1083,22 +1127,21 @@ internal sealed class GpuWater : IDisposable
             byte[] voxels = null;
             if (solids)
             {
-                voxels = Solids(bricks, w.X0, w.Z0, w.Columns, solidsBase, out any);
-                any |= BuiltVoxels.Write(built, voxels, w.X0, w.Z0, w.Columns, solidsBase);
+                voxels = Solids(bricks, sw.X0, sw.Z0, sw.Columns, solidsBase, out any);
+                any |= BuiltVoxels.Write(built, voxels, sw.X0, sw.Z0, sw.Columns, solidsBase);
             }
 
             return (texels, layers, cast, voxels, any);
         });
     }
 
-    // The bodies in the square this frame, for the water that feels them (the ripples, the particle and volume water), as
-    // many as fit in this order: every ship as the box its hull floats by (the game's own; the hull is what the water is
-    // for, so ships come first), every character (players, creatures) as the box of its capsule, and every other rigid
-    // body (carts, things dropped, felled trees) as the box round each of its colliders.
-    private List<ParticleWater.Body> Bodies(Vector2 origin)
+    // The bodies in a square this frame (from origin, size metres a side), for the water that feels them (the particle
+    // and volume water), as many as fit in this order: every ship as the box its hull floats by (the game's own; the
+    // hull is what the water is for, so ships come first), every character (players, creatures) as the box of its
+    // capsule, and every other rigid body (carts, things dropped, felled trees) as the box round each of its colliders.
+    private List<ParticleWater.Body> Bodies(Vector2 origin, float size)
     {
         _bodies.Clear();
-        float size = _window.Size;
         var square = new Bounds(new Vector3(origin.x + (size / 2f), 0f, origin.y + (size / 2f)), new Vector3(size, 100000f, size));
         LookForBodies();
         AddShips(square);
@@ -1339,18 +1382,9 @@ internal sealed class GpuWater : IDisposable
         _builtBricks = null;
         _groundVersion++;
         _window = window;
-        if (_volume != null)
-        {
-            // The square's new strip takes the server's water at the next frame, once the volume is bound to the moved
-            // square (the volume's own water stays where it is in the world).
-            _volume.Origin = new Vector3(window.X0 * window.VoxelSize, _volume.Origin.y, window.Z0 * window.VoxelSize);
-            _volumeReseed = VolumeFollow.MoreReseed(_volumeReseed, dx, dz, per, window.Cells);
-            _movedAt = Time.time;
-            _castsSinceMove = 0;
-            Vector4 square = Square();
-            (float x0, float z0, float x1, float z1) = VolumeFollow.StillFilled((_volumeFilled.x, _volumeFilled.y, _volumeFilled.z, _volumeFilled.w), (square.x, square.y, square.z, square.w));
-            _volumeFilled = new Vector4(x0, z0, x1, z1);
-        }
+        // (The volume's box stays where it is in the world: Volume keeps it inside the moved square.)
+        _movedAt = Time.time;
+        _castsSinceMove = 0;
         _object.transform.position = new Vector3(window.X0 * window.VoxelSize, 0f, window.Z0 * window.VoxelSize);
     }
 
@@ -1379,11 +1413,45 @@ internal sealed class GpuWater : IDisposable
         }
     }
 
-    // The square, world x, z of its south-west and north-east corners.
-    private Vector4 Square()
+    // The volume's square moved on by dx, dz voxel columns: its water stays where it is in the world, the strip the
+    // move uncovered takes the server's water once the water round it is built and the ground under it cast (the
+    // sheet draws that strip meanwhile).
+    private void MoveVolume(SimWindow box, int dx, int dz)
     {
-        float x = _window.X0 * _window.VoxelSize, z = _window.Z0 * _window.VoxelSize;
-        return new Vector4(x, z, x + _window.Size, z + _window.Size);
+        _volumeWindow = box;
+        Vector2 corner = VolumeCorner();
+        _volume.Origin = new Vector3(corner.x, _volume.Origin.y, corner.y);
+        _volumeReseed = VolumeFollow.MoreReseed(_volumeReseed, dx, dz, box.PerVoxel, box.Cells);
+        _movedAt = Time.time;
+        _castsSinceMove = 0;
+        Vector4 square = VolumeSquare();
+        (float x0, float z0, float x1, float z1) = VolumeFollow.StillFilled((_volumeFilled.x, _volumeFilled.y, _volumeFilled.z, _volumeFilled.w), (square.x, square.y, square.z, square.w));
+        _volumeFilled = new Vector4(x0, z0, x1, z1);
+    }
+
+    // The volume water let go: its memory given back, and its last drawing taken off the camera (the particle water,
+    // if any, makes the surface again as it needs).
+    private void DropVolume()
+    {
+        _volume?.Dispose();
+        _volume = null;
+        _volumeSurface?.Dispose();
+        _volumeSurface = null;
+        if (_particles == null)
+        {
+            _surface?.Dispose();
+            _surface = null;
+        }
+    }
+
+    // The volume's square's south-west corner, world x, z.
+    private Vector2 VolumeCorner() => new(_volumeWindow.X0 * _volumeWindow.VoxelSize, _volumeWindow.Z0 * _volumeWindow.VoxelSize);
+
+    // The volume's square, world x, z of its south-west and north-east corners.
+    private Vector4 VolumeSquare()
+    {
+        Vector2 corner = VolumeCorner();
+        return new Vector4(corner.x, corner.y, corner.x + _volumeWindow.Size, corner.y + _volumeWindow.Size);
     }
 
     // Whether a moved square's strip may be poured (VolumeFollow.ReseedReady).
@@ -1494,12 +1562,12 @@ internal sealed class GpuWater : IDisposable
     // letters (S solid; faces closed: E east, W west, U up, D down, N north, s south); null with none taken there.
     private string SolidsColumn(Vector3 point)
     {
-        if (_solidsOnCard == null || !_solidsWindow.Equals(_window))
+        if (_solidsOnCard == null)
         {
             return null;
         }
 
-        SimWindow w = _window;
+        SimWindow w = _solidsWindow;
         int x = (int)Math.Floor(point.x / w.VoxelSize) - w.X0, z = (int)Math.Floor(point.z / w.VoxelSize) - w.Z0;
         if (x < 0 || z < 0 || x >= w.Columns || z >= w.Columns)
         {

@@ -40,6 +40,46 @@ public class SimWindowTests
     }
 
     [Fact]
+    public void ASmallerSquareRoundTheCameraLiesInsideTheCardsAndIsMovedInWholeWhereItReachedPast()
+    {
+        var card = SimWindow.Around(500f, 500f, 1f, 256f, 0.25f);
+        var box = SimWindow.Around(500f, 500f, 1f, 32f, 0.25f).Within(card);
+
+        Assert.Equal(32, box.Columns);
+        Assert.Equal(card.PerVoxel, box.PerVoxel);
+        Assert.True(box.Inside(card));
+        Assert.Equal(SimWindow.Around(500f, 500f, 1f, 32f, 0.25f), box);
+
+        // Round a camera at the card's corner, it is moved in to the corner, still in groups of eight.
+        var corner = SimWindow.Around(card.X0 + 2f, card.Z0 + 2f, 1f, 32f, 0.25f);
+        Assert.False(corner.Inside(card));
+        var kept = corner.Within(card);
+        Assert.True(kept.Inside(card));
+        Assert.Equal(card.X0, kept.X0);
+        Assert.Equal(card.Z0, kept.Z0);
+        Assert.Equal(0, kept.X0 % 8);
+
+        // One wider than the card is the card's square.
+        Assert.Equal(card, SimWindow.Around(500f, 500f, 1f, 512f, 0.25f).Within(card));
+    }
+
+    [Fact]
+    public void ACameraInTheCardsMiddleHalfAlwaysHasTheVolumesBoxRoundItInsideTheCards()
+    {
+        var card = SimWindow.Around(0f, 0f, 1f, 256f, 0.25f);
+        float middle = (card.X0 + (card.Columns / 2f)) * 1f;
+        foreach (float dx in new[] { -64f, -40f, 0f, 33f, 64f })
+        {
+            foreach (float dz in new[] { -64f, 0f, 64f })
+            {
+                var box = SimWindow.Around(middle + dx, middle + dz, 1f, 32f, 0.25f);
+                Assert.True(box.Inside(card), $"{dx}, {dz}");
+                Assert.True(box.Keeps(middle + dx, middle + dz));
+            }
+        }
+    }
+
+    [Fact]
     public void ASquareTooBigForTheCardIsCut()
     {
         var window = SimWindow.Around(0f, 0f, 0.25f, 1000f, 0.25f);

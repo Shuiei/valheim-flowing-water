@@ -10,8 +10,8 @@ namespace FlowingWater.Tests;
 /// Where the bricks' surface (FlowingWater.shader) draws, read from its source: between columns the CPU's surface joins
 /// (at most VoxelSurface.MaxStep rows apart, counted by their tops' rows as the shell counts them: where it does not, the
 /// shell draws a side and water on rock so steep is the falls'), never rising more than one row more a run (rows that far
-/// apart are never joined), and not where the volume water near the camera has filled its square
-/// (FlowingWaterSimMask.cginc), the strip a move took in left to the bricks till it is poured.
+/// apart are never joined), and not where the water near the camera draws: the sheet, or the volume water in what it has
+/// filled of its box (FlowingWaterSimMask.cginc), the strip a move took in left to the sheet till it is poured.
 /// </summary>
 public class BrickShaderTests
 {
@@ -47,12 +47,26 @@ public class BrickShaderTests
     }
 
     [Fact]
-    public void TheVolumeDrawsOnlyWhatItHasFilledTheBricksTheRest()
+    public void TheVolumeDrawsOnlyWhatItHasFilledOfItsBoxTheSheetTheRestOfItsSquare()
     {
-        string draws = ShaderSource.Function(ShaderSource.Read("FlowingWaterSimMask.cginc"), "bool SimDraws(");
+        string mask = ShaderSource.Read("FlowingWaterSimMask.cginc");
+        string volume = ShaderSource.Function(mask, "bool VolumeDraws(");
+        string card = ShaderSource.Function(mask, "bool CardDraws(");
 
-        Assert.Contains("float2 edge = min(world.xz - _FWSimFilled.xy, _FWSimFilled.zw - world.xz);", draws, StringComparison.Ordinal);
-        Assert.Matches(new Regex(@"_FWSimWhole > 0\.5 && min\(edge\.x, edge\.y\) > _FWSimEdge", RegexOptions.None, ShaderSource.Patience), draws);
-        Assert.Matches(new Regex(@"return tex2Dlod\(_FWSimTarget, [^;]+\)\.y > 0\.5;\s*}$", RegexOptions.None, ShaderSource.Patience), draws);
+        Assert.Contains("_FWSimWhole < 0.5", volume, StringComparison.Ordinal);
+        Assert.Contains("float2 edge = min(world.xz - _FWSimFilled.xy, _FWSimFilled.zw - world.xz);", volume, StringComparison.Ordinal);
+        Assert.Contains("return min(edge.x, edge.y) > _FWSimEdge && world.y >= _FWSimBottom + _FWSimEdge && world.y <= _FWSimTop - _FWSimEdge;", volume, StringComparison.Ordinal);
+        // Outside the volume's box, or above or below its grid, the sheet draws as the texels say (not the bricks).
+        Assert.Contains("if (_FWSimOn < 0.5 || VolumeDraws(world))", card, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"return tex2Dlod\(_FWSimTarget, [^;]+\)\.y > 0\.5;\s*}$", RegexOptions.None, ShaderSource.Patience), card);
+        Assert.Contains("return VolumeDraws(world) || CardDraws(world);", ShaderSource.Function(mask, "bool SimDraws("), StringComparison.Ordinal);
+        Assert.Contains("!CardDraws(i.worldPos)", ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void surf("), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheSheetsSprayAndFallsLeaveTheVolumesBoxToItButNotAJet()
+    {
+        Assert.Contains("VolumeDraws(p.placeAge.xyz)", ShaderSource.Function(ShaderSource.Read("FlowingWaterSpray.shader"), "v2f vert("), StringComparison.Ordinal);
+        Assert.Contains("if (_FaceCamera < 0.5 && VolumeDraws(i.world))", ShaderSource.Function(ShaderSource.Read("FlowingWaterFall.shader"), "fixed4 frag("), StringComparison.Ordinal);
     }
 }

@@ -47,6 +47,8 @@ Shader "FlowingWater/Spray"
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
             #include "FlowingWaterWaves.cginc"
+            #define FLOWINGWATER_SIM_MASK_PLAIN
+            #include "FlowingWaterSimMask.cginc"
 
             struct Particle
             {
@@ -127,9 +129,10 @@ Shader "FlowingWater/Spray"
                 Particle p = _Particles[id / 6];
                 float age = p.placeAge.w;
                 float life = p.velocityLife.w;
-                if (age >= life)
+                if (age >= life || VolumeDraws(p.placeAge.xyz))
                 {
-                    // Over: every point in one place, behind the camera (nothing drawn).
+                    // Over, or in the volume water's box (it throws its own): every point in one place, behind the
+                    // camera (nothing drawn).
                     o.pos = float4(0.0, 0.0, -2.0, 1.0);
                     return o;
                 }
