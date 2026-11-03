@@ -65,6 +65,18 @@ public class JetFlightTests
     }
 
     [Fact]
+    public void AStrongJetThroughANarrowSlotIsSeenNoWiderThanTheThickestSlot()
+    {
+        // A point's 100 m3/s through a 0.25 m slot stands it 33 m high (100 / (0.25 x 12)): seen 2 m wide, not 33.
+        var shape = new SourceShape(false, 0f, 0f, 0f, 30f, 0.25f);
+        var strips = new List<JetFlight.Strip>();
+        JetFlight.Strips(Outlet, shape, 100f, 1f, strips);
+
+        Assert.True(shape.OutletHeight(100f) > 30f);
+        Assert.Equal(SourceShape.MostThickness, Assert.Single(strips).Width, 3);
+    }
+
+    [Fact]
     public void AJetAlongTheGroundOrAllRoundFliesNot()
     {
         var strips = new List<JetFlight.Strip>();
