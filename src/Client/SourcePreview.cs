@@ -51,7 +51,7 @@ internal static class SourcePreview
     {
         byte[] pixels = Blank();
         Fill(pixels, (_, y) => y is >= 103 and <= 105, Bed, 1f);
-        float thick = Math.Max(2f, shape.OutletHeight(rate) / SideScale);
+        float thick = Math.Max(2f, shape.SeenThickness(rate) / SideScale);
         float lastX = 14f, lastY = 100f;
         foreach ((float x, float y) in Arc(shape, rate))
         {

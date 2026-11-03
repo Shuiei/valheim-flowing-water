@@ -53,6 +53,19 @@ public class SourcePreviewTests
     }
 
     [Fact]
+    public void FromTheSideAStrongJetIsDrawnNoThickerThanTheThickestSlot()
+    {
+        // A point's 100 m3/s stands its 0.25 m slot 33 m high: drawn 2 m thick (14 pixels) about its arc, which peaks
+        // some 3.7 m up (row 74), so the drawing's top rows stay clear.
+        byte[] jet = SourcePreview.Side(new SourceShape(false, 0f, 0f, 0f, 45f, 0.25f), 100f);
+
+        for (int x = 0; x < SourcePreview.Width; x++)
+        {
+            Assert.False(SourcePreview.Drawn(jet, x, 40), $"column {x}");
+        }
+    }
+
+    [Fact]
     public void AJetLandsAsFarAsItsSpeedThrowsIt()
     {
         // A point's 2 m3/s through a slot 0.25 m high leaves at the most speed, 12 m/s: thrown up 45 degrees it lands
