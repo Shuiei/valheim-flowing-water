@@ -80,7 +80,7 @@ internal static class JetFlight
 
         (float rightX, float rightZ) = shape.Right;
         (float Across, float Offset)[] places = shape.Outlet(voxel);
-        float width = Math.Max(shape.OutletWidth / places.Length, shape.OutletHeight(rate));
+        float width = Math.Max(shape.OutletWidth / places.Length, shape.SeenThickness(rate));
         double flat = speed * Math.Cos(shape.Throw * Math.PI / 180.0);
         float widen = BreakUp + (float)(flat * Math.Tan(shape.Spread / places.Length / 2.0 * Math.PI / 180.0));
         foreach ((float across, float offset) in places)
