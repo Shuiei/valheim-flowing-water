@@ -555,6 +555,20 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void AShortStackOverWaterThreeRowsUnderItsTopIsStillAFall()
+    {
+        // The same two voxels (rows 5 and 6), water on the ground in the column beside with its top in row 3: three rows
+        // under the stack's top, past what the surface joins (VoxelSurface.MaxStep), though two under its bottom. The
+        // surface cannot take it, so it stays a fall (taken, it was drawn by nothing).
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 6, 5, 8, 0.06f, BrickData.AllOpen | BrickData.GroundUnder);
+        Wet(view, 6, 6, 8, 0.04f, BrickData.AllOpen);
+        Wet(view, 7, 3, 8, 0.3f, BrickData.AllOpen | BrickData.GroundUnder);
+
+        Assert.Equal('F', VoxelShell.Letter(Field(view), 6, 6, 8));
+    }
+
+    [Fact]
     public void WaterOnGroundOverRockTooSteepForTheSurfaceIsAFall()
     {
         // Water on ground over a dry voxel (the server says so), no water falling into it, open east toward a column

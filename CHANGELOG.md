@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.54.3 — 2026-11-03
+
+### Fixed
+- Far away, water dropping off a ledge onto water three or more rows below is drawn as a fall again, instead of not
+  at all.
+
 ## v0.54.2 — 2026-11-03
 
 ### Fixed

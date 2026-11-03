@@ -224,9 +224,10 @@ void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
 #define CASCADE_ACROSS 1.6
 #define CASCADE_ALONG 0.2
 
-// A cascade's white water is streaks with water between them, never one white sheet: of its streaks' pattern, this
-// share at least is left as the gaps between them (white water racing down rock shows the dark water and the rock
-// through it); and it hides this much at most of what is behind it, water CASCADE_FULL metres deep or more (a thin
+// A cascade's white water is streaks with water between them, never one white sheet: its streaks' pattern is cut off
+// under this value, however much white water is wanted, so the pattern's lower values are left clear as the gaps between
+// the streaks (a cutoff on the pattern's values, not a share of the area: how much is clear goes by how they spread;
+// white water racing down rock shows the dark water and the rock through it); and it hides this much at most of what is behind it, water CASCADE_FULL metres deep or more (a thin
 // film racing down rock stays clear between its streaks: hiding the rock behind any film, a cascade put the water's
 // body colour, the sea's sandy shallows, in its place, lit by the sun on the slope, and a slope's water read as cream).
 #define CASCADE_GAPS 0.45
@@ -344,7 +345,7 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
     noise = fast > 0.05 ? lerp(noise, Streaks(i.world, i.current, speed), fast) : noise;
     noise = lerp(noise, CascadeStreaks(i.world, i.current, speed), cascade);
-    // However much white water is wanted, a cascade keeps the gaps between its streaks (CASCADE_GAPS).
+    // However much white water is wanted, a cascade's pattern under CASCADE_GAPS stays clear, the gaps between its streaks.
     float gaps = max(1.0 - want, CASCADE_GAPS * cascade);
     float rapids = smoothstep(gaps, gaps + 0.25, noise) * want;
 

@@ -192,8 +192,8 @@ where), so the waves finer than a voxel are the card's own.
   past its edge; the fine ones (0.8 m) are only lit, at each point drawn, near and far alike. White water gathers on the tops of fast chop's crests and where the water slows hard into the water
   ahead (piling up against a rock or a post, a jump from shooting water to deep), besides the foam of fast water
   running with it. Water running down a steep slope (from about 20°, all of it from 45° and 1 m/s) is a cascade:
-  broken white water in streaks down the slope as it runs, at least 45 % of their pattern left as the gaps between them
-  however fast it runs, mirroring nothing, near and far alike; it hides what is behind it by its depth (half of it at
+  broken white water in streaks down the slope as it runs, their pattern cut off under 0.45 of its values so its lower
+  values stay clear as the gaps between them however fast it runs, mirroring nothing, near and far alike; it hides what is behind it by its depth (half of it at
   most, from 30 cm deep), so a film racing down rock stays clear between its streaks, the rock seen through it (hiding
   it under any film, it showed the water's body colour, the sea's sandy shallows, lit by the sun on the slope: cream). Only the look: the card's water does not move by these waves.
 - **Foam carried by the current.** As Crest's sea keeps its foam, the card keeps the water's foam in a texture of its
