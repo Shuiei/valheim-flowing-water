@@ -119,9 +119,6 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     // round's bricks, the next one's place, the clock, and the water soaked since last logged (m³).
     private const int SoakedAStep = 64;
 
-    // The most seconds a brick soaks for at once (soaking turned on again after a while, a long hitch).
-    private const float LongestSoak = 5f;
-
     private readonly List<Brick> _soakRound = [];
 
     private int _soakCursor;
@@ -835,20 +832,32 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     }
 
     // The next bricks of the soaking round soaked, between two steps (Ended): a new round of every brick once one is
-    // done. A brick new to the round starts its soaking clock; one forgotten since is passed over.
+    // done, each brick soaked for all the time since it last was, however long a round takes in a big world. A brick
+    // new to the round starts its soaking clock; one forgotten since is passed over. Turned off, the round is dropped,
+    // and the first round once it is on again starts every brick's clock (none soaks for the time it was off).
     private void SoakSome()
     {
         float rate = FlowingWaterPlugin.Settings.Soaking.Value / 1000f;
         if (!(rate > 0f))
         {
+            _soakRound.Clear();
+            _soakCursor = 0;
             return;
         }
 
         if (_soakCursor >= _soakRound.Count)
         {
+            bool again = _soakRound.Count == 0;
             _soakRound.Clear();
             _soakRound.AddRange(_grid.Bricks);
             _soakCursor = 0;
+            if (again)
+            {
+                foreach (Brick brick in _soakRound)
+                {
+                    brick.SoakedAt = _soakClock;
+                }
+            }
         }
 
         WaterPart was = _parts.Into(WaterPart.Other);
@@ -856,7 +865,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         for (int end = Math.Min(_soakRound.Count, _soakCursor + SoakedAStep); _soakCursor < end; _soakCursor++)
         {
             Brick brick = _soakRound[_soakCursor];
-            float seconds = Math.Min(LongestSoak, _soakClock - brick.SoakedAt);
+            float seconds = _soakClock - brick.SoakedAt;
             brick.SoakedAt = _soakClock;
             if (seconds > 0f && _grid.Find(brick.X, brick.Y, brick.Z) == brick)
             {
