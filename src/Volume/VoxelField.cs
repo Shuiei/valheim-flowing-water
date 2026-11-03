@@ -362,7 +362,8 @@ internal sealed class VoxelField
         && (view.Solid[i] >= BrickData.HoldsGround || (view.Open[i] & BrickData.GroundUnder) != 0
             || (Solid(x, y - 1, z) >= BrickData.HoldsGround && !(WaterAt(x, y - 1, z) > 0f)));
 
-    private float Solid(int x, int y, int z) => Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f;
+    /// <summary>How much of voxel (x, y, z) is solid, 0 to 1 (none where its brick is not known).</summary>
+    public float Solid(int x, int y, int z) => Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f;
 
     // The top of a short step's water (ShortStep: its stack from row bottom to row top) laid on what it lands on, metres:
     // on the water lying in the voxel under it where that is wet (on its ground), else on its lowest voxel's floor (the

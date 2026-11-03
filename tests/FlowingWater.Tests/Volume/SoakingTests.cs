@@ -66,6 +66,40 @@ public class SoakingTests
     }
 
     [Fact]
+    public void APoolsTopOverABedVoxelIsKept()
+    {
+        // A pool 0.8 deep: its bed voxel 0.3 ground and 0.7 water, 0.1 over it in the next row. The top stands on the
+        // bed voxel's water, not on its ground: neither soaks.
+        VoxelGrid grid = OnGround();
+        Brick brick = grid.Get(0, 0, 0);
+        brick.Solid[Brick.Index(3, 0, 3)] = 0.3f;
+        brick.Water[Brick.Index(3, 0, 3)] = 0.7f;
+        brick.Water[Brick.Index(3, 1, 3)] = 0.1f;
+        brick.Wets(Brick.Index(3, 0, 3));
+        brick.Wets(Brick.Index(3, 1, 3));
+
+        Assert.Equal(0f, Soaking.Soak(brick, 0.001f, 1f));
+        Assert.Equal(0.1f, brick.Water[Brick.Index(3, 1, 3)], 5);
+    }
+
+    [Fact]
+    public void ASheetTwoVoxelsHighSoaksOnlyOnTheGround()
+    {
+        // A sheet 6 cm deep laid over a voxel boundary: 4 cm in a bed voxel holding ground, 2 cm over it. Only the bed
+        // voxel's water is on the ground: a millimetre soaked in all, not one in each.
+        VoxelGrid grid = OnGround();
+        Brick brick = grid.Get(0, 0, 0);
+        brick.Solid[Brick.Index(3, 0, 3)] = 0.5f;
+        brick.Water[Brick.Index(3, 0, 3)] = 0.04f;
+        brick.Water[Brick.Index(3, 1, 3)] = 0.02f;
+        brick.Wets(Brick.Index(3, 0, 3));
+        brick.Wets(Brick.Index(3, 1, 3));
+
+        Assert.Equal(0.001f, Soaking.Soak(brick, 0.001f, 1f), 5);
+        Assert.Equal(0.02f, brick.Water[Brick.Index(3, 1, 3)], 5);
+    }
+
+    [Fact]
     public void WaterOffTheGroundIsKept()
     {
         // 5 cm in a voxel over the air (nothing under it holds ground): falling, not lying on anything.

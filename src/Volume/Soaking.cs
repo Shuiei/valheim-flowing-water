@@ -67,9 +67,10 @@ internal static class Soaking
         return taken;
     }
 
-    // Whether the water in voxel i stands on the ground: the voxel holds some, or the one under it does, or a piece
-    // closes it under (the face under it is that voxel's upper face); in a brick's lowest row with no brick under it,
-    // the face under it shut against the brick forgotten there (solid, or closed).
+    // Whether the water in voxel i stands on the ground: the voxel holds some, or the one under it does and no water
+    // (water over a bed voxel full of water is a pool's top, standing on water; that voxel's own water is the one on
+    // the ground), or a piece closes it under (the face under it is that voxel's upper face); in a brick's lowest row
+    // with no brick under it, the face under it shut against the brick forgotten there (solid, or closed).
     private static bool OnGround(Brick brick, int i)
     {
         if (brick.Solid[i] >= BrickData.HoldsGround)
@@ -78,7 +79,7 @@ internal static class Soaking
         }
 
         return brick.Neighbour(i, 3, out Brick under, out int j)
-            ? under.Solid[j] >= BrickData.HoldsGround || (under.Closed[j] & Brick.ClosedY) != 0
+            ? (under.Solid[j] >= BrickData.HoldsGround && under.Water[j] <= Brick.Dry) || (under.Closed[j] & Brick.ClosedY) != 0
             : (i >> 8) == 0 && brick.Shuts(3, i);
     }
 
