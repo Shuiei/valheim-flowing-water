@@ -17,6 +17,10 @@
 // landed runs on the way it fell.
 // Before it is drawn, the water's surface is shaped (Shape): its level smoothed over the cells round it, so a thin sheet
 // lies smooth over the ground's small bumps and fills the hollows between them rather than taking each one's shape.
+// Once a frame its foam is carried (CarryFoam), as Crest's foam simulation carries the sea's: the foam of each cell is
+// what the current brought there from upstream, fading, plus what was made since: where falling water lands (Churn),
+// where water runs into slower water (air trapped: a jump, a fall's foot, a front into a pool), and what the spray's
+// foam and bubbles left on the water (FoamAdded); so a fall's foam drifts off downstream as a trail.
 #pragma kernel Seed
 #pragma kernel Fluxes
 #pragma kernel Momentum
@@ -30,6 +34,7 @@
 #pragma kernel Clear
 #pragma kernel ShiftCells
 #pragma kernel Shape
+#pragma kernel CarryFoam
 
 // The cells: depth (m), and where a step writes it (each step reads one and writes the other); ground (world height,
 // m), the share of its outflow each can give.
@@ -582,6 +587,25 @@ float _Frame;
 #define CHURN_FULL 0.05
 #define CHURN_CALM 0.8
 
+// The water's foam (0 to 1 of a cell covered), last frame's (_FoamIn) and this one's (_FoamOut); the foam the spray left
+// on the water since (FlowingWaterSpray.compute: FOAM_SCALE times a cell's share covered). It fades by _FoamFade a
+// second; water running into slower water beside it this much faster than that goes (m/s, summed over its four sides)
+// makes none, from the second as much as _FoamTrapped a second, water slower than _FoamSlow (m/s) none, all it will
+// from _FoamFast. Water shallower than FOAM_WATER (m) holds none. Where falling water lands its churn makes foam,
+// FOAM_CHURN of a cell at most (lace carried off downstream, not a sheet of white: the churn itself is drawn white).
+Texture2D<float> _FoamIn;
+RWTexture2D<float> _FoamOut;
+RWTexture2D<int> _FoamAdded;
+float _FoamFade;
+float _FoamTrapped;
+float _FoamTrappedFrom;
+float _FoamTrappedFull;
+float _FoamSlow;
+float _FoamFast;
+#define FOAM_SCALE 1000000.0
+#define FOAM_WATER 0.01
+#define FOAM_CHURN 0.6
+
 // The water landed since the last frame (_Frame seconds), added to the cells it fell in, which it churns.
 [numthreads(8, 8, 1)]
 void Land(uint3 id : SV_DispatchThreadID)
@@ -621,6 +645,80 @@ void Clear(uint3 id : SV_DispatchThreadID)
     _Landed[c] = 0;
     _LandedX[c] = 0;
     _LandedZ[c] = 0;
+    _FoamAdded[c] = 0;
+}
+
+// The water's velocity at a cell's middle (m/s, east and north): its faces' speeds averaged.
+float2 CellSpeed(int2 c)
+{
+    int2 west = max(c - int2(1, 0), 0);
+    int2 south = max(c - int2(0, 1), 0);
+    return float2(0.5 * (_U[c] + _U[west]), 0.5 * (_V[c] + _V[south]));
+}
+
+// Last frame's foam at a place in cells (a cell's middle at its index plus a half), between the four cells round it;
+// none past the square.
+float FoamBetween(float2 at)
+{
+    float2 base = floor(at - 0.5);
+    float2 t = at - 0.5 - base;
+    int2 b = (int2)base;
+    float foam = 0.0;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        int2 n = b + o;
+        float w = (o.x == 1 ? t.x : 1.0 - t.x) * (o.y == 1 ? t.y : 1.0 - t.y);
+        foam += Inside(n) ? w * _FoamIn[n] : 0.0;
+    }
+
+    return foam;
+}
+
+// The foam carried over a frame (_Frame seconds): taken from where the current brought it from (semi-Lagrangian, as
+// Crest's), faded, with what was made since; none on dry ground, a wall or ground not known.
+[numthreads(8, 8, 1)]
+void CarryFoam(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float added = _FoamAdded[c] / FOAM_SCALE;
+    _FoamAdded[c] = 0;
+    float h = _H[c];
+    if (h < FOAM_WATER || _Bed[c] >= WALL)
+    {
+        _FoamOut[c] = 0.0;
+        return;
+    }
+
+    float2 speed = CellSpeed(c);
+    float foam = FoamBetween(float2(c) + 0.5 - (speed * _Frame / _Dx)) * exp(-_FoamFade * _Frame);
+
+    // Air trapped where the water runs into slower water (Crest makes the sea's where its waves pinch together).
+    float fast = length(speed);
+    if (fast > _FoamSlow)
+    {
+        int2 around[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
+        float trapped = 0.0;
+        for (int s = 0; s < 4; s++)
+        {
+            int2 n = c + around[s];
+            if (Inside(n) && _H[n] >= FOAM_WATER && _Bed[n] < WALL)
+            {
+                trapped += max(dot(speed - CellSpeed(n), float2(around[s])), 0.0);
+            }
+        }
+
+        float potential = saturate((trapped - _FoamTrappedFrom) / (_FoamTrappedFull - _FoamTrappedFrom));
+        float energy = saturate(((fast * fast) - (_FoamSlow * _FoamSlow)) / ((_FoamFast * _FoamFast) - (_FoamSlow * _FoamSlow)));
+        foam += _FoamTrapped * potential * energy * _Frame;
+    }
+
+    _FoamOut[c] = saturate(max(foam + added, FOAM_CHURN * _Churn[c]));
 }
 
 // A texture of cells as the square moved by _Shift cells sees it (the camera went on): each cell takes the one at its

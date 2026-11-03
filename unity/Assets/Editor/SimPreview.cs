@@ -58,6 +58,7 @@ public static class SimPreview
                 ("spray", Spray),
                 ("froth", () => Froth(true)),
                 ("froth-off", () => Froth(false)),
+                ("foam", Foam),
                 ("look", LookOnly),
                 ("edge", Edge),
                 ("bumps", Bumps),
@@ -728,6 +729,88 @@ public static class SimPreview
     // The waves' height at this speed (m/s) and depth (m), by the shaders' rule (FlowingWaterWaves.cginc).
     private static float WaveHeight(float speed, float depth) => depth > 0.005f ? Mathf.Min(0.015f * speed * speed, 0.15f, 0.25f * depth) : 0f;
 
+    // The card's foam carried with the current (SimGrid.Foam, Crest's foam simulation): in a still pool a patch of foam
+    // stays where it is and fades by the rate (0.8 of it a second: e^-1.6 after 2 s), and none is made; on dry ground there
+    // is none; 0.5 m of water let go on a shelf 3 m high, the fall's foam is carried on downstream well past where the
+    // water lands (shot with the foam carried, and without it: the look before).
+    private static void Foam()
+    {
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        float[] tank = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : 0f);
+        using (var still = new Scene("foam-still", tank))
+        {
+            still.Grid.Pulled = false;
+            still.Grid.SetDepth(Depths((x, z) => x > 6f && x < 34f && z > 12f && z < 28f ? 1f : 0f));
+            still.Grid.SetFoam(Depths((x, z) => x > 18f && x < 22f && z > 18f && z < 22f ? 0.8f : x < 4f ? 1f : 0f));
+            float before = Read(still.Grid.Foam).Sum();
+            for (int k = 0; k < 120; k++)
+            {
+                still.Step();
+            }
+
+            float[] foam = Read(still.Grid.Foam);
+            float inside = 0f, dry = 0f, moved = 0f;
+            for (int k = 0; k < foam.Length; k++)
+            {
+                float x = ((k % Cells) + 0.5f) * Dx, z = ((k / Cells) + 0.5f) * Dx;
+                bool patch = x > 18f && x < 22f && z > 18f && z < 22f;
+                inside += patch ? foam[k] : 0f;
+                moved += patch || x < 6f ? 0f : foam[k];
+                dry += x < 6f ? foam[k] : 0f;
+            }
+
+            float kept = inside / (0.8f * 16f * 16f);
+            Log.AppendLine(Inv($"Foam: a patch in a still pool keeps {kept:0.000} of itself after 2 s (e^-1.6 = 0.202), {moved:0.000} spread or made elsewhere: {Check(Mathf.Abs(kept - Mathf.Exp(-1.6f)) < 0.02f && moved < 0.01f * before)}"));
+            Log.AppendLine(Inv($"Foam: on dry ground {dry:0.000}: {Check(dry <= 0f)}"));
+        }
+
+        float[] bed = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var scene = new Scene("foam-trail", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.Throws = true;
+        scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 18f && z > 12f && z < 28f ? 0.5f : 0f));
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath))
+        {
+            Curtain = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.FallMaterialPath),
+            Froth = false,
+        };
+        scene.Spray = spray;
+        float churnFar = 0f, foamFar = 0f;
+        for (int k = 1; k <= 300; k++)
+        {
+            scene.Step();
+            spray.Step(scene.Grid, Vector2.zero, Frame);
+            if (k % 30 == 0)
+            {
+                float[] churn = Read(scene.Grid.Churn), foam = Read(scene.Grid.Foam);
+                float churnAt = 0f, foamAt = 0f, total = 0f;
+                for (int c = 0; c < foam.Length; c++)
+                {
+                    float x = ((c % Cells) + 0.5f) * Dx;
+                    churnAt = churn[c] > 0.2f ? Mathf.Max(churnAt, x) : churnAt;
+                    foamAt = foam[c] > 0.1f ? Mathf.Max(foamAt, x) : foamAt;
+                    total += foam[c] * Dx * Dx;
+                }
+
+                churnFar = Mathf.Max(churnFar, churnAt);
+                foamFar = Mathf.Max(foamFar, foamAt);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s foam over {total:0.0} m2, as far as x = {foamAt:0.0} m (the fall's churn to {churnAt:0.0} m)"));
+            }
+
+            if (k is 150 or 240)
+            {
+                scene.Shot(Inv($"foam_{k * Frame:0.0}s"), new Vector3(27f, 5f, 9f), new Vector3(22f, 0.5f, 20f));
+                scene.NoFoam = true;
+                scene.Shot(Inv($"foam-not-carried_{k * Frame:0.0}s"), new Vector3(27f, 5f, 9f), new Vector3(22f, 0.5f, 20f));
+                scene.NoFoam = false;
+            }
+        }
+
+        scene.Spray = null;
+        Log.AppendLine(Inv($"Foam: carried as far as x = {foamFar:0.0} m, the fall's churn only to {churnFar:0.0} m: {Check(foamFar > churnFar + 2f)}"));
+    }
+
     // The spray sorted (FlowingWaterSpray.compute's froth): 2 m of water let go on a shelf 3 m high, falling off its lip
     // into the pool it makes below. Foam must lie on the water's top and carry no water, bubbles must be under it, and the
     // foam must drift with the current; with the froth off, there is none.
@@ -1064,6 +1147,9 @@ public static class SimPreview
         // Particles drawn with each shot, if any.
         public SprayParticles Spray { get; set; }
 
+        // Shots drawn without the card's carried foam (the look before it), for comparison.
+        public bool NoFoam { get; set; }
+
         // Particle water drawn with each shot, if any (as water, with the mod's particle surface material).
         public ParticleWater Particles { get; set; }
 
@@ -1091,6 +1177,7 @@ public static class SimPreview
             _water.SetTexture("_SimH", Grid.Drawn);
             _water.SetTexture("_SimBed", Grid.Bed);
             _water.SetTexture("_SimChurn", Grid.Churn);
+            _water.SetTexture("_SimFoam", NoFoam ? Texture2D.blackTexture : Grid.Foam);
             _water.SetTexture("_SimU", Grid.SpeedEast);
             _water.SetTexture("_SimV", Grid.SpeedNorth);
             _water.SetFloat("_SimCells", Cells);

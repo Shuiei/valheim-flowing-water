@@ -51,6 +51,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int DepthId = Shader.PropertyToID("_SimH");
     private static readonly int BedId = Shader.PropertyToID("_SimBed");
     private static readonly int ChurnId = Shader.PropertyToID("_SimChurn");
+    private static readonly int FoamId = Shader.PropertyToID("_SimFoam");
     private static readonly int EastId = Shader.PropertyToID("_SimU");
     private static readonly int NorthId = Shader.PropertyToID("_SimV");
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
@@ -658,6 +659,7 @@ internal sealed class GpuWater : IDisposable
         _properties.SetTexture(DepthId, _grid.Drawn);
         _properties.SetTexture(BedId, _grid.Bed);
         _properties.SetTexture(ChurnId, _grid.Churn);
+        _properties.SetTexture(FoamId, _grid.Foam);
         _properties.SetTexture(EastId, _grid.SpeedEast);
         _properties.SetTexture(NorthId, _grid.SpeedNorth);
         _properties.SetFloat(CellsId, _window.Cells);

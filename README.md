@@ -190,6 +190,23 @@ where), so the waves finer than a voxel are the card's own.
   running with it. Water running down a steep slope (from about 20°, all of it from 45° and 1 m/s) is a cascade:
   broken white water, streaked down the slope as it runs, hiding what is behind it and mirroring nothing, near and far
   alike. Only the look: the card's water does not move by these waves.
+- **Foam carried by the current.** As Crest's sea keeps its foam, the card keeps the water's foam in a texture of its
+  cells, carried once a frame: each cell's foam is what the current brought there from upstream (taken from where its
+  water was a frame ago, between the four cells round that place), fading by 0.8 of itself a second (Crest's sea's
+  rate), plus what was made since: where falling water lands, as it churns (0.6 of a cell at most: the churn itself
+  is drawn white, its foam is lace carried off); where water runs into slower water beside it (how much faster it
+  comes on toward each side than the water there goes, summed: none under 0.5 m/s of that or on water slower than
+  1.5 m/s, all it will from 3 m/s and 5 m/s, a whole cell's cover a second at the most: a jump, a fall's foot, a
+  front into a pool, as Crest's waves foam where they pinch together); and the spray's foam patches
+  (`Client.SprayFroth`), each leaving half of what it covers a second where it rides. Water shallower than a
+  centimetre, a wall or ground not known holds none, and the foam moves with the square. It is drawn with the white
+  water above (the more of it, the more of the foam's pattern shows: lace where it thins, white where it is thick)
+  and, under it, bubbles: the foam texture blurred, seen 8 cm under the surface (shifted with the view) and running
+  with the water, paling its body where it carries foam (`_FoamBubbles` and `_FoamBubbleDepth` on both water
+  materials). So a fall's foam drifts off downstream as a trail instead of stopping where it lands. The preview's
+  `foam` scene checks that a patch of foam in a still pool keeps e^-1.6 of itself after 2 s (0.202) without moving
+  or more being made, that dry ground holds none, and that a fall off a shelf carries its foam well past where its
+  churn ends (24.1 m against 21.4 m, from a lip at 20 m), shot with the carried foam and without.
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.

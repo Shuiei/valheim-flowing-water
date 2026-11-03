@@ -136,6 +136,13 @@ RWStructuredBuffer<uint> _Crowd;
 #define BUBBLE_LIFE 4.0
 #define PLUNGE_WATER 0.15
 
+// The foam the froth leaves on the card's water (FlowingWaterSim.compute's CarryFoam carries it on with the current):
+// FOAM_SCALE times the share of a cell covered. A foam patch leaves FOAM_LEAVE of its own cover a second, so where
+// patches stay their foam stands as thick as they cover (the water's foam fades by about that much a second).
+RWTexture2D<int> _FoamAdded;
+#define FOAM_SCALE 1000000.0
+#define FOAM_LEAVE 0.5
+
 // A random number in [0, 1) from a seed, which it moves on (PCG hash).
 float Random(inout uint state)
 {
@@ -401,6 +408,8 @@ void Move(uint3 id : SV_DispatchThreadID)
             {
                 place.y = top;
                 life = _H[to] < FOAM_WATER ? min(life, age + 0.15) : life;
+                float cover = min(4.0 * p.sizeKind.x * p.sizeKind.x / (_Dx * _Dx), 1.0);
+                InterlockedAdd(_FoamAdded[to], (int)(FOAM_LEAVE * cover * _Dt * FOAM_SCALE + 0.5));
             }
         }
     }

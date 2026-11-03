@@ -111,6 +111,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int FrothFastId = Shader.PropertyToID("_FrothFast");
     private static readonly int PlungeBubblesId = Shader.PropertyToID("_PlungeBubbles");
     private static readonly int CrowdId = Shader.PropertyToID("_Crowd");
+    private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
 
     private readonly ComputeShader _shader;
 
@@ -340,6 +341,7 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetTexture(kernel, LandedId, grid.Landed);
         _shader.SetTexture(kernel, LandedXId, grid.LandedEast);
         _shader.SetTexture(kernel, LandedZId, grid.LandedNorth);
+        _shader.SetTexture(kernel, FoamAddedId, grid.FoamAdded);
     }
 
     public void Dispose()

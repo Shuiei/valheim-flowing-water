@@ -75,6 +75,8 @@ Material:
     - _FlowSpeed: 1
     - _FlowStrength: 1.4
     - _FlowTiling: 6
+    - _FoamBubbleDepth: 0.08
+    - _FoamBubbles: 0.35
     - _FoamDepth: 0.2
     - _FoamScale: 0.6
     - _FoamSpeed: 4

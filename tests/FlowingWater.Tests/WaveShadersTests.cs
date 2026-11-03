@@ -42,10 +42,10 @@ public class WaveShadersTests
     }
 
     [Fact]
-    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsAndWhereFallsLandToo()
+    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsWhereFallsLandAndWhereItsFoamIsCarried()
     {
         Assert.Matches(new Regex(@"Churn\(crest, [^;]+, 0\.0\)\)?;", RegexOptions.None, Patience), ShaderSource.Function(ShaderSource.Read("FlowingWater.shader"), "void vert("));
         string card = ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void vert(");
-        Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), At\(_SimChurn, p\)\);", RegexOptions.None, Patience), card);
+        Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), max\(At\(_SimChurn, p\), At\(_SimFoam, p\)\)\);", RegexOptions.None, Patience), card);
     }
 }
