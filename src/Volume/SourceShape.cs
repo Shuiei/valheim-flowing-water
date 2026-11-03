@@ -135,6 +135,13 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     }
 
     /// <summary>
+    /// How thick its water is seen leaving for a rate, metres: the outlet's height (<see cref="OutletHeight"/>), no more
+    /// than <see cref="MostThickness"/>. A strong rate through a narrow slot stands it tens of metres high, which is no
+    /// jet that wide to draw.
+    /// </summary>
+    public float SeenThickness(float rate) => Math.Min(MostThickness, OutletHeight(rate));
+
+    /// <summary>
     /// The places across the outlet for cells (or voxels) this wide: as many as it spans (one at least), each its share
     /// across it (-1 to 1, as <see cref="Direction"/> takes it) and how far from the middle, metres.
     /// </summary>
