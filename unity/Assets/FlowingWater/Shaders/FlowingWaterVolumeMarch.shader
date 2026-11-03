@@ -57,6 +57,9 @@ Shader "FlowingWater/VolumeMarch"
             // the tree). A 46° face (rise 1) keeps its whole sheet.
             #define SHEET_STEEP_FROM 2.0
             #define SHEET_STEEP_TO 3.0
+            // But a rock face keeps its whole sheet (as FlowingWaterVolume.compute's FaceKeep): steep both a cell up and
+            // a cell down the slope, each a rise of FACE_RISE or more (a trunk is a spike, a wall's foot or top a step).
+            #define FACE_RISE 1.5
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
             float4 _CameraDepthTexture_TexelSize;
 
@@ -130,6 +133,28 @@ Shader "FlowingWater/VolumeMarch"
                 return GroundAt(xz, grade);
             }
 
+            // Whether the ground at a point is a rock face, 1, or not, 0 (FlowingWaterVolume.compute's FaceKeep): steep
+            // the same way a cell up the slope and a cell down it, each a rise of FACE_RISE or more.
+            float FaceKeep(float2 xz)
+            {
+                float grade;
+                float here = GroundAt(xz, grade);
+                float2 at = ((xz - _BedOrigin) / _BedDx) - 0.5;
+                float2 texel = 1.0 / _BedCells;
+                float2 c = (floor(at) + 0.5) * texel;
+                float b00 = tex2Dlod(_Bed, float4(c, 0.0, 0.0)).r;
+                float2 slope = float2(tex2Dlod(_Bed, float4(c + float2(texel.x, 0.0), 0.0, 0.0)).r - b00, tex2Dlod(_Bed, float4(c + float2(0.0, texel.y), 0.0, 0.0)).r - b00) / _BedDx;
+                float steep = length(slope);
+                if (steep < FACE_RISE)
+                {
+                    return 0.0;
+                }
+
+                float2 up = (slope / steep) * _BedDx;
+                float rise = min(GroundAt(xz + up) - here, here - GroundAt(xz - up)) / _BedDx;
+                return smoothstep(FACE_RISE, FACE_RISE + 0.5, rise);
+            }
+
             // The top of the water standing on the ground over a point (world y): the columns' top there, where the
             // columns' depth has not thinned to nothing and the top stands over the ground (a rock or a bank standing
             // out of the water is dry, the water's top running past it); far below where there is none.
@@ -139,7 +164,7 @@ Shader "FlowingWater/VolumeMarch"
                 float2 sheet = tex2Dlod(_Sheet, float4(uv, 0.0, 0.0)).rg;
                 float grade;
                 float ground = GroundAt(xz, grade);
-                float depth = sheet.y * (1.0 - smoothstep(SHEET_STEEP_FROM, SHEET_STEEP_TO, grade));
+                float depth = sheet.y * max(1.0 - smoothstep(SHEET_STEEP_FROM, SHEET_STEEP_TO, grade), grade > FACE_RISE ? FaceKeep(xz) : 0.0);
                 float top = _VolumeOrigin.y + sheet.x;
                 return depth > 0.005 && top > ground + 0.01 ? min(top, ground + max(depth, 0.5 * _VolumeCell)) : -1e9;
             }

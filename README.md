@@ -501,7 +501,11 @@ as thin as it is: boosted, a spray of drops would draw as a solid column); the w
 through stays its true thickness, so a fall's sheet is a thin veil. Each column of cells also keeps the depth of the water standing
 on its ground (the particles from the ground's cell up to the first two cells in a row a quarter full or less: spray
 and a splash over a pool, a particle or two a cell, are not the column's), as a top smoothed over the wet columns about and a depth that thins to nothing toward dry
-ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall; the ray counts
+ground, less and less on ground steeper than about 63° and none past 72°, where water is a fall (a tree's trunk is a
+near-vertical ramp in the ground's heights, and a skin of water along it would be a curtain up the tree), but all of
+it on a rock face: ground as steep a cell up the slope as a cell down it, a rise of 1.5 or more each (a trunk is a
+spike in the heights, a wall's foot or top a step), so a film down a cliff is one skin over the rock, not the
+scattered drops and pieces its particle or two a cell made; the ray counts
 everything between the ground and that top as water, where the top stands over the ground (a rock standing out of
 the water is dry, the water running round it),
 and takes the density's own surface over it only where the density is well over the half: a stream down a slope is
