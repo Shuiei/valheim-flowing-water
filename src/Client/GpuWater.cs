@@ -194,6 +194,14 @@ internal sealed class GpuWater : IDisposable
 
     private int _shipsLookedFor = -60;
 
+    // When the rigid bodies were last looked for (frame), for the particle and volume water.
+    private int _rigidbodiesLookedFor = -60;
+
+    // The bodies through the water's surface this frame, with their distance from the camera (squared), for the ripples.
+    private readonly List<(float Distance, ParticleWater.Body Body)> _rippleCandidates = [];
+
+    private static readonly Comparison<(float Distance, ParticleWater.Body Body)> NearerFirst = (a, b) => a.Distance.CompareTo(b.Distance);
+
     private int _buildingBase;
 
     // The version of what this game read as built (BuiltSolids) the build under way, and the last one, were made with.
@@ -651,7 +659,7 @@ internal sealed class GpuWater : IDisposable
         _grid.Throws = _spray != null;
         // The bodies in the water push its ripples.
         var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
-        _grid.SetBodies(Bodies(corner), corner);
+        _grid.SetBodies(RippleBodies(corner), corner);
         _grid.Step(Time.deltaTime);
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);
@@ -1099,8 +1107,61 @@ internal sealed class GpuWater : IDisposable
         return _bodies;
     }
 
-    // The ships and the other rigid bodies (with their colliders), looked for once a second (they come and go slowly).
-    private void LookForBodies()
+    // The bodies for the ripples this frame: every ship's hull and every character's capsule in the square that reaches
+    // through the water's surface there (the server's water: VoxelWater), nearest the camera first, as many as fit. A
+    // body out of the water takes no place (it pushes no ripple), so a swimmer is never left out for a creature on the
+    // bank; and nothing else is looked for (no search of the scene for rigid bodies each second: only the look).
+    private List<ParticleWater.Body> RippleBodies(Vector2 origin)
+    {
+        _rippleCandidates.Clear();
+        float size = _window.Size;
+        var square = new Bounds(new Vector3(origin.x + (size / 2f), 0f, origin.y + (size / 2f)), new Vector3(size, 100000f, size));
+        Camera camera = GameCamera.instance != null ? GameCamera.instance.GetComponent<Camera>() : Camera.main;
+        Vector3 eye = camera != null ? camera.transform.position : square.center;
+        LookForShips();
+        foreach (Ship ship in _ships)
+        {
+            BoxCollider hull = ship?.m_floatCollider;
+            if (hull != null && hull.bounds.Intersects(square) && ThroughSurface(hull.bounds.center, hull.bounds.min.y, hull.bounds.max.y))
+            {
+                _rippleCandidates.Add(((hull.bounds.center - eye).sqrMagnitude, HullBox(hull)));
+            }
+        }
+
+        foreach (Character character in Character.GetAllCharacters())
+        {
+            if (character == null)
+            {
+                continue;
+            }
+
+            Vector3 position = character.transform.position;
+            ParticleWater.Body box = CharacterBox(character);
+            if (square.Contains(new Vector3(position.x, 0f, position.z)) && ThroughSurface(position, box.Centre.y - box.Half.y, box.Centre.y + box.Half.y))
+            {
+                _rippleCandidates.Add(((position - eye).sqrMagnitude, box));
+            }
+        }
+
+        _rippleCandidates.Sort(NearerFirst);
+        _bodies.Clear();
+        for (int k = 0; k < _rippleCandidates.Count && RoomForBodies(); k++)
+        {
+            _bodies.Add(_rippleCandidates[k].Body);
+        }
+
+        return _bodies;
+    }
+
+    // Whether the water's surface over a point stands between these heights (world).
+    private static bool ThroughSurface(Vector3 at, float bottom, float top)
+    {
+        float surface = VoxelWater.SurfaceAt(at);
+        return surface > bottom && surface < top;
+    }
+
+    // The ships, looked for once a second (they come and go slowly).
+    private void LookForShips()
     {
         if (Time.frameCount - _shipsLookedFor < 60)
         {
@@ -1109,6 +1170,18 @@ internal sealed class GpuWater : IDisposable
 
         _shipsLookedFor = Time.frameCount;
         _ships = UnityEngine.Object.FindObjectsByType<Ship>(FindObjectsSortMode.None);
+    }
+
+    // The ships and the other rigid bodies (with their colliders), looked for once a second (they come and go slowly).
+    private void LookForBodies()
+    {
+        if (Time.frameCount - _rigidbodiesLookedFor < 60)
+        {
+            return;
+        }
+
+        _rigidbodiesLookedFor = Time.frameCount;
+        LookForShips();
         _rigidbodies.Clear();
         foreach (Rigidbody body in UnityEngine.Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None))
         {
@@ -1131,9 +1204,26 @@ internal sealed class GpuWater : IDisposable
                 continue;
             }
 
-            Transform t = hull.transform;
-            _bodies.Add(ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation));
+            _bodies.Add(HullBox(hull));
         }
+    }
+
+    // The box a ship floats by (its hull: the game's own float collider).
+    private static ParticleWater.Body HullBox(BoxCollider hull)
+    {
+        Transform t = hull.transform;
+        return ParticleWater.Body.Box(t.TransformPoint(hull.center), Vector3.Scale(hull.size, t.lossyScale) / 2f, t.rotation);
+    }
+
+    // The box round a character's capsule (players, creatures).
+    private static ParticleWater.Body CharacterBox(Character character)
+    {
+        Transform t = character.transform;
+        CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
+        Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
+        float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
+        float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
+        return ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation);
     }
 
     private void AddCharacters(Bounds square)
@@ -1145,17 +1235,13 @@ internal sealed class GpuWater : IDisposable
                 continue;
             }
 
-            Transform t = character.transform;
-            if (!square.Contains(new Vector3(t.position.x, 0f, t.position.z)))
+            Vector3 position = character.transform.position;
+            if (!square.Contains(new Vector3(position.x, 0f, position.z)))
             {
                 continue;
             }
 
-            CapsuleCollider capsule = character.GetComponent<CapsuleCollider>();
-            Vector3 centre = capsule != null ? capsule.transform.TransformPoint(capsule.center) : t.position + (Vector3.up * 0.9f);
-            float radius = capsule != null ? capsule.radius * Mathf.Max(t.lossyScale.x, t.lossyScale.z) : 0.4f;
-            float height = capsule != null ? capsule.height * t.lossyScale.y : 1.8f;
-            _bodies.Add(ParticleWater.Body.Box(centre, new Vector3(radius, height / 2f, radius), t.rotation));
+            _bodies.Add(CharacterBox(character));
         }
     }
 

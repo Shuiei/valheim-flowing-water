@@ -18,8 +18,8 @@ namespace FlowingWater.Client;
 /// </summary>
 internal sealed class VolumeWater : IParticleCloud, IDisposable
 {
-    /// <summary>Bodies in the water at most.</summary>
-    public const int MostBodies = 32;
+    /// <summary>Bodies in the water at most (the one list GpuWater gathers for every water that feels them).</summary>
+    public const int MostBodies = ParticleWater.MostBodies;
 
     /// <summary>Sources and drains at most.</summary>
     public const int MostSprings = 16;

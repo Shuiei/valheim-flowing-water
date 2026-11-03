@@ -61,6 +61,7 @@ Shader "FlowingWater/Spray"
             // The card's water under the particles (SprayParticles: its depth, where its cells start and their size and
             // count), so foam rides the long waves the water's surface is drawn with (FlowingWaterWaves.cginc).
             Texture2D<float> _SprayWaterDepth;
+            Texture2D<float> _SprayWaterRipple;
             float2 _SprayWaterOrigin;
             float _SprayWaterCell;
             int _SprayWaterCells;
@@ -106,6 +107,13 @@ Shader "FlowingWater/Spray"
                 return all(c >= 0) && all(c < _SprayWaterCells) ? _SprayWaterDepth.Load(int3(c, 0)) : 0.0;
             }
 
+            // The ripples the bodies push on the card's water at a world place (SimGrid.Ripple; none past its square).
+            float WaterRippleAt(float2 xz)
+            {
+                int2 c = (int2)floor((xz - _SprayWaterOrigin) / _SprayWaterCell);
+                return all(c >= 0) && all(c < _SprayWaterCells) ? _SprayWaterRipple.Load(int3(c, 0)) : 0.0;
+            }
+
             uint CrowdIndex(float3 place)
             {
                 int3 k = (int3)floor(place / CROWD_SIZE);
@@ -131,10 +139,11 @@ Shader "FlowingWater/Spray"
                 float3 place = p.placeAge.xyz;
                 float3 velocity = p.velocityLife.xyz;
                 // Foam and bubbles ride the long waves the water's surface is raised by (their velocity is the water's
-                // current), on top of the level they are held to: not seen over a crest they lie under.
+                // current) and the ripples bodies push, on top of the level they are held to: not seen over a crest they
+                // lie under.
                 float waveKind = p.sizeKind.y;
                 float crest;
-                place.y += waveKind > 2.5 ? LongWaves(place.xz, velocity.xz, WaterDepthAt(place.xz), 1.0, crest).x : 0.0;
+                place.y += waveKind > 2.5 ? LongWaves(place.xz, velocity.xz, WaterDepthAt(place.xz), 1.0, crest).x + WaterRippleAt(place.xz) : 0.0;
                 float speed = length(velocity);
                 float3 view = normalize(place - _WorldSpaceCameraPos);
                 float3 along = speed > 0.05 ? velocity / speed : float3(0.0, 1.0, 0.0);

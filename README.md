@@ -210,9 +210,10 @@ where), so the waves finer than a voxel are the card's own.
 - **Ripples round bodies.** As Crest's dynamic waves, the card keeps ripples of their own over the water's level in
   each cell, moved by the wave equation (each cell pulled toward the ripples round it, as fast as waves run on water
   so deep, 1.2 m/s at most; a cell with no water beside it sends them back) and calming over 1.5 s, in as many steps a
-  frame as crossing half a cell at most takes. The bodies in the water push them: every ship's hull, every
-  character's capsule (players, creatures) and the other rigid bodies (carts, things dropped), as the particle water
-  takes them, 32 at most; once a frame, how much of each cell's surface each takes (softened over a cell) is
+  frame as crossing half a cell at most takes. The bodies in the water push them: every ship's hull and every
+  character's capsule (players, creatures) in the square that reaches through the water's surface (the server's water,
+  as the game's own water checks read it), nearest the camera first, 32 at most (a creature on the bank takes no
+  place a swimmer needs; nothing else is looked for, no search of the scene each second); once a frame, how much of each cell's surface each takes (softened over a cell) is
   compared with the last frame's, and a body coming into a cell pushes its surface down at 0.4 m/s, one leaving it
   lets it up as fast, so a swimmer or a boat moving on leaves a trough along the sides of a V behind it, its crest
   inside, and rings when it stops. They stand 30 cm at most over or under the water and are drawn raised on the near
@@ -271,7 +272,7 @@ anywhere: the server's water still says how much water is where):
   fall's foot never fill a cell foam is to cover): a cell holding eight of the froth is full (no more foam forms there
   nor do bubbles go down into it, and its water traps no more air), and spray in a crowd (over four in its cell,
   wholly from sixteen) is drawn as mist, up to four times as wide and a third as opaque, so a flood's spray is a haze
-  rather than so many bright droplets. Foam and bubbles are drawn on the long waves the water's surface is raised by
+  rather than so many bright droplets. Foam and bubbles are drawn on the long waves and ripples the water's surface is raised by
   (their own velocity is the current), not at the level they are held to, so a patch is not seen over a crest it lies
   under. With the setting off, nothing is counted and the froth's ring is neither moved nor drawn (but the step it is
   turned off, to end what is left of it). Froth carries no water. The material's `_FoamPatchAlpha`, `_FoamPatchScale`,
