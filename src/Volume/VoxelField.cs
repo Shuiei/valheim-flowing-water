@@ -179,12 +179,85 @@ internal sealed class VoxelField
     {
         int top = StandingTop(x, y, z);
         float level = Level(x, top, z);
+        if (ShortStep(x, top, z, out _, out int bottom))
+        {
+            return Math.Min(level, Laid(x, bottom, top, z));
+        }
+
         if (!Voxel(x, top - 1, z, out BrickView under, out int i) || !IsWet(under, i) || !GoesUp(x, top - 1, z) || under.Solid[i] < BrickData.HoldsGround)
         {
             return level;
         }
 
         return Math.Min(level, (top - 1 + under.Solid[i] + under.Water[i] + WaterAt(x, top, z)) * VoxelSize);
+    }
+
+    /// <summary>
+    /// Whether the water in voxel (x, y, z) is a short step of a sheet down rock steeper than the voxels, not a fall:
+    /// water with nothing under it to stand on (open under it, holding no floor, the voxel under not full), in a stack of
+    /// such voxels at most <see cref="VoxelSurface.MaxStep"/> tall, nothing falling into its top from over it (its water
+    /// came in from the column beside, up the slope), its lowest voxel over ground (as the server says,
+    /// <see cref="BrickData.GroundUnder"/>, or as the voxel under holds some). Water on a face of some 60 degrees drops
+    /// a voxel or two from one column to the next: each column's step, a voxel or two of water landing on the ground,
+    /// was drawn as a fall's box a voxel, a dashed staircase down the face. A fall down a cliff stacks higher, or is fed
+    /// from over its top: still a fall. top and bottom: the stack's highest and lowest voxels.
+    /// </summary>
+    public bool ShortStep(int x, int y, int z, out int top, out int bottom)
+    {
+        top = y;
+        bottom = y;
+        if (!Drops(x, y, z))
+        {
+            return false;
+        }
+
+        while (Drops(x, top + 1, z))
+        {
+            if (++top - bottom >= VoxelSurface.MaxStep)
+            {
+                return false;
+            }
+        }
+
+        while (Drops(x, bottom - 1, z))
+        {
+            if (top - --bottom >= VoxelSurface.MaxStep)
+            {
+                return false;
+            }
+        }
+
+        return Voxel(x, bottom, z, out BrickView view, out int i)
+            && ((view.Open[i] & BrickData.GroundUnder) != 0 || (Voxel(x, bottom - 1, z, out BrickView under, out int j) && under.Solid[j] >= BrickData.HoldsGround));
+    }
+
+    // Whether the water in voxel (x, y, z) has nothing under it to stand on: wet, open under it, holding no floor, the
+    // voxel under not full (whatever ground is in that one: the server does not send a dry voxel's).
+    private bool Drops(int x, int y, int z)
+    {
+        if (!Voxel(x, y, z, out BrickView view, out int i) || !IsWet(view, i) || (view.Open[i] & (1 << 3)) == 0 || view.Solid[i] >= BrickData.HoldsGround)
+        {
+            return false;
+        }
+
+        return !Voxel(x, y - 1, z, out BrickView under, out int j) || under.Water[j] + under.Solid[j] < Full;
+    }
+
+    // The top of a short step's water (ShortStep: its stack from row bottom to row top) laid on what it lands on, metres:
+    // on the water lying in the voxel under it where that is wet (on its ground), else on its lowest voxel's floor (the
+    // ground in a dry voxel under it is not sent: it is somewhere in that voxel); all the stack's water over that.
+    private float Laid(int x, int bottom, int top, int z)
+    {
+        float water = 0f;
+        for (int y = bottom; y <= top; y++)
+        {
+            water += WaterAt(x, y, z);
+        }
+
+        float under = Voxel(x, bottom - 1, z, out BrickView view, out int i) && IsWet(view, i)
+            ? bottom - 1 + Math.Min(1f, view.Solid[i] + view.Water[i])
+            : bottom;
+        return (under + water) * VoxelSize;
     }
 
     /// <summary>

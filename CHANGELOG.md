@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.53.1 — 2026-11-03
+
+### Fixed
+- Water running down a steep rock face away from you is drawn as one sheet down the face, not as a dashed line of small
+  white boxes.
+
 ## v0.53.0 — 2026-11-03
 
 ### Added

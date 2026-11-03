@@ -53,6 +53,29 @@ public class SurfaceGridTests
     }
 
     [Fact]
+    public void AShortStepDownAFaceIsLaidOnTheGroundItLandsOn()
+    {
+        // A step of a sheet down a steep face: 0.04 of water in row 6 come in from up the slope, falling into 0.06 in
+        // row 5 over ground (the voxel under it dry: its ground not sent). The column stands on row 5's floor with all
+        // of its 0.1 of water, at 5.1, not at the step's top, 6.04 (beside it, a column of the same face a row lower).
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Water[Brick.Index(5, 5, 5)] = 0.06f;
+        view.Open[Brick.Index(5, 5, 5)] = BrickData.AllOpen | BrickData.GroundUnder;
+        view.Water[Brick.Index(5, 6, 5)] = 0.04f;
+        view.Open[Brick.Index(5, 6, 5)] = BrickData.AllOpen;
+        view.Water[Brick.Index(6, 4, 5)] = 0.06f;
+        view.Open[Brick.Index(6, 4, 5)] = BrickData.AllOpen | BrickData.GroundUnder;
+        var field = Field(view);
+        var grid = SurfaceGrid.Build(field, 0, 0, 0);
+        int k = SurfaceGrid.Index(5, 5);
+
+        Assert.True(field.ShortStep(5, 6, 5, out int top, out int bottom));
+        Assert.Equal((6, 5), (top, bottom));
+        Assert.Equal(5.1f, grid.Height[k], 4);
+        Assert.Equal(5.1f, field.Settled(5, 6, 5), 4);
+    }
+
+    [Fact]
     public void AFallsColumnOverTheAirKeepsItsTop()
     {
         // A tenth of a voxel of water in rows 4 to 6, falling through the air: its top stays at 6.1, not laid flat.

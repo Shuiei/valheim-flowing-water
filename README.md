@@ -680,7 +680,13 @@ there to the new grid (same volume), at once when the file is saved.
   white water (only over open air: water stepping down a slope steeper than the voxels, from one to the next with
   ground under it, or over water lying on ground in the voxel under it, is the surface's, one sheet down the slope:
   the server marks with each wet voxel's open faces whether the voxel under it holds ground, which it does not send
-  otherwise). Without these two, a stream down a hill outside the card's square drew a grid of small walls and
+  otherwise). Down a face steeper than the voxels (some 60 degrees, the ground a row or two lower a column), each
+  column's water is a short step: water come in from the column up the slope, falling a voxel or two onto the ground.
+  A stack of such falling water at most two voxels tall, fed from beside (nothing falling into its top) and landing on
+  ground, is the surface's too, laid on what it lands on (the water lying under it, else its lowest voxel's floor) with
+  all its water, where a column beside it has its top within two rows: the face shows one sheet, not a fall's box a
+  column, a dashed staircase (a fall down a cliff stacks higher, or is fed from over it: still a fall). Without these
+  two, a stream down a hill outside the card's square drew a grid of small walls and
   columns under its surface, seen through it as dark patches. These faces and the surface are drawn from both sides: from inside the water, it
   is still seen.
   With the game's material (the shader setting off, or no shader for the platform), the surface is built as a mesh
