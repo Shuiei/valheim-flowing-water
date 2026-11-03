@@ -6,7 +6,8 @@
 // water, streaked. Drawn from both sides.
 //
 // Each corner carries: uv0 its place on its face in world metres (across it, up it or north), uv1 how much of it is
-// foam and how much shows, uv2 the current along the face in uv0's directions (m/s).
+// foam and how much shows, uv2 the current along the face in uv0's directions (m/s), uv3 its distances in voxels to
+// four edges of its face open to the air (VoxelShell.Edges: far for an edge that is not).
 Shader "FlowingWater/WaterShell"
 {
     Properties
@@ -30,6 +31,14 @@ Shader "FlowingWater/WaterShell"
         _FlowCycle ("Flow cycle (s)", Float) = 1.5
         _Clearness ("How much of what is behind shows through", Range(0, 1)) = 0.55
         _FoamTiling ("Foam tiling (per metre)", Float) = 0.8
+        // White water's gaps between its streaks let this much of it show (the scene behind shows through the rest):
+        // whole, a fall or a film down rock was a white plank, a cliff of them a stair of planks.
+        _WhiteGaps ("White water between its streaks (share shown)", Range(0, 1)) = 0.75
+        // Toward an edge open to the air (a film's or a fall's end no column beside it joins, its foot) the water thins
+        // out over this many voxels, raggedly along its streaks: no hard edge outlines each column; toward its top over
+        // _TopFringe (a film has no cap: its columns' tops, a step apart down a face, dissolve).
+        _Fringe ("Fade toward an open end (voxels)", Float) = 0.25
+        _TopFringe ("Fade toward an open top (voxels)", Float) = 0.5
     }
 
     SubShader
@@ -66,6 +75,9 @@ Shader "FlowingWater/WaterShell"
         float _FlowCycle;
         float _Clearness;
         float _FoamTiling;
+        float _WhiteGaps;
+        float _Fringe;
+        float _TopFringe;
 
         #include "FlowingWaterSimMask.cginc"
 
@@ -79,6 +91,7 @@ Shader "FlowingWater/WaterShell"
             float2 water;   // foam, shown
             float2 current; // along the face, m/s
             float3 inside;  // a world place a little inside the water the face is the side of
+            float4 edges;   // to the face's edges open to the air, voxels
             float3 worldPos;
             float4 screenPos;
             float4 grabPos;
@@ -91,6 +104,7 @@ Shader "FlowingWater/WaterShell"
             o.place = v.texcoord.xy;
             o.water = v.texcoord1.xy;
             o.current = v.texcoord2.xy;
+            o.edges = v.texcoord3;
             o.inside = mul(unity_ObjectToWorld, v.vertex).xyz - (UnityObjectToWorldNormal(v.normal) * 0.1);
             o.grabPos = ComputeGrabScreenPos(UnityObjectToClipPos(v.vertex));
         }
@@ -177,7 +191,11 @@ Shader "FlowingWater/WaterShell"
             o.Normal = n;
             o.Metallic = _Metallic * (1.0 - foam);
             o.Smoothness = lerp(_Glossiness, 0.1, foam);
-            o.Alpha = saturate(i.water.y) * lerp(0.85, 1.0, foam);
+            float whiteness = smoothstep(WHITE_FROM, WHITE_FROM + 0.3, want);
+            float streaky = max(noise, streak);
+            float edge = min(min(i.edges.x, i.edges.y), i.edges.w) / max(_Fringe, 0.001);
+            float fringe = saturate(min(edge, i.edges.z / max(_TopFringe, 0.001)) * lerp(0.5, 1.5, streaky));
+            o.Alpha = saturate(i.water.y) * lerp(lerp(0.85, 1.0, foam), lerp(_WhiteGaps, 1.0, smoothstep(0.05, 0.4, streaky)), whiteness) * fringe;
             DebugColour(o, float3(1.0, 0.9, 0.1));
         }
         ENDCG

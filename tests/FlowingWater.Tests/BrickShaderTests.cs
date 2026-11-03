@@ -38,6 +38,14 @@ public class BrickShaderTests
         Assert.Contains("_pixels[(k * 4) + 3] = grid.Row[k];", pack, StringComparison.Ordinal);
     }
 
+    // A property's default in a shader's source.
+    private static float Default(string source, string name)
+    {
+        Match found = Regex.Match(source, $@"{name} \(""[^""]*"", (?:Float|Range\([^)]*\))\) = ([0-9.]+)", RegexOptions.None, ShaderSource.Patience);
+        Assert.True(found.Success, $"no {name}");
+        return float.Parse(found.Groups[1].Value, CultureInfo.InvariantCulture);
+    }
+
     // A #define's number in a shader's source.
     private static float Define(string source, string name)
     {
@@ -61,6 +69,22 @@ public class BrickShaderTests
         Assert.Matches(new Regex(@"return tex2Dlod\(_FWSimTarget, [^;]+\)\.y > 0\.5;\s*}$", RegexOptions.None, ShaderSource.Patience), card);
         Assert.Contains("return VolumeDraws(world) || CardDraws(world);", ShaderSource.Function(mask, "bool SimDraws("), StringComparison.Ordinal);
         Assert.Contains("!CardDraws(i.worldPos)", ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void surf("), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheShellFadesWhiteWaterOutTowardItsOpenEdgesAndBetweenItsStreaks()
+    {
+        // The shell's faces carry their distances to the edges open to the air (VoxelShell.Edges) as their fourth uv.
+        string shell = ShaderSource.Read("FlowingWaterShell.shader");
+        string surf = ShaderSource.Function(shell, "void surf(");
+
+        Assert.Contains("o.edges = v.texcoord3;", ShaderSource.Function(shell, "void vert("), StringComparison.Ordinal);
+        Assert.Contains("float edge = min(min(i.edges.x, i.edges.y), i.edges.w) / max(_Fringe, 0.001);", surf, StringComparison.Ordinal);
+        Assert.Contains("float fringe = saturate(min(edge, i.edges.z / max(_TopFringe, 0.001)) * lerp(0.5, 1.5, streaky));", surf, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"o\.Alpha = [^;]*lerp\(_WhiteGaps, 1\.0, [^;]*\* fringe;", RegexOptions.None, ShaderSource.Patience), surf);
+        // A film or a fall at its widest keeps its middle whole: the fringe from each open end is under half its width.
+        Assert.True(Default(shell, "_Fringe") < VoxelShell.WidestFall * 0.5f, "the fringe of an open end is narrower than half the widest fall");
+        Assert.Contains("_mesh.SetUVs(3, Fours(shell.Edges));", System.IO.File.ReadAllText(Repository.File("src/Client/ShellRenderer.cs")), StringComparison.Ordinal);
     }
 
     [Fact]

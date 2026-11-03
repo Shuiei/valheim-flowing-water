@@ -18,6 +18,7 @@ internal sealed class ShellRenderer : IDisposable
     private readonly List<Vector3> _vectors = [];
     private readonly List<Vector4> _tangents = [];
     private readonly List<Vector2> _pairs = [];
+    private readonly List<Vector4> _fours = [];
 
     /// <summary>An object for the shell under the brick's, drawn nothing yet.</summary>
     public ShellRenderer(Transform brick)
@@ -49,15 +50,18 @@ internal sealed class ShellRenderer : IDisposable
         _tangents.Clear();
         for (int k = 0; k < corners; k++)
         {
-            // Along the face's first place direction: across a side, east on a top or an underside.
+            // Along the face's first place direction: across a side, east on a top or an underside (a film's sides, lit as
+            // one sheet tilted up, across that sheet).
             float nx = shell.Normals[3 * k], ny = shell.Normals[(3 * k) + 1], nz = shell.Normals[(3 * k) + 2];
-            _tangents.Add(Math.Abs(ny) > 0.5f ? new Vector4(1f, 0f, 0f, ny > 0f ? -1f : 1f) : new Vector4(-nz, 0f, nx, -1f));
+            float flat = Mathf.Max((float)Math.Sqrt((nx * nx) + (nz * nz)), 1e-6f);
+            _tangents.Add(Math.Abs(ny) > 0.5f ? new Vector4(1f, 0f, 0f, ny > 0f ? -1f : 1f) : new Vector4(-nz / flat, 0f, nx / flat, -1f));
         }
 
         _mesh.SetTangents(_tangents);
         _mesh.SetUVs(0, Pairs(shell.Places));
         _mesh.SetUVs(1, Pairs(shell.Water));
         _mesh.SetUVs(2, Pairs(shell.Flow));
+        _mesh.SetUVs(3, Fours(shell.Edges));
         _mesh.SetTriangles(shell.Triangles, 0, true);
         _object.transform.localPosition = new Vector3(0f, lift, 0f);
         _renderer.sharedMaterial = material;
@@ -82,6 +86,17 @@ internal sealed class ShellRenderer : IDisposable
         }
 
         return _vectors;
+    }
+
+    private List<Vector4> Fours(List<float> values)
+    {
+        _fours.Clear();
+        for (int k = 0; k + 3 < values.Count; k += 4)
+        {
+            _fours.Add(new Vector4(values[k], values[k + 1], values[k + 2], values[k + 3]));
+        }
+
+        return _fours;
     }
 
     private List<Vector2> Pairs(List<float> values)

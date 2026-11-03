@@ -708,7 +708,13 @@ there to the new grid (same volume), at once when the file is saved.
   the ground with rock beside it, is a film down the face: one column of white, streaked water from the ground it lands
   on up through its highest water, nearly as wide as the voxel, joined to the film of the column beside over the rows
   they share, and as see-through as its water laid over its height is thin; the surface leaves its voxels to it. The
-  face shows one white stream from the lip to the foot, not dashes and shards standing off the rock. A square of the
+  face shows one white stream from the lip to the foot, not dashes and shards standing off the rock. Up close each
+  column is still a box, so a film is drawn to hide it (since 0.55.1): no cap on its top, its sides fading out over
+  its top half voxel and over a quarter voxel toward an end no column beside it joins, raggedly along its streaks (a
+  fall's open ends, top and foot fade the same), and lit as one sheet facing out from the rock it runs down, tilted
+  up by half that, not each side its own way. Between its white streaks a quarter of the white shows the rock through.
+  With caps, hard edges and each side lit its own way, a cliff of films was a stair of white planks. The shell's
+  `_WhiteGaps`, `_Fringe` and `_TopFringe` (`flowingwater mat shell`) tune it. A square of the
   surface with a single corner of water 30 cm deep or less, on a face (rock rising beside it in its row, the ground
   falling away on the other side), is not drawn: the dry columns round that corner take its height, and a lone pocket
   of film on a steep slope stood out of the rock as a flat wedge. On level ground such a corner, a puddle or a stream's

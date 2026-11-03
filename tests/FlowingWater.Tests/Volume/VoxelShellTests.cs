@@ -311,6 +311,91 @@ public class VoxelShellTests
     }
 
     [Fact]
+    public void AFallFadesOutTowardItsEndsItsTopAndItsFootOnly()
+    {
+        // The same four voxels of falling water: each side's ends are open (nothing beside joins them), the top voxel's
+        // sides open at their top, the lowest one's at their foot; the edges between the voxels are not.
+        var shell = VoxelShell.Build(Field(Falls(0.09f, 4, 5, 6, 7)), 0, 0, 0);
+        var sides = Enumerable.Range(0, shell.Positions.Count / 3).Where(k => Math.Abs(shell.Normals[(3 * k) + 1]) < 0.5f).ToList();
+
+        Assert.All(sides, k => Assert.Equal(0f, Math.Min(shell.Edges[4 * k], shell.Edges[(4 * k) + 1]), 3));
+        // Each side's four corners: in voxels from its top (8 m) on the top voxel's, from its foot (4 m) on the lowest
+        // one's; not open on the others.
+        foreach (int q in sides.Where(k => k % 4 == 0))
+        {
+            float low = Enumerable.Range(q, 4).Min(k => shell.Positions[(3 * k) + 1]) + 8f;
+            float high = Enumerable.Range(q, 4).Max(k => shell.Positions[(3 * k) + 1]) + 8f;
+            foreach (int k in Enumerable.Range(q, 4))
+            {
+                float y = shell.Positions[(3 * k) + 1] + 8f;
+                Assert.Equal(high > 7.5f ? 8f - y : VoxelShell.NoEdge, shell.Edges[(4 * k) + 2], 3);
+                Assert.Equal(low < 4.5f ? y - 4f : VoxelShell.NoEdge, shell.Edges[(4 * k) + 3], 3);
+            }
+        }
+
+        // Its caps fade toward every edge: each corner on two of them.
+        var caps = Enumerable.Range(0, shell.Positions.Count / 3).Where(k => Math.Abs(shell.Normals[(3 * k) + 1]) > 0.5f).ToList();
+        Assert.Equal(8, caps.Count);
+        Assert.All(caps, k => Assert.Equal(2, Enumerable.Range(0, 4).Count(e => shell.Edges[(4 * k) + e] < 1e-3f)));
+    }
+
+    [Fact]
+    public void TwoFallsSideBySideFadeOutAtTheirOuterEndsNotWhereTheyMeet()
+    {
+        var shell = VoxelShell.Build(Field(TwoFallsSideBySide(BrickData.AllOpen)), 0, 0, 0);
+        var across = Enumerable.Range(0, shell.Positions.Count / 3).Where(k => Math.Abs(shell.Normals[(3 * k) + 2]) > 0.5f).ToList();
+        float End(int k) => Math.Min(shell.Edges[4 * k], shell.Edges[(4 * k) + 1]);
+
+        // The north and south faces run from column 8's open west end to column 9's open east end, meeting at x 9 m
+        // (1 m from the brick's middle): faded at the open ends only.
+        Assert.Contains(across, k => Math.Abs(shell.Positions[3 * k] - 1f) < 1e-3f);
+        Assert.All(across.Where(k => Math.Abs(shell.Positions[3 * k] - 1f) < 1e-3f), k => Assert.True(End(k) > 0.25f));
+        Assert.All(across.Where(k => Math.Abs(shell.Positions[3 * k] - 1f) > 0.1f), k => Assert.Equal(0f, End(k), 3));
+    }
+
+    [Fact]
+    public void WaterStandingShowsItsSidesWholeToTheirEdges()
+    {
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 8, 4, 8, 0.6f, BrickData.AllOpen & ~Down);
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+
+        Assert.True(shell.Faces > 0);
+        Assert.Equal(shell.Positions.Count / 3 * 4, shell.Edges.Count);
+        Assert.All(shell.Edges, e => Assert.Equal(VoxelShell.NoEdge, e));
+    }
+
+    [Fact]
+    public void AFilmDownAFaceFadesOutTowardItsOpenEndsAndItsTopNotItsFoot()
+    {
+        BrickView view = Face();
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+        var sides = Enumerable.Range(0, shell.Positions.Count / 3).Where(k => Math.Abs(shell.Normals[(3 * k) + 1]) < 0.5f).ToList();
+
+        // Down a face the films meet column to column, and the rock closes their west: their north and south sides
+        // are open only at the face's two outer ends, and each lands on the ground (no foot to fade).
+        Assert.All(sides, k => Assert.Equal(VoxelShell.NoEdge, shell.Edges[(4 * k) + 3]));
+        Assert.Contains(sides, k => shell.Edges[(4 * k) + 2] < 1e-3f);
+        Assert.Contains(sides, k => Math.Min(shell.Edges[4 * k], shell.Edges[(4 * k) + 1]) < 1e-3f);
+    }
+
+    [Fact]
+    public void AFilmDownAFaceIsLitAsOneSheetOutFromTheRock()
+    {
+        // The rock closes the films' west faces: every face of them is lit facing east, tilted up by SheetTilt; a fall
+        // in the air keeps each side facing its own way.
+        var shell = VoxelShell.Build(Field(Face()), 0, 0, 0);
+        float length = (float)Math.Sqrt(1f + (VoxelShell.SheetTilt * VoxelShell.SheetTilt));
+
+        Assert.All(Corners(shell), c => Assert.Equal((1f / length, VoxelShell.SheetTilt / length, 0f), c.Normal));
+        var fall = Corners(VoxelShell.Build(Field(Falls(0.09f, 4, 5, 6, 7)), 0, 0, 0)).Select(c => c.Normal).Distinct().ToList();
+        Assert.Contains((1f, 0f, 0f), fall);
+        Assert.Contains((0f, 0f, -1f), fall);
+    }
+
+    [Fact]
     public void AFallOfUnevenWaterKeepsOneWidthDownItsLength()
     {
         // A fall whose voxels hold a tenth and half a tenth of a voxel by turns: as wide as the most of each voxel and
@@ -600,7 +685,8 @@ public class VoxelShellTests
     public void WaterFallingDownACliffFaceOverGroundIsOneFilmDownToTheGround()
     {
         // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a film down the face
-        // to the ground, one column from 4 m to 8 m nearly as wide as the voxel, its four sides and its top only.
+        // to the ground, one column from 4 m to 8 m nearly as wide as the voxel, its four sides only (no cap: its top
+        // fades out, and a cap a step lower than the next column's up the face drew the face a stair).
         var view = new BrickView(0, 0, 0, 1f);
         for (int y = 4; y < 8; y++)
         {
@@ -609,7 +695,7 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.Equal(4 + 1, shell.Faces);
+        Assert.Equal(4, shell.Faces);
         Assert.Equal(-4f, Corners(shell).Min(c => c.Y), 3);
         Assert.Equal(0f, Corners(shell).Max(c => c.Y), 3);
         Assert.Equal(VoxelShell.WidestFall * 0.5f, Corners(shell).Max(c => c.X) - 0.5f, 3);
@@ -626,22 +712,23 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
         var corners = Corners(shell).ToList();
+        var faces = Enumerable.Range(0, corners.Count / 4).Select(q => corners.GetRange(4 * q, 4)).ToList();
 
         // Between each column and the next down the face, no face across over the rows they share (the lower one's
-        // top rows, the upper one's foot): the films meet there.
+        // top rows, the upper one's foot): the films meet there. (A face across x has its four corners at one x.)
         for (int x = 4; x < 7; x++)
         {
             float between = x + 1 - 8f;
-            Assert.DoesNotContain(corners, c => Math.Abs(c.X - between) < 1e-3f && (c.Normal == (1f, 0f, 0f) || c.Normal == (-1f, 0f, 0f)) && c.Y > Rows(x).Bottom - 8f + 1e-3f && c.Y < Rows(x + 1).Top + 1 - 8f - 1e-3f);
+            Assert.DoesNotContain(faces, q => q.All(c => Math.Abs(c.X - between) < 1e-3f) && q.Any(c => c.Y > Rows(x).Bottom - 8f + 1e-3f && c.Y < Rows(x + 1).Top + 1 - 8f - 1e-3f));
         }
 
-        // Each column's north faces (four corners each, the middle of each in the column) from its ground (0.4 of the
-        // voxel it lands in) up to over its highest water.
+        // Each column's north faces (four corners each at its north edge, the middle of each in the column) from its
+        // ground (0.4 of the voxel it lands in) up to over its highest water.
+        float north = corners.Max(c => c.Z);
         for (int x = 4; x <= 7; x++)
         {
             float middle = x + 0.5f - 8f;
-            var column = Enumerable.Range(0, corners.Count / 4).Select(q => corners.GetRange(4 * q, 4))
-                .Where(q => q[0].Normal == (0f, 0f, 1f) && Math.Abs(q.Average(c => c.X) - middle) < 0.1f).SelectMany(q => q).ToList();
+            var column = faces.Where(q => q.All(c => Math.Abs(c.Z - north) < 1e-3f) && Math.Abs(q.Average(c => c.X) - middle) < 0.1f).SelectMany(q => q).ToList();
             Assert.Equal(Rows(x).Bottom + 0.4f - 8f, column.Min(c => c.Y), 3);
             Assert.Equal(Rows(x).Top + 1 - 8f, column.Max(c => c.Y), 3);
         }
