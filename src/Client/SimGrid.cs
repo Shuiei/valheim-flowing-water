@@ -30,6 +30,16 @@ internal sealed class SimGrid : IDisposable
     /// <summary>The units of <see cref="Landed"/> in a cubic metre (the compute shaders' LAND_SCALE).</summary>
     public const float LandScale = 1000000f;
 
+    /// <summary>The units of <see cref="FoamAdded"/> in a cell wholly covered (the compute shaders' FOAM_SCALE).</summary>
+    public const float FoamScale = 1000000f;
+
+    // The foam (Crest's foam simulation, over the card's water): it fades by this much a second (as Crest's sea's), and
+    // where the water traps air (FlowingWaterTrapped.cginc, the spray's froth's rule too) makes as much as a whole
+    // cell's cover this many times a second, where it traps all it will.
+    private const float FoamFade = 0.8f;
+
+    private const float FoamTrapped = 1f;
+
     // A step is kept stable for water this deep running this fast (m, m/s): a wave crosses at most half a cell. Deeper
     // water carries its flow as if this deep (its waves a little slower), so the step never needs to be shorter.
     private const float DeepestStable = 8f;
@@ -91,6 +101,11 @@ internal sealed class SimGrid : IDisposable
     private static readonly int DrawnId = Shader.PropertyToID("_Drawn");
     private static readonly int ChurnId = Shader.PropertyToID("_Churn");
     private static readonly int FrameId = Shader.PropertyToID("_Frame");
+    private static readonly int FoamInId = Shader.PropertyToID("_FoamIn");
+    private static readonly int FoamOutId = Shader.PropertyToID("_FoamOut");
+    private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
+    private static readonly int FoamFadeId = Shader.PropertyToID("_FoamFade");
+    private static readonly int FoamTrappedId = Shader.PropertyToID("_FoamTrapped");
 
     private readonly ComputeShader _shader;
 
@@ -107,6 +122,7 @@ internal sealed class SimGrid : IDisposable
     private readonly int _clear;
     private readonly int _shiftCells;
     private readonly int _shape;
+    private readonly int _carryFoam;
 
     // Depth in two (a step reads one and writes the other), the speeds in two pairs (likewise), what crosses the faces
     // at a step's start, the ground, each cell's share of its outflow, each voxel column's pull.
@@ -117,6 +133,11 @@ internal sealed class SimGrid : IDisposable
     private readonly RenderTexture _qy;
     private readonly RenderTexture _scale;
     private readonly RenderTexture _pull;
+
+    // The foam in two (a frame reads one and writes the other).
+    private readonly RenderTexture[] _foam = new RenderTexture[2];
+
+    private int _foamCurrent;
     private readonly float[] _targetPixels;
     private readonly float[] _noLayers;
 
@@ -170,6 +191,14 @@ internal sealed class SimGrid : IDisposable
         Drawn = MakeCells("drawn", cells);
         Churn = MakeCells("churn", cells);
         Zero(Churn);
+        _carryFoam = shader.FindKernel("CarryFoam");
+        for (int k = 0; k < 2; k++)
+        {
+            _foam[k] = MakeCells("foam " + k, cells);
+            Zero(_foam[k]);
+        }
+
+        FoamAdded = MakeCells("foam added", cells, RenderTextureFormat.RInt);
         ClearThrown();
         Target = new Texture2D(Columns, Columns, TextureFormat.RGBAFloat, false, true)
         {
@@ -219,6 +248,15 @@ internal sealed class SimGrid : IDisposable
 
     /// <summary>How white each cell's water churns where falling water lands in it (0 to 1), calming once it stops.</summary>
     public RenderTexture Churn { get; }
+
+    /// <summary>
+    /// How much of each cell's water is covered in foam (0 to 1): carried by the current from upstream and fading, made
+    /// where falling water lands, where water runs into slower water and where the spray leaves foam (<see cref="FoamAdded"/>).
+    /// </summary>
+    public RenderTexture Foam => _foam[_foamCurrent];
+
+    /// <summary>The foam the spray left on each cell since the last frame (<see cref="FoamScale"/> times the share covered), taken in by <see cref="Step"/>.</summary>
+    public RenderTexture FoamAdded { get; }
 
     /// <summary>Cells along a side.</summary>
     public int Cells { get; }
@@ -356,6 +394,16 @@ internal sealed class SimGrid : IDisposable
         Free(texture);
     }
 
+    /// <summary>Sets every cell's foam (0 to 1, a row after another): for previews and tests.</summary>
+    public void SetFoam(float[] foam)
+    {
+        var texture = new Texture2D(Cells, Cells, TextureFormat.RFloat, false, true);
+        texture.SetPixelData(foam, 0);
+        texture.Apply(false);
+        Graphics.CopyTexture(texture, _foam[_foamCurrent]);
+        Free(texture);
+    }
+
     /// <summary>The water as the server has it, still (where the card had none, or the square moved).</summary>
     public void Seed()
     {
@@ -403,6 +451,7 @@ internal sealed class SimGrid : IDisposable
         }
 
         Substeps = steps;
+        CarryFoam(seconds);
         if (!Pulled)
         {
             return;
@@ -442,6 +491,8 @@ internal sealed class SimGrid : IDisposable
         Graphics.CopyTexture(_scale, Bed);
         ShiftInto(Churn, _scale, 0f);
         Graphics.CopyTexture(_scale, Churn);
+        ShiftInto(_foam[_foamCurrent], _foam[1 - _foamCurrent], 0f);
+        _foamCurrent = 1 - _foamCurrent;
         ClearThrown();
     }
 
@@ -455,10 +506,11 @@ internal sealed class SimGrid : IDisposable
         Dispatch(_shape, Cells);
     }
 
-    /// <summary>No water in the air nor landed (the spray that would carry or land it is gone).</summary>
+    /// <summary>No water in the air nor landed, no foam left by the spray (the spray that would carry, land or leave it is gone).</summary>
     public void ClearThrown()
     {
         Bind(_clear, AirborneId, Airborne);
+        Bind(_clear, FoamAddedId, FoamAdded);
         BindLanded(_clear);
         Common();
         Dispatch(_clear, Cells);
@@ -466,7 +518,7 @@ internal sealed class SimGrid : IDisposable
 
     public void Dispose()
     {
-        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn, Churn })
+        foreach (RenderTexture texture in new[] { _h[0], _h[1], _u[0], _u[1], _v[0], _v[1], _qx, _qy, Bed, _scale, _pull, Airborne, Landed, LandedEast, LandedNorth, Drawn, Churn, _foam[0], _foam[1], FoamAdded })
         {
             texture.Release();
             Free(texture);
@@ -544,6 +596,24 @@ internal sealed class SimGrid : IDisposable
         Bind(_shiftCells, ShiftToId, to);
         _shader.SetFloat(OutsideId, outside);
         Dispatch(_shiftCells, Cells);
+    }
+
+    // The foam carried over a frame of this many seconds (into the other texture), with what was made since.
+    private void CarryFoam(float seconds)
+    {
+        Bind(_carryFoam, HId, _h[_current]);
+        Bind(_carryFoam, UId, _u[_speeds]);
+        Bind(_carryFoam, VId, _v[_speeds]);
+        Bind(_carryFoam, BedId, Bed);
+        Bind(_carryFoam, ChurnId, Churn);
+        Bind(_carryFoam, FoamAddedId, FoamAdded);
+        _shader.SetTexture(_carryFoam, FoamInId, _foam[_foamCurrent]);
+        Bind(_carryFoam, FoamOutId, _foam[1 - _foamCurrent]);
+        _shader.SetFloat(FrameId, seconds);
+        _shader.SetFloat(FoamFadeId, FoamFade);
+        _shader.SetFloat(FoamTrappedId, FoamTrapped);
+        Dispatch(_carryFoam, Cells);
+        _foamCurrent = 1 - _foamCurrent;
     }
 
     private void BindLanded(int kernel)

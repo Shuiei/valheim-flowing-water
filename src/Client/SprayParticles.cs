@@ -48,19 +48,9 @@ internal sealed class SprayParticles : IDisposable
 
     private const int SplashDroplets = 3;
 
-    // Froth: trapped air lets so many particles go a second over each square metre at the most; water coming on into the
-    // water beside it this much faster than that goes (m/s, summed over its four sides) traps none, from the second all it
-    // will; water slower than FrothSlow (m/s) traps none, all it will from FrothFast. A sheet plunging fast into a pool
-    // drives so many bubbles down.
+    // Froth: trapped air (FlowingWaterTrapped.cginc, the card's foam's rule too) lets so many particles go a second over
+    // each square metre where the water traps all it will. A sheet plunging fast into a pool drives so many bubbles down.
     private const float TrappedRate = 60f;
-
-    private const float TrappedFrom = 0.5f;
-
-    private const float TrappedFull = 3f;
-
-    private const float FrothSlow = 1.5f;
-
-    private const float FrothFast = 5f;
 
     private const int PlungeBubbles = 4;
 
@@ -110,12 +100,9 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int BorderId = Shader.PropertyToID("_Border");
     private static readonly int FrothId = Shader.PropertyToID("_Froth");
     private static readonly int TrappedRateId = Shader.PropertyToID("_TrappedRate");
-    private static readonly int TrappedFromId = Shader.PropertyToID("_TrappedFrom");
-    private static readonly int TrappedFullId = Shader.PropertyToID("_TrappedFull");
-    private static readonly int FrothSlowId = Shader.PropertyToID("_FrothSlow");
-    private static readonly int FrothFastId = Shader.PropertyToID("_FrothFast");
     private static readonly int PlungeBubblesId = Shader.PropertyToID("_PlungeBubbles");
     private static readonly int CrowdId = Shader.PropertyToID("_Crowd");
+    private static readonly int FoamAddedId = Shader.PropertyToID("_FoamAdded");
     private static readonly int FrothCrowdId = Shader.PropertyToID("_FrothCrowd");
     private static readonly int WaterDepthId = Shader.PropertyToID("_SprayWaterDepth");
     private static readonly int WaterOriginId = Shader.PropertyToID("_SprayWaterOrigin");
@@ -241,10 +228,6 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetFloat(FallRateId, FallRate);
         _shader.SetInt(FrothId, Froth ? 1 : 0);
         _shader.SetFloat(TrappedRateId, TrappedRate);
-        _shader.SetFloat(TrappedFromId, TrappedFrom);
-        _shader.SetFloat(TrappedFullId, TrappedFull);
-        _shader.SetFloat(FrothSlowId, FrothSlow);
-        _shader.SetFloat(FrothFastId, FrothFast);
         _shader.SetInt(PlungeBubblesId, PlungeBubbles);
         Properties.SetInt(FrothId, Froth ? 1 : 0);
         _shader.SetTexture(_emit, LayersId, grid.Layers);
@@ -379,6 +362,7 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetTexture(kernel, LandedId, grid.Landed);
         _shader.SetTexture(kernel, LandedXId, grid.LandedEast);
         _shader.SetTexture(kernel, LandedZId, grid.LandedNorth);
+        _shader.SetTexture(kernel, FoamAddedId, grid.FoamAdded);
     }
 
     public void Dispose()

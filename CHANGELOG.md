@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.51.0 — 2026-11-02
+
+### Added
+- The foam of falls and rapids is carried off downstream by the current and fades as it goes, so a waterfall leaves a
+  trail of foam and bubbles on the river below it instead of stopping where the water lands.
+
 ## v0.50.0 — 2026-11-02
 
 ### Added

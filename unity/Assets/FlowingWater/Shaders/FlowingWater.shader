@@ -58,6 +58,8 @@ Shader "FlowingWater/Water"
         _FlowFull ("Current at which it fully runs (m/s)", Float) = 0.5
         _RapidsSpeed ("Current that makes full foam (m/s)", Float) = 4
         _RapidsTiling ("Rapids foam tiling (per metre)", Float) = 0.35
+        _FoamBubbles ("Bubbles under the foam", Range(0, 1)) = 0.35
+        _FoamBubbleDepth ("How deep the bubbles seem (m)", Float) = 0.08
         _EdgeFade ("Edge fade (shown share)", Range(0.01, 1)) = 0.3
         _BodyDepth ("Water this thick (m, seen through) takes two thirds of the green light behind it (BodyTint: the red faster)", Float) = 1.2
         _BodyTint ("How much faster each colour's light goes than at BodyDepth (red first)", Vector) = (1.6, 1.1, 0.9, 0)
