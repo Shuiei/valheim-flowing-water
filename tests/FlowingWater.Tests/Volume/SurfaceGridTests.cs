@@ -199,23 +199,49 @@ public class SurfaceGridTests
     }
 
     [Fact]
-    public void ALoneCornerOfThinWaterDrawsNoSquare()
+    public void ALoneCornerOfThinWaterOnAFaceDrawsNoSquare()
     {
-        // A pocket of 0.1 of water alone on a slope (no water in any column beside it): no square round it is drawn
-        // (the dry columns round it take its height, and it stood out of the face as a flat wedge). Deeper, 0.6, a lone
-        // column is drawn.
+        // A pocket of 0.1 of water alone on a face (rock rising west of it in its row, nothing under its row east of
+        // it, no water in any column beside it): no square round it is drawn (the dry columns round it take its
+        // height, and it stood out of the face as a flat wedge). Deeper, 0.6, a lone column is drawn.
         var thin = new BrickView(0, 0, 0, 1f);
         thin.Water[Brick.Index(5, 5, 5)] = 0.1f;
         thin.Solid[Brick.Index(5, 5, 5)] = 0.3f;
+        thin.Solid[Brick.Index(4, 5, 5)] = 1f;
         var deep = new BrickView(0, 0, 0, 1f);
         deep.Water[Brick.Index(5, 5, 5)] = 0.6f;
+        deep.Solid[Brick.Index(4, 5, 5)] = 1f;
 
         var lone = SurfaceGrid.Build(Field(thin), 0, 0, 0);
         var pool = SurfaceGrid.Build(Field(deep), 0, 0, 0);
 
         Assert.True(lone.Shown[SurfaceGrid.Index(5, 5)] > 0f);
+        Assert.Equal(1f, lone.Face[SurfaceGrid.Index(5, 5)]);
         Assert.False(lone.Draws);
         Assert.True(pool.DrawsSquare(5, 5));
+    }
+
+    [Fact]
+    public void ALoneCornerOfThinWaterOnLevelGroundIsDrawn()
+    {
+        // A puddle of 0.1 alone on level ground (row 4 under it and round it all rock, nothing rising beside it in its
+        // row): not on a face, its squares drawn.
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 3; x <= 7; x++)
+        {
+            for (int z = 3; z <= 7; z++)
+            {
+                view.Solid[Brick.Index(x, 4, z)] = 1f;
+            }
+        }
+
+        view.Water[Brick.Index(5, 5, 5)] = 0.1f;
+
+        var grid = SurfaceGrid.Build(Field(view), 0, 0, 0);
+
+        Assert.Equal(0f, grid.Face[SurfaceGrid.Index(5, 5)]);
+        Assert.True(grid.DrawsSquare(5, 5));
+        Assert.True(grid.DrawsSquare(4, 4));
     }
 
     [Fact]
