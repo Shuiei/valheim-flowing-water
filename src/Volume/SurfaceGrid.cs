@@ -302,7 +302,7 @@ internal sealed class SurfaceGrid
         int nearest = int.MaxValue;
         for (int y = ceiling + Window; y >= floor - Window; y--)
         {
-            if (!column.IsWet(y) || column.GoesUp(y) || column.FaceRun(y))
+            if (!column.IsWet(y) || column.NoTop(y))
             {
                 continue;
             }
@@ -381,9 +381,16 @@ internal sealed class SurfaceGrid
 
         public bool IsWet(int y) => Voxel(y, out BrickView view, out int i) && VoxelField.IsWet(view, i);
 
-        // Water in a film down a face (VoxelField.FaceRun) is the shell's: no top of the surface's (its voxels a top
-        // each, raised to their own rows, drew shards standing off the rock).
-        public bool FaceRun(int y) => _field.FaceRun(_x, y, _z, out _, out _);
+        // A wet voxel is no top where its water goes up into the voxel over it, or where it is in a film down a face
+        // (VoxelField.FaceRun): that is the shell's (its voxels a top each, raised to their own rows, drew shards
+        // standing off the rock). Where the film lands with a sheet running on from it beside (water in that row no
+        // film's), the landing is a top though, its water over it the film's, so the surface meets the film's foot.
+        public bool NoTop(int y) => _field.FaceRun(_x, y, _z, out _, out int bottom) ? y != bottom || !RunsOn(y) : GoesUp(y);
+
+        private bool RunsOn(int y) => Beside(_x - 1, y, _z) || Beside(_x + 1, y, _z) || Beside(_x, y, _z - 1) || Beside(_x, y, _z + 1);
+
+        private bool Beside(int x, int y, int z) =>
+            _field.Voxel(x, y, z, out BrickView view, out int i) && VoxelField.IsWet(view, i) && !_field.FaceRun(x, y, z, out _, out _);
 
         public bool GoesUp(int y) => Voxel(y + 1, out BrickView view, out int i) && VoxelField.IsWet(view, i) && view.Solid[i] <= 0f;
 
