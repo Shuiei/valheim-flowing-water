@@ -111,6 +111,10 @@ Shader "FlowingWater/Water"
         // that far apart are never joined.
         #define JOIN_ROWS 2.0
         #define STEEP_GONE 3.0
+        // A square with a single corner showing water this deep or less (m) is not drawn (SurfaceGrid.LoneDeepest):
+        // the dry columns round it take its height, and a pocket of film on a steep face stood out of the rock as a
+        // flat wedge.
+        #define LONE_DEEPEST 0.3
 
         float2 GridUv(float2 cell)
         {
@@ -186,13 +190,20 @@ Shader "FlowingWater/Water"
         }
 
         // A state's say on a square: 1 where this brick draws it (the brick whose top its first shown corner is), 0
-        // where another does, -1 where no corner shows water.
+        // where another does, -1 where no corner shows water, or one alone of thin water.
         float Owner(sampler2D state, float2 corner)
         {
             float4 a = tex2Dlod(state, float4(GridUv(corner), 0.0, 0.0));
             float4 b = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 0.0)), 0.0, 0.0));
             float4 c = tex2Dlod(state, float4(GridUv(corner + float2(0.0, 1.0)), 0.0, 0.0));
             float4 d = tex2Dlod(state, float4(GridUv(corner + float2(1.0, 1.0)), 0.0, 0.0));
+            // A lone corner of thin water draws nothing (LONE_DEEPEST), as if none showed.
+            float shown = (a.z > 0.0 ? 1.0 : 0.0) + (b.z > 0.0 ? 1.0 : 0.0) + (c.z > 0.0 ? 1.0 : 0.0) + (d.z > 0.0 ? 1.0 : 0.0);
+            if (shown < 1.5 && max(max(a.z > 0.0 ? a.y : 0.0, b.z > 0.0 ? b.y : 0.0), max(c.z > 0.0 ? c.y : 0.0, d.z > 0.0 ? d.y : 0.0)) <= LONE_DEEPEST)
+            {
+                return -1.0;
+            }
+
             return a.z > 0.0 ? a.w : (b.z > 0.0 ? b.w : (c.z > 0.0 ? c.w : (d.z > 0.0 ? d.w : -1.0)));
         }
 

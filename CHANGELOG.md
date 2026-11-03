@@ -2,6 +2,11 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.54.1 — 2026-11-03
+
+### Fixed
+- Far away, lone pockets of thin water on a steep slope no longer stand out of the rock as flat glassy wedges.
+
 ## v0.54.0 — 2026-11-03
 
 ### Added

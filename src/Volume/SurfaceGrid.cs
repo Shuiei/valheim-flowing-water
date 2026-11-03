@@ -227,9 +227,34 @@ internal sealed class SurfaceGrid
 
     private static readonly (int I, int J)[] Corners = [(0, 0), (1, 0), (0, 1), (1, 1)];
 
-    // The brick's say on a square: whether it draws it, by its first corner shown; none shown, none.
+    /// <summary>
+    /// A square with a single corner showing water this deep or less, metres, is not drawn (none shown, as far as it
+    /// goes): the dry columns round that corner take its height (<see cref="Spread"/>), and a pocket of film on a steep
+    /// face, with no water beside it, stood out of the rock as a flat wedge. The graphics card asks the same.
+    /// </summary>
+    public const float LoneDeepest = 0.3f;
+
+    // The brick's say on a square: whether it draws it, by its first corner shown; none shown, or one alone of thin
+    // water (LoneDeepest), none.
     private bool? Owns(int i, int j)
     {
+        int shown = 0;
+        float deepest = 0f;
+        foreach ((int di, int dj) in Corners)
+        {
+            int k = Index(i + di, j + dj);
+            if (Shown[k] > 0f)
+            {
+                shown++;
+                deepest = Math.Max(deepest, Depth[k]);
+            }
+        }
+
+        if (shown == 0 || (shown == 1 && deepest <= LoneDeepest))
+        {
+            return null;
+        }
+
         foreach ((int di, int dj) in Corners)
         {
             int k = Index(i + di, j + dj);

@@ -697,7 +697,9 @@ there to the new grid (same volume), at once when the file is saved.
   the ground with rock beside it, is a film down the face: one column of white, streaked water from the ground it lands
   on up through its highest water, nearly as wide as the voxel, joined to the film of the column beside over the rows
   they share, and as see-through as its water laid over its height is thin; the surface leaves its voxels to it. The
-  face shows one white stream from the lip to the foot, not dashes and shards standing off the rock. Without these
+  face shows one white stream from the lip to the foot, not dashes and shards standing off the rock. A square of the
+  surface with a single corner of water 30 cm deep or less is not drawn: the dry columns round that corner take its
+  height, and a lone pocket of film on a steep slope stood out of the rock as a flat wedge. Without these
   two, a stream down a hill outside the card's square drew a grid of small walls and
   columns under its surface, seen through it as dark patches. These faces and the surface are drawn from both sides: from inside the water, it
   is still seen.
