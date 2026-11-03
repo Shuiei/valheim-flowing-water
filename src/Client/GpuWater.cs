@@ -688,6 +688,7 @@ internal sealed class GpuWater : IDisposable
         var origin = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
         _spray ??= new SprayParticles(compute, material);
         _spray.Curtain = Materials.Falls;
+        _spray.Froth = FlowingWaterPlugin.Settings.SprayFroth.Value;
         _spray.Step(_grid, origin, Math.Min(Time.deltaTime, 1f / 15f));
         _spray.Draw(new Bounds(new Vector3(origin.x + (_window.Size / 2f), 0f, origin.y + (_window.Size / 2f)), new Vector3(_window.Size + 20f, 4000f, _window.Size + 20f)));
     }

@@ -56,6 +56,8 @@ public static class SimPreview
                 ("shift", Shift),
                 ("shift-thrown", ShiftThrown),
                 ("spray", Spray),
+                ("froth", () => Froth(true)),
+                ("froth-off", () => Froth(false)),
                 ("look", LookOnly),
                 ("edge", Edge),
                 ("bumps", Bumps),
@@ -726,6 +728,105 @@ public static class SimPreview
     // The waves' height at this speed (m/s) and depth (m), by the shaders' rule (FlowingWaterWaves.cginc).
     private static float WaveHeight(float speed, float depth) => depth > 0.005f ? Mathf.Min(0.015f * speed * speed, 0.15f, 0.25f * depth) : 0f;
 
+    // The spray sorted (FlowingWaterSpray.compute's froth): 2 m of water let go on a shelf 3 m high, falling off its lip
+    // into the pool it makes below. Foam must lie on the water's top and carry no water, bubbles must be under it, and the
+    // foam must drift with the current; with the froth off, there is none.
+    private static void Froth(bool froth)
+    {
+        float[] bed = Ground((x, z) => x < 6f || x > 34f || z < 12f || z > 28f ? 20f : x < 20f ? 3f : 0f);
+        using var scene = new Scene(froth ? "froth" : "froth-off", bed);
+        scene.Grid.Pulled = false;
+        scene.Grid.Throws = true;
+        scene.Grid.SetDepth(Depths((x, z) => x > 6f && x < 12f && z > 12f && z < 28f ? 2f : 0f));
+        var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>(BuildBundles.SprayComputePath);
+        using var spray = new SprayParticles(compute, AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.SprayMaterialPath))
+        {
+            Curtain = AssetDatabase.LoadAssetAtPath<Material>(BuildBundles.FallMaterialPath),
+            Froth = froth,
+        };
+        scene.Spray = spray;
+        Log.AppendLine(Inv($"Froth{(froth ? string.Empty : " (off)")}: 2 m of water let go on a shelf 3 m high, falling off its lip at x = 20 m into the pool below."));
+        int mostFoam = 0, mostBubbles = 0, footFoam = 0;
+        float worstFoam = 0f, carried = 0f, aboveBubble = float.MinValue, drift = 0f, flow = 0f;
+        for (int k = 1; k <= 360; k++)
+        {
+            scene.Step();
+            spray.Step(scene.Grid, Vector2.zero, Frame);
+            if (k % 30 == 0)
+            {
+                float[] data = spray.Read();
+                float[] depth = scene.Read();
+                float[] east = Read(scene.Grid.SpeedEast), north = Read(scene.Grid.SpeedNorth);
+                int[] kinds = new int[5];
+                for (int p = 0; p < SprayParticles.Count; p++)
+                {
+                    int at = p * 12;
+                    int kind = Mathf.RoundToInt(data[at + 9]);
+                    if (data[at + 3] >= data[at + 7] || kind < 0 || kind > 4)
+                    {
+                        continue;
+                    }
+
+                    kinds[kind]++;
+                    int i = Mathf.FloorToInt(data[at] / Dx), j = Mathf.FloorToInt(data[at + 2] / Dx);
+                    if (kind < 3 || i < 1 || j < 1 || i >= Cells || j >= Cells)
+                    {
+                        continue;
+                    }
+
+                    int cell = (j * Cells) + i;
+                    float top = bed[cell] + depth[cell];
+                    carried += data[at + 10];
+                    footFoam += kind == 3 && data[at] > 20f && data[at] < 23f ? 1 : 0;
+                    if (kind == 3)
+                    {
+                        worstFoam = Mathf.Max(worstFoam, Mathf.Abs(data[at + 1] - top));
+                        Vector2 water = new(0.5f * (east[cell] + east[cell - 1]), 0.5f * (north[cell] + north[cell - Cells]));
+                        drift += new Vector2(data[at + 4], data[at + 6]).magnitude;
+                        flow += water.magnitude;
+                    }
+                    else
+                    {
+                        aboveBubble = Mathf.Max(aboveBubble, data[at + 1] - top);
+                    }
+                }
+
+                mostFoam = Math.Max(mostFoam, kinds[3]);
+                mostBubbles = Math.Max(mostBubbles, kinds[4]);
+                Log.AppendLine(Inv($"  t={k * Frame:0.0}s droplets {kinds[0]}, sheets {kinds[1]}, splashes {kinds[2]}, foam {kinds[3]}, bubbles {kinds[4]}"));
+            }
+
+            if (k is 60 or 90 or 150 or 240)
+            {
+                scene.Shot(Inv($"{(froth ? "froth" : "froth-off")}_{k * Frame:0.0}s"), new Vector3(27f, 5f, 9f), new Vector3(22f, 0.5f, 20f));
+            }
+        }
+
+        // Turned off mid-fall: the foam and bubbles still going end at the next step.
+        spray.Froth = false;
+        scene.Step();
+        spray.Step(scene.Grid, Vector2.zero, Frame);
+        int[] left = spray.AliveByKind();
+        int steppedAfter = spray.Stepped;
+        scene.Step();
+        spray.Step(scene.Grid, Vector2.zero, Frame);
+        int steppedLater = spray.Stepped;
+        scene.Spray = null;
+        string Check(bool ok) => ok ? "OK" : "FAILED";
+        if (froth)
+        {
+            Log.AppendLine(Inv($"Froth: turned off, foam {left[3]} and bubbles {left[4]} left a step later (that step over all of them, the froth's ring too); then {steppedAfter} and {steppedLater} of {SprayParticles.Count} stepped and drawn: {Check(left[3] == 0 && left[4] == 0 && steppedAfter == SprayParticles.Count - 16384 && steppedLater == SprayParticles.Count - 16384)}"));
+            Log.AppendLine(Inv($"Froth: foam within 3 m of the fall's foot, counted every 0.5 s: {footFoam} in all: {Check(footFoam > 0)}"));
+            Log.AppendLine(Inv($"Froth: foam at most {mostFoam}, bubbles at most {mostBubbles}: {Check(mostFoam > 0 && mostBubbles > 0)}"));
+            Log.AppendLine(Inv($"Froth: foam off the water's top by {worstFoam * 100f:0.0} cm at most, foam and bubbles carrying {carried:0.000} m3; bubbles at most {aboveBubble * 100f:0.0} cm over the top: {Check(worstFoam <= 0.05f && carried <= 0f && aboveBubble <= 0f)}"));
+            Log.AppendLine(Inv($"Froth: foam drifting at {(flow > 0f ? drift / flow : 0f):0.00} of the water's speed: {Check(flow > 0f && Mathf.Abs((drift / flow) - 1f) < 0.1f)}"));
+        }
+        else
+        {
+            Log.AppendLine(Inv($"Froth off: foam at most {mostFoam}, bubbles at most {mostBubbles}: {Check(mostFoam == 0 && mostBubbles == 0)}"));
+        }
+    }
+
     // The spray off running water, by its rules (with no friction, so a thin sheet runs as fast as deep water): a thin
     // sheet shooting down a ramp throws no droplet, a dam let go throws some from its deep fast water, a still pool none;
     // and every droplet is fine (at most 2.5 cm across), short-lived (0.7 s at most) and thrown up at 1.5 m/s at most.
@@ -1019,7 +1120,7 @@ public static class SimPreview
             {
                 // Drawn with the next render of this camera only.
                 var commands = new CommandBuffer();
-                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6, 1, Spray.Properties);
+                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, Spray.Stepped * 6, 1, Spray.Properties);
                 if (Spray.Curtain != null)
                 {
                     commands.DrawProceduralIndirect(Matrix4x4.identity, Spray.Curtain, 0, MeshTopology.Triangles, Spray.CurtainArguments, 0, Spray.CurtainProperties);

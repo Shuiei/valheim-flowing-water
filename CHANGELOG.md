@@ -2,6 +2,13 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.50.0 — 2026-11-02
+
+### Added
+- Falls and fast water now foam: spray landing on water turns to foam that drifts off with the current, and a fall
+  plunging into a pool churns up bubbles that rise to foam. Thick spray shows as mist instead of bright specks (the
+  `Client.SprayFroth` setting, on by default).
+
 ## v0.49.17 — 2026-10-31
 
 ### Fixed

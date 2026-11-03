@@ -9,16 +9,22 @@ namespace FlowingWater.Client;
 /// sheets that fall and arc at its own speed carrying it (the card's water thrown, <see cref="SimGrid.Airborne"/>), and
 /// add it to the water where they land; a sheet landing fast throws up a splash. A lip's water is drawn as one curtain
 /// falling along the arc it is thrown on to where it lands (<see cref="Curtain"/>), its sheets faint, the curtain's
-/// mist. Nothing is sent anywhere. Needs only Unity, so the Unity project's preview runs it too.
+/// mist. With <see cref="Froth"/> on, the droplets are sorted into spray, foam and bubbles by where they are against the
+/// water (Ihmsen et al. 2012's diffuse particles), and water slamming into slower water traps air. Nothing is sent
+/// anywhere. Needs only Unity, so the Unity project's preview runs it too.
 /// </summary>
 internal sealed class SprayParticles : IDisposable
 {
-    /// <summary>Particles at most (the oldest give way to new ones).</summary>
-    public const int Count = 32768;
+    /// <summary>Particles at most (the oldest give way to new ones, each in its own ring).</summary>
+    public const int Count = 49152;
 
     // Of them, places kept for the sheets carrying the card's water (a ring of their own: a droplet never takes the place
     // of one still in the air, and one that gives way lands its water where it is).
     private const int Carriers = 8192;
+
+    // And places kept for the froth thrown as foam or bubbles (a ring of their own: a fall's plunge or trapped air never
+    // takes the place of spray, splashes or falling sheets, only of older froth).
+    private const int FrothRoom = 16384;
 
     // A particle's floats: place and age, velocity and life, size and kind.
     private const int Stride = 12 * sizeof(float);
@@ -42,6 +48,25 @@ internal sealed class SprayParticles : IDisposable
 
     private const int SplashDroplets = 3;
 
+    // Froth: trapped air lets so many particles go a second over each square metre at the most; water coming on into the
+    // water beside it this much faster than that goes (m/s, summed over its four sides) traps none, from the second all it
+    // will; water slower than FrothSlow (m/s) traps none, all it will from FrothFast. A sheet plunging fast into a pool
+    // drives so many bubbles down.
+    private const float TrappedRate = 60f;
+
+    private const float TrappedFrom = 0.5f;
+
+    private const float TrappedFull = 3f;
+
+    private const float FrothSlow = 1.5f;
+
+    private const float FrothFast = 5f;
+
+    private const int PlungeBubbles = 4;
+
+    // The crowd count's hashed cells (FlowingWaterSpray.compute's CROWD_CELLS).
+    private const int CrowdCells = 65536;
+
     // Curtains at most a frame (faces of cells over a lip: a kilometre of lip), the rows of each (FlowingWaterFall.shader's
     // ROWS), and a curtain's floats.
     private const int MostCurtains = 4096;
@@ -54,6 +79,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int NextId = Shader.PropertyToID("_Next");
     private static readonly int CountId = Shader.PropertyToID("_Count");
     private static readonly int CarriersId = Shader.PropertyToID("_Carriers");
+    private static readonly int FrothRoomId = Shader.PropertyToID("_FrothRoom");
     private static readonly int HId = Shader.PropertyToID("_H");
     private static readonly int BedId = Shader.PropertyToID("_Bed");
     private static readonly int UId = Shader.PropertyToID("_U");
@@ -82,6 +108,19 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int MostCurtainsId = Shader.PropertyToID("_MostCurtains");
     private static readonly int TargetId = Shader.PropertyToID("_Target");
     private static readonly int BorderId = Shader.PropertyToID("_Border");
+    private static readonly int FrothId = Shader.PropertyToID("_Froth");
+    private static readonly int TrappedRateId = Shader.PropertyToID("_TrappedRate");
+    private static readonly int TrappedFromId = Shader.PropertyToID("_TrappedFrom");
+    private static readonly int TrappedFullId = Shader.PropertyToID("_TrappedFull");
+    private static readonly int FrothSlowId = Shader.PropertyToID("_FrothSlow");
+    private static readonly int FrothFastId = Shader.PropertyToID("_FrothFast");
+    private static readonly int PlungeBubblesId = Shader.PropertyToID("_PlungeBubbles");
+    private static readonly int CrowdId = Shader.PropertyToID("_Crowd");
+    private static readonly int FrothCrowdId = Shader.PropertyToID("_FrothCrowd");
+    private static readonly int WaterDepthId = Shader.PropertyToID("_SprayWaterDepth");
+    private static readonly int WaterOriginId = Shader.PropertyToID("_SprayWaterOrigin");
+    private static readonly int WaterCellId = Shader.PropertyToID("_SprayWaterCell");
+    private static readonly int WaterCellsId = Shader.PropertyToID("_SprayWaterCells");
 
     private readonly ComputeShader _shader;
 
@@ -91,9 +130,20 @@ internal sealed class SprayParticles : IDisposable
 
     private readonly int _curtains;
 
+    private readonly int _crowdClear;
+
     private readonly ComputeBuffer _particles;
 
     private readonly ComputeBuffer _next;
+
+    // Spray, foam and bubbles counted in hashed cells each step (the shader draws spray in a crowd as mist).
+    private readonly ComputeBuffer _crowd;
+
+    // The froth counted apart in the same cells (foam and bubbles: a cell full of it takes no more).
+    private readonly ComputeBuffer _frothCrowd;
+
+    // Whether the froth was on at the last step (turned off, one more step runs over its ring, ending what is left).
+    private bool _frothWasOn;
 
     // The curtains this frame (their arguments drawn with: CurtainArguments).
     private readonly ComputeBuffer _curtainList;
@@ -108,11 +158,17 @@ internal sealed class SprayParticles : IDisposable
         _emit = shader.FindKernel("EmitFromWater");
         _move = shader.FindKernel("Move");
         _curtains = shader.FindKernel("Curtains");
+        _crowdClear = shader.FindKernel("CrowdClear");
         _particles = new ComputeBuffer(Count, Stride);
         _particles.SetData(new float[Count * 12]);
-        _next = new ComputeBuffer(2, sizeof(uint));
-        _next.SetData(new uint[2]);
+        _next = new ComputeBuffer(3, sizeof(uint));
+        _next.SetData(new uint[3]);
         Properties.SetBuffer(ParticlesId, _particles);
+        _crowd = new ComputeBuffer(CrowdCells, sizeof(uint));
+        _crowd.SetData(new uint[CrowdCells]);
+        Properties.SetBuffer(CrowdId, _crowd);
+        _frothCrowd = new ComputeBuffer(CrowdCells, sizeof(uint));
+        _frothCrowd.SetData(new uint[CrowdCells]);
         _curtainList = new ComputeBuffer(MostCurtains, CurtainStride, ComputeBufferType.Counter);
         CurtainArguments = new ComputeBuffer(4, sizeof(uint), ComputeBufferType.IndirectArguments);
         CurtainArguments.SetData(new uint[] { (CurtainRows - 1) * 6, 0, 0, 0 });
@@ -126,8 +182,20 @@ internal sealed class SprayParticles : IDisposable
     /// </summary>
     public Material Material { get; }
 
-    /// <summary>The particles' own buffer, for the material.</summary>
+    /// <summary>The particles' own buffer and crowd count, for the material.</summary>
     public MaterialPropertyBlock Properties { get; } = new();
+
+    /// <summary>
+    /// Whether the droplets are sorted into spray, foam and bubbles and the water traps air (true), or droplets end
+    /// where they land (false).
+    /// </summary>
+    public bool Froth { get; set; } = true;
+
+    /// <summary>
+    /// The particles stepped and drawn: all of them, or with the froth off (once what was left of it has ended) all but
+    /// the froth's own ring, the last places, which then hold nothing.
+    /// </summary>
+    public int Stepped => Froth || _frothWasOn ? Count : Count - FrothRoom;
 
     /// <summary>
     /// What the curtains are drawn with (the mod's falls material, FlowingWaterFall.shader), none where it has none:
@@ -155,6 +223,7 @@ internal sealed class SprayParticles : IDisposable
         _seed++;
         _shader.SetInt(CountId, Count);
         _shader.SetInt(CarriersId, Carriers);
+        _shader.SetInt(FrothRoomId, FrothRoom);
         _shader.SetInt(NId, grid.Cells);
         _shader.SetFloat(DxId, grid.CellSize);
         _shader.SetVector(OriginId, origin);
@@ -170,13 +239,37 @@ internal sealed class SprayParticles : IDisposable
         _shader.SetInt(SplashDropletsId, SplashDroplets);
         _shader.SetInt(PerVoxelId, grid.PerVoxel);
         _shader.SetFloat(FallRateId, FallRate);
+        _shader.SetInt(FrothId, Froth ? 1 : 0);
+        _shader.SetFloat(TrappedRateId, TrappedRate);
+        _shader.SetFloat(TrappedFromId, TrappedFrom);
+        _shader.SetFloat(TrappedFullId, TrappedFull);
+        _shader.SetFloat(FrothSlowId, FrothSlow);
+        _shader.SetFloat(FrothFastId, FrothFast);
+        _shader.SetInt(PlungeBubblesId, PlungeBubbles);
+        Properties.SetInt(FrothId, Froth ? 1 : 0);
         _shader.SetTexture(_emit, LayersId, grid.Layers);
         _shader.SetTexture(_emit, AirborneId, grid.Airborne);
         Bind(_emit, grid);
         Bind(_move, grid);
+        _shader.SetBuffer(_crowdClear, CrowdId, _crowd);
+        _shader.SetBuffer(_crowdClear, FrothCrowdId, _frothCrowd);
 
+        // The water's froth is thrown where last step's crowd leaves room, then counted again as it moves (with the froth
+        // off, nothing is counted: no crowd to clear, and its ring stepped only the step it was turned off).
         _shader.Dispatch(_emit, (grid.Cells + 7) / 8, (grid.Cells + 7) / 8, 1);
-        _shader.Dispatch(_move, Count / 64, 1, 1);
+        if (Froth)
+        {
+            _shader.Dispatch(_crowdClear, CrowdCells / 64, 1, 1);
+        }
+
+        _shader.Dispatch(_move, Stepped / 64, 1, 1);
+        _frothWasOn = Froth;
+
+        // What the shader raises foam on: the water's depth, its cells and where they start (the long waves stand on it).
+        Properties.SetTexture(WaterDepthId, grid.Depth);
+        Properties.SetVector(WaterOriginId, origin);
+        Properties.SetFloat(WaterCellId, grid.CellSize);
+        Properties.SetInt(WaterCellsId, grid.Cells);
 
         // The curtains of the water as it is now (after the particles took what they carry from it).
         _curtainList.SetCounterValue(0);
@@ -241,10 +334,30 @@ internal sealed class SprayParticles : IDisposable
         return alive;
     }
 
+    /// <summary>
+    /// How many are alive of each kind (droplets, sheets, splashes, foam, bubbles: FlowingWaterSpray.compute's kinds), read
+    /// back from the card: for previews and tests.
+    /// </summary>
+    public int[] AliveByKind()
+    {
+        float[] data = Read();
+        int[] kinds = new int[5];
+        for (int k = 0; k < Count; k++)
+        {
+            int kind = (int)Math.Round(data[(k * 12) + 9]);
+            if (data[(k * 12) + 3] < data[(k * 12) + 7] && kind >= 0 && kind < kinds.Length)
+            {
+                kinds[kind]++;
+            }
+        }
+
+        return kinds;
+    }
+
     /// <summary>Draws them this frame, for every camera, within these bounds (world), and the curtains if they have a material.</summary>
     public void Draw(Bounds bounds)
     {
-        Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Count * 6, 1, null, Properties);
+        Graphics.DrawProcedural(Material, bounds, MeshTopology.Triangles, Stepped * 6, 1, null, Properties);
         if (Curtain != null)
         {
             Graphics.DrawProceduralIndirect(Curtain, bounds, MeshTopology.Triangles, CurtainArguments, 0, null, CurtainProperties);
@@ -257,6 +370,8 @@ internal sealed class SprayParticles : IDisposable
     {
         _shader.SetBuffer(kernel, ParticlesId, _particles);
         _shader.SetBuffer(kernel, NextId, _next);
+        _shader.SetBuffer(kernel, CrowdId, _crowd);
+        _shader.SetBuffer(kernel, FrothCrowdId, _frothCrowd);
         _shader.SetTexture(kernel, HId, grid.Depth);
         _shader.SetTexture(kernel, BedId, grid.Bed);
         _shader.SetTexture(kernel, UId, grid.SpeedEast);
@@ -270,6 +385,8 @@ internal sealed class SprayParticles : IDisposable
     {
         _particles.Release();
         _next.Release();
+        _crowd.Release();
+        _frothCrowd.Release();
         _curtainList.Release();
         CurtainArguments.Release();
     }
