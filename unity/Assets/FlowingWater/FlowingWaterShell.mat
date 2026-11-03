@@ -38,11 +38,14 @@ Material:
     - _FlowStrength: 1.4
     - _FlowTiling: 6
     - _FoamTiling: 0.8
+    - _Fringe: 0.25
     - _Glossiness: 0.94
     - _Metallic: 0
     - _NormalScale: 0.04
     - _RefractionMax: 0.01
     - _RefractionScale: 0.1
+    - _TopFringe: 0.5
+    - _WhiteGaps: 0.75
     m_Colors:
     - _ColorBottom: {r: 0.098, g: 0.196, b: 0.169, a: 1}
     - _ColorBottomShallow: {r: 0.196, g: 0.176, b: 0.106, a: 1}
