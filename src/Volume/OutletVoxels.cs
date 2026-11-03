@@ -26,7 +26,7 @@ internal static class OutletVoxels
         float step = Math.Min(voxel, cell);
         (float rightX, float rightZ) = shape.Right;
         float across = Math.Max(shape.OutletWidth, 2f * cell), speed = shape.Speed(rate);
-        float slot = speed > 0f ? rate / (across * speed) : SourceShape.Nozzle;
+        float slot = speed > 0f ? rate / (across * speed) : shape.Thickness;
         float high = Math.Max(Lift, 2f * slot) + Rise;
         int low = (int)Math.Floor((foot.Y + 0.05f) / voxel), top = (int)Math.Floor((foot.Y + high) / voxel);
         for (float a = -0.5f * across; a <= (0.5f * across) + (0.5f * step); a += step)

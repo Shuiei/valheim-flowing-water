@@ -911,7 +911,7 @@ internal sealed class GpuWater : IDisposable
         Vec3 way = shape.Direction(0f);
         (float rightX, float rightZ) = shape.Right;
         float speed = shape.Speed(rate);
-        float height = speed > 0f ? rate / (Math.Max(shape.OutletWidth, 2f * cell) * speed) : SourceShape.Nozzle;
+        float height = speed > 0f ? rate / (Math.Max(shape.OutletWidth, 2f * cell) * speed) : shape.Thickness;
         return VolumeWater.Spring.Aimed(foot, rate, new Vector3(way.X, way.Y, way.Z), new Vector2(rightX, rightZ), shape.OutletWidth, height, speed, shape.Spread * 0.5f * Mathf.Deg2Rad);
     }
 

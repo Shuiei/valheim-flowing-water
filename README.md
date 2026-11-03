@@ -24,11 +24,11 @@ and off its top, and through a notch mined in it.
 With the **hoe**: among its pieces are a **Water source**, a **Water drain** and **Remove source or drain**, free to
 build. The source and the drain each go exactly where you aim, on the ground or on anything built (a floor, a wall's
 top). While the source or the drain is the hoe's piece, a panel on the right of the screen shows, on sliders, what the
-next one placed takes: a source's width, spread, throw and power, with two drawings of its water (from above, its
-outlet and fan; from the side, its throw's arc and where it lands, named under them: a slim jet spray, a wide river...),
+next one placed takes: a source's width, spread, throw, thickness and power, with two drawings of its water (from above, its
+outlet and fan; from the side, its throw's arc and where it lands, as thick as its water leaves, named under them: a slim jet spray, a wide river...),
 or a drain's power and reach. **E** lets you change them (the mouse is free and the game takes no keys while you drag;
 **Esc** or **E** is done). Width goes by half metres to 10 m, spread and throw by 5 degrees to 90 and 60 (the spread's
-last notch: all round), power on a logarithm from 0.1 to 100 m³/s (a drain's left end: everything), reach by quarter
+last notch: all round), thickness by 5 cm from 0.05 to 2 m, power on a logarithm from 0.1 to 100 m³/s (a drain's left end: everything), reach by quarter
 metres to 16 m. They start from `DefaultSourceRate`, `DefaultDrainRate` and `DefaultDrainRadius` (a new source as a
 slim jet) and stay as you set them until you quit the game. While a source is placed, its ghost shows over the
 ground the way it faces (a gold arrow; the game's rotate keys, the mouse wheel, turn it) and the outline of where its
@@ -47,9 +47,11 @@ A source pours all round (its water out of every side of it), or the way it face
 (the game's rotate keys turn it while placing), out of an outlet up to 10 m wide (0: a point), fanned out up to 90
 degrees across it (0: straight on, a river; more, a jet spraying out) and thrown up to 60 degrees over the ground (0:
 along it). So a point fanned out a little and thrown up is a slim jet, a wide outlet sent straight along the ground a
-wide river. Its water leaves as fast as it must to pass the rate through a slot 0.25 m high, 12 m/s at most (the slot
-standing higher then): a slim strong jet runs fast, a wide river slow. Every source placed before 0.46.0, and the
-config's fixed ones, pour all round.
+wide river. Its water leaves as fast as it must to pass the rate through a slot as high as its thickness (0.05 to 2 m,
+0.75 m unless set), 12 m/s at most (the slot standing higher then): a slim strong jet runs fast, a wide river slow, a
+thick one slower and fuller for the same power. Every source placed before 0.53.0 pours 0.75 m thick (its slot was
+0.25 m, three times as thin, its water hardly seen); every source placed before 0.46.0, and the config's fixed ones,
+pour all round.
 
 Console (F5) command `flowingwater`:
 
@@ -255,6 +257,11 @@ anywhere: the server's water still says how much water is where):
   little and fade. The streaks carrying the water are drawn faint (30 %), the curtain's mist. Where it lands, the pool
   churns white (wholly where water lands 5 cm deep a second or more), calming over a second once it stops. The
   curtains' material is tuned with `flowingwater mat falls`.
+- **Jets.** A source's jet in the air is drawn with the curtains' material, out to the draw distance: each strip of
+  its outlet (a voxel wide, as the server lands it) along its arc, turned about its way to face the eye, as wide as its
+  outlet's place or as its water is thick where that is more (round water is as wide from any side: a point's jet 0.75
+  m thick is seen 0.75 m wide, not as a line), its sides moving apart by its share of the spread and 5 cm/s more as it
+  breaks up and takes in air.
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).

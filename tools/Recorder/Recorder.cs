@@ -1471,7 +1471,7 @@ public sealed partial class Recorder : BaseUnityPlugin, IDisposable
         Note(FormattableString.Invariant($"{words[0]} placed at {point}, turned {v[3]}°"));
     }
 
-    // "!slide row,notch": a slider of the open source and drain panel (its row: Width, Spread, Throw, Power or Reach)
+    // "!slide row,notch": a slider of the open source and drain panel (its row: Width, Spread, Throw, Thickness, Power or Reach)
     // moved to that notch, as a player dragging it would (the plugin's panel found by name: the recorder builds
     // without the plugin).
     private void Slide(string what)

@@ -146,7 +146,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             return;
         }
 
-        SourceShape shape = MarkerSliders.Slid(KeptShape, (int)_view.Width.Slider.value, (int)_view.Spread.Slider.value, (int)_view.Throw.Slider.value);
+        SourceShape shape = MarkerSliders.Slid(KeptShape, (int)_view.Width.Slider.value, (int)_view.Spread.Slider.value, (int)_view.Throw.Slider.value, (int)_view.Thickness.Slider.value);
         float rate = MarkerSliders.SlidRate((int)_view.Power.Slider.value, KeptRate, _drain);
         float radius = MarkerSliders.SlidReach((int)_view.Reach.Slider.value, KeptRadius);
         if (Placed)
@@ -159,7 +159,7 @@ internal sealed class MarkerPanel : MonoBehaviour
             bool taken = next.TrySetRate(_drain, rate, out string note) & (!_drain || next.TrySetRadius(radius, out note));
             if (!_drain)
             {
-                next.SetShape(shape.AllRound, shape.Width, shape.Spread, shape.Throw);
+                next.SetShape(shape.AllRound, shape.Width, shape.Spread, shape.Throw, shape.Thickness);
             }
 
             Say(note, taken);
@@ -312,11 +312,14 @@ internal sealed class MarkerPanel : MonoBehaviour
         _view.Width.Slider.SetValueWithoutNotify(MarkerSliders.WidthNotch(shape.Width));
         _view.Spread.Slider.SetValueWithoutNotify(MarkerSliders.SpreadNotch(shape));
         _view.Throw.Slider.SetValueWithoutNotify(MarkerSliders.ThrowNotch(shape.Throw));
+        _view.Thickness.Slider.SetValueWithoutNotify(MarkerSliders.ThicknessNotch(shape.Thickness));
         _view.Width.Value.text = shape.Width > 0f ? MarkerValues.Format(shape.Width) + " m" : "a point";
         _view.Spread.Value.text = shape.AllRound ? "all round" : shape.Spread > 0f ? MarkerValues.Format(shape.Spread) + "°" : "straight";
         _view.Throw.Value.text = shape.Throw > 0f ? MarkerValues.Format(shape.Throw) + "°" : "ground";
+        _view.Thickness.Value.text = MarkerValues.Format(shape.Thickness) + " m";
         _view.Width.Dim(shape.AllRound);
         _view.Throw.Dim(shape.AllRound);
+        _view.Thickness.Dim(shape.AllRound);
         _view.Kind.text = MarkerValues.KindLine(shape, rate);
         Draw(_view.Top, SourcePreview.Top(shape));
         Draw(_view.Side, SourcePreview.Side(shape, rate));
@@ -435,7 +438,7 @@ internal sealed class MarkerPanel : MonoBehaviour
         MarkerPanel panel = view.Root.AddComponent<MarkerPanel>();
         panel._view = view;
         view.Remove.onClick.AddListener(panel.RemoveTarget);
-        foreach (MarkerPanelView.Row row in new[] { view.Width, view.Spread, view.Throw, view.Power, view.Reach })
+        foreach (MarkerPanelView.Row row in new[] { view.Width, view.Spread, view.Throw, view.Thickness, view.Power, view.Reach })
         {
             row.Slider.onValueChanged.AddListener(_ => panel.Slid());
         }

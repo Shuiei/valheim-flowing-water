@@ -24,6 +24,9 @@ internal static class ZdoKeys
     /// <summary>How far up a source's water is thrown, degrees over the ground.</summary>
     public static readonly int Throw = "FW_Throw".GetStableHashCode();
 
+    /// <summary>A source's outlet's thickness, metres (none written: <see cref="Volume.SourceShape.Nozzle"/>).</summary>
+    public static readonly int Thickness = "FW_Thickness".GetStableHashCode();
+
     /// <summary>A zone's ground change from erosion, in its FlowingWater_Ground object (ErosionGround).</summary>
     public static readonly int Ground = "FW_Ground".GetStableHashCode();
 

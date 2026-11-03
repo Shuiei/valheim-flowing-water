@@ -4,8 +4,9 @@ using UnityEngine;
 namespace FlowingWater;
 
 /// <summary>
-/// A source's shape as kept in its object (<see cref="ZdoKeys"/>): whether it faces a way, its outlet's width, spread
-/// and throw; the way it faces is its piece's turn. One with no shape written (every source placed before 0.46.0) is
+/// A source's shape as kept in its object (<see cref="ZdoKeys"/>): whether it faces a way, its outlet's width, spread,
+/// throw and thickness (none written, before 0.53.0: <see cref="SourceShape.Nozzle"/>); the way it faces is its piece's
+/// turn. One with no shape written (every source placed before 0.46.0) is
 /// all round; one made all round keeps its other values, so it faces with them again when turned back. Read the same
 /// by the server's water and the player's own.
 /// </summary>
@@ -16,7 +17,7 @@ internal static class MarkerShape
 
     /// <summary>The shape a source's object holds, with the values one made all round keeps for a turn back (the panel shows them).</summary>
     public static SourceShape Kept(ZDO zdo) =>
-        SourceShape.Kept(zdo.GetInt(ZdoKeys.Shape, 0), HeadingOf(zdo.GetRotation()), zdo.GetFloat(ZdoKeys.Width, 0f), zdo.GetFloat(ZdoKeys.Spread, 0f), zdo.GetFloat(ZdoKeys.Throw, 0f));
+        SourceShape.Kept(zdo.GetInt(ZdoKeys.Shape, 0), HeadingOf(zdo.GetRotation()), zdo.GetFloat(ZdoKeys.Width, 0f), zdo.GetFloat(ZdoKeys.Spread, 0f), zdo.GetFloat(ZdoKeys.Throw, 0f), zdo.GetFloat(ZdoKeys.Thickness, SourceShape.Nozzle));
 
     /// <summary>A source's shape into its object, which this game owns (the way it faces is its piece's own turn: not written).</summary>
     public static void Write(ZDO zdo, SourceShape shape)
@@ -25,6 +26,7 @@ internal static class MarkerShape
         zdo.Set(ZdoKeys.Width, shape.Width);
         zdo.Set(ZdoKeys.Spread, shape.Spread);
         zdo.Set(ZdoKeys.Throw, shape.Throw);
+        zdo.Set(ZdoKeys.Thickness, shape.Thickness);
     }
 
     /// <summary>The way a turn faces across the ground, degrees clockwise from north (0 to 360).</summary>

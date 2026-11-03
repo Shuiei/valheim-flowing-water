@@ -7,7 +7,8 @@ namespace FlowingWater.Client;
 /// <summary>
 /// The panel's sliders, without the game: the notches each has and what each notch stands for, and the words the
 /// panel and the hover text use for a source's shape. A source's width goes by half metres to 10 m, its spread by 5
-/// degrees to 90 and one notch more for all round, its throw by 5 degrees to 60; a rate by notches even on a
+/// degrees to 90 and one notch more for all round, its throw by 5 degrees to 60, its thickness by 5 centimetres from
+/// <see cref="SourceShape.LeastThickness"/> to <see cref="SourceShape.MostThickness"/>; a rate by notches even on a
 /// logarithm from 0.1 to <see cref="MarkerRules.MaxRate"/> m³/s (a drain's first notch: everything), rounded to what a
 /// player reads; a drain's reach by quarter metres from <see cref="MarkerValues.MinRadius"/> to
 /// <see cref="MarkerRules.MaxDrainRadius"/>.
@@ -22,6 +23,9 @@ internal static class MarkerSliders
 
     /// <summary>The throw slider's last notch (each 5 degrees).</summary>
     public const int ThrowNotches = 12;
+
+    /// <summary>The thickness slider's last notch (each 5 cm; the first, notch 1: the thinnest).</summary>
+    public const int ThicknessNotches = 40;
 
     /// <summary>The rate slider's last notch.</summary>
     public const int RateNotches = 120;
@@ -52,6 +56,12 @@ internal static class MarkerSliders
 
     /// <summary>The throw notch nearest a throw.</summary>
     public static int ThrowNotch(float degrees) => Clamp((int)Math.Round(degrees / 5f), 0, ThrowNotches);
+
+    /// <summary>A thickness notch's thickness, metres.</summary>
+    public static float Thickness(int notch) => Clamp(notch, 1, ThicknessNotches) * 0.05f;
+
+    /// <summary>The thickness notch nearest a thickness.</summary>
+    public static int ThicknessNotch(float metres) => Clamp((int)Math.Round(metres / 0.05f), 1, ThicknessNotches);
 
     /// <summary>A rate notch's rate, m³/s: a drain's notch 0 is 0 (everything); the others even on a logarithm from 0.1 to the most, rounded (<see cref="Nice"/>).</summary>
     public static float Rate(int notch, bool drain)
@@ -107,7 +117,7 @@ internal static class MarkerSliders
     /// keeps its spread; turned back, it takes the spread its slider stands at (dragged back, the slider passes the
     /// notches between, each taken in turn: the one kept would come back only on a jump straight to its notch).
     /// </summary>
-    public static SourceShape Slid(SourceShape kept, int width, int spread, int throwUp)
+    public static SourceShape Slid(SourceShape kept, int width, int spread, int throwUp, int thickness)
     {
         bool allRound = AllRound(spread);
         float fan = allRound || (!kept.AllRound && spread == FanNotch(kept.Spread)) ? kept.Spread : Spread(spread);
@@ -116,7 +126,8 @@ internal static class MarkerSliders
             kept.Heading,
             width == WidthNotch(kept.Width) ? kept.Width : Width(width),
             fan,
-            throwUp == ThrowNotch(kept.Throw) ? kept.Throw : Throw(throwUp));
+            throwUp == ThrowNotch(kept.Throw) ? kept.Throw : Throw(throwUp),
+            thickness == ThicknessNotch(kept.Thickness) ? kept.Thickness : Thickness(thickness));
     }
 
     /// <summary>
@@ -140,10 +151,10 @@ internal static class MarkerSliders
         return shape.Spread >= 15f ? $"a {wideSpray} spray along the ground" : shape.Width >= 3f ? "a wide river" : "a small river";
     }
 
-    /// <summary>A shape in full, for the hover text and the panel's status: its kind, and for one facing a way its width, spread and throw.</summary>
+    /// <summary>A shape in full, for the hover text and the panel's status: its kind, and for one facing a way its width, spread, throw and thickness.</summary>
     public static string Describe(SourceShape shape) => shape.AllRound
         ? Kind(shape)
-        : $"{Kind(shape)}, {(shape.Width > 0f ? MarkerValues.Format(shape.Width) + " m wide" : "from a point")}, {(shape.Spread > 0f ? "fanned " + MarkerValues.Format(shape.Spread) + "°" : "straight")}, {(shape.Throw > 0f ? "thrown up " + MarkerValues.Format(shape.Throw) + "°" : "along the ground")}";
+        : $"{Kind(shape)}, {(shape.Width > 0f ? MarkerValues.Format(shape.Width) + " m wide" : "from a point")}, {(shape.Spread > 0f ? "fanned " + MarkerValues.Format(shape.Spread) + "°" : "straight")}, {(shape.Throw > 0f ? "thrown up " + MarkerValues.Format(shape.Throw) + "°" : "along the ground")}, {MarkerValues.Format(shape.Thickness)} m thick";
 
     // The spread notch nearest a spread, the all-round one left out.
     private static int FanNotch(float spread) => Clamp((int)Math.Round(spread / 5f), 0, SpreadNotches - 1);

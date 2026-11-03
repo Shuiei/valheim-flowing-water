@@ -99,14 +99,17 @@ public class NextPlacementTests
         Assert.False(next.Shape.AllRound);
         Assert.Equal("a slim jet spray", MarkerSliders.Kind(next.Shape));
 
-        next.SetShape(false, 6f, 0f, 0f);
+        Assert.Equal(SourceShape.Nozzle, next.Shape.Thickness);
+
+        next.SetShape(false, 6f, 0f, 0f, 1.5f);
         SourceShape facing = next.ShapeFacing(135f);
 
         Assert.Equal(135f, facing.Heading);
         Assert.Equal(6f, facing.Width);
+        Assert.Equal(1.5f, facing.Thickness);
         Assert.Equal("a wide river", MarkerSliders.Kind(facing));
 
-        next.SetShape(true, 6f, 0f, 0f);
+        next.SetShape(true, 6f, 0f, 0f, 1.5f);
         Assert.True(next.ShapeFacing(10f).AllRound);
         Assert.Equal(6f, next.Shape.Width);
     }

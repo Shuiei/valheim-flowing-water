@@ -20,7 +20,7 @@ public class JetNewsTests
         var jets = new List<ServerJet>
         {
             new(new Vec3(1f, 2f, 3f), Jet, 8f, [new Vec3(10f, 0.5f, 12f), null]),
-            new(new Vec3(-4f, 50f, 7.5f), new SourceShape(false, 270f, 0f, 0f, 60f), 2f, [new Vec3(-20f, 30f, 7.5f)]),
+            new(new Vec3(-4f, 50f, 7.5f), new SourceShape(false, 270f, 0f, 0f, 60f, 1.35f), 2f, [new Vec3(-20f, 30f, 7.5f)]),
         };
 
         List<ServerJet> read = JetNews.Read(JetNews.Write(jets));
@@ -28,6 +28,7 @@ public class JetNewsTests
         Assert.True(JetNews.Same(jets, read));
         Assert.Null(read[0].Landings[1]);
         Assert.Equal(Jet, read[0].Shape);
+        Assert.Equal(1.35f, read[1].Shape.Thickness);
         Assert.Equal(8f, read[0].Rate);
     }
 
@@ -61,7 +62,7 @@ public class JetNewsTests
         Assert.Throws<InvalidDataException>(() => JetNews.Read([1, 2, 3]));
         byte[] later = Packed.Write(writer =>
         {
-            writer.Write(2);
+            writer.Write(3);
             writer.Write(0);
         });
         Assert.Throws<InvalidDataException>(() => JetNews.Read(later));
@@ -114,7 +115,7 @@ public class JetNewsTests
     // only its first jets.
     private static byte[] Jets(int count, int places, int written = -1) => Packed.Write(writer =>
     {
-        writer.Write(1);
+        writer.Write(2);
         writer.Write(count);
         for (int j = 0; j < (written < 0 ? Math.Min(count, JetNews.MostJets) : written); j++)
         {
@@ -124,7 +125,7 @@ public class JetNewsTests
             }
 
             writer.Write(false);
-            for (int k = 0; k < 5; k++)
+            for (int k = 0; k < 6; k++)
             {
                 writer.Write(0f);
             }

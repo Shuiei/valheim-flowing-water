@@ -19,8 +19,16 @@ internal static class JetFlight
     public const float Longest = 6f;
 
     /// <summary>
-    /// A strip of a jet: where it leaves the outlet, its velocity there (m/s), its width (m), how fast each of its sides
-    /// moves out as it flies (m/s: its share of the spread), and the water it carries across its width (m²/s).
+    /// How fast each side of a jet moves out as it flies apart, m/s, besides its share of the spread: a jet breaks up and
+    /// takes in air as it falls, so it is seen widening even when sent straight.
+    /// </summary>
+    public const float BreakUp = 0.05f;
+
+    /// <summary>
+    /// A strip of a jet: where it leaves the outlet, its velocity there (m/s), its width as it is seen (m: its outlet's
+    /// place, or as thick as its water leaves where that is more, as round water is as wide from any side), how fast
+    /// each of its sides moves out as it flies (m/s: its share of the spread, and its break-up), and the water it carries
+    /// across its outlet's place (m²/s). Only the look: the server lands its water by the outlet's places.
     /// </summary>
     public readonly struct Strip : IEquatable<Strip>
     {
@@ -72,9 +80,9 @@ internal static class JetFlight
 
         (float rightX, float rightZ) = shape.Right;
         (float Across, float Offset)[] places = shape.Outlet(voxel);
-        float width = shape.OutletWidth / places.Length;
+        float width = Math.Max(shape.OutletWidth / places.Length, shape.SeenThickness(rate));
         double flat = speed * Math.Cos(shape.Throw * Math.PI / 180.0);
-        float widen = (float)(flat * Math.Tan(shape.Spread / places.Length / 2.0 * Math.PI / 180.0));
+        float widen = BreakUp + (float)(flat * Math.Tan(shape.Spread / places.Length / 2.0 * Math.PI / 180.0));
         foreach ((float across, float offset) in places)
         {
             Vec3 way = shape.Direction(across);

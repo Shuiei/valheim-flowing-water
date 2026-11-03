@@ -73,16 +73,46 @@ public class SourceShapeTests
     [Fact]
     public void ItsWaterLeavesAsFastAsTheSlotPassesTheRateUpToTheMost()
     {
-        // A wide slow river: 1 m³/s through 10 m of slot 0.25 m high, 0.4 m/s.
+        // A wide slow river: 1 m³/s through 10 m of slot 0.75 m high (the default), 0.133 m/s; 0.25 m high, 0.4 m/s.
         var river = new SourceShape(false, 0f, 10f, 0f, 0f);
-        // A point: 10 m³/s would need 160 m/s through 0.25 x 0.25 m: held to the most, the slot standing higher.
+        var thin = new SourceShape(false, 0f, 10f, 0f, 0f, 0.25f);
+        // A point: 10 m³/s would need 53 m/s through 0.25 x 0.75 m: held to the most, the slot standing higher.
         var point = new SourceShape(false, 0f, 0f, 0f, 0f);
 
-        Assert.Equal(0.4f, river.Speed(1f), 4);
+        Assert.Equal(1f / 7.5f, river.Speed(1f), 4);
         Assert.Equal(SourceShape.Nozzle, river.OutletHeight(1f), 4);
+        Assert.Equal(0.4f, thin.Speed(1f), 4);
+        Assert.Equal(0.25f, thin.OutletHeight(1f), 4);
         Assert.Equal(SourceShape.MostSpeed, point.Speed(10f));
         Assert.Equal(10f, point.OutletWidth * point.OutletHeight(10f) * point.Speed(10f), 3);
         Assert.Equal(0f, point.Speed(0f));
+    }
+
+    [Fact]
+    public void ItsThicknessIsHeldToItsRangeAndIsTheDefaultSlotUnlessSet()
+    {
+        Assert.Equal(SourceShape.Nozzle, new SourceShape(false, 0f, 0f, 0f, 0f).Thickness);
+        Assert.Equal(SourceShape.Nozzle, SourceShape.Jet(0f).Thickness);
+        Assert.Equal(SourceShape.Nozzle, SourceShape.Kept(1, 0f, 2f, 0f, 0f).Thickness);
+        Assert.Equal(1.2f, SourceShape.Kept(0, 0f, 2f, 0f, 0f, 1.2f).Thickness);
+        Assert.Equal(SourceShape.LeastThickness, new SourceShape(false, 0f, 0f, 0f, 0f, 0f).Thickness);
+        Assert.Equal(SourceShape.MostThickness, new SourceShape(false, 0f, 0f, 0f, 0f, 50f).Thickness);
+        Assert.Equal(SourceShape.Nozzle, new SourceShape(false, 0f, 0f, 0f, 0f, float.NaN).Thickness);
+        Assert.NotEqual(new SourceShape(false, 0f, 2f, 0f, 0f, 0.5f), new SourceShape(false, 0f, 2f, 0f, 0f, 0.55f));
+        Assert.NotEqual(new SourceShape(false, 0f, 2f, 0f, 0f, 0.5f).GetHashCode(), new SourceShape(false, 0f, 2f, 0f, 0f, 0.55f).GetHashCode());
+    }
+
+    [Fact]
+    public void AThickerSlotSendsTheSameRateSlowerAndFuller()
+    {
+        // 2 m³/s out of a 2 m outlet: 0.5 m thick, 2 m/s; 2 m thick, 0.5 m/s; the same rate through either.
+        var half = new SourceShape(false, 0f, 2f, 0f, 0f, 0.5f);
+        var full = new SourceShape(false, 0f, 2f, 0f, 0f, 2f);
+
+        Assert.Equal(2f, half.Speed(2f), 4);
+        Assert.Equal(0.5f, full.Speed(2f), 4);
+        Assert.Equal(2f, full.OutletWidth * full.OutletHeight(2f) * full.Speed(2f), 4);
+        Assert.Equal(2f, half.OutletWidth * half.OutletHeight(2f) * half.Speed(2f), 4);
     }
 
     [Fact]
