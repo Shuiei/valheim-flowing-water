@@ -128,6 +128,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Client.FlowVisualMinSpeed` | 0.15 | Unused for now (the column water's): water faster than this (m/s) was drawn as a running stream |
 | `Client.FlowTextureSpeed` | 0.5 | Unused for now (the column water's): how fast the stream texture ran |
 | `Client.Spray` | true | With `Client.GpuWater`, the water's falls, splashes and spray as particles on the graphics card (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = falls drawn by the blocks |
+| `Client.SprayFroth` | true | With `Client.Spray`, the spray sorted into spray, foam and bubbles by where it is against the water: droplets landing on water foam and drift with the current, a fall plunging into a pool drives bubbles that rise to foam, water slamming into slower water lets foam and bubbles go, spray in a crowd is mist (see [Falls, splashes and spray](#falls-splashes-and-spray)); off = droplets end where they land |
 | `Client.ParticleWater` | false | A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, is pushed aside by you, creatures and ships, and comes out of a source all round it); the sheet and its spray are not drawn near you then (see [Particle water](#particle-water-a-prototype)) |
 | `Client.ParticleSize` | 0.25 | Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again |
 | `Client.VolumeWater` | false | A prototype: the water near you as one body of fluid on the graphics card, in place of the sheet (and of `Client.ParticleWater`): a 3D fluid on a grid round you, its mass its own, poured in from the server's water once and at the square's edge, moving as water moves, with sources pouring into it and drains taking from it (see [Volume water](#volume-water-a-prototype)) |
@@ -189,6 +190,37 @@ where), so the waves finer than a voxel are the card's own.
   running with it. Water running down a steep slope (from about 20°, all of it from 45° and 1 m/s) is a cascade:
   broken white water, streaked down the slope as it runs, hiding what is behind it and mirroring nothing, near and far
   alike. Only the look: the card's water does not move by these waves.
+- **Foam carried by the current.** As Crest's sea keeps its foam, the card keeps the water's foam in a texture of its
+  cells, carried once a frame: each cell's foam is what the current brought there from upstream (taken from where its
+  water was a frame ago, between the four cells round that place), fading by 0.8 of itself a second (Crest's sea's
+  rate), plus what was made since: where falling water lands, as it churns (0.6 of a cell at most: the churn itself
+  is drawn white, its foam is lace carried off); where water runs into slower water beside it (how much faster it
+  comes on toward each side than the water there goes, summed: none under 0.5 m/s of that or on water slower than
+  1.5 m/s, all it will from 3 m/s and 5 m/s, a whole cell's cover a second at the most: a jump, a fall's foot, a
+  front into a pool, as Crest's waves foam where they pinch together: one rule with the spray's froth, so both foam on the same water); and the spray's foam patches
+  (`Client.SprayFroth`), each leaving half of what it covers a second where it rides. Water shallower than a
+  centimetre, a wall or ground not known holds none, and the foam moves with the square. It is drawn with the white
+  water above (the more of it, the more of the foam's pattern shows: lace where it thins, white where it is thick)
+  and, under it, bubbles: the foam texture blurred, seen 8 cm under the surface (shifted with the view, the other way seen from under the water) and running
+  with the water, paling its body where it carries foam (`_FoamBubbles` and `_FoamBubbleDepth` on both water
+  materials). So a fall's foam drifts off downstream as a trail instead of stopping where it lands. The preview's
+  `foam` scene checks that a patch of foam in a still pool keeps e^-1.6 of itself after 2 s (0.202) without moving
+  or more being made, that dry ground holds none, and that a fall off a shelf carries its foam well past where its
+  churn ends (24.1 m against 21.4 m, from a lip at 20 m), shot with the carried foam and without.
+- **Ripples round bodies.** As Crest's dynamic waves, the card keeps ripples of their own over the water's level in
+  each cell, moved by the wave equation (each cell pulled toward the ripples round it, as fast as waves run on water
+  so deep, 1.2 m/s at most; a cell with no water beside it sends them back) and calming over 1.5 s, in as many steps a
+  frame as crossing half a cell at most takes. The bodies in the water push them: every ship's hull and every
+  character's capsule (players, creatures) in the square that reaches through the water's surface (the server's water,
+  as the game's own water checks read it), nearest the camera first, 32 at most (a creature on the bank takes no
+  place a swimmer needs; nothing else is looked for, no search of the scene each second); once a frame, how much of each cell's surface each takes (softened over a cell) is
+  compared with the last frame's, and a body coming into a cell pushes its surface down at 0.4 m/s, one leaving it
+  lets it up as fast, so a swimmer or a boat moving on leaves a trough along the sides of a V behind it, its crest
+  inside, and rings when it stops. They stand 30 cm at most over or under the water and are drawn raised on the near
+  water, their slope tipping its light; water shallower than 5 cm, a wall or ground not known holds none. The
+  preview's `ripples` scene checks that a still pool has none, that a ball 0.8 m across pushed through 1 m of water at
+  3 m/s raises 7.5 cm at most and 2.8 cm 2 m behind it, nothing 3 m ahead (it outruns them), that the pool is calm 6 s
+  after it is taken out (0.06 cm) and that the water's depth is not changed, and writes the ripples as a picture.
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.
@@ -226,10 +258,35 @@ anywhere: the server's water still says how much water is where):
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).
+- **Foam and bubbles** (`Client.SprayFroth`). The droplets are sorted each step as Ihmsen, Akinci, Akinci and
+  Teschner's diffuse particles (2012) are, by where each is against the card's water: over its top spray, falling; at
+  its top (within 3 cm, on water 2 cm deep or more) foam, a patch laced by the sea's foam texture riding the water with
+  its current until it fades (1.5 to 3 s), over a lip a drop again, falling; under it a bubble, carried with the water
+  and rising through it (4 m/s², 1 m/s at most) to foam at the top. A droplet or a splash landing on the water is foam
+  from there two times in five; a falling sheet plunging faster than 3 m/s into water 15 cm deep or more drives four
+  bubbles down in its cell, as deep as it came fast (12 cm for each m/s, 1 m at most); water running into slower water
+  beside it (how much faster it comes on toward each side than the water there goes, summed: a jump, a fall's foot, a
+  front into a pool) traps air and lets bubbles and foam go in its water, none under 0.5 m/s of that or on water
+  slower than 1.5 m/s, all it will from 3 m/s and 5 m/s, 60 a second over a square metre at the most. Spray, and
+  apart foam and bubbles, are counted in hashed cells half a metre a side each step (apart, so the splashes thick at a
+  fall's foot never fill a cell foam is to cover): a cell holding eight of the froth is full (no more foam forms there
+  nor do bubbles go down into it, and its water traps no more air), and spray in a crowd (over four in its cell,
+  wholly from sixteen) is drawn as mist, up to four times as wide and a third as opaque, so a flood's spray is a haze
+  rather than so many bright droplets. Foam and bubbles are drawn on the long waves and ripples the water's surface is raised by
+  (their own velocity is the current), not at the level they are held to, so a patch is not seen over a crest it lies
+  under. With the setting off, nothing is counted and the froth's ring is neither moved nor drawn (but the step it is
+  turned off, to end what is left of it). Froth carries no water. The material's `_FoamPatchAlpha`, `_FoamPatchScale`,
+  `_BubbleAlpha`, `_MistFrom`, `_MistFull`, `_MistGrow` and `_MistAlpha` tune it (`flowingwater mat spray`). The
+  preview's `froth` scene checks that the foam lies on the water's top and drifts at its speed (0.99), that bubbles stay
+  under it and that neither carries water, and that none is left a step after the setting is turned off (foam and
+  bubbles still going end then); `froth-off` that none is made with the setting off. A plunging sheet's bubbles each
+  take their place in their crowd cell first, so a fall makes none where it is already full.
 
-At most 32768 particles live at once (the oldest give way); one that leaves the square, or flies over ground the card
+At most 49152 particles live at once, in three rings where the oldest give way: 8192 for the falling water a lip's
+streaks carry, 16384 for the froth thrown as foam or bubbles (so a fall's plunge gives way only to older froth, never
+to spray, splashes or falling sheets) and the rest for everything else; one that leaves the square, or flies over ground the card
 has not found, fades out there within a quarter of a second, and none is drawn much longer than a metre along its
-motion. Moving them took 0.02 ms a frame on a Radeon RX 9070 XT (`tools/sim-preview.sh`, which also runs a shelf of
+motion. Moving them took 0.04 ms a frame (with the froth; 0.02 ms before it) on a Radeon RX 9070 XT (`tools/sim-preview.sh`, which also runs a shelf of
 water poured off its lip); drawing them comes on top, and grows with how many there are on screen. A wall of water
 between two levels (a ledge with water on its top and at its foot) is left to the falls: the card's surface fades out
 where the water a cell away is more than half a metre higher or lower.

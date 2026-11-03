@@ -33,6 +33,7 @@ internal sealed class Settings
         CurrentStrength = config.Bind("Client", "CurrentStrength", 1f, new ConfigDescription("How strongly the current carries swimmers, waders and floating things (1 = at the water's own speed): a wader takes a share by the depth, all of it from the waist or once the water would take them off their feet; a light thing catches up with the water within a second; a boat with someone aboard is pulled over several seconds, and drifts slower than the water against its own drag.", new AcceptableValueRange<float>(0f, 5f)));
         FlowVisualMinSpeed = config.Bind("Client", "FlowVisualMinSpeed", 0.15f, new ConfigDescription("Unused for now (it was the column water's): water faster than this, in metres per second, was drawn as a running stream instead of still water.", new AcceptableValueRange<float>(0.01f, 5f)));
         Spray = config.Bind("Client", "Spray", true, "With the water moved on the graphics card (Client.GpuWater), its falls, splashes and spray as particles on the card: water running over a lip falls and arcs, a fall landing splashes, fast water throws droplets.");
+        SprayFroth = config.Bind("Client", "SprayFroth", true, "With Client.Spray, the spray sorted into spray, foam and bubbles by where it is against the water: droplets landing on water foam and drift with the current, a fall plunging into a pool drives bubbles that rise to foam, water slamming into slower water lets foam and bubbles go, and spray in a crowd is drawn as mist. Off = droplets end where they land.");
         ParticleCapacity = config.Bind("Client", "ParticleCapacity", 65536, new ConfigDescription("Particles of the particle water at most: no more water is made near you once they are all in use, until some goes. More costs the graphics card more; a change takes effect when the water near you is made again (moving far, or a world opening).", new AcceptableValueRange<int>(4096, 262144)));
         ParticleWater = config.Bind("Client", "ParticleWater", false, "A prototype: the water near you is particles of water on the graphics card instead of a sheet, made from the server's water and held to it, moved as water moves (it falls, breaks up, splashes and pools, and is pushed aside by you, creatures and ships). The sheet and its spray are not drawn near you then. The console's \"flowingwater particles\" pours some whatever this is.");
         ParticleSize = config.Bind("Client", "ParticleSize", 0.25f, new ConfigDescription("Side of a particle of the particle water, metres: 0.25 is water as it looks; 0.5 is coarse (balls of water) and an eighth of the particles for the same water, for a slow graphics card. Takes effect when the water near you is made again.", new AcceptableValueList<float>(0.25f, 0.5f)));
@@ -97,6 +98,8 @@ internal sealed class Settings
     public ConfigEntry<float> FlowTextureSpeed { get; }
 
     public ConfigEntry<bool> Spray { get; }
+
+    public ConfigEntry<bool> SprayFroth { get; }
 
     public ConfigEntry<bool> ParticleWater { get; }
 

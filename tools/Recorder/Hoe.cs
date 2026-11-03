@@ -147,14 +147,15 @@ public sealed partial class Recorder
         yield return Snap("hoe-2-source-placed");
 
         // 4. A floor a metre over the ground, a drain placed on it with the panel's rate 0 and radius 3: across the slope,
-        // out of any place the game forbids building in (the spawn's temple reaches far).
+        // out of any place the game forbids building in (the spawn's temple reaches far), and with no tree or rock in
+        // the floor's place or in the way of the aim at it.
         Vector3 floorSpot = OnGround(site.At(0f) + (site.Across * 12f));
-        for (float across = 20f; Location.IsInsideNoBuildLocation(floorSpot) && across <= 80f; across += 8f)
+        for (float across = 20f; !FloorPlace(floorSpot, site.Across) && across <= 80f; across += 8f)
         {
             floorSpot = OnGround(site.At(0f) + (site.Across * across));
         }
 
-        Check(!Location.IsInsideNoBuildLocation(floorSpot), $"the floor's place may be built on ({floorSpot.ToString("F2")})");
+        Check(FloorPlace(floorSpot, site.Across), $"the floor's place may be built on, nothing in the way of the aim ({floorSpot.ToString("F2")})");
         yield return Go(floorSpot - (site.Across * 3f));
         GameObject floor = Instantiate(ZNetScene.instance.GetPrefab("wood_floor"), floorSpot + Vector3.up, Quaternion.identity);
         floor.GetComponent<ZNetView>().GetZDO().Set(ZDOVars.s_creator, player.GetPlayerID());
@@ -237,17 +238,25 @@ public sealed partial class Recorder
         // 6. The source's water.
         yield return new WaitForSeconds(15f);
         yield return Shot(sourceAt + (site.Across * 8f) + new Vector3(0f, 6f, 0f) - (site.Down * 4f), sourceAt + (site.Down * 4f), "hoe-6-water");
+        // Out to 24 m each way, along x and z: the source throws its water up and out (7.5 m³/s lands 13 m out) and it
+        // runs on downhill; only a thin edge of it may run within a few metres of the source.
         float deepest = 0f;
-        for (float dz = -4f; dz <= 4f; dz += 1f)
+        float deepestOut = 0f;
+        for (float dz = -24f; dz <= 24f; dz += 1f)
         {
-            for (float dx = -4f; dx <= 4f; dx += 1f)
+            for (float dx = -24f; dx <= 24f; dx += 1f)
             {
                 Vector3 p = OnGround(sourceAt + new Vector3(dx, 0f, dz));
-                deepest = Mathf.Max(deepest, Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y);
+                float depth = Floating.GetLiquidLevel(p + (Vector3.up * 0.05f), 1f, LiquidType.Water) - p.y;
+                if (depth > deepest)
+                {
+                    deepest = depth;
+                    deepestOut = new Vector2(dx, dz).magnitude;
+                }
             }
         }
 
-        Check(deepest > 0.02f, $"water runs from the source after 15 s (deepest within 4 m: {deepest:0.00} m)");
+        Check(deepest > 0.02f, $"water runs from the source after 15 s (deepest within 24 m each way: {deepest:0.00} m, {deepestOut:0} m out)");
 
         // 7. The drain removed with the hoe's remover: chosen, it shows the drain, red when aimed at; the floor it stood
         // on is not the hoe's to remove.
@@ -430,6 +439,24 @@ public sealed partial class Recorder
         yield return null;
         InputSystem.QueueStateEvent(mouse, new MouseState());
         yield return new WaitForSeconds(0.5f);
+    }
+
+    // Whether the hoe test's floor may stand a metre over this spot of ground, aimed at from 3 m away across the slope:
+    // a place the game lets one build in, with nothing but the ground in the floor's room or between it and the eyes
+    // there (a tree there once took the aim, and the drain stood on its trunk). The trees' and bushes' sight blockers
+    // (viewblock) are left out: they hide the player from creatures and stop no aim.
+    private static bool FloorPlace(Vector3 spot, Vector3 across)
+    {
+        if (Location.IsInsideNoBuildLocation(spot))
+        {
+            return false;
+        }
+
+        int solid = ~LayerMask.GetMask("terrain", "character", "character_net", "character_ghost", "character_noenv", "character_trigger", "viewblock");
+        Vector3 floorTop = spot + (Vector3.up * 1.1f);
+        Vector3 eyes = OnGround(spot - (across * 3f)) + (Vector3.up * 2.4f);
+        return !Physics.CheckBox(floorTop, new Vector3(1.2f, 0.8f, 1.2f), Quaternion.identity, solid, QueryTriggerInteraction.Ignore)
+            && !Physics.CheckCapsule(floorTop, eyes, 0.5f, solid, QueryTriggerInteraction.Ignore);
     }
 
     private static Vector3 OnGround(Vector3 point)

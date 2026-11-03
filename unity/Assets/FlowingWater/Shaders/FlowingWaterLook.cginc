@@ -36,6 +36,9 @@ float _FlowFrom;
 float _FlowFull;
 float _RapidsSpeed;
 float _RapidsTiling;
+// Bubbles under the foam (as Crest's sea's): how strongly, and how far under the surface they seem (m, by the view).
+float _FoamBubbles;
+float _FoamBubbleDepth;
 float _EdgeFade;
 float _BodyDepth;
 float4 _BodyTint;
@@ -56,7 +59,8 @@ float4 _SunFogColor;
 struct Input
 {
     float2 world;   // world x, z
-    float4 water;   // depth, foam, shore, churn (white water the card's waves make: their crests, the water slowing hard)
+    float4 water;   // depth, foam, shore, churn (white water: the waves' crests, the water slowing hard, and on the card's
+                    // water its foam carried with the current)
     float2 current; // m/s
     float steep;    // the surface's slope (rise over run), without its waves
     float rise;     // the bricks' only: the drawn surface's slope between its tops, dry columns' too (rise over run)
@@ -336,6 +340,18 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float2 laceUv = foamUv * 5.0;
     float lace = (tex2D(_FoamTex, FlowPhase(laceUv, foamRun * 5.0, 0.1, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(laceUv, foamRun * 5.0, 0.6, fb)).r * fb);
     rapids *= saturate(0.35 + (0.9 * lace));
+
+    // Under the foam, the air it was churned from (as Crest's sea's bubbles): the foam texture blurred (a coarse mip),
+    // seen a little under the surface (shifted by the view, so it moves apart from the foam on top as the eye moves),
+    // running with the water, paling the water's body where the water carries foam (its churn: falls landing, the
+    // foam carried on downstream). From above, the view meets them past the surface, beyond where it meets it; from
+    // under the water, before it: shifted the other way.
+    float3 eyeDir = normalize(_WorldSpaceCameraPos - i.worldPos);
+    float above = i.facing > 0.0 ? 1.0 : -1.0;
+    float2 under = -above * _FoamBubbleDepth * eyeDir.xz / max(abs(eyeDir.y), 0.2);
+    float2 bubbleUv = (i.world + under) * _RapidsTiling * 0.74;
+    float bubbles = (tex2Dlod(_FoamTex, float4(FlowPhase(bubbleUv, foamRun * 0.74, 0.4, fa), 0.0, 3.0)).r * fa) + (tex2Dlod(_FoamTex, float4(FlowPhase(bubbleUv, foamRun * 0.74, 0.9, fb), 0.0, 3.0)).r * fb);
+    colour = lerp(colour, _FoamColor.rgb * lerp(_ColorTop.rgb, 1.0, 0.5), saturate(_FoamBubbles * bubbles * saturate(2.0 * i.water.w)));
     colour = lerp(colour, _FoamColor.rgb, rapids);
 
     float foam = max(shoreFoam, rapids);

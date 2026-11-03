@@ -2,6 +2,24 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.52.0 — 2026-11-02
+
+### Added
+- Swimmers, creatures and boats moving through the water near you leave a wake and rings behind them.
+
+## v0.51.0 — 2026-11-02
+
+### Added
+- The foam of falls and rapids is carried off downstream by the current and fades as it goes, so a waterfall leaves a
+  trail of foam and bubbles on the river below it instead of stopping where the water lands.
+
+## v0.50.0 — 2026-11-02
+
+### Added
+- Falls and fast water now foam: spray landing on water turns to foam that drifts off with the current, and a fall
+  plunging into a pool churns up bubbles that rise to foam. Thick spray shows as mist instead of bright specks (the
+  `Client.SprayFroth` setting, on by default).
+
 ## v0.49.17 — 2026-10-31
 
 ### Fixed

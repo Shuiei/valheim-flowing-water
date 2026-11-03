@@ -17,6 +17,13 @@
 // landed runs on the way it fell.
 // Before it is drawn, the water's surface is shaped (Shape): its level smoothed over the cells round it, so a thin sheet
 // lies smooth over the ground's small bumps and fills the hollows between them rather than taking each one's shape.
+// Once a frame its foam is carried (CarryFoam), as Crest's foam simulation carries the sea's: the foam of each cell is
+// what the current brought there from upstream, fading, plus what was made since: where falling water lands (Churn),
+// where water runs into slower water (air trapped: a jump, a fall's foot, a front into a pool), and what the spray's
+// foam and bubbles left on the water (FoamAdded); so a fall's foam drifts off downstream as a trail.
+// Ripples (RippleBodies, Ripples) are Crest's dynamic waves over the card's water: a height of their own over the water's
+// level in each cell, moved by the wave equation and calming, pushed by the bodies in the water (hulls, characters,
+// creatures) as they come into a cell's surface or leave it, so a swimmer or a boat leaves rings and a wake.
 #pragma kernel Seed
 #pragma kernel Fluxes
 #pragma kernel Momentum
@@ -30,6 +37,9 @@
 #pragma kernel Clear
 #pragma kernel ShiftCells
 #pragma kernel Shape
+#pragma kernel CarryFoam
+#pragma kernel RippleBodies
+#pragma kernel Ripples
 
 // The cells: depth (m), and where a step writes it (each step reads one and writes the other); ground (world height,
 // m), the share of its outflow each can give.
@@ -582,6 +592,20 @@ float _Frame;
 #define CHURN_FULL 0.05
 #define CHURN_CALM 0.8
 
+// The water's foam (0 to 1 of a cell covered), last frame's (_FoamIn) and this one's (_FoamOut); the foam the spray left
+// on the water since (FlowingWaterSpray.compute: FOAM_SCALE times a cell's share covered). It fades by _FoamFade a
+// second; where the water traps air (FlowingWaterTrapped.cginc, the spray's froth's rule too) it makes as much as
+// _FoamTrapped a second, where it traps all it will. Water shallower than FOAM_WATER (m) holds none. Where falling water lands its churn makes foam,
+// FOAM_CHURN of a cell at most (lace carried off downstream, not a sheet of white: the churn itself is drawn white).
+Texture2D<float> _FoamIn;
+RWTexture2D<float> _FoamOut;
+RWTexture2D<int> _FoamAdded;
+float _FoamFade;
+float _FoamTrapped;
+#define FOAM_SCALE 1000000.0
+#define FOAM_WATER 0.01
+#define FOAM_CHURN 0.6
+
 // The water landed since the last frame (_Frame seconds), added to the cells it fell in, which it churns.
 [numthreads(8, 8, 1)]
 void Land(uint3 id : SV_DispatchThreadID)
@@ -621,6 +645,173 @@ void Clear(uint3 id : SV_DispatchThreadID)
     _Landed[c] = 0;
     _LandedX[c] = 0;
     _LandedZ[c] = 0;
+    _FoamAdded[c] = 0;
+}
+
+#include "FlowingWaterTrapped.cginc"
+
+// Last frame's foam at a place in cells (a cell's middle at its index plus a half), between the four cells round it;
+// none past the square.
+float FoamBetween(float2 at)
+{
+    float2 base = floor(at - 0.5);
+    float2 t = at - 0.5 - base;
+    int2 b = (int2)base;
+    float foam = 0.0;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        int2 n = b + o;
+        float w = (o.x == 1 ? t.x : 1.0 - t.x) * (o.y == 1 ? t.y : 1.0 - t.y);
+        foam += Inside(n) ? w * _FoamIn[n] : 0.0;
+    }
+
+    return foam;
+}
+
+// The foam carried over a frame (_Frame seconds): taken from where the current brought it from (semi-Lagrangian, as
+// Crest's), faded, with what was made since; none on dry ground, a wall or ground not known.
+[numthreads(8, 8, 1)]
+void CarryFoam(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    float added = _FoamAdded[c] / FOAM_SCALE;
+    _FoamAdded[c] = 0;
+    float h = _H[c];
+    if (h < FOAM_WATER || _Bed[c] >= WALL)
+    {
+        _FoamOut[c] = 0.0;
+        return;
+    }
+
+    float2 speed = CellSpeed(c);
+    float foam = FoamBetween(float2(c) + 0.5 - (speed * _Frame / _Dx)) * exp(-_FoamFade * _Frame);
+
+    // Air trapped where the water runs into slower water (FlowingWaterTrapped.cginc).
+    foam += _FoamTrapped * TrappedAir(c, speed) * _Frame;
+
+    _FoamOut[c] = saturate(max(foam + added, FOAM_CHURN * _Churn[c]));
+}
+
+// The ripples: their height over the water's level (m), last step's (_RippleIn) and this one's (_RippleOut), their
+// speed up (m/s), and how much of each cell's surface the bodies took last frame (0 to 1). They run as fast as waves on
+// water so deep (the root of gravity times its depth), _RippleFastest (m/s) at most, calming over _RippleCalm seconds;
+// a body coming into a cell's surface pushes it down at _RipplePush m/s (one leaving lets it up as fast), the water
+// round it rising as the push spreads. Water shallower than RIPPLE_WATER (m), a wall or ground not known holds none,
+// and they stand RIPPLE_MOST (m) at most over or under the water.
+struct Body
+{
+    float4 centre;
+    float4 half;
+    float4 axisX;
+    float4 axisY;
+};
+
+// The bodies (world: the square's south-west corner at _Origin, world x and z).
+StructuredBuffer<Body> _Bodies;
+int _BodyCount;
+float2 _Origin;
+Texture2D<float> _RippleIn;
+RWTexture2D<float> _RippleOut;
+RWTexture2D<float> _RippleSpeed;
+RWTexture2D<float> _Occupied;
+float _RippleFastest;
+float _RippleCalm;
+float _RipplePush;
+#define RIPPLE_WATER 0.05
+#define RIPPLE_MOST 0.3
+
+bool Rippling(int2 c)
+{
+    return Inside(c) && _H[c] >= RIPPLE_WATER && _Bed[c] < WALL;
+}
+
+// How much of the surface round a point a body takes (0 to 1): whether the point is inside it, softened over a cell.
+float Taken(Body b, float3 at)
+{
+    float3 local = at - b.centre.xyz;
+    float far;
+    if (b.centre.w > 1.5)
+    {
+        far = length(local) - b.half.x;
+    }
+    else
+    {
+        float3 axisZ = cross(b.axisX.xyz, b.axisY.xyz);
+        float3 along = abs(float3(dot(local, b.axisX.xyz), dot(local, b.axisY.xyz), dot(local, axisZ))) - b.half.xyz;
+        far = max(along.x, max(along.y, along.z));
+    }
+
+    return saturate(0.5 - (far / _Dx));
+}
+
+// Once a frame: what the bodies took of each cell's surface, and the push of what they took or let go since last frame.
+[numthreads(8, 8, 1)]
+void RippleBodies(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    if (!Rippling(c))
+    {
+        _Occupied[c] = 0.0;
+        return;
+    }
+
+    float3 at = float3(_Origin.x + ((c.x + 0.5) * _Dx), _Bed[c] + _H[c], _Origin.y + ((c.y + 0.5) * _Dx));
+    float taken = 0.0;
+    for (int b = 0; b < _BodyCount; b++)
+    {
+        taken = max(taken, Taken(_Bodies[b], at));
+    }
+
+    _RippleSpeed[c] -= _RipplePush * (taken - _Occupied[c]);
+    _Occupied[c] = taken;
+}
+
+// A step of the ripples (_Dt seconds): each cell's speed up pulled by how far it stands from the ripples round it (the
+// wave equation; a cell with no water beside it, or past the square, as high as this one: the ripple runs back from it),
+// calming, its height moved by its speed (under a body too: what it pushed down there spreads out as the trough of its
+// wake, the water it let up behind it as the crest).
+[numthreads(8, 8, 1)]
+void Ripples(uint3 id : SV_DispatchThreadID)
+{
+    int2 c = (int2)id.xy;
+    if (!Inside(c))
+    {
+        return;
+    }
+
+    if (!Rippling(c))
+    {
+        _RippleOut[c] = 0.0;
+        _RippleSpeed[c] = 0.0;
+        return;
+    }
+
+    float here = _RippleIn[c];
+    int2 around[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
+    float pull = 0.0;
+    for (int s = 0; s < 4; s++)
+    {
+        int2 n = c + around[s];
+        pull += (Rippling(n) ? _RippleIn[n] : here) - here;
+    }
+
+    float fastest = min(_Gravity * _H[c], _RippleFastest * _RippleFastest);
+    float calm = exp(-_Dt / _RippleCalm);
+    float speed = (_RippleSpeed[c] + (fastest * pull / (_Dx * _Dx) * _Dt)) * calm;
+    float height = (here + (speed * _Dt)) * calm;
+    _RippleSpeed[c] = speed;
+    _RippleOut[c] = clamp(height, -RIPPLE_MOST, RIPPLE_MOST);
 }
 
 // A texture of cells as the square moved by _Shift cells sees it (the camera went on): each cell takes the one at its

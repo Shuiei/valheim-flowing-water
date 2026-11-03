@@ -25,7 +25,7 @@ public class WaveShadersTests
         Assert.Single(Regex.Matches(vertex, @"\bLongWaves\(", RegexOptions.None, Patience));
         Assert.Matches(new Regex(@"float2 world = mul\(unity_ObjectToWorld, v\.vertex\)\.xz;[\s\S]*LongWaves\(world,", RegexOptions.None, Patience), vertex);
         Assert.Matches(new Regex(@"v\.vertex\.y \+= wave\.x;", RegexOptions.None, Patience), vertex);
-        Assert.Matches(new Regex(@"\+ wave\.yz;", RegexOptions.None, Patience), vertex);
+        Assert.Matches(new Regex(@"\+ wave\.yz( \+ rippleSlope)?;", RegexOptions.None, Patience), vertex);
         Assert.DoesNotMatch(new Regex(@"\b(Chop|WaveHeight|WaveNoise|FineWaves)\(", RegexOptions.None, Patience), vertex);
     }
 
@@ -42,10 +42,41 @@ public class WaveShadersTests
     }
 
     [Fact]
-    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsAndWhereFallsLandToo()
+    public void TheCardRaisesItsRipplesOnItsWaterOnlyAndTipsItsLightByThem()
+    {
+        string card = ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void vert(");
+
+        Assert.Matches(new Regex(@"float ripple = wetHere \? At\(_SimRipple, p\) : 0\.0;\s*v\.vertex\.y \+= ripple;", RegexOptions.None, Patience), card);
+        Assert.Matches(new Regex(@"float2 slope = [^;]+ \+ wave\.yz \+ rippleSlope;", RegexOptions.None, Patience), card);
+        Assert.DoesNotContain("_SimRipple", ShaderSource.Function(ShaderSource.Read("FlowingWater.shader"), "void vert("), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheBlocksChurnOnlyOnCrestsAndTheCardWhereItSlowsWhereFallsLandAndWhereItsFoamIsCarried()
     {
         Assert.Matches(new Regex(@"Churn\(crest, [^;]+, 0\.0\)\)?;", RegexOptions.None, Patience), ShaderSource.Function(ShaderSource.Read("FlowingWater.shader"), "void vert("));
         string card = ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void vert(");
-        Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), At\(_SimChurn, p\)\);", RegexOptions.None, Patience), card);
+        Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), max\(At\(_SimChurn, p\), At\(_SimFoam, p\)\)\);", RegexOptions.None, Patience), card);
+    }
+
+    [Theory]
+    [InlineData("FlowingWaterSim.compute", "void CarryFoam(")]
+    [InlineData("FlowingWaterSpray.compute", "void EmitFromWater(")]
+    public void TheFoamAndTheFrothTrapAirByTheOneSharedRule(string shader, string kernel)
+    {
+        string source = ShaderSource.Read(shader);
+
+        Assert.Contains("#include \"FlowingWaterTrapped.cginc\"", source, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"TrappedAir\(c, speed\)", RegexOptions.None, Patience), ShaderSource.Function(source, kernel));
+        Assert.DoesNotMatch(new Regex(@"trapped \+=|float2 (CellSpeed|SpeedAt)\(", RegexOptions.None, Patience), source);
+    }
+
+    [Fact]
+    public void TheBubblesUnderTheFoamShiftAwayFromTheEyeFromAboveAndFromBelow()
+    {
+        string look = ShaderSource.Function(ShaderSource.Read("FlowingWaterLook.cginc"), "void Look(");
+
+        Assert.Matches(new Regex(@"float above = i\.facing > 0\.0 \? 1\.0 : -1\.0;", RegexOptions.None, Patience), look);
+        Assert.Matches(new Regex(@"float2 under = -above \* _FoamBubbleDepth \* eyeDir\.xz / max\(abs\(eyeDir\.y\), 0\.2\);", RegexOptions.None, Patience), look);
     }
 }
