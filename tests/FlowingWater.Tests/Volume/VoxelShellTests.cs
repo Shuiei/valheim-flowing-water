@@ -522,6 +522,38 @@ public class VoxelShellTests
         Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
     }
 
+    [Theory]
+    [InlineData(2, 2)]
+    [InlineData(1, 2)]
+    public void WaterSteppingDownAFaceOfSixtyDegreesAVoxelOrTwoAColumnIsNoFall(int oneDrop, int otherDrop)
+    {
+        // A thin film down a face of some 60 degrees, the ground dropping a row or two from one column to the next: in
+        // each column water come in from the column up the slope stands a voxel over the ground, falling into the voxel
+        // on it (over ground, as the server says). A short step of a sheet, the surface's: no column a voxel (a dashed
+        // staircase down the face).
+        var view = new BrickView(0, 0, 0, 1f);
+        int ground = 12;
+        for (int x = 3; x < 10; x++)
+        {
+            Wet(view, x, ground + 1, 8, 0.06f, BrickData.AllOpen | BrickData.GroundUnder);
+            Wet(view, x, ground + 2, 8, 0.04f, BrickData.AllOpen);
+            ground -= x % 2 == 0 ? oneDrop : otherDrop;
+        }
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    [Fact]
+    public void AShortStackOfFallingWaterWithNoWaterBesideIsStillAFall()
+    {
+        // The same two voxels with no water in any column beside them (a drip off a ledge onto the ground): a fall.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 6, 5, 8, 0.06f, BrickData.AllOpen | BrickData.GroundUnder);
+        Wet(view, 6, 6, 8, 0.04f, BrickData.AllOpen);
+
+        Assert.True(VoxelShell.Build(Field(view), 0, 0, 0).Faces > 0);
+    }
+
     [Fact]
     public void WaterOnGroundOverRockTooSteepForTheSurfaceIsAFall()
     {

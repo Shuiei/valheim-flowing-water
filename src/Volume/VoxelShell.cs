@@ -146,6 +146,13 @@ internal sealed class VoxelShell
     // there was drawn by nothing.
     private static bool SurfaceTakes(VoxelField field, int x, int y, int z, int open)
     {
+        // A short step of a sheet down a face steeper than the voxels (VoxelField.ShortStep), with water beside it that
+        // the surface joins, up or down the slope: the surface's (it is laid on the ground it lands on).
+        if (field.ShortStep(x, y, z, out int top, out int bottom) && WetBeside(field, x, bottom - VoxelSurface.MaxStep, top + VoxelSurface.MaxStep, z))
+        {
+            return true;
+        }
+
         if (!Steps(field, x, y, z, open))
         {
             return false;
@@ -157,9 +164,15 @@ internal sealed class VoxelShell
             return true;
         }
 
+        return WetBeside(field, x, y - VoxelSurface.MaxStep, y + VoxelSurface.MaxStep, z);
+    }
+
+    // Whether a column beside column (x, z) has a top of water (wet, its water going no higher) in rows from low to high.
+    private static bool WetBeside(VoxelField field, int x, int low, int high, int z)
+    {
         foreach ((_, int dx, int dz) in FallSides)
         {
-            for (int row = y - VoxelSurface.MaxStep; row <= y + VoxelSurface.MaxStep; row++)
+            for (int row = low; row <= high; row++)
             {
                 if (field.IsWet(x + dx, row, z + dz) && !field.GoesUp(x + dx, row, z + dz))
                 {
