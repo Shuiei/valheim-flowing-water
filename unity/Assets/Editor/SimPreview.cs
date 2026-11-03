@@ -801,10 +801,16 @@ public static class SimPreview
             }
         }
 
+        // Turned off mid-fall: the foam and bubbles still going end at the next step.
+        spray.Froth = false;
+        scene.Step();
+        spray.Step(scene.Grid, Vector2.zero, Frame);
+        int[] left = spray.AliveByKind();
         scene.Spray = null;
         string Check(bool ok) => ok ? "OK" : "FAILED";
         if (froth)
         {
+            Log.AppendLine(Inv($"Froth: turned off, foam {left[3]} and bubbles {left[4]} left a step later: {Check(left[3] == 0 && left[4] == 0)}"));
             Log.AppendLine(Inv($"Froth: foam at most {mostFoam}, bubbles at most {mostBubbles}: {Check(mostFoam > 0 && mostBubbles > 0)}"));
             Log.AppendLine(Inv($"Froth: foam off the water's top by {worstFoam * 100f:0.0} cm at most, foam and bubbles carrying {carried:0.000} m3; bubbles at most {aboveBubble * 100f:0.0} cm over the top: {Check(worstFoam <= 0.05f && carried <= 0f && aboveBubble <= 0f)}"));
             Log.AppendLine(Inv($"Froth: foam drifting at {(flow > 0f ? drift / flow : 0f):0.00} of the water's speed: {Check(flow > 0f && Mathf.Abs((drift / flow) - 1f) < 0.1f)}"));
