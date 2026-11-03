@@ -316,8 +316,9 @@ internal sealed class VoxelShell
     private static bool SurfaceTakes(VoxelField field, int x, int y, int z, int open)
     {
         // A short step of a sheet down a face steeper than the voxels (VoxelField.ShortStep), with water beside it that
-        // the surface joins, up or down the slope: the surface's (it is laid on the ground it lands on).
-        if (field.ShortStep(x, y, z, out int top, out int bottom) && WetBeside(field, x, bottom - VoxelSurface.MaxStep, top + VoxelSurface.MaxStep, z))
+        // the surface joins, up or down the slope: the surface's (it is laid on the ground it lands on). The surface
+        // joins tops by their rows, this column's its stack's top: water beside within MaxStep rows of that top.
+        if (field.ShortStep(x, y, z, out int top, out _) && WetBeside(field, x, top - VoxelSurface.MaxStep, top + VoxelSurface.MaxStep, z))
         {
             return true;
         }
