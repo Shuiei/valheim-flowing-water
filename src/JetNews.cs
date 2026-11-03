@@ -77,7 +77,7 @@ internal static class JetNews
     /// <summary>The most landings a message holds, all its jets' together.</summary>
     public const int MostLandings = 1 << 20;
 
-    private const int Version = 1;
+    private const int Version = 2;
 
     /// <summary>A landing as it is sent: to <see cref="Grain"/>.</summary>
     public static Vec3? Rounded(Vec3? landing) => landing is { } l ? new Vec3(Round(l.X), Round(l.Y), Round(l.Z)) : null;
@@ -95,6 +95,7 @@ internal static class JetNews
             writer.Write(jet.Shape.Width);
             writer.Write(jet.Shape.Spread);
             writer.Write(jet.Shape.Throw);
+            writer.Write(jet.Shape.Thickness);
             writer.Write(jet.Rate);
             writer.Write(jet.Landings.Length);
             foreach (Vec3? landing in jet.Landings)
@@ -133,7 +134,7 @@ internal static class JetNews
         for (int j = 0; j < count; j++)
         {
             Vec3 foot = ReadVec(reader);
-            var shape = new SourceShape(reader.ReadBoolean(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+            var shape = new SourceShape(reader.ReadBoolean(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
             float rate = reader.ReadSingle();
             int places = reader.ReadInt32();
             if (places < 0 || places > MostPlaces || places > landingsLeft)

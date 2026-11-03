@@ -15,7 +15,11 @@ public class VoxelOutletPourTests
     // The server's metre voxels; a 4 m outlet facing east, its middle at (10.5, 0.3, 10.5), so across it (south) it
     // spans the voxels z 12 down to 9 of column x 10.
     private const float S = 1f, Rate = 2f, Dt = 0.5f;
-    private static readonly SourceShape River = new(false, 90f, 4f, 0f, 0f);
+    // The outlets' slot, as thin as every source's was before 0.53.0 (its default since, 0.75 m, is three times as thick):
+    // 2 m³/s through a point's slot then leaves at the fastest, as these jets are worked out.
+    private const float Slot = 0.25f;
+
+    private static readonly SourceShape River = new(false, 90f, 4f, 0f, 0f, Slot);
     private static readonly int[] Across = [12, 11, 10, 9];
 
     // A wide jet's rate: through its 4 m slot, it leaves at 8 m/s.
@@ -82,7 +86,7 @@ public class VoxelOutletPourTests
         // A floor one voxel thick under row 1; a point's jet facing east, thrown up 45 degrees at 12 m/s (2 m³/s through
         // a point's slot is faster than that), which lands about 14.7 m out, a little more from 0.3 m over the floor.
         var grid = new VoxelGrid(S, new TestSolids(1));
-        var jet = new SourceShape(false, 90f, 0f, 0f, 45f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
 
@@ -100,7 +104,7 @@ public class VoxelOutletPourTests
     {
         // Ground standing 20 m high from 5 m east of the source: the jet meets it rising, and its water falls there.
         var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x >= 15 ? 20f : 1f));
-        var jet = new SourceShape(false, 90f, 0f, 0f, 45f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
 
@@ -113,7 +117,7 @@ public class VoxelOutletPourTests
     {
         // The source on a ledge 10 m over the ground below, the ledge ending a metre east of it.
         var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x <= 11 ? 11f : 1f));
-        var jet = new SourceShape(false, 90f, 0f, 0f, 20f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 20f, Slot);
         (float X, float Y, float Z)? landing = grid.Lands(10.5f, 11.3f, 10.5f, new Vec3(4f * 0.94f, 4f * 0.342f, 0f));
 
         Assert.NotNull(landing);
@@ -129,7 +133,7 @@ public class VoxelOutletPourTests
         // The 4 m outlet thrown up 45 degrees, 8 m³/s through its slot leaving at 8 m/s: each of its four places flies
         // from the outlet's own height, about 6.5 m out, none from where the one before it came down.
         var grid = new VoxelGrid(S, new TestSolids(1));
-        var jet = new SourceShape(false, 90f, 4f, 0f, 45f);
+        var jet = new SourceShape(false, 90f, 4f, 0f, 45f, Slot);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, WideRate, Dt));
 
@@ -149,7 +153,7 @@ public class VoxelOutletPourTests
         // The same outlet fanned out 60 degrees across: each place's share flies its own way and lands in its own
         // voxel (where, looked at before any of it is poured, so none lands on another's water).
         var grid = new VoxelGrid(S, new TestSolids(1));
-        var jet = new SourceShape(false, 90f, 4f, 60f, 45f);
+        var jet = new SourceShape(false, 90f, 4f, 60f, 45f, Slot);
         float speed = jet.Speed(WideRate);
         (float rightX, float rightZ) = jet.Right;
         var landed = new HashSet<(int, int)>();
@@ -203,7 +207,7 @@ public class VoxelOutletPourTests
     public void EachPlaceOfAJetSaysWhereItLandsAndARiverNone()
     {
         var grid = new VoxelGrid(S, new TestSolids(1));
-        var wide = new SourceShape(false, 90f, 3f, 0f, 30f);
+        var wide = new SourceShape(false, 90f, 3f, 0f, 30f, Slot);
 
         // 8 m³/s through the 3 m outlet leaves at 10.7 m/s: thrown up 30 degrees it lands about 10 m out.
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, wide, WideRate, Dt));
@@ -219,7 +223,7 @@ public class VoxelOutletPourTests
     {
         // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so it pours where it is.
         var grid = new VoxelGrid(S, new TestSolids(1)) { MaxBricks = 1 };
-        var jet = new SourceShape(false, 90f, 0f, 0f, 45f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
 
@@ -235,7 +239,7 @@ public class VoxelOutletPourTests
         // nothing read in wait), and it pours at its outlet; once they can, it lands out there.
         var solids = new TestSolids(1) { Waiting = (x, _, _) => x >= 1 };
         var grid = new VoxelGrid(S, solids);
-        var jet = new SourceShape(false, 90f, 0f, 0f, 45f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
         var velocity = new Vec3(8.5f, 8.5f, 0f);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
@@ -276,7 +280,7 @@ public class VoxelOutletPourTests
         // or down its face under the source (where all of it ran, poured at the outlet's foot).
         var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x <= 11 ? 11f : 1f));
         var solver = new VoxelSolver(grid);
-        var jet = new SourceShape(false, 90f, 0f, 0f, 20f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 20f, Slot);
         const float Step = 0.05f, LedgeRate = 0.25f;
         for (int k = 0; k < 8f / Step; k++)
         {
@@ -320,7 +324,7 @@ public class VoxelOutletPourTests
     {
         var grid = new VoxelGrid(S, new TestSolids(1));
 
-        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, new SourceShape(false, 90f, 0f, 0f, 0f), Rate, Dt));
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, new SourceShape(false, 90f, 0f, 0f, 0f, Slot), Rate, Dt));
 
         Assert.Equal(Rate * Dt, grid.WaterAt(10, 1, 10), 4);
     }

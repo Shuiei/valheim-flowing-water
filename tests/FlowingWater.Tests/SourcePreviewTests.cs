@@ -55,11 +55,16 @@ public class SourcePreviewTests
     [Fact]
     public void AJetLandsAsFarAsItsSpeedThrowsIt()
     {
-        // A point's 2 m3/s leaves at the most speed, 12 m/s: thrown up 45 degrees it lands v^2 / g out.
-        float? lands = SourcePreview.Lands(new SourceShape(false, 0f, 0f, 0f, 45f), 2f);
+        // A point's 2 m3/s through a slot 0.25 m high leaves at the most speed, 12 m/s: thrown up 45 degrees it lands
+        // v^2 / g out. Through the default slot (0.75 m), at 2 / (0.25 x 0.75) m/s.
+        float? lands = SourcePreview.Lands(new SourceShape(false, 0f, 0f, 0f, 45f, 0.25f), 2f);
+        float? thick = SourcePreview.Lands(new SourceShape(false, 0f, 0f, 0f, 45f), 2f);
+        float slow = 2f / (SourceShape.LeastWidth * SourceShape.Nozzle);
 
         Assert.NotNull(lands);
         Assert.Equal(12f * 12f / VoxelSolver.Gravity, lands.Value, 2);
+        Assert.NotNull(thick);
+        Assert.Equal(slow * slow / VoxelSolver.Gravity, thick.Value, 2);
         Assert.Null(SourcePreview.Lands(new SourceShape(false, 0f, 3f, 0f, 0f), 2f));
         Assert.Null(SourcePreview.Lands(SourceShape.Round, 2f));
     }

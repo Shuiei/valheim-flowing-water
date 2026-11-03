@@ -27,11 +27,11 @@ internal sealed class MarkerPanelView
     // The panel's size and its rows, canvas units from its top left: the title; a source's drawings, captioned, and the
     // line naming its water; the sliders, each a row with its label left and its value right; a hint; the status, the
     // keys and (a placed one's) the Remove button at the foot.
-    private const float PanelWidth = 360f;
+    private const float PanelWidth = 390f;
 
     private const float Gutter = 18f;
 
-    private const float LabelWidth = 66f;
+    private const float LabelWidth = 96f;
 
     private const float ValueWidth = 88f;
 
@@ -118,6 +118,8 @@ internal sealed class MarkerPanelView
 
     public Row Throw { get; private set; }
 
+    public Row Thickness { get; private set; }
+
     public Row Power { get; private set; }
 
     public Row Reach { get; private set; }
@@ -163,6 +165,7 @@ internal sealed class MarkerPanelView
         view.Width = Slider(root.transform, "Width", style, MarkerSliders.WidthNotches, 0);
         view.Spread = Slider(root.transform, "Spread", style, MarkerSliders.SpreadNotches, 0);
         view.Throw = Slider(root.transform, "Throw", style, MarkerSliders.ThrowNotches, 0);
+        view.Thickness = Slider(root.transform, "Thickness", style, MarkerSliders.ThicknessNotches, 1);
         view.Power = Slider(root.transform, "Power", style, MarkerSliders.RateNotches, 0);
         view.Reach = Slider(root.transform, "Reach", style, MarkerSliders.ReachNotches, 1);
         view.Hint = Text(root.transform, "Hint", style, HintSize, Plain, 0f, HintHeight);
@@ -171,7 +174,7 @@ internal sealed class MarkerPanelView
         view.Status.textWrappingMode = TextWrappingModes.Normal;
         view.Keys = Text(root.transform, "Keys", style, HintSize, style.Title, 0f, KeysHeight);
         view.Remove = RemoveButton(root.transform, style);
-        view._sourceOnly = [above.gameObject, beside.gameObject, view.Top.gameObject, view.Side.gameObject, view.Kind.gameObject, view.Width.Root, view.Spread.Root, view.Throw.Root];
+        view._sourceOnly = [above.gameObject, beside.gameObject, view.Top.gameObject, view.Side.gameObject, view.Kind.gameObject, view.Width.Root, view.Spread.Root, view.Throw.Root, view.Thickness.Root];
         view._drainOnly = [view.Reach.Root];
         return view;
     }
@@ -189,7 +192,7 @@ internal sealed class MarkerPanelView
             only.SetActive(drain);
         }
 
-        Row[] rows = drain ? [Power, Reach] : [Width, Spread, Throw, Power];
+        Row[] rows = drain ? [Power, Reach] : [Width, Spread, Throw, Thickness, Power];
         float top = drain ? RowsTopDrain : RowsTopSource;
         foreach (Row row in rows)
         {
@@ -209,7 +212,7 @@ internal sealed class MarkerPanelView
     /// <summary>Whether the sliders take the mouse and keys (while the panel's values are changed), else only show.</summary>
     public void Interactable(bool on)
     {
-        foreach (Row row in new[] { Width, Spread, Throw, Power, Reach })
+        foreach (Row row in new[] { Width, Spread, Throw, Thickness, Power, Reach })
         {
             row.Slider.interactable = on;
         }

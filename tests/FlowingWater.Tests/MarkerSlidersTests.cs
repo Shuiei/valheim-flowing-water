@@ -99,11 +99,24 @@ public class MarkerSlidersTests
     }
 
     [Fact]
+    public void TheThicknessGoesByFiveCentimetresFromTheThinnestToTheThickest()
+    {
+        Assert.Equal(SourceShape.LeastThickness, MarkerSliders.Thickness(0), 4);
+        Assert.Equal(SourceShape.LeastThickness, MarkerSliders.Thickness(1), 4);
+        Assert.Equal(SourceShape.MostThickness, MarkerSliders.Thickness(MarkerSliders.ThicknessNotches), 4);
+        Assert.Equal(15, MarkerSliders.ThicknessNotch(SourceShape.Nozzle));
+        Assert.Equal(SourceShape.Nozzle, MarkerSliders.Thickness(MarkerSliders.ThicknessNotch(SourceShape.Nozzle)), 4);
+        Assert.Equal(5, MarkerSliders.ThicknessNotch(0.25f));
+        Assert.Equal(1, MarkerSliders.ThicknessNotch(0f));
+        Assert.Equal(MarkerSliders.ThicknessNotches, MarkerSliders.ThicknessNotch(9f));
+    }
+
+    [Fact]
     public void AShapeIsDescribedInFull()
     {
         Assert.Equal("all round", MarkerSliders.Describe(SourceShape.Round));
-        Assert.Equal("a slim jet spray, from a point, fanned 20°, thrown up 30°", MarkerSliders.Describe(new SourceShape(false, 0f, 0f, 20f, 30f)));
-        Assert.Equal("a wide river, 6 m wide, straight, along the ground", MarkerSliders.Describe(new SourceShape(false, 0f, 6f, 0f, 0f)));
+        Assert.Equal("a slim jet spray, from a point, fanned 20°, thrown up 30°, 0.75 m thick", MarkerSliders.Describe(new SourceShape(false, 0f, 0f, 20f, 30f)));
+        Assert.Equal("a wide river, 6 m wide, straight, along the ground, 1.5 m thick", MarkerSliders.Describe(new SourceShape(false, 0f, 6f, 0f, 0f, 1.5f)));
     }
 
     [Fact]
@@ -119,12 +132,13 @@ public class MarkerSlidersTests
     [Fact]
     public void MovingOneShapeSliderLeavesTheOtherValuesAndTheHeadingAsTheyWere()
     {
-        var kept = new SourceShape(false, 135f, 1.3f, 22f, 33f);
-        int width = MarkerSliders.WidthNotch(1.3f), spread = MarkerSliders.SpreadNotch(kept), throwUp = MarkerSliders.ThrowNotch(33f);
+        var kept = new SourceShape(false, 135f, 1.3f, 22f, 33f, 0.62f);
+        int width = MarkerSliders.WidthNotch(1.3f), spread = MarkerSliders.SpreadNotch(kept), throwUp = MarkerSliders.ThrowNotch(33f), thick = MarkerSliders.ThicknessNotch(0.62f);
 
-        Assert.Equal(kept, MarkerSliders.Slid(kept, width, spread, throwUp));
-        Assert.Equal(new SourceShape(false, 135f, 4f, 22f, 33f), MarkerSliders.Slid(kept, 8, spread, throwUp));
-        Assert.Equal(new SourceShape(false, 135f, 1.3f, 22f, 10f), MarkerSliders.Slid(kept, width, spread, 2));
+        Assert.Equal(kept, MarkerSliders.Slid(kept, width, spread, throwUp, thick));
+        Assert.Equal(new SourceShape(false, 135f, 4f, 22f, 33f, 0.62f), MarkerSliders.Slid(kept, 8, spread, throwUp, thick));
+        Assert.Equal(new SourceShape(false, 135f, 1.3f, 22f, 10f, 0.62f), MarkerSliders.Slid(kept, width, spread, 2, thick));
+        Assert.Equal(new SourceShape(false, 135f, 1.3f, 22f, 33f, 1.5f), MarkerSliders.Slid(kept, width, spread, throwUp, 30));
     }
 
     [Fact]
@@ -133,9 +147,10 @@ public class MarkerSlidersTests
         var kept = new SourceShape(false, 0f, 1.3f, 22f, 33f);
         int width = MarkerSliders.WidthNotch(1.3f), throwUp = MarkerSliders.ThrowNotch(33f);
 
-        SourceShape round = MarkerSliders.Slid(kept, width, MarkerSliders.SpreadNotches, throwUp);
+        int thick = MarkerSliders.ThicknessNotch(kept.Thickness);
+        SourceShape round = MarkerSliders.Slid(kept, width, MarkerSliders.SpreadNotches, throwUp, thick);
         Assert.Equal(new SourceShape(true, 0f, 1.3f, 22f, 33f), round);
-        Assert.Equal(new SourceShape(false, 0f, 1.3f, 20f, 33f), MarkerSliders.Slid(round, width, MarkerSliders.SpreadNotch(kept), throwUp));
-        Assert.Equal(new SourceShape(false, 0f, 1.3f, 30f, 33f), MarkerSliders.Slid(round, width, 6, throwUp));
+        Assert.Equal(new SourceShape(false, 0f, 1.3f, 20f, 33f), MarkerSliders.Slid(round, width, MarkerSliders.SpreadNotch(kept), throwUp, thick));
+        Assert.Equal(new SourceShape(false, 0f, 1.3f, 30f, 33f), MarkerSliders.Slid(round, width, 6, throwUp, thick));
     }
 }

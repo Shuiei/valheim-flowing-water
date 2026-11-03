@@ -7,7 +7,8 @@ namespace FlowingWater.Client;
 /// The panel's two small drawings of a source's water, without the game, as RGBA bytes a texture takes (its rows from
 /// the bottom up): from above, its outlet and how it fans out the way it faces (down the drawing; all round, a ring
 /// round it); from the side, its throw's arc out to where it lands, as fast as its outlet sends it (or along the ground),
-/// as thick as it is wide.
+/// as thick as its outlet's slot stands (its thickness, higher where the rate passes it at the fastest), to the drawing's
+/// scale.
 /// </summary>
 internal static class SourcePreview
 {
@@ -50,7 +51,7 @@ internal static class SourcePreview
     {
         byte[] pixels = Blank();
         Fill(pixels, (_, y) => y is >= 103 and <= 105, Bed, 1f);
-        float thick = 2f + (4f * Math.Min(1f, shape.Width / 4f));
+        float thick = Math.Max(2f, shape.OutletHeight(rate) / SideScale);
         float lastX = 14f, lastY = 100f;
         foreach ((float x, float y) in Arc(shape, rate))
         {

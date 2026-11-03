@@ -298,7 +298,8 @@ public class MarkerValuesTests
     [Fact]
     public void ThePanelsLinesSayAJetsKindAndWhereItLands()
     {
-        Assert.Equal("A slim jet spray · lands 15 m out", MarkerValues.KindLine(new SourceShape(false, 0f, 0f, 20f, 45f), 2f));
+        Assert.Equal("A slim jet spray · lands 12 m out", MarkerValues.KindLine(new SourceShape(false, 0f, 0f, 20f, 45f), 2f));
+        Assert.Equal("A slim jet spray · lands 15 m out", MarkerValues.KindLine(new SourceShape(false, 0f, 0f, 20f, 45f, 0.25f), 2f));
         Assert.Equal("A slim jet spray · lands under 1 m out", MarkerValues.KindLine(new SourceShape(false, 0f, 1.3f, 22f, 33f), 0.337f));
         Assert.Equal("A wide river", MarkerValues.KindLine(new SourceShape(false, 0f, 6f, 0f, 0f), 2f));
         Assert.Equal("all", MarkerValues.RateText(0f, drain: true));

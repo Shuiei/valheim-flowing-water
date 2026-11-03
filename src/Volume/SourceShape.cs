@@ -7,8 +7,9 @@ namespace FlowingWater.Volume;
 /// with no shape written still does), or the way it faces (its piece's turn, a heading from north), out of an outlet
 /// <see cref="Width"/> wide (a point: <see cref="LeastWidth"/>), fanning out by <see cref="Spread"/> degrees across
 /// it (0: straight on, a river; more, a jet spraying out), and thrown up by <see cref="Throw"/> degrees (0: along the
-/// ground). Its water leaves the outlet as fast as it must to pass the rate through a slot <see cref="Nozzle"/> high,
-/// <see cref="MostSpeed"/> at the most (the slot standing higher then): a slim strong jet runs fast, a wide river slow.
+/// ground). Its water leaves the outlet as fast as it must to pass the rate through a slot <see cref="Thickness"/> high
+/// (<see cref="Nozzle"/> unless set), <see cref="MostSpeed"/> at the most (the slot standing higher then): a slim strong
+/// jet runs fast, a wide river slow, a thick one slower and fuller.
 /// Shared by the server's water and the player's own; needs no game, so the unit tests check the arithmetic.
 /// </summary>
 internal readonly struct SourceShape : IEquatable<SourceShape>
@@ -25,20 +26,30 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     /// <summary>The most a jet is thrown up, degrees over the ground.</summary>
     public const float MostThrow = 60f;
 
-    /// <summary>How high the outlet's slot is, metres, while the water through it is under <see cref="MostSpeed"/>.</summary>
-    public const float Nozzle = 0.25f;
+    /// <summary>
+    /// How high the outlet's slot is unless set (<see cref="Thickness"/>), metres: a source placed before 0.53.0 or with
+    /// no thickness written pours so thick (0.25 m before 0.53.0: three times as thin, its water hardly seen).
+    /// </summary>
+    public const float Nozzle = 0.75f;
+
+    /// <summary>The thinnest slot, metres.</summary>
+    public const float LeastThickness = 0.05f;
+
+    /// <summary>The thickest slot, metres.</summary>
+    public const float MostThickness = 2f;
 
     /// <summary>The fastest water leaves an outlet, metres a second.</summary>
     public const float MostSpeed = 12f;
 
-    /// <summary>A shape as asked: each value held to its range, the heading to 0 up to 360 degrees.</summary>
-    public SourceShape(bool allRound, float heading, float width, float spread, float throwUp)
+    /// <summary>A shape as asked: each value held to its range (a thickness not a number: <see cref="Nozzle"/>), the heading to 0 up to 360 degrees.</summary>
+    public SourceShape(bool allRound, float heading, float width, float spread, float throwUp, float thickness = Nozzle)
     {
         AllRound = allRound;
         Heading = Wrap(heading);
         Width = Clamp(width, 0f, MostWidth);
         Spread = Clamp(spread, 0f, MostSpread);
         Throw = Clamp(throwUp, 0f, MostThrow);
+        Thickness = float.IsNaN(thickness) ? Nozzle : Clamp(thickness, LeastThickness, MostThickness);
     }
 
     /// <summary>All round: no facing, the water out of every side (the shape of a source with none written).</summary>
@@ -49,10 +60,10 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
 
     /// <summary>
     /// A shape as a source's object keeps it: facing a way when its flag is 1 (<see cref="Flag"/>), else all round (no
-    /// flag written: placed before 0.46.0), its width, spread and throw kept either way, so one made all round faces
-    /// with them again when turned back.
+    /// flag written: placed before 0.46.0), its width, spread, throw and thickness kept either way, so one made all round
+    /// faces with them again when turned back.
     /// </summary>
-    public static SourceShape Kept(int flag, float heading, float width, float spread, float throwUp) => new(flag != 1, heading, width, spread, throwUp);
+    public static SourceShape Kept(int flag, float heading, float width, float spread, float throwUp, float thickness = Nozzle) => new(flag != 1, heading, width, spread, throwUp, thickness);
 
     /// <summary>The way a piece faces whose forward points (east, north), degrees clockwise from north (0 to 360; north for none).</summary>
     public static float HeadingOf(float forwardX, float forwardZ) => Wrap((float)(Math.Atan2(forwardX, forwardZ) * 180.0 / Math.PI));
@@ -71,6 +82,9 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
 
     /// <summary>How far up it is thrown, degrees over the ground.</summary>
     public float Throw { get; }
+
+    /// <summary>How high the outlet's slot is, metres: how thick its water leaves while slower than <see cref="MostSpeed"/>.</summary>
+    public float Thickness { get; }
 
     /// <summary>The flag a source's object keeps for it (<see cref="Kept"/>): 1 facing a way, 0 all round.</summary>
     public int Flag => AllRound ? 0 : 1;
@@ -111,13 +125,13 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     }
 
     /// <summary>How fast its water leaves the outlet for a rate (m³/s): the rate through the slot, <see cref="MostSpeed"/> at the most.</summary>
-    public float Speed(float rate) => rate > 0f ? Math.Min(MostSpeed, rate / (OutletWidth * Nozzle)) : 0f;
+    public float Speed(float rate) => rate > 0f ? Math.Min(MostSpeed, rate / (OutletWidth * Thickness)) : 0f;
 
     /// <summary>How high the outlet stands for a rate, metres: the slot, higher where the rate would be faster than <see cref="MostSpeed"/> through it.</summary>
     public float OutletHeight(float rate)
     {
         float speed = Speed(rate);
-        return speed > 0f ? Math.Max(Nozzle, rate / (OutletWidth * speed)) : Nozzle;
+        return speed > 0f ? Math.Max(Thickness, rate / (OutletWidth * speed)) : Thickness;
     }
 
     /// <summary>
@@ -138,11 +152,11 @@ internal readonly struct SourceShape : IEquatable<SourceShape>
     }
 
     // Exact, as the hash is: the same values held to their ranges, not near ones.
-    public bool Equals(SourceShape other) => AllRound == other.AllRound && Heading.Equals(other.Heading) && Width.Equals(other.Width) && Spread.Equals(other.Spread) && Throw.Equals(other.Throw);
+    public bool Equals(SourceShape other) => AllRound == other.AllRound && Heading.Equals(other.Heading) && Width.Equals(other.Width) && Spread.Equals(other.Spread) && Throw.Equals(other.Throw) && Thickness.Equals(other.Thickness);
 
     public override bool Equals(object obj) => obj is SourceShape other && Equals(other);
 
-    public override int GetHashCode() => (AllRound, Heading, Width, Spread, Throw).GetHashCode();
+    public override int GetHashCode() => (AllRound, Heading, Width, Spread, Throw, Thickness).GetHashCode();
 
     private static float Clamp(float value, float low, float high) => float.IsNaN(value) ? low : Math.Min(high, Math.Max(low, value));
 

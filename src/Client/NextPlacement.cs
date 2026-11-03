@@ -43,10 +43,10 @@ internal sealed class NextPlacement
     public SourceShape Shape { get; private set; } = SourceShape.Jet(0f);
 
     /// <summary>The next source's shape, facing a heading (its piece's turn as it is placed).</summary>
-    public SourceShape ShapeFacing(float heading) => new(Shape.AllRound, heading, Shape.Width, Shape.Spread, Shape.Throw);
+    public SourceShape ShapeFacing(float heading) => new(Shape.AllRound, heading, Shape.Width, Shape.Spread, Shape.Throw, Shape.Thickness);
 
     /// <summary>A new shape for the next source, held to its ranges (its heading is the piece's: not kept).</summary>
-    public void SetShape(bool allRound, float width, float spread, float throwUp) => Shape = new SourceShape(allRound, 0f, width, spread, throwUp);
+    public void SetShape(bool allRound, float width, float spread, float throwUp, float thickness) => Shape = new SourceShape(allRound, 0f, width, spread, throwUp, thickness);
 
     /// <summary>A rate for the next source or drain (from the panel's slider), as <see cref="MarkerValues.TryRate(float, bool, out float, out string)"/> takes it; one refused leaves the rate as it was.</summary>
     /// <param name="drain">A drain's, else a source's.</param>
