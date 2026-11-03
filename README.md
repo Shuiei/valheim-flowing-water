@@ -243,9 +243,13 @@ anywhere: the server's water still says how much water is where):
   than so many bright droplets. Froth carries no water. The material's `_FoamPatchAlpha`, `_FoamPatchScale`,
   `_BubbleAlpha`, `_MistFrom`, `_MistFull`, `_MistGrow` and `_MistAlpha` tune it (`flowingwater mat spray`). The
   preview's `froth` scene checks that the foam lies on the water's top and drifts at its speed (0.99), that bubbles stay
-  under it and that neither carries water; `froth-off` that none is made with the setting off.
+  under it and that neither carries water, and that none is left a step after the setting is turned off (foam and
+  bubbles still going end then); `froth-off` that none is made with the setting off. A plunging sheet's bubbles each
+  take their place in their crowd cell first, so a fall makes none where it is already full.
 
-At most 32768 particles live at once (the oldest give way); one that leaves the square, or flies over ground the card
+At most 49152 particles live at once, in three rings where the oldest give way: 8192 for the falling water a lip's
+streaks carry, 16384 for the froth thrown as foam or bubbles (so a fall's plunge gives way only to older froth, never
+to spray, splashes or falling sheets) and the rest for everything else; one that leaves the square, or flies over ground the card
 has not found, fades out there within a quarter of a second, and none is drawn much longer than a metre along its
 motion. Moving them took 0.04 ms a frame (with the froth; 0.02 ms before it) on a Radeon RX 9070 XT (`tools/sim-preview.sh`, which also runs a shelf of
 water poured off its lip); drawing them comes on top, and grows with how many there are on screen. A wall of water
