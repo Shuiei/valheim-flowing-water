@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Roslynator.Analyzers": {
+        "type": "Direct",
+        "requested": "[5.0.1, )",
+        "resolved": "5.0.1",
+        "contentHash": "sCZ0Di4B937wKa9pwKbdsE6Njr8A/FdCLw28+yDKyMaDZ/f8JWxcFn6NOCukzKhCG/eA6M2DbXlKkrPi0g0lIA=="
+      },
+      "Roslynator.Formatting.Analyzers": {
+        "type": "Direct",
+        "requested": "[5.0.1, )",
+        "resolved": "5.0.1",
+        "contentHash": "uzofr/lI6d9kqNVPQHIWk6YmU7zNnI5cy6rA6HLDAdJ+g7w/sh7z7zc04c84vPkNKCmxCVPMeKP0DBCHPpb2pw=="
+      },
+      "releaserules": {
+        "type": "Project"
+      }
+    }
+  }
+}
