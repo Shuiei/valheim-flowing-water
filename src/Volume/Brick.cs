@@ -247,6 +247,9 @@ internal sealed class Brick
     /// </summary>
     public byte Asked { get; set; }
 
+    /// <summary>When the ground last soaked up its thin water (<see cref="Soaking"/>), on the server's clock for it; NaN never yet.</summary>
+    public float SoakedAt { get; set; } = float.NaN;
+
     /// <summary>Whether its wet voxels, as last found, reach its border on this side (0 east ... 5 south).</summary>
     public bool WetTo(int side) => WetHigh.X >= 0 && side switch
     {

@@ -74,6 +74,7 @@ again within a couple of seconds. The main ones:
 | `Server.CellSize` | 1 | Side of the water's cubic voxels: 1, 0.5 or 0.25 m. Smaller gives finer water: moving water costs about 3× at 0.5 and 15× at 0.25 (measured on a 20 × 20 m pool; more water, more cost), still water stays cheap |
 | `Server.StepBudget` | 8 | Most milliseconds of each server frame the water may take, on average; beyond, the water slows down instead of the server |
 | `Server.MaxBricks` | 1024 | Most blocks of 16 × 16 × 16 voxels with water at once |
+| `Server.Soaking` | 1 | Millimetres a second the ground soaks up of water lying 10 cm deep or less: streams end, sheets stop spreading, puddles dry up; pools, rivers and lakes are kept (0 = off) |
 | `Commands.CommandsForEveryone` | true | Players who are not admins may use the command and place sources and drains (the server's setting counts, and it simulates only what a player who may placed) |
 | `Client.CustomShader` | true | The mod's own water shader, with the sea's look and running water; off = the game's still sea material |
 | `Client.GpuWater` | true | Move the water near you on the graphics card between the server's changes; off = drawn as the server sends it |

@@ -21,6 +21,7 @@ internal sealed class Settings
         MarkerScanSeconds = config.Bind("Server", "MarkerScanSeconds", 3f, new ConfigDescription("Seconds from the end of one look for new or removed sources and drains to the next (a look over a big world itself takes a few seconds, a little each frame).", new AcceptableValueRange<float>(1f, 60f)));
         FixedSources = config.Bind("Server", "FixedSources", string.Empty, "Sources that exist without a placed marker, for servers and tests: world x,z and cubic metres per second, like \"120,-340,2; 125,-338,1.5\".");
         FixedDrains = config.Bind("Server", "FixedDrains", string.Empty, "Drains that exist without a placed marker: world x,z and cubic metres per second (0 takes all), like \"180,-400,0\".");
+        Soaking = config.Bind("Server", "Soaking", 1f, new ConfigDescription("Millimetres a second the ground soaks up (and the air dries) of water lying thin on it, 10 cm deep or less: a stream ends where it has soaked away, a sheet stops spreading where it loses what feeds it, a puddle left behind dries up. Deeper water (pools, rivers, lakes) is kept. 0 = off: water stays until a drain or the sea takes it, and a source left running floods ever further.", new AcceptableValueRange<float>(0f, 20f)));
         DebugSeconds = config.Bind("Server", "DebugSeconds", 0f, new ConfigDescription("Every this many seconds the server logs each zone with water as a map of depths (0 = off). For testing.", new AcceptableValueRange<float>(0f, 600f)));
         DefaultSourceRate = config.Bind("Markers", "DefaultSourceRate", 2f, new ConfigDescription("Cubic metres per second a source gives when placed without a rate (above 0, up to the most a source may give).", new AcceptableValueRange<float>(MinSourceRate, MarkerRules.MaxRate)));
         DefaultDrainRate = config.Bind("Markers", "DefaultDrainRate", 0f, new ConfigDescription("Cubic metres per second a drain takes when placed without a rate; 0 takes everything that reaches it.", new AcceptableValueRange<float>(0f, MarkerRules.MaxRate)));
@@ -58,6 +59,8 @@ internal sealed class Settings
     public ConfigEntry<bool> Erosion { get; }
 
     public ConfigEntry<float> ErosionSpeed { get; }
+
+    public ConfigEntry<float> Soaking { get; }
 
     public ConfigEntry<float> SendSeconds { get; }
 
