@@ -190,8 +190,10 @@ where), so the waves finer than a voxel are the card's own.
   past its edge; the fine ones (0.8 m) are only lit, at each point drawn, near and far alike. White water gathers on the tops of fast chop's crests and where the water slows hard into the water
   ahead (piling up against a rock or a post, a jump from shooting water to deep), besides the foam of fast water
   running with it. Water running down a steep slope (from about 20°, all of it from 45° and 1 m/s) is a cascade:
-  broken white water, streaked down the slope as it runs, hiding what is behind it and mirroring nothing, near and far
-  alike. Only the look: the card's water does not move by these waves.
+  broken white water in streaks down the slope as it runs, at least 45 % of their pattern left as the gaps between them
+  however fast it runs, mirroring nothing, near and far alike; it hides what is behind it by its depth (half of it at
+  most, from 30 cm deep), so a film racing down rock stays clear between its streaks, the rock seen through it (hiding
+  it under any film, it showed the water's body colour, the sea's sandy shallows, lit by the sun on the slope: cream). Only the look: the card's water does not move by these waves.
 - **Foam carried by the current.** As Crest's sea keeps its foam, the card keeps the water's foam in a texture of its
   cells, carried once a frame: each cell's foam is what the current brought there from upstream (taken from where its
   water was a frame ago, between the four cells round that place), fading by 0.8 of itself a second (Crest's sea's
@@ -252,7 +254,8 @@ anywhere: the server's water still says how much water is where):
 - **Curtains.** A lip's fall is drawn as one curtain of water: each face of a cell its water runs out of over a lip
   is a strip from the cell's middle over the brink, then down the arc its water is thrown on to where it lands (found
   on the card each frame, drawn from there, never read back), the strips of a lip side by side one sheet. Glassy where
-  it leaves the lip, it turns white as it falls (all white after half a second), streaked along its fall, the streaks
+  it leaves the lip, it turns white as it falls (all white after 0.8 s, 55 % opaque), white in its streaks and the
+  water's own colour, thinner, between them, never a white sheet, the streaks
   running down with the water; a long fall frays into streaks near its foot, and its ends along the lip spread a
   little and fade. The streaks carrying the water are drawn faint (30 %), the curtain's mist. Where it lands, the pool
   churns white (wholly where water lands 5 cm deep a second or more), calming over a second once it stops. The

@@ -16,8 +16,8 @@ Shader "FlowingWater/Fall"
 
         _FallColor ("Falling water colour", Color) = (0.62, 0.74, 0.78, 1)
         _GlassAlpha ("Opacity where it leaves the lip", Range(0, 1)) = 0.35
-        _WhiteAlpha ("Opacity once broken white", Range(0, 1)) = 0.8
-        _Aerate ("Seconds of falling till it is all white", Float) = 0.5
+        _WhiteAlpha ("Opacity once broken white", Range(0, 1)) = 0.55
+        _Aerate ("Seconds of falling till it is all white", Float) = 0.8
         _FullFlow ("Water running over (m2/s, depth times speed) that makes a whole curtain", Float) = 0.05
         _StreakAcross ("Streaks across the curtain (per metre)", Float) = 2.5
         _StreakAlong ("Streaks along the fall (per second of it)", Float) = 1.2
@@ -154,10 +154,13 @@ Shader "FlowingWater/Fall"
                 float2 uv = float2(i.strip.w * _StreakAcross, (_Time.y - t) * _StreakAlong);
                 float streak = 0.6 * tex2D(_FoamTex, uv).r + (0.4 * tex2D(_FoamTex, (uv * float2(2.3, 1.7)) + 0.37).r);
 
-                // Glassy at the lip, white once it has fallen a while.
+                // Glassy at the lip, white once it has fallen a while: white in its streaks, the water's own colour between
+                // them (a curtain of falling water is white streaks and glassy water, never a white sheet: it read as
+                // cream plaster over a rock's edge), and thinner there.
                 float white = saturate(t / max(_Aerate, 0.01));
-                fixed3 colour = lerp(_FallColor.rgb, _FoamColor.rgb, saturate(white * (0.6 + streak))) * i.light;
-                float alpha = lerp(_GlassAlpha, _WhiteAlpha, white) * (0.65 + (0.35 * streak));
+                float streaky = smoothstep(0.25, 0.75, streak);
+                fixed3 colour = lerp(_FallColor.rgb, _FoamColor.rgb, saturate(white * (0.2 + streaky))) * i.light;
+                float alpha = lerp(_GlassAlpha, _WhiteAlpha, white) * (0.45 + (0.55 * streaky));
 
                 // Thin water over a lip is a thin curtain; a long fall frays into streaks towards its foot. A jet is
                 // whole till near where it lands.

@@ -13,6 +13,8 @@ All notable changes to FlowingWater. Newest first.
   vanished from a distance.
 - Water running down a steep rock face away from you is drawn as one sheet down the face, not as a dashed line of small
   white boxes.
+- Water racing down a slope and falling over an edge is white streaks with clear water and the rock showing between
+  them, instead of a flat cream sheet like snow.
 
 ### Changed
 - Sources pour 0.75 m thick unless set, sources already placed included: three times as thick as before, so their water
