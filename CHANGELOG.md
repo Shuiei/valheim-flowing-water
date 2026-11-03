@@ -2,7 +2,7 @@
 
 All notable changes to FlowingWater. Newest first.
 
-## Unreleased
+## v0.50.0 — 2026-11-02
 
 ### Added
 - Falls and fast water now foam: spray landing on water turns to foam that drifts off with the current, and a fall
