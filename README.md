@@ -197,11 +197,11 @@ where), so the waves finer than a voxel are the card's own.
   is drawn white, its foam is lace carried off); where water runs into slower water beside it (how much faster it
   comes on toward each side than the water there goes, summed: none under 0.5 m/s of that or on water slower than
   1.5 m/s, all it will from 3 m/s and 5 m/s, a whole cell's cover a second at the most: a jump, a fall's foot, a
-  front into a pool, as Crest's waves foam where they pinch together); and the spray's foam patches
+  front into a pool, as Crest's waves foam where they pinch together: one rule with the spray's froth, so both foam on the same water); and the spray's foam patches
   (`Client.SprayFroth`), each leaving half of what it covers a second where it rides. Water shallower than a
   centimetre, a wall or ground not known holds none, and the foam moves with the square. It is drawn with the white
   water above (the more of it, the more of the foam's pattern shows: lace where it thins, white where it is thick)
-  and, under it, bubbles: the foam texture blurred, seen 8 cm under the surface (shifted with the view) and running
+  and, under it, bubbles: the foam texture blurred, seen 8 cm under the surface (shifted with the view, the other way seen from under the water) and running
   with the water, paling its body where it carries foam (`_FoamBubbles` and `_FoamBubbleDepth` on both water
   materials). So a fall's foam drifts off downstream as a trail instead of stopping where it lands. The preview's
   `foam` scene checks that a patch of foam in a still pool keeps e^-1.6 of itself after 2 s (0.202) without moving

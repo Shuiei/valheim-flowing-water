@@ -48,4 +48,25 @@ public class WaveShadersTests
         string card = ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void vert(");
         Assert.Matches(new Regex(@"max\(Churn\(crest, [^;]+, slowing\), max\(At\(_SimChurn, p\), At\(_SimFoam, p\)\)\);", RegexOptions.None, Patience), card);
     }
+
+    [Theory]
+    [InlineData("FlowingWaterSim.compute", "void CarryFoam(")]
+    [InlineData("FlowingWaterSpray.compute", "void EmitFromWater(")]
+    public void TheFoamAndTheFrothTrapAirByTheOneSharedRule(string shader, string kernel)
+    {
+        string source = ShaderSource.Read(shader);
+
+        Assert.Contains("#include \"FlowingWaterTrapped.cginc\"", source, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"TrappedAir\(c, speed\)", RegexOptions.None, Patience), ShaderSource.Function(source, kernel));
+        Assert.DoesNotMatch(new Regex(@"trapped \+=|float2 (CellSpeed|SpeedAt)\(", RegexOptions.None, Patience), source);
+    }
+
+    [Fact]
+    public void TheBubblesUnderTheFoamShiftAwayFromTheEyeFromAboveAndFromBelow()
+    {
+        string look = ShaderSource.Function(ShaderSource.Read("FlowingWaterLook.cginc"), "void Look(");
+
+        Assert.Matches(new Regex(@"float above = i\.facing > 0\.0 \? 1\.0 : -1\.0;", RegexOptions.None, Patience), look);
+        Assert.Matches(new Regex(@"float2 under = -above \* _FoamBubbleDepth \* eyeDir\.xz / max\(abs\(eyeDir\.y\), 0\.2\);", RegexOptions.None, Patience), look);
+    }
 }

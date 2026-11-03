@@ -103,16 +103,11 @@ float _SplashFrom;
 uint _SplashDroplets;
 
 // The froth (1: the droplets sorted into spray, foam and bubbles, and air trapped by the water; 0: droplets end where
-// they land, as before). Trapped air: so many froth particles a second over each square metre at the most, water
-// meeting the water beside it this much faster than it (m/s, summed over its four sides) trapping none, from the
-// second all it will; water slower than _FrothSlow (m/s) traps none, all it will from _FrothFast. A sheet landing
-// faster than _SplashFrom in water deeper than PLUNGE_WATER drives so many bubbles down.
+// they land, as before). Trapped air (FlowingWaterTrapped.cginc, the card's foam's rule too): so many froth particles a
+// second over each square metre at the most, where the water traps all it will. A sheet landing faster than
+// _SplashFrom in water deeper than PLUNGE_WATER drives so many bubbles down.
 uint _Froth;
 float _TrappedRate;
-float _TrappedFrom;
-float _TrappedFull;
-float _FrothSlow;
-float _FrothFast;
 uint _PlungeBubbles;
 
 // Two counts in hashed cells CROWD_SIZE metres a side (CROWD_CELLS of them), each step by Move: the spray (droplets and
@@ -163,13 +158,7 @@ bool Inside(int2 c)
     return c.x >= 0 && c.y >= 0 && c.x < _N && c.y < _N;
 }
 
-// The water's velocity along the ground at a cell's middle (m/s, east and north): its faces' speeds averaged.
-float2 SpeedAt(int2 c)
-{
-    int2 west = max(c - int2(1, 0), 0);
-    int2 south = max(c - int2(0, 1), 0);
-    return float2(0.5 * (_U[c] + _U[west]), 0.5 * (_V[c] + _V[south]));
-}
+#include "FlowingWaterTrapped.cginc"
 
 // The crowd cell a place counts in.
 uint CrowdIndex(float3 place)
@@ -324,26 +313,11 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // Trapped air: water running into slower water beside it (how much faster it comes on toward each side than the
-    // water there goes, summed) lets froth go in its water, the more the faster it runs; bubbles at a depth in it, foam
-    // at its top, going as it goes. None where the surface's crowd cell is full of foam.
-    if (_Froth > 0u && h >= FOAM_WATER * 2.0 && fast > _FrothSlow && _FrothCrowd[CrowdIndex(centre)] < FOAM_FULL)
+    // Trapped air (FlowingWaterTrapped.cginc) lets froth go in the water: bubbles at a depth in it, foam at its top,
+    // going as it goes. None where the surface's crowd cell is full of froth.
+    if (_Froth > 0u && h >= FOAM_WATER * 2.0 && _FrothCrowd[CrowdIndex(centre)] < FOAM_FULL)
     {
-        int2 around[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
-        float trapped = 0.0;
-        for (int s = 0; s < 4; s++)
-        {
-            int2 side = around[s];
-            int2 next = c + side;
-            if (_H[next] >= FOAM_WATER)
-            {
-                trapped += max(dot(speed - SpeedAt(next), float2(side)), 0.0);
-            }
-        }
-
-        float potential = saturate((trapped - _TrappedFrom) / (_TrappedFull - _TrappedFrom));
-        float energy = saturate(((fast * fast) - (_FrothSlow * _FrothSlow)) / ((_FrothFast * _FrothFast) - (_FrothSlow * _FrothSlow)));
-        uint n = min(Count(_TrappedRate * potential * energy * _Dx * _Dx * _Dt, state), 2u);
+        uint n = min(Count(_TrappedRate * TrappedAir(c, speed) * _Dx * _Dx * _Dt, state), 2u);
         for (uint k = 0; k < n; k++)
         {
             float depth = Random(state) * min(h, 0.4);
@@ -404,7 +378,7 @@ void Move(uint3 id : SV_DispatchThreadID)
     {
         // Along the water's top with its current, held to the top where it goes (fading out once it is dry there);
         // over a drop (a lip, a fall), a drop in the air from here, going on as the water went, and falling.
-        float2 flow = known ? SpeedAt(c) : velocity.xz;
+        float2 flow = known ? CellSpeed(c) : velocity.xz;
         velocity = float3(flow.x, 0.0, flow.y);
         place += velocity * _Dt;
         int2 to = (int2)floor((place.xz - _Origin) / _Dx);
@@ -428,7 +402,7 @@ void Move(uint3 id : SV_DispatchThreadID)
     else if (kind == BUBBLE)
     {
         // Carried with the water, rising through it: foam once it is up.
-        float2 flow = known ? SpeedAt(c) : velocity.xz;
+        float2 flow = known ? CellSpeed(c) : velocity.xz;
         velocity = lerp(velocity, float3(flow.x, 0.0, flow.y), saturate(4.0 * _Dt));
         velocity.y = min(velocity.y + (BUOYANCY * _Dt), BUBBLE_RISE);
         place += velocity * _Dt;
