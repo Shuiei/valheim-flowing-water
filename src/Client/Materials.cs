@@ -629,6 +629,7 @@ internal static class Materials
         Material material = kind switch
         {
             "custom" => _custom,
+            "shell" => _shell,
             "card" => _sim,
             "falls" => Falls,
             "spray" => _spray,
@@ -640,7 +641,7 @@ internal static class Materials
         };
         if (material == null)
         {
-            return $"no {kind} material (custom, card, falls, spray, still, froth, volume or march; water must have been drawn once with it)";
+            return $"no {kind} material (custom, shell, card, falls, spray, still, froth, volume or march; water must have been drawn once with it)";
         }
 
         if (property == "list")

@@ -12,7 +12,7 @@ namespace FlowingWater.Volume;
 /// from voxel to voxel.
 /// <para>
 /// A column's top is the highest top of its water in the brick's own rows (a wet voxel whose water does not go on up
-/// into the one over it); without one, the top nearest them within <see cref="Window"/> rows over or under it, so that
+/// into the one over it, not in a film down a face: <see cref="VoxelField.FaceRun"/>, the shell's); without one, the top nearest them within <see cref="Window"/> rows over or under it, so that
 /// a sheet running down out of the brick, or up into it, is joined to the columns beside it. Each square between four
 /// columns is drawn once: by the brick whose rows hold the top of its first column shown (south-west, south-east,
 /// north-west, north-east), and whose grid covers the square (the squares whose south-west column is one of its own).
@@ -253,7 +253,7 @@ internal sealed class SurfaceGrid
         int nearest = int.MaxValue;
         for (int y = ceiling + Window; y >= floor - Window; y--)
         {
-            if (!column.IsWet(y) || column.GoesUp(y))
+            if (!column.IsWet(y) || column.GoesUp(y) || column.FaceRun(y))
             {
                 continue;
             }
@@ -331,6 +331,10 @@ internal sealed class SurfaceGrid
         }
 
         public bool IsWet(int y) => Voxel(y, out BrickView view, out int i) && VoxelField.IsWet(view, i);
+
+        // Water in a film down a face (VoxelField.FaceRun) is the shell's: no top of the surface's (its voxels a top
+        // each, raised to their own rows, drew shards standing off the rock).
+        public bool FaceRun(int y) => _field.FaceRun(_x, y, _z, out _, out _);
 
         public bool GoesUp(int y) => Voxel(y + 1, out BrickView view, out int i) && VoxelField.IsWet(view, i) && view.Solid[i] <= 0f;
 

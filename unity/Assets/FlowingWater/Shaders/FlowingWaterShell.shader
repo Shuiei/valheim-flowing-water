@@ -2,7 +2,8 @@
 // standing open to the air, and the columns of water falling through it, so a fall reads as a cascade and water is
 // seen from inside it. The same look as the surface's, the sea's (its colours and textures copied onto this material
 // when the game runs): what lies behind is seen through, bent by the ripples and tinted; the ripples and the foam run
-// along each face with the water's current, so a fall's foam pours down it. Drawn from both sides.
+// along each face with the water's current, so a fall's foam pours down it, and a fall or a film down rock is white
+// water, streaked. Drawn from both sides.
 //
 // Each corner carries: uv0 its place on its face in world metres (across it, up it or north), uv1 how much of it is
 // foam and how much shows, uv2 the current along the face in uv0's directions (m/s).
@@ -102,6 +103,13 @@ Shader "FlowingWater/WaterShell"
             return uv - (run * t * _FlowCycle) + (offset * float2(0.37, 0.61));
         }
 
+        // White water's streaks: their tiling across the current and along it, per metre.
+        #define STREAK_ACROSS 1.6
+        #define STREAK_ALONG 0.2
+        // The foam wanted from which water is white water (a fall's least is 0.6), and the least of it its gaps keep.
+        #define WHITE_FROM 0.5
+        #define WHITE_BASE 0.35
+
         void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
         {
         #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
@@ -149,6 +157,18 @@ Shader "FlowingWater/WaterShell"
             float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
             float want = saturate(i.water.x);
             float foam = smoothstep(1.0 - want, 1.0 - want + 0.3, noise) * want;
+
+            // A fall or a film racing down rock (WHITE_FROM foam wanted or more) is white water: streaks drawn out
+            // along the current (fine across it, long along it, as the surface's cascade) over a milky base, the
+            // streaks' gaps darker. At the sea's foam texture's own tiling, its foam is too sparse and dark to pass
+            // the threshold: a fall or a film was clear glass.
+            float speed = length(i.current);
+            float2 along = speed > 0.05 ? i.current / speed : float2(0.0, -1.0);
+            float2 streakUv = float2(dot(i.place, float2(-along.y, along.x)) * STREAK_ACROSS, dot(i.place, along) * STREAK_ALONG);
+            float2 streakRun = float2(0.0, speed * STREAK_ALONG);
+            float streak = (tex2D(_FoamTex, FlowPhase(streakUv, streakRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(streakUv, streakRun, 0.75, fb)).r * fb);
+            float white = want * lerp(WHITE_BASE, 1.0, smoothstep(0.05, 0.4, max(noise, streak)));
+            foam = lerp(foam, white, smoothstep(WHITE_FROM, WHITE_FROM + 0.3, want));
 
             // The water's own colour where the scene behind does not show through it; the foam's, whole.
             float3 colour = lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, 0.5) * (1.0 - _Clearness);
