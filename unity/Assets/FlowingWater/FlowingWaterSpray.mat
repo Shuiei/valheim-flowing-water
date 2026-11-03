@@ -33,6 +33,7 @@ Material:
     - _CarrierAlpha: 0.3
     - _FallAlpha: 0.2
     - _FallStretch: 0.12
+    - _FlowCycle: 1.5
     - _FoamAlpha: 0.35
     - _FoamPatchAlpha: 0.55
     - _FoamPatchScale: 1.5
