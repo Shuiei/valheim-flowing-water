@@ -30,7 +30,7 @@ public class JetFlightTests
             // Facing east, the outlet runs north to south; every strip at the outlet's height.
             Assert.Equal(0f, strip.Start.X, 3);
             Assert.Equal(100f, strip.Start.Y, 3);
-            Assert.Equal(0f, strip.Widen, 3);
+            Assert.Equal(JetFlight.BreakUp, strip.Widen, 3);
             Assert.Equal(8f / 4f, strip.Flow, 3);
         }
 
@@ -47,7 +47,21 @@ public class JetFlightTests
         // A point's one strip spans the whole fan: after a second its sides are as far apart as its edges' ways are.
         JetFlight.Strip strip = Assert.Single(strips);
         double flat = point.Speed(2f) * Math.Cos(30.0 * Math.PI / 180.0);
-        Assert.Equal((float)(2.0 * flat * Math.Tan(20.0 * Math.PI / 180.0)), 2f * strip.Widen, 3);
+        Assert.Equal((float)(2.0 * flat * Math.Tan(20.0 * Math.PI / 180.0)) + (2f * JetFlight.BreakUp), 2f * strip.Widen, 3);
+    }
+
+    [Fact]
+    public void AJetIsSeenAsWideAsItsWaterIsThickWhereThatIsMoreThanItsOutletsPlace()
+    {
+        // A point (0.25 m) sending its water 0.75 m thick is seen 0.75 m wide; 2 m thick, 2 m; a 4 m outlet of 1 m places
+        // 0.5 m thick, each strip its place's metre.
+        var strips = new List<JetFlight.Strip>();
+        JetFlight.Strips(Outlet, new SourceShape(false, 0f, 0f, 0f, 30f), 2f, 1f, strips);
+        Assert.Equal(SourceShape.Nozzle, Assert.Single(strips).Width, 3);
+        JetFlight.Strips(Outlet, new SourceShape(false, 0f, 0f, 0f, 30f, 2f), 2f, 1f, strips);
+        Assert.Equal(2f, Assert.Single(strips).Width, 3);
+        JetFlight.Strips(Outlet, new SourceShape(false, 0f, 4f, 0f, 30f, 0.5f), 2f, 1f, strips);
+        Assert.All(strips, s => Assert.Equal(1f, s.Width, 3));
     }
 
     [Fact]

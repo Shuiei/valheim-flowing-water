@@ -257,6 +257,11 @@ anywhere: the server's water still says how much water is where):
   little and fade. The streaks carrying the water are drawn faint (30 %), the curtain's mist. Where it lands, the pool
   churns white (wholly where water lands 5 cm deep a second or more), calming over a second once it stops. The
   curtains' material is tuned with `flowingwater mat falls`.
+- **Jets.** A source's jet in the air is drawn with the curtains' material, out to the draw distance: each strip of
+  its outlet (a voxel wide, as the server lands it) along its arc, turned about its way to face the eye, as wide as its
+  outlet's place or as its water is thick where that is more (round water is as wide from any side: a point's jet 0.75
+  m thick is seen 0.75 m wide, not as a line), its sides moving apart by its share of the spread and 5 cm/s more as it
+  breaks up and takes in air.
 - **Splashes.** Falling water landing fast (over 3 m/s) on the water or the ground throws up droplets.
 - **Spray.** Water at least 10 cm deep running faster than 4.5 m/s throws a few fine droplets off its surface (a thin
   sheet running down a slope throws none).

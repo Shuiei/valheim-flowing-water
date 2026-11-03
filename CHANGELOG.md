@@ -8,6 +8,10 @@ All notable changes to FlowingWater. Newest first.
 - A source's **Thickness** slider in the hoe's panel (5 cm to 2 m): how thick its water leaves, so the same power comes
   out as a thick, slow gush or a thin, fast jet. The side drawing shows it.
 
+### Fixed
+- A source's jet is seen as wide as its water is thick, widening as it breaks up, instead of as a thin white line that
+  vanished from a distance.
+
 ### Changed
 - Sources pour 0.75 m thick unless set, sources already placed included: three times as thick as before, so their water
   is seen. The same power leaves three times slower, so a jet lands closer.
