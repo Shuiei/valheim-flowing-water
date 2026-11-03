@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.53.1 — 2026-11-03
+
+### Fixed
+- Water running down a steep rock face away from you is drawn as one sheet down the face, not as a dashed line of small
+  white boxes.
+
 ## v0.53.0 — 2026-11-03
 
 ### Added
@@ -11,8 +17,6 @@ All notable changes to FlowingWater. Newest first.
 ### Fixed
 - A source's jet is seen as wide as its water is thick, widening as it breaks up, instead of as a thin white line that
   vanished from a distance.
-- Water running down a steep rock face away from you is drawn as one sheet down the face, not as a dashed line of small
-  white boxes.
 
 ### Changed
 - Sources pour 0.75 m thick unless set, sources already placed included: three times as thick as before, so their water
