@@ -42,6 +42,10 @@ internal sealed class VoxelGrid
     // How long a jet is followed through the air at the most, seconds, and how often its place is looked at.
     private const float MostFlight = 6f, FlightStep = 0.02f;
 
+    // How full of water a jet's outlet voxel is for the outlet to stand under water, so its water does not fly (Lands):
+    // shallow water round the outlet's foot (a pool beside it, or what ran back from where it lands) is pushed aside.
+    private const float UnderWater = 0.9f;
+
     // A source's outlet's voxels with room as PourOutlet finds them, and the way its water leaves each.
     private readonly List<(int X, int Y, int Z, Vec3 Way)> _outlet = [];
 
@@ -224,24 +228,36 @@ internal sealed class VoxelGrid
     /// faces: a rate (m³/s) for a step, shared out evenly among the outlet's places with room (<see cref="Room"/>), each
     /// share leaving its voxel the way the outlet sends it there (fanned out across it, thrown up) at that share of the
     /// rate. An outlet partly against a wall or past the grid's reach pours all of it out of the rest. A jet thrown up
-    /// (<see cref="SourceShape.Flies"/>) pours where it lands (<see cref="Lands"/>), on its way along the ground: its
-    /// water flies there in the player's own water, and on the server none of it runs out at the outlet's foot.
+    /// or along the ground (<see cref="SourceShape.Shoots"/>) pours where it lands (<see cref="Lands(float, float, float, Vec3)"/>), on its way along the ground: its
+    /// water flies there in the player's own water, and on the server none of it runs out at the outlet's foot. A place
+    /// whose way cannot be looked at yet (the ground it flies over not read, or past the bricks the grid may make) pours
+    /// nothing for the step: poured at the outlet, a strong jet flooded the ground round its foot while the bricks it
+    /// flies through were read, and the water left there kept its outlet under water.
     /// </summary>
-    /// <returns>False when none of it had room: nothing poured.</returns>
+    /// <returns>False when none of it had room, or every place waits for bricks past <see cref="MaxBricks"/>: nothing poured.</returns>
     public bool PourOutlet(float px, float py, float pz, SourceShape shape, float rate, float dt)
     {
         (float rightX, float rightZ) = shape.Right;
         _outlet.Clear();
         Landed.Clear();
         float speed = shape.Speed(rate);
-        foreach ((float across, float offset) in shape.Outlet(VoxelSize))
+        (float Across, float Offset)[] places = shape.Outlet(VoxelSize);
+        int held = 0;
+        foreach ((float across, float offset) in places)
         {
             float ox = px + (rightX * offset), oy = py, oz = pz + (rightZ * offset);
             Vec3 way = shape.Direction(across);
-            (float X, float Y, float Z)? lands = shape.Flies ? Lands(ox, oy, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed)) : null;
-            if (shape.Flies)
+            bool waits = false;
+            (float X, float Y, float Z)? lands = shape.Shoots ? Lands(ox, oy, oz, new Vec3(way.X * speed, way.Y * speed, way.Z * speed), out waits) : null;
+            if (shape.Shoots)
             {
                 Landed.Add(lands is { } at ? new Vec3(at.X, at.Y, at.Z) : null);
+            }
+
+            if (waits)
+            {
+                held++;
+                continue;
             }
 
             if (lands is { } landing)
@@ -256,6 +272,14 @@ internal sealed class VoxelGrid
             }
         }
 
+        // Every place waiting: nothing to pour yet, unless that is for want of bricks past MaxBricks (no room).
+        if (held == places.Length)
+        {
+            return !Capped;
+        }
+
+        // The places waiting for their way keep their shares; the rest shares what is left among those with room.
+        rate *= (float)(places.Length - held) / places.Length;
         bool poured = false;
         foreach ((int x, int y, int z, Vec3 way) in _outlet)
         {
@@ -278,11 +302,20 @@ internal sealed class VoxelGrid
     /// <see cref="FlightStep"/> seconds for <see cref="MostFlight"/> at the most (where it got to then, still falling).
     /// The point's own voxel is not solid to it: an outlet stands in the open over what its marker stands on, and a
     /// rock's curved top, counted by its height at the column's middle, filled the outlet's voxel higher than it; the
-    /// jet poured at the outlet and ran down the rock's face. Null when it cannot leave the point (water there
-    /// already), or its way goes past the grid's reach or <see cref="MaxBricks"/>: it pours where it is.
+    /// jet poured at the outlet and ran down the rock's face; nor is its water, unless the voxel is nearly full
+    /// (<see cref="UnderWater"/>). Null when it cannot leave the point (the outlet under water), or its way goes past
+    /// the grid's reach or <see cref="MaxBricks"/>, or over ground not read yet.
     /// </summary>
-    public (float X, float Y, float Z)? Lands(float px, float py, float pz, Vec3 velocity)
+    public (float X, float Y, float Z)? Lands(float px, float py, float pz, Vec3 velocity) => Lands(px, py, pz, velocity, out _);
+
+    /// <summary>
+    /// Where water leaving a point at a velocity lands, as <see cref="Lands(float, float, float, Vec3)"/>; whether its
+    /// way could not be looked at (<paramref name="waits"/>: past the grid's reach or <see cref="MaxBricks"/>, or over
+    /// ground not read yet), not that it cannot leave the point.
+    /// </summary>
+    public (float X, float Y, float Z)? Lands(float px, float py, float pz, Vec3 velocity, out bool waits)
     {
+        waits = false;
         float s = VoxelSize;
         float x = px, y = py, z = pz, vy = velocity.Y;
         int ox = (int)Math.Floor(px / s), oy = (int)Math.Floor(py / s), oz = (int)Math.Floor(pz / s);
@@ -291,6 +324,7 @@ internal sealed class VoxelGrid
         {
             if (Hit(x, y, z) is not { } hit)
             {
+                waits = true;
                 return null;
             }
 
@@ -326,7 +360,7 @@ internal sealed class VoxelGrid
 
             int i = Brick.Index(Brick.In(vx), Brick.In(vyy), Brick.In(vz));
             bool own = vx == ox && vyy == oy && vz == oz;
-            return (!own && (brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i])) || brick.Water[i] >= 0.5f;
+            return own ? brick.Water[i] >= UnderWater : brick.Solid[i] >= 1f || (hy / s) - vyy < brick.Solid[i] || brick.Water[i] >= 0.5f;
         }
     }
 

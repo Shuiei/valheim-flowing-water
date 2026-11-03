@@ -160,7 +160,7 @@ internal static class JetArcs
         float voxel = VoxelWater.Field.VoxelSize > 0f ? VoxelWater.Field.VoxelSize : 1f;
         foreach ((Vector3 at, float rate, bool drain, _, SourceShape shape) in Markers)
         {
-            if (drain || !shape.Flies || !InReach(at, camera, reach))
+            if (drain || !shape.Shoots || !InReach(at, camera, reach))
             {
                 continue;
             }

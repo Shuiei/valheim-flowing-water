@@ -734,7 +734,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     {
         Vector3 middle = PourPoint(source);
         bool poured = _grid.PourOutlet(middle.x, middle.y, middle.z, source.Shape, source.Rate, dt);
-        if (source.Shape.Flies)
+        if (source.Shape.Shoots)
         {
             _jetsPouring.Add(new ServerJet(new Vec3(source.Point.x, source.Point.y, source.Point.z), source.Shape, source.Rate, [.. _grid.Landed.Select(JetNews.Rounded)]));
         }

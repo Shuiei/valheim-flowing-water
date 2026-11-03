@@ -77,11 +77,13 @@ public class JetFlightTests
     }
 
     [Fact]
-    public void AJetAlongTheGroundOrAllRoundFliesNot()
+    public void AJetAlongTheGroundFliesFlatAndAllRoundNot()
     {
+        // 8 m³/s straight along the ground out of a 2 m outlet 0.75 m thick leaves at 5.3 m/s, level: its strips fly.
         var strips = new List<JetFlight.Strip>();
         JetFlight.Strips(Outlet, new SourceShape(false, 0f, 2f, 0f, 0f), 8f, 1f, strips);
-        Assert.Empty(strips);
+        Assert.NotEmpty(strips);
+        Assert.All(strips, s => Assert.Equal(0f, s.Velocity.Y, 4));
         JetFlight.Strips(Outlet, SourceShape.Round, 8f, 1f, strips);
         Assert.Empty(strips);
     }

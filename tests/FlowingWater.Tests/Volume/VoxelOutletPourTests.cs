@@ -81,6 +81,22 @@ public class VoxelOutletPourTests
     }
 
     [Fact]
+    public void AJetStandingInShallowWaterStillFliesOut()
+    {
+        // Half a voxel of water round the outlet's foot (a pool beside it, or what ran back from where it lands): the
+        // outlet is not under water, so the jet still lands out ahead and none of it pours at its foot.
+        var grid = new VoxelGrid(S, new TestSolids(1));
+        grid.Pour(10, 1, 10, 0.5f);
+        var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
+
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
+
+        Assert.Equal(0.5f, grid.WaterAt(10, 1, 10), 4);
+        float lands = 10.5f + (SourceShape.MostSpeed * SourceShape.MostSpeed / VoxelSolver.Gravity);
+        Assert.Equal(Rate * Dt, grid.WaterAt((int)lands, 1, 10), 4);
+    }
+
+    [Fact]
     public void AJetThrownUpPoursWhereItLandsAndNoneAtTheOutletsFoot()
     {
         // A floor one voxel thick under row 1; a point's jet facing east, thrown up 45 degrees at 12 m/s (2 m³/s through
@@ -204,7 +220,7 @@ public class VoxelOutletPourTests
     }
 
     [Fact]
-    public void EachPlaceOfAJetSaysWhereItLandsAndARiverNone()
+    public void EachPlaceOfAJetSaysWhereItLandsAndARiverToo()
     {
         var grid = new VoxelGrid(S, new TestSolids(1));
         var wide = new SourceShape(false, 90f, 3f, 0f, 30f, Slot);
@@ -215,35 +231,39 @@ public class VoxelOutletPourTests
         Assert.Equal(wide.Outlet(S).Length, grid.Landed.Count);
         Assert.All(grid.Landed, landing => Assert.True(landing is { X: > 18f }, $"lands at x {landing?.X}"));
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, River, Rate, Dt));
+        Assert.Equal(River.Outlet(S).Length, grid.Landed.Count);
+        Assert.All(grid.Landed, landing => Assert.NotNull(landing));
+        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, SourceShape.Round, Rate, Dt));
         Assert.Empty(grid.Landed);
     }
 
     [Fact]
-    public void AJetWhoseWayPassesTheBrickCapPoursAtItsOutletThrownUp()
+    public void AJetWhoseWayPassesTheBrickCapPoursNothing()
     {
-        // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so it pours where it is.
+        // Only the outlet's own brick may be made: the jet's way out to x 25 needs the next one, so its water is held,
+        // not poured at the outlet to spread round its foot.
         var grid = new VoxelGrid(S, new TestSolids(1)) { MaxBricks = 1 };
         var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
 
-        Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
+        Assert.False(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
 
-        Assert.Equal(Rate * Dt, grid.WaterAt(10, 1, 10), 4);
-        Assert.True(grid.Locate(10, 1, 10, out Brick brick, out int i));
-        Assert.True(brick.FlowY[i] > 0f, $"up {brick.FlowY[i]}");
+        Assert.True(grid.Capped);
+        Assert.Equal(0f, grid.TotalWater());
     }
 
     [Fact]
-    public void AJetPoursAtItsOutletTillTheGroundItFliesToCanBeRead()
+    public void AJetPoursNothingTillTheGroundItFliesToCanBeRead()
     {
         // The bricks east of x 16 cannot read their solids yet: the jet's way is not looked at there (no brick made,
-        // nothing read in wait), and it pours at its outlet; once they can, it lands out there.
+        // nothing read in wait), and its water is held, none at its outlet (a strong jet flooded the ground round its
+        // foot meanwhile); once they can, it lands out there.
         var solids = new TestSolids(1) { Waiting = (x, _, _) => x >= 1 };
         var grid = new VoxelGrid(S, solids);
         var jet = new SourceShape(false, 90f, 0f, 0f, 45f, Slot);
         var velocity = new Vec3(8.5f, 8.5f, 0f);
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, jet, Rate, Dt));
-        Assert.Equal(Rate * Dt, grid.WaterAt(10, 1, 10), 4);
+        Assert.Equal(0f, grid.TotalWater());
         Assert.Null(grid.Find(1, 0, 0));
 
         solids.Waiting = null;
@@ -270,6 +290,41 @@ public class VoxelOutletPourTests
 
         grid.ForgetDry(10f, 5f);
         Assert.Null(grid.Find(1, 0, 0));
+    }
+
+    [Fact]
+    public void OnTheServerAStrongRiverAtALedgesEdgeShootsOffItAndNoneSpreadsOnTheLedge()
+    {
+        // A river of 100 m³/s straight along the ground out of a 6 m outlet 2 m thick (8.3 m/s), on a ledge 10 m over
+        // the ground, its edge a metre east; poured and moved by the solver for 3 s as the server does: the water is
+        // off the ledge, none of it beside or behind the source (poured at the outlet, it piled up there and spread
+        // round it over the ledge).
+        var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x <= 11 ? 11f : 1f));
+        var solver = new VoxelSolver(grid);
+        var river = new SourceShape(false, 90f, 6f, 0f, 0f, 2f);
+        const float Step = 0.05f, Strong = 100f;
+        for (int k = 0; k < 3f / Step; k++)
+        {
+            Assert.True(grid.PourOutlet(10.5f, 11.3f, 16.5f, river, Strong, Step));
+            grid.MakeWanted();
+            solver.Step(Step);
+        }
+
+        float onLedge = 0f;
+        for (int x = 0; x <= 11; x++)
+        {
+            for (int z = 0; z < 32; z++)
+            {
+                for (int y = 11; y < 16; y++)
+                {
+                    onLedge += grid.WaterAt(x, y, z);
+                }
+            }
+        }
+
+        float total = grid.TotalWater();
+        Assert.True(total > 0.9f * Strong * 3f, $"{total} m³ of {Strong * 3f}");
+        Assert.True(onLedge < 0.01f * total, $"{onLedge} m³ on the ledge of {total}");
     }
 
     [Fact]
@@ -320,12 +375,33 @@ public class VoxelOutletPourTests
     }
 
     [Fact]
-    public void ARiverAlongTheGroundStillPoursAtItsOutlet()
+    public void ARiverAlongTheGroundShootsStraightOutAndNoneAtItsOutlet()
     {
+        // A point's 2 m³/s straight along the ground leaves at 12 m/s, 0.3 m over the floor: it comes down on the floor
+        // some 3 m east (12 x the 0.25 s it takes to fall 0.3 m), running on east, none at the outlet nor beside it (it
+        // piled up there and spread round the outlet before any of it left).
         var grid = new VoxelGrid(S, new TestSolids(1));
 
         Assert.True(grid.PourOutlet(10.5f, 1.3f, 10.5f, new SourceShape(false, 90f, 0f, 0f, 0f, Slot), Rate, Dt));
 
-        Assert.Equal(Rate * Dt, grid.WaterAt(10, 1, 10), 4);
+        Assert.Equal(0f, grid.WaterAt(10, 1, 10) + grid.WaterAt(10, 1, 9) + grid.WaterAt(10, 1, 11) + grid.WaterAt(9, 1, 10));
+        Assert.Equal(Rate * Dt, grid.WaterAt(13, 1, 10), 4);
+        Assert.True(grid.Locate(13, 1, 10, out Brick brick, out int i));
+        Assert.True(brick.FlowX[i] > 0f, $"east {brick.FlowX[i]}");
+        Assert.Equal(0f, brick.FlowZ[i], 4);
+    }
+
+    [Fact]
+    public void ARiverAtACliffsEdgeShootsOutOverIt()
+    {
+        // The same river on a ledge 10 m over the ground below, the ledge ending a metre east of it: it shoots straight
+        // out over the edge and comes down past the cliff's foot, none on the ledge.
+        var grid = new VoxelGrid(S, new TestSolids(0, ground: (x, z) => x <= 11 ? 11f : 1f));
+
+        Assert.True(grid.PourOutlet(10.5f, 11.3f, 10.5f, new SourceShape(false, 90f, 0f, 0f, 0f, Slot), Rate, Dt));
+
+        Assert.Equal(0f, grid.WaterAt(10, 11, 10) + grid.WaterAt(11, 11, 10));
+        Assert.Equal(Rate * Dt, grid.TotalWater(), 4);
+        Assert.True(grid.Landed[0] is { X: > 20f, Y: < 2f }, $"lands at {grid.Landed[0]}");
     }
 }
