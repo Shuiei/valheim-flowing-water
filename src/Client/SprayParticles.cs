@@ -15,12 +15,16 @@ namespace FlowingWater.Client;
 /// </summary>
 internal sealed class SprayParticles : IDisposable
 {
-    /// <summary>Particles at most (the oldest give way to new ones).</summary>
-    public const int Count = 32768;
+    /// <summary>Particles at most (the oldest give way to new ones, each in its own ring).</summary>
+    public const int Count = 49152;
 
     // Of them, places kept for the sheets carrying the card's water (a ring of their own: a droplet never takes the place
     // of one still in the air, and one that gives way lands its water where it is).
     private const int Carriers = 8192;
+
+    // And places kept for the froth thrown as foam or bubbles (a ring of their own: a fall's plunge or trapped air never
+    // takes the place of spray, splashes or falling sheets, only of older froth).
+    private const int FrothRoom = 16384;
 
     // A particle's floats: place and age, velocity and life, size and kind.
     private const int Stride = 12 * sizeof(float);
@@ -75,6 +79,7 @@ internal sealed class SprayParticles : IDisposable
     private static readonly int NextId = Shader.PropertyToID("_Next");
     private static readonly int CountId = Shader.PropertyToID("_Count");
     private static readonly int CarriersId = Shader.PropertyToID("_Carriers");
+    private static readonly int FrothRoomId = Shader.PropertyToID("_FrothRoom");
     private static readonly int HId = Shader.PropertyToID("_H");
     private static readonly int BedId = Shader.PropertyToID("_Bed");
     private static readonly int UId = Shader.PropertyToID("_U");
@@ -146,8 +151,8 @@ internal sealed class SprayParticles : IDisposable
         _crowdClear = shader.FindKernel("CrowdClear");
         _particles = new ComputeBuffer(Count, Stride);
         _particles.SetData(new float[Count * 12]);
-        _next = new ComputeBuffer(2, sizeof(uint));
-        _next.SetData(new uint[2]);
+        _next = new ComputeBuffer(3, sizeof(uint));
+        _next.SetData(new uint[3]);
         Properties.SetBuffer(ParticlesId, _particles);
         _crowd = new ComputeBuffer(CrowdCells, sizeof(uint));
         _crowd.SetData(new uint[CrowdCells]);
@@ -200,6 +205,7 @@ internal sealed class SprayParticles : IDisposable
         _seed++;
         _shader.SetInt(CountId, Count);
         _shader.SetInt(CarriersId, Carriers);
+        _shader.SetInt(FrothRoomId, FrothRoom);
         _shader.SetInt(NId, grid.Cells);
         _shader.SetFloat(DxId, grid.CellSize);
         _shader.SetVector(OriginId, origin);

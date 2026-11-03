@@ -38,12 +38,15 @@ struct Particle
 #define FOAM 3.0
 #define BUBBLE 4.0
 
-// Two rings: the first _Carriers places for the sheets carrying the card's water (never given to anything else, so none
-// is lost to a droplet), the rest for everything else; the next place to fill in each, counted on (taken modulo its ring).
+// Three rings: the first _Carriers places for the sheets carrying the card's water (never given to anything else, so none
+// is lost to a droplet), the last _FrothRoom for the froth thrown as foam or bubbles (a fall's plunge or trapped air
+// making much of it gives way only to its own older froth, never to spray, splashes or falling sheets), the rest for
+// everything else; the next place to fill in each (spray, carriers, froth), counted on (taken modulo its ring).
 RWStructuredBuffer<Particle> _Particles;
 RWStructuredBuffer<uint> _Next;
 uint _Count;
 uint _Carriers;
+uint _FrothRoom;
 
 // The water the card moves (its textures, a cell each), the square's south-west corner (world x, z) and cells.
 Texture2D<float> _H;
@@ -200,10 +203,15 @@ void Add(float3 place, float3 velocity, float life, float size, float kind, floa
             Land(old.placeAge.xyz, old.velocityLife.xyz, old.sizeKind.z);
         }
     }
+    else if (kind == FOAM || kind == BUBBLE)
+    {
+        InterlockedAdd(_Next[2], 1u, at);
+        at = _Count - _FrothRoom + (at % _FrothRoom);
+    }
     else
     {
         InterlockedAdd(_Next[0], 1u, at);
-        at = _Carriers + (at % (_Count - _Carriers));
+        at = _Carriers + (at % (_Count - _Carriers - _FrothRoom));
     }
 
     Particle p;
@@ -380,8 +388,9 @@ void Move(uint3 id : SV_DispatchThreadID)
     int2 c = (int2)floor((place.xz - _Origin) / _Dx);
     bool known = Inside(c) && _Bed[c] < 5000.0;
 
-    // A bubble whose water is gone (drained, or the square moved) is gone.
-    if (kind == BUBBLE && known && _H[c] < FOAM_WATER)
+    // A bubble whose water is gone (drained, or the square moved) is gone; foam and bubbles still going when the froth is
+    // turned off end (no bubble rises to foam then).
+    if ((kind == BUBBLE && known && _H[c] < FOAM_WATER) || (_Froth == 0u && (kind == FOAM || kind == BUBBLE)))
     {
         p.placeAge.w = life;
         _Particles[id.x] = p;
@@ -476,7 +485,8 @@ void Move(uint3 id : SV_DispatchThreadID)
                 }
 
                 // Plunging into a pool, it drives air down with it: bubbles under its splash, as deep as it came fast
-                // (in its own cell: the water beside, at a fall's foot, can stand far lower).
+                // (in its own cell: the water beside, at a fall's foot, can stand far lower), each taking its place in
+                // its crowd cell first (counting those already made this step): none where FOAM_FULL are already.
                 if (_Froth > 0u && h >= PLUNGE_WATER)
                 {
                     float deep = min(h - FOAM_BAND, min(0.12 * strength, 1.0));
@@ -485,7 +495,13 @@ void Move(uint3 id : SV_DispatchThreadID)
                     {
                         float3 at = float3(corner.x + ((0.05 + (0.9 * Random(state))) * _Dx), bed + h - FOAM_BAND - (Random(state) * deep), corner.y + ((0.05 + (0.9 * Random(state))) * _Dx));
                         float3 down = (0.2 * velocity) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 0.5);
-                        Add(at, down, BUBBLE_LIFE, BUBBLE_SIZE * (1.0 + Random(state)), BUBBLE, 0.0);
+                        float size = BUBBLE_SIZE * (1.0 + Random(state));
+                        uint before;
+                        InterlockedAdd(_Crowd[CrowdIndex(at)], 1u, before);
+                        if (before < FOAM_FULL)
+                        {
+                            Add(at, down, BUBBLE_LIFE, size, BUBBLE, 0.0);
+                        }
                     }
                 }
             }
