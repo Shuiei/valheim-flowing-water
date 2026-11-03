@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.53.2 — 2026-11-03
+
+### Fixed
+- Water racing down a slope and falling over an edge is white streaks with clear water and the rock showing between
+  them, instead of a flat cream sheet like snow.
+
 ## v0.53.1 — 2026-11-03
 
 ### Fixed

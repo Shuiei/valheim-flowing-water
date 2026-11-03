@@ -224,6 +224,15 @@ void Finish(Input i, SurfaceOutputStandard o, inout fixed4 color)
 #define CASCADE_ACROSS 1.6
 #define CASCADE_ALONG 0.2
 
+// A cascade's white water is streaks with water between them, never one white sheet: of its streaks' pattern, this
+// share at least is left as the gaps between them (white water racing down rock shows the dark water and the rock
+// through it); and it hides this much at most of what is behind it, water CASCADE_FULL metres deep or more (a thin
+// film racing down rock stays clear between its streaks: hiding the rock behind any film, a cascade put the water's
+// body colour, the sea's sandy shallows, in its place, lit by the sun on the slope, and a slope's water read as cream).
+#define CASCADE_GAPS 0.45
+#define CASCADE_HIDES 0.5
+#define CASCADE_FULL 0.3
+
 // How much of a cascade the water is at a point (0 to 1): from its slope, as it runs.
 float Cascade(float steep, float speed)
 {
@@ -293,8 +302,9 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float thickness = abs(bent - eye);
     float3 through = exp(-thickness * _BodyTint.rgb / max(_BodyDepth * clarity, 0.001));
     through *= 1.0 - sqrt(saturate(thickness / (_DepthFade * clarity)));
-    // A cascade is full of air: little of what is behind shows through it.
-    through *= 1.0 - (0.85 * cascade);
+    // A cascade is full of air: less of what is behind shows through it (between its streaks, the rock still does).
+    float aerated = cascade * saturate(depth / CASCADE_FULL);
+    through *= 1.0 - (CASCADE_HIDES * aerated);
     float3 hidden = 1.0 - through;
     float3 behind = SeenThrough(grab + bend, thickness);
 
@@ -310,7 +320,7 @@ void Look(Input i, inout SurfaceOutputStandard o)
 
     float3 colour = hidden * lerp(_ColorBottomShallow.rgb, _ColorBottom.rgb, deepColour);
     // Its body pale with the air in it, between the water's colour and the foam's.
-    colour = lerp(colour, _FoamColor.rgb * lerp(_ColorTop.rgb, 1.0, 0.6), 0.25 * cascade);
+    colour = lerp(colour, _FoamColor.rgb * lerp(_ColorTop.rgb, 1.0, 0.6), 0.25 * aerated);
 
     // Scattered foam where the wind blows on open water, as on the sea.
     float2 wobble = 0.005 * float2(sin(_Time.y + i.worldPos.x), sin((1.5 * _Time.y) + i.worldPos.z));
@@ -334,7 +344,9 @@ void Look(Input i, inout SurfaceOutputStandard o)
     float noise = (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.25, fa)).r * fa) + (tex2D(_FoamTex, FlowPhase(foamUv, foamRun, 0.75, fb)).r * fb);
     noise = fast > 0.05 ? lerp(noise, Streaks(i.world, i.current, speed), fast) : noise;
     noise = lerp(noise, CascadeStreaks(i.world, i.current, speed), cascade);
-    float rapids = smoothstep(1.0 - want, 1.0 - want + 0.25, noise) * want;
+    // However much white water is wanted, a cascade keeps the gaps between its streaks (CASCADE_GAPS).
+    float gaps = max(1.0 - want, CASCADE_GAPS * cascade);
+    float rapids = smoothstep(gaps, gaps + 0.25, noise) * want;
 
     // Foam is lace, not plaster: broken up by a finer foam running with it.
     float2 laceUv = foamUv * 5.0;

@@ -29,13 +29,13 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Aerate: 0.5
+    - _Aerate: 0.8
     - _Fray: 0.65
     - _FullFlow: 0.05
     - _GlassAlpha: 0.35
     - _StreakAcross: 2.5
     - _StreakAlong: 1.2
-    - _WhiteAlpha: 0.8
+    - _WhiteAlpha: 0.55
     m_Colors:
     - _FallColor: {r: 0.62, g: 0.74, b: 0.78, a: 1}
     - _FoamColor: {r: 0.838, g: 0.838, b: 0.838, a: 1}
