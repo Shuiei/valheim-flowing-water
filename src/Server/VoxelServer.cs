@@ -114,6 +114,19 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
 
     private float _debugTimer;
 
+    // The ground soaking up thin water (Settings.Soaking, Soaking): the bricks taken in turn, SoakedAStep between each
+    // two steps (or each frame the water is still), each by the time on the soaking clock since it last was; the
+    // round's bricks, the next one's place, the clock, and the water soaked since last logged (m³).
+    private const int SoakedAStep = 64;
+
+    private readonly List<Brick> _soakRound = [];
+
+    private int _soakCursor;
+
+    private float _soakClock;
+
+    private float _soaked;
+
     private bool _loaded;
 
     // The game's sending out of the objects destroyed (see IBrickWorld.Flush), found by name.
@@ -295,10 +308,15 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         if (state == StepState.Done)
         {
             Markers(_length);
+            SoakSome();
         }
-        else if (state == StepState.Idle && !Markers(_length))
+        else if (state == StepState.Idle)
         {
-            _pacer.TakeAll();
+            SoakSome();
+            if (!Markers(_length))
+            {
+                _pacer.TakeAll();
+            }
         }
         else if (state == StepState.Again)
         {
@@ -324,6 +342,7 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
     {
         float budget = FlowingWaterPlugin.Settings.StepBudget.Value;
         _pacer.Add(dt, budget);
+        _soakClock += dt;
         _stepWatch.Start();
         _frameWatch.Restart();
         if (!_solver.InStep && _waited > 0f)
@@ -812,6 +831,51 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         return true;
     }
 
+    // The next bricks of the soaking round soaked, between two steps (Ended): a new round of every brick once one is
+    // done, each brick soaked for all the time since it last was, however long a round takes in a big world. A brick
+    // new to the round starts its soaking clock; one forgotten since is passed over. Turned off, the round is dropped,
+    // and the first round once it is on again starts every brick's clock (none soaks for the time it was off).
+    private void SoakSome()
+    {
+        float rate = FlowingWaterPlugin.Settings.Soaking.Value / 1000f;
+        if (!(rate > 0f))
+        {
+            _soakRound.Clear();
+            _soakCursor = 0;
+            return;
+        }
+
+        if (_soakCursor >= _soakRound.Count)
+        {
+            bool again = _soakRound.Count == 0;
+            _soakRound.Clear();
+            _soakRound.AddRange(_grid.Bricks);
+            _soakCursor = 0;
+            if (again)
+            {
+                foreach (Brick brick in _soakRound)
+                {
+                    brick.SoakedAt = _soakClock;
+                }
+            }
+        }
+
+        WaterPart was = _parts.Into(WaterPart.Other);
+        float s = _grid.VoxelSize;
+        for (int end = Math.Min(_soakRound.Count, _soakCursor + SoakedAStep); _soakCursor < end; _soakCursor++)
+        {
+            Brick brick = _soakRound[_soakCursor];
+            float seconds = _soakClock - brick.SoakedAt;
+            brick.SoakedAt = _soakClock;
+            if (seconds > 0f && _grid.Find(brick.X, brick.Y, brick.Z) == brick)
+            {
+                _soaked += Soaking.Soak(brick, rate * seconds, s) * s * s * s;
+            }
+        }
+
+        _parts.Into(was);
+    }
+
     private void WarnCapped()
     {
         if (_grid.Capped && !_capWarned)
@@ -863,12 +927,13 @@ internal sealed class VoxelServer : IBrickWorld<ZDOID>
         }
 
         var text = new StringBuilder();
-        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels ({_solver.Awake} awake, looked over {_solver.TakeLooks()} times), {_grid.TotalWater():0.0} m³, {_markers.Markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again"));
+        text.Append(FormattableString.Invariant($"Water: {_grid.Bricks.Count} bricks of {s} m voxels ({_solver.Awake} awake, looked over {_solver.TakeLooks()} times), {_grid.TotalWater():0.0} m³, {_markers.Markers.Count} markers; stepping took {_stepWatch.Elapsed.TotalMilliseconds:0} ms (at most {_longestFrame:0.0} ms in a frame), sending {_sendWatch.Elapsed.TotalMilliseconds:0} ms ({_sentCount} bricks sent), {_dropped:0.0} s of water time given up, {_refilled} bricks read their solids again, {_soaked:0.0} m³ soaked into the ground"));
         text.Append('\n').Append(_parts.Report());
         _stepWatch.Reset();
         _sendWatch.Reset();
         _sentCount = 0;
         _dropped = 0f;
+        _soaked = 0f;
         _refilled = 0;
         _longestFrame = 0.0;
         int cells = (int)(TileData.ZoneMetres / MapMetres);

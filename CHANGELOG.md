@@ -2,6 +2,14 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.54.0 — 2026-11-03
+
+### Added
+- The ground soaks up water lying thin on it (`Server.Soaking`, 1 mm a second): a stream ends where it has soaked
+  away, a sheet of water stops spreading where it loses what feeds it, and puddles left behind dry up. Pools, rivers and
+  lakes deeper than 10 cm are kept. A source left running no longer floods ever further and slows the server down; set
+  it to 0 for the water to stay as before.
+
 ## v0.53.3 — 2026-11-03
 
 ### Fixed

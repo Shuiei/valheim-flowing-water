@@ -118,6 +118,7 @@ couple of seconds, no restart needed, and log the settings that changed.
 | `Server.MarkerScanSeconds` | 3 | Seconds from the end of one look for new or removed sources and drains to the next (1 to 60; a look over a big world itself takes a few seconds) |
 | `Server.FixedSources` | | Sources from the config, `x,z,rate; x,z,rate` |
 | `Server.FixedDrains` | | Drains from the config, same form (rate 0 takes all) |
+| `Server.Soaking` | 1 | Millimetres a second the ground soaks up (and the air dries) of water lying 10 cm deep or less on it: a stream ends where it has soaked away, a sheet stops spreading where it loses what feeds it, a puddle dries up; pools, rivers and lakes are kept (0 = off: a source left running floods ever further) |
 | `Server.DebugSeconds` | 0 | Log each zone with water as a map of depths this often (0 = off) |
 | `Markers.DefaultSourceRate` | 2 | m³/s of a source placed without a rate (the hoe's panel starts from it) |
 | `Markers.DefaultDrainRate` | 0 | m³/s of a drain placed without a rate; 0 = all (the hoe's panel starts from it) |
