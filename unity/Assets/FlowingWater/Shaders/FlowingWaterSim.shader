@@ -56,6 +56,7 @@ Shader "FlowingWater/SimWater"
         [HideInInspector] _SimV ("Speed north", 2D) = "black" {}
         [HideInInspector] _SimChurn ("Churned by falling water", 2D) = "black" {}
         [HideInInspector] _SimFoam ("Foam carried by the current", 2D) = "black" {}
+        [HideInInspector] _SimRipple ("Ripples pushed by bodies", 2D) = "black" {}
         [HideInInspector] _SimCells ("Cells along a side", Float) = 384
         [HideInInspector] _SimDx ("Cell side (m)", Float) = 0.25
         [HideInInspector] _Lift ("Lift (m)", Float) = 0
@@ -83,6 +84,7 @@ Shader "FlowingWater/SimWater"
         sampler2D _SimV;
         sampler2D _SimChurn;
         sampler2D _SimFoam;
+        sampler2D _SimRipple;
         float _SimCells;
         float _SimDx;
         float _FadeCliffs;
@@ -174,9 +176,15 @@ Shader "FlowingWater/SimWater"
             float3 wave = LongWaves(world, current, depth, 1.0, crest);
             v.vertex.y += wave.x;
 
+            // The ripples the bodies in the water push (SimGrid.Ripple, Crest's dynamic waves): raised on the water, their
+            // slope tipping its light.
+            float ripple = wetHere ? At(_SimRipple, p) : 0.0;
+            v.vertex.y += ripple;
+            float2 rippleSlope = wetHere ? float2(At(_SimRipple, p + float2(1.0, 0.0)) - At(_SimRipple, p - float2(1.0, 0.0)), At(_SimRipple, p + float2(0.0, 1.0)) - At(_SimRipple, p - float2(0.0, 1.0))) / (2.0 * _SimDx) : 0.0;
+
             float east = levels[0] - levels[1];
             float north = levels[2] - levels[3];
-            float2 slope = (float2(east, north) / (2.0 * _SimDx)) + wave.yz;
+            float2 slope = (float2(east, north) / (2.0 * _SimDx)) + wave.yz + rippleSlope;
             v.normal = normalize(float3(-slope.x, 1.0, -slope.y));
             v.tangent = float4(normalize(float3(1.0, slope.x, 0.0)), -1.0);
 

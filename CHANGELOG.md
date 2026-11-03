@@ -10,6 +10,7 @@ All notable changes to FlowingWater. Newest first.
   `Client.SprayFroth` setting, on by default).
 - The foam of falls and rapids is carried off downstream by the current and fades as it goes, so a waterfall leaves a
   trail of foam and bubbles on the river below it instead of stopping where the water lands.
+- Swimmers, creatures and boats moving through the water near you leave a wake and rings behind them.
 
 ## v0.49.17 — 2026-10-31
 

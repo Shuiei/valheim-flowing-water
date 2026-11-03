@@ -25,7 +25,7 @@ public class WaveShadersTests
         Assert.Single(Regex.Matches(vertex, @"\bLongWaves\(", RegexOptions.None, Patience));
         Assert.Matches(new Regex(@"float2 world = mul\(unity_ObjectToWorld, v\.vertex\)\.xz;[\s\S]*LongWaves\(world,", RegexOptions.None, Patience), vertex);
         Assert.Matches(new Regex(@"v\.vertex\.y \+= wave\.x;", RegexOptions.None, Patience), vertex);
-        Assert.Matches(new Regex(@"\+ wave\.yz;", RegexOptions.None, Patience), vertex);
+        Assert.Matches(new Regex(@"\+ wave\.yz( \+ rippleSlope)?;", RegexOptions.None, Patience), vertex);
         Assert.DoesNotMatch(new Regex(@"\b(Chop|WaveHeight|WaveNoise|FineWaves)\(", RegexOptions.None, Patience), vertex);
     }
 
@@ -39,6 +39,16 @@ public class WaveShadersTests
         Assert.Contains("#include \"FlowingWaterLook.cginc\"", source, StringComparison.Ordinal);
         Assert.Matches(new Regex(@"\bLook\(", RegexOptions.None, Patience), ShaderSource.Function(source, "void surf("));
         Assert.Matches(new Regex(@"n = FineWaves\(n, i\.world, i\.current, depth\);", RegexOptions.None, Patience), ShaderSource.Function(ShaderSource.Read("FlowingWaterLook.cginc"), "void Look("));
+    }
+
+    [Fact]
+    public void TheCardRaisesItsRipplesOnItsWaterOnlyAndTipsItsLightByThem()
+    {
+        string card = ShaderSource.Function(ShaderSource.Read("FlowingWaterSim.shader"), "void vert(");
+
+        Assert.Matches(new Regex(@"float ripple = wetHere \? At\(_SimRipple, p\) : 0\.0;\s*v\.vertex\.y \+= ripple;", RegexOptions.None, Patience), card);
+        Assert.Matches(new Regex(@"float2 slope = [^;]+ \+ wave\.yz \+ rippleSlope;", RegexOptions.None, Patience), card);
+        Assert.DoesNotContain("_SimRipple", ShaderSource.Function(ShaderSource.Read("FlowingWater.shader"), "void vert("), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -207,6 +207,19 @@ where), so the waves finer than a voxel are the card's own.
   `foam` scene checks that a patch of foam in a still pool keeps e^-1.6 of itself after 2 s (0.202) without moving
   or more being made, that dry ground holds none, and that a fall off a shelf carries its foam well past where its
   churn ends (24.1 m against 21.4 m, from a lip at 20 m), shot with the carried foam and without.
+- **Ripples round bodies.** As Crest's dynamic waves, the card keeps ripples of their own over the water's level in
+  each cell, moved by the wave equation (each cell pulled toward the ripples round it, as fast as waves run on water
+  so deep, 1.2 m/s at most; a cell with no water beside it sends them back) and calming over 1.5 s, in as many steps a
+  frame as crossing half a cell at most takes. The bodies in the water push them: every ship's hull, every
+  character's capsule (players, creatures) and the other rigid bodies (carts, things dropped), as the particle water
+  takes them, 32 at most; once a frame, how much of each cell's surface each takes (softened over a cell) is
+  compared with the last frame's, and a body coming into a cell pushes its surface down at 0.4 m/s, one leaving it
+  lets it up as fast, so a swimmer or a boat moving on leaves a trough along the sides of a V behind it, its crest
+  inside, and rings when it stops. They stand 30 cm at most over or under the water and are drawn raised on the near
+  water, their slope tipping its light; water shallower than 5 cm, a wall or ground not known holds none. The
+  preview's `ripples` scene checks that a still pool has none, that a ball 0.8 m across pushed through 1 m of water at
+  3 m/s raises 7.5 cm at most and 2.8 cm 2 m behind it, nothing 3 m ahead (it outruns them), that the pool is calm 6 s
+  after it is taken out (0.06 cm) and that the water's depth is not changed, and writes the ripples as a picture.
 - **Only the look.** Nothing of it is sent: swimming, floating, ships and the game's water checks read the server's
   water as before. On a card without compute shaders, with `Client.GpuWater` or `Client.CustomShader` off, the water
   is drawn as the server sends it.

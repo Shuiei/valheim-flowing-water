@@ -52,6 +52,7 @@ internal sealed class GpuWater : IDisposable
     private static readonly int BedId = Shader.PropertyToID("_SimBed");
     private static readonly int ChurnId = Shader.PropertyToID("_SimChurn");
     private static readonly int FoamId = Shader.PropertyToID("_SimFoam");
+    private static readonly int RippleId = Shader.PropertyToID("_SimRipple");
     private static readonly int EastId = Shader.PropertyToID("_SimU");
     private static readonly int NorthId = Shader.PropertyToID("_SimV");
     private static readonly int CellsId = Shader.PropertyToID("_SimCells");
@@ -648,6 +649,9 @@ internal sealed class GpuWater : IDisposable
         }
 
         _grid.Throws = _spray != null;
+        // The bodies in the water push its ripples.
+        var corner = new Vector2(_window.X0 * _window.VoxelSize, _window.Z0 * _window.VoxelSize);
+        _grid.SetBodies(Bodies(corner), corner);
         _grid.Step(Time.deltaTime);
         Spray();
         Shader.SetGlobalFloat(OnId, 1f);
@@ -660,6 +664,7 @@ internal sealed class GpuWater : IDisposable
         _properties.SetTexture(BedId, _grid.Bed);
         _properties.SetTexture(ChurnId, _grid.Churn);
         _properties.SetTexture(FoamId, _grid.Foam);
+        _properties.SetTexture(RippleId, _grid.Ripple);
         _properties.SetTexture(EastId, _grid.SpeedEast);
         _properties.SetTexture(NorthId, _grid.SpeedNorth);
         _properties.SetFloat(CellsId, _window.Cells);
@@ -1078,10 +1083,10 @@ internal sealed class GpuWater : IDisposable
         });
     }
 
-    // The bodies in the square this frame, for the particle water, as many as fit in this order: every ship as the box
-    // its hull floats by (the game's own; the hull is what the water is for, so ships come first), every character
-    // (players, creatures) as the box of its capsule, and every other rigid body (carts, things dropped, felled trees)
-    // as the box round each of its colliders.
+    // The bodies in the square this frame, for the water that feels them (the ripples, the particle and volume water), as
+    // many as fit in this order: every ship as the box its hull floats by (the game's own; the hull is what the water is
+    // for, so ships come first), every character (players, creatures) as the box of its capsule, and every other rigid
+    // body (carts, things dropped, felled trees) as the box round each of its colliders.
     private List<ParticleWater.Body> Bodies(Vector2 origin)
     {
         _bodies.Clear();
