@@ -25,6 +25,7 @@ Shader "FlowingWater/Spray"
         _MistFull ("Wholly mist from this many more", Float) = 12
         _MistGrow ("Mist's size over a droplet's", Float) = 4
         _MistAlpha ("Mist's opacity over a droplet's", Range(0, 1)) = 0.3
+        _FlowCycle ("Running water's phases (s), as the water's: the long waves foam rides", Float) = 1.5
     }
 
     SubShader
@@ -45,6 +46,7 @@ Shader "FlowingWater/Spray"
             #pragma target 4.5
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
+            #include "FlowingWaterWaves.cginc"
 
             struct Particle
             {
@@ -56,6 +58,12 @@ Shader "FlowingWater/Spray"
             StructuredBuffer<Particle> _Particles;
             // FlowingWaterSpray.compute's crowd count: its hashed cells of CROWD_SIZE metres, CROWD_CELLS of them.
             StructuredBuffer<uint> _Crowd;
+            // The card's water under the particles (SprayParticles: its depth, where its cells start and their size and
+            // count), so foam rides the long waves the water's surface is drawn with (FlowingWaterWaves.cginc).
+            Texture2D<float> _SprayWaterDepth;
+            float2 _SprayWaterOrigin;
+            float _SprayWaterCell;
+            int _SprayWaterCells;
             #define CROWD_CELLS 65536u
             #define CROWD_SIZE 0.5
             int _Froth;
@@ -91,6 +99,13 @@ Shader "FlowingWater/Spray"
                 UNITY_FOG_COORDS(2)
             };
 
+            // The card's water's depth at a world place (none past its square).
+            float WaterDepthAt(float2 xz)
+            {
+                int2 c = (int2)floor((xz - _SprayWaterOrigin) / _SprayWaterCell);
+                return all(c >= 0) && all(c < _SprayWaterCells) ? _SprayWaterDepth.Load(int3(c, 0)) : 0.0;
+            }
+
             uint CrowdIndex(float3 place)
             {
                 int3 k = (int3)floor(place / CROWD_SIZE);
@@ -115,6 +130,11 @@ Shader "FlowingWater/Spray"
                 float2 q = corners[id % 6];
                 float3 place = p.placeAge.xyz;
                 float3 velocity = p.velocityLife.xyz;
+                // Foam and bubbles ride the long waves the water's surface is raised by (their velocity is the water's
+                // current), on top of the level they are held to: not seen over a crest they lie under.
+                float waveKind = p.sizeKind.y;
+                float crest;
+                place.y += waveKind > 2.5 ? LongWaves(place.xz, velocity.xz, WaterDepthAt(place.xz), 1.0, crest).x : 0.0;
                 float speed = length(velocity);
                 float3 view = normalize(place - _WorldSpaceCameraPos);
                 float3 along = speed > 0.05 ? velocity / speed : float3(0.0, 1.0, 0.0);

@@ -115,10 +115,13 @@ float _FrothSlow;
 float _FrothFast;
 uint _PlungeBubbles;
 
-// Spray, foam and bubbles counted in hashed cells CROWD_SIZE metres a side (CROWD_CELLS of them), each step by Move
-// (FlowingWaterSpray.shader draws spray in a crowd as mist; a cell of the water's surface holding FOAM_FULL is full,
-// and the water there traps no more air: froth covers the water, it does not pile up).
+// Two counts in hashed cells CROWD_SIZE metres a side (CROWD_CELLS of them), each step by Move: the spray (droplets and
+// splashes: FlowingWaterSpray.shader draws spray in a crowd as mist) and, apart, the froth (foam and bubbles: a cell
+// holding FOAM_FULL of it is full, no more foam forms there nor bubbles go down into it, and its water traps no more
+// air; froth covers the water, it does not pile up). Apart, so the splashes thick at a fall's foot never fill a cell
+// that foam is to cover.
 RWStructuredBuffer<uint> _Crowd;
+RWStructuredBuffer<uint> _FrothCrowd;
 #define CROWD_CELLS 65536u
 #define CROWD_SIZE 0.5
 #define FOAM_FULL 8u
@@ -324,7 +327,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
     // Trapped air: water running into slower water beside it (how much faster it comes on toward each side than the
     // water there goes, summed) lets froth go in its water, the more the faster it runs; bubbles at a depth in it, foam
     // at its top, going as it goes. None where the surface's crowd cell is full of foam.
-    if (_Froth > 0u && h >= FOAM_WATER * 2.0 && fast > _FrothSlow && _Crowd[CrowdIndex(centre)] < FOAM_FULL)
+    if (_Froth > 0u && h >= FOAM_WATER * 2.0 && fast > _FrothSlow && _FrothCrowd[CrowdIndex(centre)] < FOAM_FULL)
     {
         int2 around[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
         float trapped = 0.0;
@@ -360,7 +363,7 @@ void EmitFromWater(uint3 id : SV_DispatchThreadID)
 float ToFoam(inout Particle p, float3 place, float age, inout uint state)
 {
     uint before;
-    InterlockedAdd(_Crowd[CrowdIndex(place)], 1u, before);
+    InterlockedAdd(_FrothCrowd[CrowdIndex(place)], 1u, before);
     p.sizeKind.x = FOAM_SIZE * (1.0 + Random(state));
     return before >= FOAM_FULL ? age : age + (FOAM_LIFE * (1.0 + Random(state)));
 }
@@ -497,7 +500,7 @@ void Move(uint3 id : SV_DispatchThreadID)
                         float3 down = (0.2 * velocity) + (float3(Random(state) - 0.5, 0.0, Random(state) - 0.5) * 0.5);
                         float size = BUBBLE_SIZE * (1.0 + Random(state));
                         uint before;
-                        InterlockedAdd(_Crowd[CrowdIndex(at)], 1u, before);
+                        InterlockedAdd(_FrothCrowd[CrowdIndex(at)], 1u, before);
                         if (before < FOAM_FULL)
                         {
                             Add(at, down, BUBBLE_LIFE, size, BUBBLE, 0.0);
@@ -529,10 +532,19 @@ void Move(uint3 id : SV_DispatchThreadID)
         p.sizeKind.z = 0.0;
     }
 
-    // Froth still going counts in its crowd cell (sheets do not: a fall is its curtain, no crowd of spray).
+    // Spray and froth still going count in their crowd cells, each its own (sheets do not: a fall is its curtain, no
+    // crowd of spray).
     if (_Froth > 0u && age < life && kind != SHEET && !counted)
     {
-        InterlockedAdd(_Crowd[CrowdIndex(place)], 1u);
+        uint cell = CrowdIndex(place);
+        if (kind == FOAM || kind == BUBBLE)
+        {
+            InterlockedAdd(_FrothCrowd[cell], 1u);
+        }
+        else
+        {
+            InterlockedAdd(_Crowd[cell], 1u);
+        }
     }
 
     p.sizeKind.y = kind;
@@ -547,6 +559,7 @@ void CrowdClear(uint3 id : SV_DispatchThreadID)
     if (id.x < CROWD_CELLS)
     {
         _Crowd[id.x] = 0u;
+        _FrothCrowd[id.x] = 0u;
     }
 }
 

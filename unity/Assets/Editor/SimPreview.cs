@@ -829,7 +829,7 @@ public static class SimPreview
         };
         scene.Spray = spray;
         Log.AppendLine(Inv($"Froth{(froth ? string.Empty : " (off)")}: 2 m of water let go on a shelf 3 m high, falling off its lip at x = 20 m into the pool below."));
-        int mostFoam = 0, mostBubbles = 0;
+        int mostFoam = 0, mostBubbles = 0, footFoam = 0;
         float worstFoam = 0f, carried = 0f, aboveBubble = float.MinValue, drift = 0f, flow = 0f;
         for (int k = 1; k <= 360; k++)
         {
@@ -860,6 +860,7 @@ public static class SimPreview
                     int cell = (j * Cells) + i;
                     float top = bed[cell] + depth[cell];
                     carried += data[at + 10];
+                    footFoam += kind == 3 && data[at] > 20f && data[at] < 23f ? 1 : 0;
                     if (kind == 3)
                     {
                         worstFoam = Mathf.Max(worstFoam, Mathf.Abs(data[at + 1] - top));
@@ -889,11 +890,16 @@ public static class SimPreview
         scene.Step();
         spray.Step(scene.Grid, Vector2.zero, Frame);
         int[] left = spray.AliveByKind();
+        int steppedAfter = spray.Stepped;
+        scene.Step();
+        spray.Step(scene.Grid, Vector2.zero, Frame);
+        int steppedLater = spray.Stepped;
         scene.Spray = null;
         string Check(bool ok) => ok ? "OK" : "FAILED";
         if (froth)
         {
-            Log.AppendLine(Inv($"Froth: turned off, foam {left[3]} and bubbles {left[4]} left a step later: {Check(left[3] == 0 && left[4] == 0)}"));
+            Log.AppendLine(Inv($"Froth: turned off, foam {left[3]} and bubbles {left[4]} left a step later (that step over all of them, the froth's ring too); then {steppedAfter} and {steppedLater} of {SprayParticles.Count} stepped and drawn: {Check(left[3] == 0 && left[4] == 0 && steppedAfter == SprayParticles.Count - 16384 && steppedLater == SprayParticles.Count - 16384)}"));
+            Log.AppendLine(Inv($"Froth: foam within 3 m of the fall's foot, counted every 0.5 s: {footFoam} in all: {Check(footFoam > 0)}"));
             Log.AppendLine(Inv($"Froth: foam at most {mostFoam}, bubbles at most {mostBubbles}: {Check(mostFoam > 0 && mostBubbles > 0)}"));
             Log.AppendLine(Inv($"Froth: foam off the water's top by {worstFoam * 100f:0.0} cm at most, foam and bubbles carrying {carried:0.000} m3; bubbles at most {aboveBubble * 100f:0.0} cm over the top: {Check(worstFoam <= 0.05f && carried <= 0f && aboveBubble <= 0f)}"));
             Log.AppendLine(Inv($"Froth: foam drifting at {(flow > 0f ? drift / flow : 0f):0.00} of the water's speed: {Check(flow > 0f && Mathf.Abs((drift / flow) - 1f) < 0.1f)}"));
@@ -1201,7 +1207,7 @@ public static class SimPreview
             {
                 // Drawn with the next render of this camera only.
                 var commands = new CommandBuffer();
-                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, SprayParticles.Count * 6, 1, Spray.Properties);
+                commands.DrawProcedural(Matrix4x4.identity, Spray.Material, 0, MeshTopology.Triangles, Spray.Stepped * 6, 1, Spray.Properties);
                 if (Spray.Curtain != null)
                 {
                     commands.DrawProceduralIndirect(Matrix4x4.identity, Spray.Curtain, 0, MeshTopology.Triangles, Spray.CurtainArguments, 0, Spray.CurtainProperties);
