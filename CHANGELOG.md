@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.54.2 — 2026-11-03
+
+### Fixed
+- With the volume water prototype on, a stream running down a cliff near you is one film of water over the rock,
+  instead of scattered drops and pieces.
+
 ## v0.54.1 — 2026-11-03
 
 ### Fixed

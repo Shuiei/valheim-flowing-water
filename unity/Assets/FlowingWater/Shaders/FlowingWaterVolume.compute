@@ -274,6 +274,11 @@ StructuredBuffer<int> _FrothCountIn;
 #define FROTH_FULL 6
 // A cell this share of full or less is thin water to the sheet on the ground: two in a row end a column's water.
 #define SHEET_THIN 0.25
+// Ground steeper than SHEET_STEEP_FROM (rise over run) keeps less and less of a sheet, none past SHEET_STEEP_TO, but a
+// face (FaceKeep: steep both a cell up and a cell down the slope, each a rise of FACE_RISE or more) keeps it all.
+#define SHEET_STEEP_FROM 2.0
+#define SHEET_STEEP_TO 3.0
+#define FACE_RISE 1.5
 // A powerful source foams: from BOIL_FROM m3/s its lens's top lets bubbles go, all it will from BOIL_FULL, BOIL_FOAM a
 // second from each of its top cells at the most (at FrothRate 1).
 #define BOIL_FROM 5.0
@@ -392,6 +397,33 @@ float GroundAt(float2 xz)
     }
 
     return ground;
+}
+
+// Whether the ground at a point is a rock face, 1, or not, 0: steep the same way a cell up the slope and a cell down
+// it, each a rise of FACE_RISE or more. A film running down a cliff of 70 degrees and more is a sheet on its face, not
+// the half-cells' to draw (a particle or two thick, it was scattered drops and pieces down the face). A trunk is a
+// spike in the heights (they fall away from it both ways), a wall's foot or top a step (flat on one side of it): no
+// face, their sheet cut as before.
+float FaceKeep(float2 xz, float2 slope)
+{
+    float grade = length(slope);
+    if (grade < FACE_RISE)
+    {
+        return 0.0;
+    }
+
+    float2 up = (slope / grade) * _H;
+    float here = BedAt(xz);
+    float rise = min(BedAt(xz + up) - here, here - BedAt(xz - up)) / _H;
+    return smoothstep(FACE_RISE, FACE_RISE + 0.5, rise);
+}
+
+// How much of a sheet steep ground at a point keeps (1 all, 0 none), its slope there given (rise over run): up to a
+// rise of 2 all of it, past 3 none (a wall, a trunk: the ground's heights come from the game's colliders, and a tree's
+// trunk is a near-vertical ramp in them), but all of it on a face (FaceKeep).
+float SheetKeep(float2 xz, float2 slope)
+{
+    return max(1.0 - smoothstep(SHEET_STEEP_FROM, SHEET_STEEP_TO, length(slope)), FaceKeep(xz, slope));
 }
 
 // How much of a cell is clear of the ground, 0 to 1: the ground under four points of its footprint against its top.
@@ -1893,7 +1925,7 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
     // nothing toward dry ground. The particles counted are those from the ground's cell up to where it thins out: two
     // cells in a row a quarter full or less (one alone is a pocket in the water). Ground too steep for a
     // sheet (a wall, a trunk in the ground's heights: a rise over run past 2, none past 3; a 46° face keeps its whole
-    // sheet) holds less of one.
+    // sheet) holds less of one, but a rock face holds all of it (SheetKeep).
     if (i < (uint)(_Nx * _Nz))
     {
         int2 column = int2(i % _Nx, i / _Nx);
@@ -1914,7 +1946,7 @@ void FineWrite(uint3 id : SV_DispatchThreadID)
                 float2 at = _Origin.xz + ((float2(o) + 0.5) * _H);
                 float under = GroundAt(at);
                 float2 slope = float2(GroundAt(at + float2(_H, 0.0)) - GroundAt(at - float2(_H, 0.0)), GroundAt(at + float2(0.0, _H)) - GroundAt(at - float2(0.0, _H))) / (2.0 * _H);
-                float keep = 1.0 - smoothstep(2.0, 3.0, length(slope));
+                float keep = SheetKeep(at, slope);
                 float w = (3.0 - abs(dx)) * (3.0 - abs(dz));
                 int start = clamp((int)floor((under - _Origin.y) / _H), 0, _Ny - 1);
                 float particles = 0.0;
