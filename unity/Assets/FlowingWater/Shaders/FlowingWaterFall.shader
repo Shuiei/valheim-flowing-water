@@ -42,6 +42,8 @@ Shader "FlowingWater/Fall"
             #pragma target 4.5
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
+            #define FLOWINGWATER_SIM_MASK_PLAIN
+            #include "FlowingWaterSimMask.cginc"
 
             // As FlowingWaterSpray.compute's.
             struct Curtain
@@ -91,6 +93,7 @@ Shader "FlowingWater/Fall"
                 float4 water : TEXCOORD1; // how whole (by the water running over), open ends (1 left, 2 right), lands
                 fixed3 light : TEXCOORD2;
                 UNITY_FOG_COORDS(3)
+                float3 world : TEXCOORD4;
             };
 
             v2f vert(uint id : SV_VertexID, uint instance : SV_InstanceID)
@@ -128,6 +131,7 @@ Shader "FlowingWater/Fall"
                 across = _FaceCamera > 0.5 && dot(facing, facing) > 1e-6 ? normalize(facing) : across;
                 place += across * (q.x * ((0.5 * width) + (c.ends.z * t) + (openHere ? SPREAD * t : 0.0)));
                 o.pos = UnityWorldToClipPos(place);
+                o.world = place;
 
                 // Lit as a sheet facing the eye: its normal across its way down.
                 float3 down = normalize(run - float3(0.0, GRAVITY * t, 0.0));
@@ -146,6 +150,13 @@ Shader "FlowingWater/Fall"
 
             fixed4 frag(v2f i) : SV_Target
             {
+                // A fall off a lip in the volume water's box is the volume's to draw (a jet in the air is drawn
+                // wherever it flies: the volume's own water is not the server's jet).
+                if (_FaceCamera < 0.5 && VolumeDraws(i.world))
+                {
+                    discard;
+                }
+
                 float t = i.strip.y;
                 float share = i.strip.z;
 

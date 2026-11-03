@@ -2,6 +2,12 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.55.0 — 2026-11-03
+
+### Changed
+- With the volume water prototype on, it fills only a box round you: the water near you beyond it, or below it down a
+  cliff, is drawn as without the prototype, as a smooth sheet with its falls and spray, not as a stair of white slabs.
+
 ## v0.54.4 — 2026-11-03
 
 ### Fixed

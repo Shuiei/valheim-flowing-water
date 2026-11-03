@@ -78,6 +78,22 @@ internal readonly struct SimWindow : IEquatable<SimWindow>
     }
 
     /// <summary>
+    /// This square as it may stand inside <paramref name="outer"/> (the volume water's inside the card's): no wider,
+    /// moved in whole where it reached past a side (both line up in groups of eight, so it still does).
+    /// </summary>
+    public SimWindow Within(SimWindow outer)
+    {
+        int columns = Math.Min(Columns, outer.Columns);
+        int x0 = Math.Max(outer.X0, Math.Min(X0, outer.X0 + outer.Columns - columns));
+        int z0 = Math.Max(outer.Z0, Math.Min(Z0, outer.Z0 + outer.Columns - columns));
+        return new SimWindow(x0, z0, columns, PerVoxel, VoxelSize);
+    }
+
+    /// <summary>Whether this square lies wholly inside <paramref name="outer"/>.</summary>
+    public bool Inside(SimWindow outer) =>
+        X0 >= outer.X0 && Z0 >= outer.Z0 && X0 + Columns <= outer.X0 + outer.Columns && Z0 + Columns <= outer.Z0 + outer.Columns;
+
+    /// <summary>
     /// How far, in voxel columns, this square is from <paramref name="other"/> when it can take over that one's water
     /// (cut the same, sharing some of it); false when it cannot (another size or voxels, or no column in common).
     /// </summary>
