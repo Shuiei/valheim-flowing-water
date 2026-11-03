@@ -243,6 +243,127 @@ internal sealed class VoxelField
         return !Voxel(x, y - 1, z, out BrickView under, out int j) || under.Water[j] + under.Solid[j] < Full;
     }
 
+    /// <summary>
+    /// Whether the water in voxel (x, y, z) is part of a film running down a rock face too steep for the surface, and
+    /// the run of its column it is in: from <paramref name="bottom"/>, the voxel it lands in on the ground, up to
+    /// <paramref name="top"/>, the highest it reaches. Water on a face of 70 degrees or more drops several rows from one
+    /// column to the next, and the server keeps it spread thin through them: a voxel holding some here and there, others
+    /// too thin to draw, dry ones between (falling water fills every other voxel). Drawn voxel by voxel it was dashes
+    /// and shards down the face; it is one film over the rock. A run is the column's voxels holding water with nothing
+    /// under them to stand on, or standing shallow on the ground (<see cref="Film"/>), through
+    /// <see cref="VoxelShell.LongestGap"/> dry voxels at most (never through ground): at least <see cref="ShortestFace"/>
+    /// rows tall (shorter, a step of a sheet the surface draws, <see cref="ShortStep"/>), landing on the ground, with
+    /// rock beside it over its foot (a face; a fall through the air is a fall).
+    /// </summary>
+    public bool FaceRun(int x, int y, int z, out int top, out int bottom)
+    {
+        top = y;
+        bottom = y;
+        if (!Film(x, y, z))
+        {
+            return false;
+        }
+
+        top = RunEnd(x, y, z, 1);
+        bottom = RunEnd(x, y, z, -1);
+        if (top - bottom + 1 < ShortestFace || !OnGround(x, bottom, z))
+        {
+            return false;
+        }
+
+        for (int row = bottom + 1; row <= top; row++)
+        {
+            if (Voxel(x, row, z, out BrickView view, out int i) && view.Water[i] > 0f
+                && (view.Solid[i] >= BrickData.HoldsGround || (view.Open[i] & BrickData.GroundUnder) != 0 || view.GroundBeside[i] != 0
+                    || (view.Open[i] & BrickData.SidesAcross) != BrickData.SidesAcross))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The fewest rows a film down a face spans (<see cref="FaceRun"/>): a short step's stack and the voxel it lands in, and one more.</summary>
+    public const int ShortestFace = VoxelSurface.MaxStep + 2;
+
+    // The most rows a film's run is followed up or down from a voxel in it.
+    private const int LongestRun = VoxelSurface.DeepestColumn;
+
+    /// <summary>
+    /// Whether voxel (x, y, z) holds water a film down a face is made of: some water, out of the rock, and nothing under
+    /// it to stand on (the voxel under not full), or standing on ground (the voxel holds some, or the one under it, dry:
+    /// <see cref="BrickData.GroundUnder"/>) shallower than <see cref="VoxelSurface.SheetDepth"/> or racing on
+    /// (<see cref="PoolSpeed"/>): where it lands. Water on water filling the voxel under is a pool's; deeper still water
+    /// on the ground a ledge's pool.
+    /// </summary>
+    public bool Film(int x, int y, int z)
+    {
+        if (!Voxel(x, y, z, out BrickView view, out int i) || !(view.Water[i] > 0f) || view.Solid[i] >= 1f)
+        {
+            return false;
+        }
+
+        bool onGround = view.Solid[i] >= BrickData.HoldsGround || (view.Open[i] & BrickData.GroundUnder) != 0;
+        if (Voxel(x, y - 1, z, out BrickView under, out int j))
+        {
+            onGround |= under.Solid[j] >= BrickData.HoldsGround && !(under.Water[j] > 0f);
+            if (under.Water[j] + under.Solid[j] >= Full && !onGround)
+            {
+                return false;
+            }
+        }
+
+        return !onGround || view.Water[i] < VoxelSurface.SheetDepth || Speed(view, i) >= PoolSpeed;
+    }
+
+    /// <summary>
+    /// Water on the ground deeper than <see cref="VoxelSurface.SheetDepth"/> slower than this, metres a second, is a
+    /// pool's (on a ledge of a face), not a film's: thick water racing down a face near its source is still the film.
+    /// </summary>
+    public const float PoolSpeed = 1f;
+
+    private static float Speed(BrickView view, int i) =>
+        (float)Math.Sqrt((view.VelocityX[i] * view.VelocityX[i]) + (view.VelocityY[i] * view.VelocityY[i]) + (view.VelocityZ[i] * view.VelocityZ[i]));
+
+    // The last voxel of a film's run from row y up (dy 1) or down (-1): film voxels, through LongestGap dry ones at most
+    // between two (a dry voxel holding ground, as the water over it says, ends it: never into the rock); down, never
+    // past a voxel standing on the ground.
+    private int RunEnd(int x, int y, int z, int dy)
+    {
+        int end = y, gap = 0;
+        for (int row = y + dy; Math.Abs(row - y) <= LongestRun; row += dy)
+        {
+            if (dy < 0 && OnGround(x, end, z))
+            {
+                break;
+            }
+
+            if (Film(x, row, z))
+            {
+                end = row;
+                gap = 0;
+            }
+            else if (++gap > VoxelShell.LongestGap || WaterAt(x, row, z) > 0f || Solid(x, row, z) >= BrickData.HoldsGround
+                || (Voxel(x, row + 1, z, out BrickView over, out int i) && (over.Open[i] & BrickData.GroundUnder) != 0))
+            {
+                break;
+            }
+        }
+
+        return end;
+    }
+
+    // Whether the water in voxel (x, y, z) stands on the ground: the voxel holds some, or the one under it does, dry (as
+    // the server says, BrickData.GroundUnder, or as that voxel holds some; one holding water too is where water lands,
+    // the water over it falls onto that).
+    private bool OnGround(int x, int y, int z) =>
+        Voxel(x, y, z, out BrickView view, out int i)
+        && (view.Solid[i] >= BrickData.HoldsGround || (view.Open[i] & BrickData.GroundUnder) != 0
+            || (Solid(x, y - 1, z) >= BrickData.HoldsGround && !(WaterAt(x, y - 1, z) > 0f)));
+
+    private float Solid(int x, int y, int z) => Voxel(x, y, z, out BrickView view, out int i) ? view.Solid[i] : 0f;
+
     // The top of a short step's water (ShortStep: its stack from row bottom to row top) laid on what it lands on, metres:
     // on the water lying in the voxel under it where that is wet (on its ground), else on its lowest voxel's floor (the
     // ground in a dry voxel under it is not sent: it is somewhere in that voxel); all the stack's water over that.

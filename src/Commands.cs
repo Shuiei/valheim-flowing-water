@@ -9,7 +9,7 @@ namespace FlowingWater;
 /// <summary>The flowingwater console command: place and remove sources and drains, inspect the water.</summary>
 internal static class Commands
 {
-    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | sound | solids | gpu [colours|columns] | jets | particles [m3|clear|spheres|full|look N] | flat | lift [m] | mat custom|card|falls|spray|still <property> [values]";
+    private const string Usage = "flowingwater source [m3/s] | drain [m3/s, 0 = all] [radius m] | remove | wipe | info | debug | sound | solids | gpu [colours|columns] | shell [x0 x1 z y0 y1] | jets | particles [m3|clear|spheres|full|look N] | flat | lift [m] | mat custom|shell|card|falls|spray|still <property> [values]";
 
     // How the server tells each player its CommandsForEveryone.
     private const string EveryoneRpc = "FlowingWater_CommandsForEveryone";
@@ -209,6 +209,13 @@ internal static class Commands
                 }
 
                 break;
+            case "shell":
+                foreach (string line in Shell(args, player.transform.position))
+                {
+                    terminal.SayLogged(line);
+                }
+
+                break;
             case "jets":
                 foreach (string line in JetArcs.Describe())
                 {
@@ -266,12 +273,43 @@ internal static class Commands
         }
     }
 
+    // flowingwater shell [x0 x1 z y0 y1]: a slice of the bricks' water east to west along a row of voxels, top row
+    // first, each voxel a letter (VoxelShell.Letter); without numbers, 16 voxels round the player each way.
+    private static System.Collections.Generic.IEnumerable<string> Shell(Terminal.ConsoleEventArgs args, Vector3 at)
+    {
+        float s = VoxelWater.Drawn.VoxelSize;
+        int px = (int)Math.Floor(at.x / s), py = (int)Math.Floor(at.y / s), pz = (int)Math.Floor(at.z / s);
+        int[] n = [px - 16, px + 16, pz, py - 16, py + 16];
+        for (int k = 0; k < n.Length && k + 2 < args.Length; k++)
+        {
+            if (!float.TryParse(args.Args[k + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out float metres))
+            {
+                yield return "flowingwater: shell takes x0 x1 z y0 y1, metres";
+                yield break;
+            }
+
+            n[k] = (int)Math.Floor(metres / s);
+        }
+
+        yield return FormattableString.Invariant($"flowingwater: shell z {n[2]}, x {n[0]} to {n[1]} ('.' dry, '#' ground, 't' thin, 'F' fall, 's' sheet step, 'W' standing, 'f'/'g' film down a face)");
+        for (int y = Math.Max(n[3], n[4]); y >= Math.Min(n[3], n[4]); y--)
+        {
+            var line = new System.Text.StringBuilder(FormattableString.Invariant($"  y {y,4}: "));
+            for (int x = Math.Min(n[0], n[1]); x <= Math.Max(n[0], n[1]); x++)
+            {
+                line.Append(Volume.VoxelShell.Letter(VoxelWater.Drawn, x, y, n[2]));
+            }
+
+            yield return line.ToString();
+        }
+    }
+
     // flowingwater mat custom|card|falls|spray|still <property> [value | r g b [a]]
     private static string Tune(Terminal.ConsoleEventArgs args)
     {
         if (args.Length < 4)
         {
-            return "mat custom|card|falls|spray|still <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
+            return "mat custom|shell|card|falls|spray|still <property> [value | r g b [a]]; <property> alone shows it, \"list\" names them all";
         }
 
         string kind = args.Args[2].ToLowerInvariant();

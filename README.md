@@ -65,12 +65,13 @@ Console (F5) command `flowingwater`:
 | `flowingwater sound` | What running water is heard round you: the places found, and each sound's place and loudness |
 | `flowingwater debug` | What the block of water you are in (or the nearest over or under you) draws: material, shader, triangles |
 | `flowingwater solids` | What the water treats as solid round you: a map of the voxel row at your feet (solid voxels, faces walls close) and the faces under it (floors) |
+| `flowingwater shell [x0 x1 z y0 y1]` | A slice of the far water east to west along one row of voxels (metres; without numbers, 16 m round you), each voxel a letter for how it is drawn: `.` dry, `#` ground, `t` too thin, `F` a fall, `s` a sheet's step, `W` standing, `f` (`g` too thin by itself) a film down a face; logged |
 | `flowingwater gpu [colours\|columns]` | What the graphics card's water near you is doing: its square, the ground found under it, its steps a frame, and with the volume water on, what each source in it gave in its last step beside its rate; `colours` draws each part in its own colour (the card's water blue, a block's surface red, sides and falls yellow), again to stop; `columns` logs the water and ground of the nine voxel columns round you, and with the volume water on, its own column under you (the water it takes as standing on the ground, and each cell's particles) and what the card takes as built in it (solid voxels, closed faces) |
 | `flowingwater jets` | The sources' jets drawn in the air out to your draw distance, logged: each strip of a jet's outlet, where it leaves, how fast, how long it flies, where it ends (on the ground, a piece or water, or still falling), and how many are drawn from the server's word (a source too far off for your game to have loaded) |
 | `flowingwater particles [m³\|clear\|spheres\|full]` | Pours a block of the prototype's particle water (default 2 m³) 1.5 m over you, kept out of the ground your card's water knows and pushed aside by you (see [Particle water](#particle-water-a-prototype)); `clear` takes it all away; `spheres` draws the particles as spheres instead of water, again for water; `full` draws the water's surface at the screen's full size instead of half, again for half |
 | `flowingwater flat` | A plain colour (blue) instead of water, to see the shape |
 | `flowingwater lift [m]` | Draw the water that much higher, to find it |
-| `flowingwater mat custom\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
+| `flowingwater mat custom\|shell\|card\|falls\|spray\|still <property> [values]` | Change a water material property in game: the bricks' (`custom`), their sides and falls (`shell`), the water near you (`card`), its falls' curtains (`falls`), its spray (`spray`) or the still sea's (`list` names them) |
 
 Who may use the command, and place, change or remove sources and drains with the hoe: the host (and a player
 alone) and the server's admins (its `adminlist.txt`) always; other players while the server's `CommandsForEveryone`
@@ -688,7 +689,14 @@ there to the new grid (same volume), at once when the file is saved.
   A stack of such falling water at most two voxels tall, fed from beside (nothing falling into its top) and landing on
   ground, is the surface's too, laid on what it lands on (the water lying under it, else its lowest voxel's floor) with
   all its water, where a column beside it has its top within two rows: the face shows one sheet, not a fall's box a
-  column, a dashed staircase (a fall down a cliff stacks higher, or is fed from over it: still a fall). Without these
+  column, a dashed staircase (a fall down a cliff stacks higher, or is fed from over it: still a fall). Down a face
+  steeper still (70 degrees or more, the ground three rows or more lower a column), the server keeps a stream spread
+  thin through each column's rows: a voxel holding some here and there, others too thin to draw, dry ones between. A
+  column's run of such water (through two dry voxels at most, never through ground) at least four rows tall, landing on
+  the ground with rock beside it, is a film down the face: one column of white, streaked water from the ground it lands
+  on up through its highest water, nearly as wide as the voxel, joined to the film of the column beside over the rows
+  they share, and as see-through as its water laid over its height is thin; the surface leaves its voxels to it. The
+  face shows one white stream from the lip to the foot, not dashes and shards standing off the rock. Without these
   two, a stream down a hill outside the card's square drew a grid of small walls and
   columns under its surface, seen through it as dark patches. These faces and the surface are drawn from both sides: from inside the water, it
   is still seen.

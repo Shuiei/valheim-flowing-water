@@ -2,6 +2,16 @@
 
 All notable changes to FlowingWater. Newest first.
 
+## v0.53.3 — 2026-11-03
+
+### Fixed
+- Water running down a cliff far away is one white stream from the top to the foot, instead of dashes and stray
+  shards standing off the rock. Far waterfalls are white water too, not clear glass.
+
+### Added
+- `flowingwater shell` logs a slice of the far water, each voxel a letter for how it is drawn, and
+  `flowingwater mat shell` tunes the material of the far water's sides and falls.
+
 ## v0.53.2 — 2026-11-03
 
 ### Fixed

@@ -12,7 +12,7 @@ namespace FlowingWater.Volume;
 /// from voxel to voxel.
 /// <para>
 /// A column's top is the highest top of its water in the brick's own rows (a wet voxel whose water does not go on up
-/// into the one over it); without one, the top nearest them within <see cref="Window"/> rows over or under it, so that
+/// into the one over it, not in a film down a face: <see cref="VoxelField.FaceRun"/>, the shell's); without one, the top nearest them within <see cref="Window"/> rows over or under it, so that
 /// a sheet running down out of the brick, or up into it, is joined to the columns beside it. Each square between four
 /// columns is drawn once: by the brick whose rows hold the top of its first column shown (south-west, south-east,
 /// north-west, north-east), and whose grid covers the square (the squares whose south-west column is one of its own).
@@ -253,7 +253,7 @@ internal sealed class SurfaceGrid
         int nearest = int.MaxValue;
         for (int y = ceiling + Window; y >= floor - Window; y--)
         {
-            if (!column.IsWet(y) || column.GoesUp(y))
+            if (!column.IsWet(y) || column.NoTop(y))
             {
                 continue;
             }
@@ -331,6 +331,17 @@ internal sealed class SurfaceGrid
         }
 
         public bool IsWet(int y) => Voxel(y, out BrickView view, out int i) && VoxelField.IsWet(view, i);
+
+        // A wet voxel is no top where its water goes up into the voxel over it, or where it is in a film down a face
+        // (VoxelField.FaceRun): that is the shell's (its voxels a top each, raised to their own rows, drew shards
+        // standing off the rock). Where the film lands with a sheet running on from it beside (water in that row no
+        // film's), the landing is a top though, its water over it the film's, so the surface meets the film's foot.
+        public bool NoTop(int y) => _field.FaceRun(_x, y, _z, out _, out int bottom) ? y != bottom || !RunsOn(y) : GoesUp(y);
+
+        private bool RunsOn(int y) => Beside(_x - 1, y, _z) || Beside(_x + 1, y, _z) || Beside(_x, y, _z - 1) || Beside(_x, y, _z + 1);
+
+        private bool Beside(int x, int y, int z) =>
+            _field.Voxel(x, y, z, out BrickView view, out int i) && VoxelField.IsWet(view, i) && !_field.FaceRun(x, y, z, out _, out _);
 
         public bool GoesUp(int y) => Voxel(y + 1, out BrickView view, out int i) && VoxelField.IsWet(view, i) && view.Solid[i] <= 0f;
 

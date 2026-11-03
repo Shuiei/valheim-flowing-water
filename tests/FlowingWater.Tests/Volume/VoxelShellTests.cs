@@ -583,10 +583,10 @@ public class VoxelShellTests
     }
 
     [Fact]
-    public void WaterFallingDownACliffFaceOverGroundIsStillAFallDownToTheGround()
+    public void WaterFallingDownACliffFaceOverGroundIsOneFilmDownToTheGround()
     {
-        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a fall all the same,
-        // its foot (over the ground, the voxel under it dry) too.
+        // A stack of thin falling water against a cliff whose face cuts into every voxel under it: a film down the face
+        // to the ground, one column from 4 m to 8 m nearly as wide as the voxel, its four sides and its top only.
         var view = new BrickView(0, 0, 0, 1f);
         for (int y = 4; y < 8; y++)
         {
@@ -595,8 +595,100 @@ public class VoxelShellTests
 
         var shell = VoxelShell.Build(Field(view), 0, 0, 0);
 
-        Assert.Equal((4 * 4) + 2, shell.Faces);
+        Assert.Equal(4 + 1, shell.Faces);
         Assert.Equal(-4f, Corners(shell).Min(c => c.Y), 3);
+        Assert.Equal(0f, Corners(shell).Max(c => c.Y), 3);
+        Assert.Equal(VoxelShell.WidestFall * 0.5f, Corners(shell).Max(c => c.X) - 0.5f, 3);
+    }
+
+    [Fact]
+    public void AFilmDownASteepFaceIsOneSheetFromColumnToColumn()
+    {
+        // Water down a face of some 70 degrees, the ground three rows lower a column east, as the server keeps it: in
+        // each column a voxel of water here and there, thin ones and dry ones between, landing shallow on the ground
+        // (which closes its west face). Each column is one film from the ground up through its highest water, joined to
+        // the next one down the face where they share rows: no fall's poles and caps (dashes down the face).
+        BrickView view = Face();
+
+        var shell = VoxelShell.Build(Field(view), 0, 0, 0);
+        var corners = Corners(shell).ToList();
+
+        // Between each column and the next down the face, no face across over the rows they share (the lower one's
+        // top rows, the upper one's foot): the films meet there.
+        for (int x = 4; x < 7; x++)
+        {
+            float between = x + 1 - 8f;
+            Assert.DoesNotContain(corners, c => Math.Abs(c.X - between) < 1e-3f && (c.Normal == (1f, 0f, 0f) || c.Normal == (-1f, 0f, 0f)) && c.Y > Rows(x).Bottom - 8f + 1e-3f && c.Y < Rows(x + 1).Top + 1 - 8f - 1e-3f);
+        }
+
+        // Each column's north faces (four corners each, the middle of each in the column) from its ground (0.4 of the
+        // voxel it lands in) up to over its highest water.
+        for (int x = 4; x <= 7; x++)
+        {
+            float middle = x + 0.5f - 8f;
+            var column = Enumerable.Range(0, corners.Count / 4).Select(q => corners.GetRange(4 * q, 4))
+                .Where(q => q[0].Normal == (0f, 0f, 1f) && Math.Abs(q.Average(c => c.X) - middle) < 0.1f).SelectMany(q => q).ToList();
+            Assert.Equal(Rows(x).Bottom + 0.4f - 8f, column.Min(c => c.Y), 3);
+            Assert.Equal(Rows(x).Top + 1 - 8f, column.Max(c => c.Y), 3);
+        }
+
+        Assert.All(Enumerable.Range(0, 16 * 16 * 16), i => Assert.True(VoxelShell.Letter(Field(view), i % 16, i / 256, (i / 16) % 16) is not 'F' and not 's'));
+    }
+
+    [Fact]
+    public void AFallThroughTheAirOntoTheGroundStaysAFall()
+    {
+        // The same stack of falling water with no rock anywhere beside it (off an overhang, onto flat ground): a fall's
+        // narrow column, not a film.
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 8, 3, 8, 0.09f, BrickData.AllOpen | BrickData.GroundUnder);
+        for (int y = 4; y < 8; y++)
+        {
+            Falling(view, y, 0.09f);
+        }
+
+        Assert.Equal('F', VoxelShell.Letter(Field(view), 8, 5, 8));
+        Assert.True(Corners(VoxelShell.Build(Field(view), 0, 0, 0)).Max(c => c.X) - 0.5f < VoxelShell.WidestFall * 0.5f);
+    }
+
+    [Fact]
+    public void AFilmTooThinToShowDrawsNothing()
+    {
+        // A face whose water is all too thin: a few millimetres laid over its rows, nothing drawn (not a fall either).
+        var view = new BrickView(0, 0, 0, 1f);
+        Wet(view, 8, 3, 8, 0.005f, BrickData.AllOpen & ~West);
+        for (int y = 4; y < 8; y++)
+        {
+            Wet(view, 8, y, 8, 0.005f, BrickData.AllOpen & ~West);
+        }
+
+        view.Solid[Brick.Index(8, 3, 8)] = 0.3f;
+
+        Assert.Equal(0, VoxelShell.Build(Field(view), 0, 0, 0).Faces);
+    }
+
+    // Column x's film on Face: the row it lands in and its highest row.
+    private static (int Bottom, int Top) Rows(int x) => (10 - (3 * (x - 4)), 15 - (3 * (x - 4)));
+
+    // Water down a face, columns x 4 to 7 at z 8 (Rows): a shallow voxel on the ground holding some of it, west face
+    // closed by the rock, over it every other voxel falling with a tenth, a thin one at the top, dry ones between.
+    private static BrickView Face()
+    {
+        var view = new BrickView(0, 0, 0, 1f);
+        for (int x = 4; x <= 7; x++)
+        {
+            (int bottom, int top) = Rows(x);
+            view.Solid[Brick.Index(x, bottom, 8)] = 0.4f;
+            Wet(view, x, bottom, 8, 0.1f, BrickData.AllOpen & ~West & ~Down);
+            for (int y = bottom + 1; y < top; y += 2)
+            {
+                Falling(view, x, y, 0.1f, BrickData.AllOpen & ~West);
+            }
+
+            Falling(view, x, top, 0.005f);
+        }
+
+        return view;
     }
 
     [Fact]

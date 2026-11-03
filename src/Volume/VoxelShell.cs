@@ -32,6 +32,12 @@ internal sealed class VoxelShell
     /// </summary>
     public const int LongestGap = 2;
 
+    /// <summary>
+    /// The least foam of a film down a face (<see cref="VoxelField.FaceRun"/>): water racing over rock is white,
+    /// streaked; at the fall's foam a film was dark glass laid over the rock.
+    /// </summary>
+    public const float FilmFoam = 0.8f;
+
     /// <summary>Falling this fast, metres a second, the water is all foam (as the surface's).</summary>
     public const float FoamFall = SurfaceGrid.FoamFall;
 
@@ -94,10 +100,11 @@ internal sealed class VoxelShell
         float s = view.VoxelSize;
         float half = Brick.Size * s * 0.5f;
         (float X, float Y, float Z) middle = ((bx * Brick.Size * s) + half, (by * Brick.Size * s) + half, (bz * Brick.Size * s) + half);
+        bool[] films = shell.Films(field, view, middle);
         for (int i = 0; i < Brick.Count; i++)
         {
             float water = view.Water[i];
-            if (!(water * s > Drawing.HideDepth) || view.Solid[i] >= 1f)
+            if (!(water * s > Drawing.HideDepth) || view.Solid[i] >= 1f || films[i])
             {
                 continue;
             }
@@ -120,6 +127,168 @@ internal sealed class VoxelShell
         }
 
         return shell;
+    }
+
+    /// <summary>
+    /// How voxel (x, y, z) is drawn, as a letter for the console's slice of the water: '.' dry or no brick known, '#'
+    /// holding ground (as far as the server sends it), 't' water too thin to draw, 'F' a fall's column, 's' falling
+    /// water the surface takes (a sheet's step down a slope), 'W' water standing, 'f' a film down a face
+    /// (<see cref="VoxelField.FaceRun"/>; 'g' its water too thin to draw by itself).
+    /// </summary>
+    public static char Letter(VoxelField field, int x, int y, int z)
+    {
+        if (!field.Voxel(x, y, z, out BrickView view, out int i))
+        {
+            return '.';
+        }
+
+        if (view.Solid[i] >= 1f || (view.Solid[i] >= BrickData.HoldsGround && !(view.Water[i] * view.VoxelSize > Drawing.HideDepth)))
+        {
+            return '#';
+        }
+
+        if (!(view.Water[i] * view.VoxelSize > Drawing.HideDepth))
+        {
+            return !(view.Water[i] > 0f) ? '.' : field.FaceRun(x, y, z, out _, out _) ? 'g' : 't';
+        }
+
+        return field.FaceRun(x, y, z, out _, out _) ? 'f' : !Falling(field, view, i, x, y, z, view.Open[i]) ? 'W' : SurfaceTakes(field, x, y, z, view.Open[i]) ? 's' : 'F';
+    }
+
+    // The films down faces in the brick's columns (VoxelField.FaceRun), each run's rows in the brick drawn once as one
+    // film; which voxels they take (drawn by nothing else).
+    private bool[] Films(VoxelField field, BrickView view, (float X, float Y, float Z) middle)
+    {
+        bool[] taken = new bool[Brick.Count];
+        float s = view.VoxelSize;
+        int ox = view.X * Brick.Size, oy = view.Y * Brick.Size, oz = view.Z * Brick.Size;
+        for (int lz = 0; lz < Brick.Size; lz++)
+        {
+            for (int lx = 0; lx < Brick.Size; lx++)
+            {
+                for (int ly = Brick.Size - 1; ly >= 0; ly--)
+                {
+                    int i = Brick.Index(lx, ly, lz);
+                    if (taken[i] || !(view.Water[i] > 0f) || !field.FaceRun(ox + lx, oy + ly, oz + lz, out int top, out int bottom))
+                    {
+                        continue;
+                    }
+
+                    int low = Math.Max(bottom, oy), high = Math.Min(top, oy + Brick.Size - 1);
+                    for (int row = low; row <= high; row++)
+                    {
+                        taken[Brick.Index(lx, row - oy, lz)] = true;
+                    }
+
+                    Film(field, ox + lx, oz + lz, (top, bottom), (low, high), s, middle);
+                }
+            }
+        }
+
+        return taken;
+    }
+
+    // A film down a face: column (x, z)'s run from row bottom to row top (run), its rows from low to high in the brick
+    // (part), as one column from the floor of the voxel it lands in up through its top voxel (uncapped where the run
+    // goes on into the brick over or under), as wide as the voxel nearly; toward a column beside whose film runs
+    // through some of the same rows, out to their shared face, without a side over those rows (films side by side, and
+    // a column's and the next one's down the face, are one sheet). Shown as thick as the run's water laid over its
+    // height (a film thinner than Drawing.ShowDepth fades), white (FilmFoam) and whiter as fast as its most water.
+    private void Film(VoxelField field, int x, int z, (int Top, int Bottom) run, (int Low, int High) part, float s, (float X, float Y, float Z) middle)
+    {
+        float sum = 0f, most = 0f;
+        (float X, float Y, float Z) velocity = (0f, 0f, 0f);
+        for (int row = run.Bottom; row <= run.Top; row++)
+        {
+            if (!field.Voxel(x, row, z, out BrickView view, out int i))
+            {
+                continue;
+            }
+
+            sum += view.Water[i];
+            if (view.Water[i] > most)
+            {
+                most = view.Water[i];
+                velocity = (view.VelocityX[i], view.VelocityY[i], view.VelocityZ[i]);
+            }
+        }
+
+        float shown = Clamp(((sum * s / (run.Top - run.Bottom + 1)) - Drawing.HideDepth) / (Drawing.ShowDepth - Drawing.HideDepth));
+        if (!(shown > 0f))
+        {
+            return;
+        }
+
+        float bottom = part.Low == run.Bottom ? field.Floor(x, run.Bottom, z) : part.Low * s;
+        float top = (part.High + 1) * s;
+        float speed = (float)Math.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
+        float foam = FilmFoam + ((1f - FilmFoam) * Clamp(speed / FoamFall));
+        var at = new Voxel(x, part.Low, z, s, middle, velocity.X, velocity.Y, velocity.Z);
+
+        // Each way, the rows the column beside's film shares with this part (none: an empty span).
+        var shared = new (int Low, int High)[FallSides.Length];
+        float[] reach = _reach;
+        for (int k = 0; k < FallSides.Length; k++)
+        {
+            (int side, int dx, int dz) = FallSides[k];
+            shared[k] = SharedRows(field, x, z, part, side, dx, dz);
+            reach[k] = shared[k].High >= shared[k].Low ? 0.5f * s : WidestFall * 0.5f * s;
+        }
+
+        for (int k = 0; k < FallSides.Length; k++)
+        {
+            (_, int dx, int dz) = FallSides[k];
+            float left = reach[Toward(dz, -dx)], right = reach[Toward(-dz, dx)];
+            if (shared[k].High < shared[k].Low)
+            {
+                at.Side(this, dx, dz, reach[k], left, right, bottom, top, foam, shown);
+                continue;
+            }
+
+            // Over and under the rows shared only.
+            float under = shared[k].Low * s, over = (shared[k].High + 1) * s;
+            if (under - bottom > Drawing.HideDepth)
+            {
+                at.Side(this, dx, dz, reach[k], left, right, bottom, under, foam, shown);
+            }
+
+            if (top - over > Drawing.HideDepth)
+            {
+                at.Side(this, dx, dz, reach[k], left, right, over, top, foam, shown);
+            }
+        }
+
+        if (part.High == run.Top && !field.IsWet(x, run.Top + 1, z))
+        {
+            at.Horizontal(this, top, true, reach, foam, shown);
+        }
+    }
+
+    // The rows of a part of a film (column (x, z), rows low to high) the film of the column beside it (dx, dz) runs
+    // through too, its face toward it (Sides' bit) open in one of them at least; an empty span (High under Low) where
+    // they share none.
+    private static (int Low, int High) SharedRows(VoxelField field, int x, int z, (int Low, int High) part, int side, int dx, int dz)
+    {
+        for (int row = part.High; row >= part.Low; row--)
+        {
+            if (!field.FaceRun(x + dx, row, z + dz, out int top, out int bottom))
+            {
+                continue;
+            }
+
+            int low = Math.Max(part.Low, bottom), high = Math.Min(part.High, top);
+            for (int r = low; r <= high; r++)
+            {
+                if (field.Voxel(x, r, z, out BrickView view, out int i) && view.Water[i] > 0f && (view.Open[i] & (1 << side)) != 0)
+                {
+                    return (low, high);
+                }
+            }
+
+            return (0, -1);
+        }
+
+        return (0, -1);
     }
 
     // Over the air, holding no floor, the voxel under it not full: falling.
@@ -188,7 +357,7 @@ internal sealed class VoxelShell
     // the surface's (SurfaceTakes).
     private static bool DrawnFall(VoxelField field, int x, int y, int z) =>
         field.Voxel(x, y, z, out BrickView view, out int i) && view.Water[i] * view.VoxelSize > Drawing.HideDepth && view.Solid[i] < 1f
-        && Falling(field, view, i, x, y, z, view.Open[i]) && !SurfaceTakes(field, x, y, z, view.Open[i]);
+        && Falling(field, view, i, x, y, z, view.Open[i]) && !SurfaceTakes(field, x, y, z, view.Open[i]) && !field.FaceRun(x, y, z, out _, out _);
 
     // Whether the voxel over (x, y, z) holds water falling into it.
     private static bool FallsInto(VoxelField field, int x, int y, int z) => FallingWater(field, x, y + 1, z) > 0f;

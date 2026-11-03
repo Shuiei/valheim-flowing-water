@@ -76,6 +76,56 @@ public class SurfaceGridTests
     }
 
     [Fact]
+    public void AFilmDownASteepFaceHasNoTopOfTheSurface()
+    {
+        // Water down a face, as the server keeps it: 0.1 shallow on the ground in row 3 (west face closed by the rock),
+        // 0.1 falling in rows 4 and 6, a thin 0.005 in row 8, dry rows between. A film the shell draws: the surface
+        // has no top in the column (each voxel a top of its own drew shards standing off the rock).
+        var view = new BrickView(0, 0, 0, 1f);
+        view.Solid[Brick.Index(5, 3, 5)] = 0.4f;
+        foreach ((int y, float water) in new[] { (3, 0.1f), (4, 0.1f), (6, 0.1f), (8, 0.005f) })
+        {
+            view.Water[Brick.Index(5, y, 5)] = water;
+            view.Open[Brick.Index(5, y, 5)] = BrickData.AllOpen & ~2;
+        }
+
+        var field = Field(view);
+        var grid = SurfaceGrid.Build(field, 0, 0, 0);
+
+        Assert.True(field.FaceRun(5, 6, 5, out int top, out int bottom));
+        Assert.Equal((8, 3), (top, bottom));
+        Assert.Equal(0f, grid.Shown[SurfaceGrid.Index(5, 5)]);
+    }
+
+    [Fact]
+    public void AFilmLandingWhereASheetRunsOnHasItsTopThere()
+    {
+        // The film down the face above, the sheet it lands in running on east in row 3 (columns 6 to 9): the column it
+        // lands in keeps its top on the ground (3.6: its 0.4 ground and 0.1 water, and the film's 0.1 landing on it laid
+        // flat), so the surface meets the film at the foot of the face.
+        var view = new BrickView(0, 0, 0, 1f);
+        foreach ((int y, float water) in new[] { (3, 0.1f), (4, 0.1f), (6, 0.1f), (8, 0.005f) })
+        {
+            view.Water[Brick.Index(5, y, 5)] = water;
+            view.Open[Brick.Index(5, y, 5)] = BrickData.AllOpen & ~2;
+        }
+
+        for (int x = 5; x <= 9; x++)
+        {
+            view.Solid[Brick.Index(x, 3, 5)] = 0.4f;
+            view.Water[Brick.Index(x, 3, 5)] = 0.1f;
+        }
+
+        var field = Field(view);
+        var grid = SurfaceGrid.Build(field, 0, 0, 0);
+
+        Assert.True(field.FaceRun(5, 6, 5, out int top, out int bottom));
+        Assert.Equal((8, 3), (top, bottom));
+        Assert.True(grid.Shown[SurfaceGrid.Index(5, 5)] > 0f);
+        Assert.Equal(3.6f, grid.Height[SurfaceGrid.Index(5, 5)], 4);
+    }
+
+    [Fact]
     public void AFallsColumnOverTheAirKeepsItsTop()
     {
         // A tenth of a voxel of water in rows 4 to 6, falling through the air: its top stays at 6.1, not laid flat.
